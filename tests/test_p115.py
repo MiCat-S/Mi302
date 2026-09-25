@@ -9,7 +9,7 @@ from fastapi.testclient import TestClient
 from embyserver.app import create_app
 from embyserver.config import config_from_dict
 from embyserver.db import Database
-from embyserver.p115 import P115Service, extract_pickcode
+from embyserver.p115 import P115Error, P115Service, extract_pickcode
 
 PICKCODE = "abcdefghijklmnopq"
 PC_UP = PICKCODE.upper()
@@ -170,3 +170,12 @@ def test_strm_tasks_from_web_and_auto_base_url(client, tmp_path: Path):
     assert [t["in_library"] for t in tasks] == [True, False]
     assert client.get("/p115/strm/status", headers=h).json()["tasks"] == tasks
     assert client.put("/p115/strm/tasks", json=[{"remote": "/a"}], headers=h).status_code == 400
+
+
+def test_network_error_is_reported_not_500():
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("Name or service not known", request=request)
+
+    svc = P115Service(Database(":memory:"), transport=httpx.MockTransport(handler))
+    with pytest.raises(P115Error, match="連不到 qrcodeapi.115.com：無法連線"):
+        svc.qrcode_token()

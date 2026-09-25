@@ -19,6 +19,7 @@ from urllib.parse import parse_qs, parse_qsl, unquote, urlsplit
 import httpx
 
 from .db import Database
+from .http_util import GuardedClient
 from .p115_open import P115OpenClient, P115OpenError
 
 log = logging.getLogger(__name__)
@@ -79,7 +80,7 @@ class P115Service:
         self.db = db
         self.open = P115OpenClient(db, open_app_id, timeout, transport=transport)
         self.app = app
-        self._client = httpx.Client(timeout=timeout, follow_redirects=False, transport=transport)
+        self._client = GuardedClient(P115Error, timeout=timeout, follow_redirects=False, transport=transport)
         self._cache: Dict[Tuple[str, str], Tuple[str, float]] = {}
         self._cache_lock = threading.Lock()
         self._key_locks: Dict[Tuple[str, str], threading.Lock] = {}

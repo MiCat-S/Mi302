@@ -25,6 +25,7 @@ from typing import Dict, List, Optional
 import httpx
 
 from .db import Database
+from .http_util import GuardedClient
 
 log = logging.getLogger(__name__)
 
@@ -89,7 +90,7 @@ class P115OpenClient:
     def __init__(self, db: Database, app_id: str = "", timeout: float = 15.0, transport=None):
         self.db = db
         self.default_app_id = app_id
-        self._client = httpx.Client(timeout=timeout, transport=transport)
+        self._client = GuardedClient(P115OpenError, timeout=timeout, transport=transport)
         self._sessions: Dict[str, tuple[str, str]] = {}  # uid -> (app_id, verifier)
         self._refresh_lock = threading.Lock()
 

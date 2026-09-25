@@ -95,6 +95,12 @@ def create_app(config: Config, db_path: Optional[str] = None, scan_on_start: boo
         # Emby 的錯誤回應是純文字
         return PlainTextResponse(str(exc.detail), status_code=exc.status_code)
 
+    @app.exception_handler(Exception)
+    async def unexpected_error(request: Request, exc: Exception):
+        # 沒預料到的錯誤也回傳原因，網頁上才看得出問題在哪，完整堆疊寫進日誌
+        log.exception("處理 %s %s 時發生錯誤", request.method, request.url.path)
+        return PlainTextResponse(f"伺服器錯誤：{type(exc).__name__}: {exc}", status_code=500)
+
     app.include_router(system.router)
     app.include_router(items.router)
     app.include_router(playback.router)
