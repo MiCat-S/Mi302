@@ -13,6 +13,18 @@
 
 302 流程參考自 [DDSRem-Dev/MoviePilot-Plugins](https://github.com/DDSRem-Dev/MoviePilot-Plugins) 的 `embyreverseproxy` 外掛。差別在於這裡不需要背後有真的 Emby，Emby API 由本專案自行實作。
 
+## 115 網盤
+
+參考 [p115strmhelper](https://github.com/DDSRem-Dev/MoviePilot-Plugins/tree/main/plugins.v2/p115strmhelper) 的做法，伺服器本身就能登入 115 並產生直鏈，不需要另外跑 MoviePilot：
+
+1. 開啟 `http://<主機>:8096/web/115`，先用本伺服器的管理員帳號登入，再按「產生 115 登入二維碼」，然後用 115 App 掃描並確認。也可以直接貼上 cookie，或寫在設定檔的 `p115.cookies`。
+2. strm 內容只要帶有 pickcode 就會被接手，以下格式都可以：
+   - `http://<MoviePilot>/api/v1/plugin/P115StrmHelper/redirect_url?pickcode=xxx`：P115StrmHelper 產生的 strm 不必改
+   - `http://<本伺服器>/p115/redirect?pickcode=xxx`
+   - `115://xxx`
+3. 播放時，伺服器以**播放器自己的 User-Agent** 向 115 取下載直鏈（115 的直鏈綁定 UA），然後 302 過去。直鏈依 (pickcode, UA) 快取到到期前 5 分鐘。
+4. 115 取直鏈失敗時，會退回 strm 原網址（例如交給 MoviePilot 處理）。
+
 ## 使用
 
 ```bash

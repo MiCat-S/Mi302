@@ -32,7 +32,7 @@ def playback_info(item_id: str, request: Request, ctx: AuthContext = Depends(req
     row = st.db.get_item(item_id)
     if not row or row["type"] not in ("Movie", "Episode"):
         raise HTTPException(status_code=404, detail="Item not found")
-    remote = st.redirector.strm_target(row)
+    remote = st.redirector.display_target(row, str(request.base_url))
     ms = media_source_dto(row, remote, ctx.token)
     ms_id = q(request, "MediaSourceId")
     if ms_id and ms_id != ms["Id"]:

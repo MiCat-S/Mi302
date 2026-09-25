@@ -45,6 +45,15 @@ class RedirectConfig:
 
 
 @dataclass
+class P115Config:
+    # 可直接填 cookie，也可以之後在 /web/115 掃碼登入
+    cookies: str = ""
+    # 掃碼後綁定的 115 裝置類型；同類型的舊登入會被踢下線
+    app: str = "alipaymini"
+    timeout: float = 15.0
+
+
+@dataclass
 class ServerConfig:
     name: str = "Emby Server"
     host: str = "0.0.0.0"
@@ -60,6 +69,7 @@ class Config:
     libraries: List[LibraryConfig] = field(default_factory=list)
     redirect: RedirectConfig = field(default_factory=RedirectConfig)
     api_keys: List[str] = field(default_factory=list)
+    p115: P115Config = field(default_factory=P115Config)
 
     @property
     def data_path(self) -> Path:
@@ -87,6 +97,7 @@ def _build(raw: dict) -> Config:
         libraries=libraries,
         redirect=redirect,
         api_keys=list(raw.get("api_keys") or []),
+        p115=P115Config(**(raw.get("p115") or {})),
     )
 
 

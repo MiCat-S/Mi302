@@ -37,3 +37,14 @@ redirect:
 
 # 額外的固定 API Key（以第一個管理員身分存取），可留空
 api_keys: []
+
+# 115 網盤：登入後，strm 內含 pickcode 的項目會由本伺服器直接向 115 取直鏈並 302
+# 支援的 strm 內容：
+#   http://<MoviePilot>/api/v1/plugin/P115StrmHelper/redirect_url?pickcode=xxx（P115StrmHelper 產生的格式）
+#   http://<本伺服器>/p115/redirect?pickcode=xxx
+#   115://xxx
+# 登入方式：開 http://<本伺服器>:8096/web/115 用管理員帳號登入後掃碼，或在下方直接填 cookie
+p115:
+  cookies: ""
+  app: alipaymini          # 掃碼綁定的裝置類型，同類型的舊登入會被踢下線
+  timeout: 15
