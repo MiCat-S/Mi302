@@ -52,7 +52,9 @@ def create_app(config: Config, db_path: Optional[str] = None, scan_on_start: boo
     app.state.server_id = server_id
     app.state.auth = auth
     app.state.scanner = scanner
-    app.state.p115 = P115Service(db, config.p115.cookies, config.p115.app, config.p115.timeout)
+    app.state.p115 = P115Service(
+        db, config.p115.cookies, config.p115.app, config.p115.timeout, open_app_id=config.p115.open_app_id
+    )
     app.state.redirector = Redirector(config.redirect, app.state.p115)
     app.state.strm_sync = StrmSync(
         app.state.p115,

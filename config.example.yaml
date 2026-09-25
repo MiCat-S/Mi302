@@ -41,6 +41,7 @@ api_keys: []
 # 115 網盤：登入後可從 115 產生 strm，播放時由本伺服器向 115 取直鏈並 302
 # 登入方式：開 http://<本伺服器>:8096/web/115 用管理員帳號登入後掃碼，或在下方直接填 cookie
 p115:
+  open_app_id: ""          # 115 開放平台 AppID（open.115.com 申請）；授權後優先使用，cookie 當備援
   cookies: ""
   app: alipaymini          # 掃碼綁定的裝置類型，同類型的舊登入會被踢下線
   timeout: 15

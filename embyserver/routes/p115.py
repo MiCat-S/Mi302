@@ -8,7 +8,10 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from ..auth import AuthContext, require_admin
+import httpx
+
 from ..p115 import PICKCODE_RE, P115Error
+from ..p115_open import P115OpenError
 from .common import q, state
 
 router = APIRouter()
@@ -17,7 +20,41 @@ router = APIRouter()
 @router.get("/p115/status")
 def p115_status(request: Request, ctx: AuthContext = Depends(require_admin)):
     svc = state(request).p115
-    return {"logged_in": svc.logged_in, "user": svc.user_info() if svc.logged_in else None}
+    return {
+        "logged_in": svc.logged_in,
+        "cookie": bool(svc.cookies),
+        "user": svc.user_info() if svc.cookies else None,
+        "open": svc.open.status(),
+    }
+
+
+@router.post("/p115/open/qrcode")
+async def p115_open_qrcode(request: Request, ctx: AuthContext = Depends(require_admin)):
+    try:
+        body = json.loads(await request.body() or b"{}")
+    except ValueError:
+        body = {}
+    try:
+        return state(request).p115.open.qrcode_start(str(body.get("app_id") or ""))
+    except (P115OpenError, httpx.HTTPError) as exc:
+        raise HTTPException(status_code=502, detail=str(exc))
+
+
+@router.get("/p115/open/qrcode/status")
+def p115_open_qrcode_status(request: Request, ctx: AuthContext = Depends(require_admin)):
+    uid, time_, sign = q(request, "uid"), q(request, "time"), q(request, "sign")
+    if not uid:
+        raise HTTPException(status_code=400, detail="缺少 uid")
+    try:
+        return state(request).p115.open.qrcode_status(uid, time_ or "", sign or "")
+    except (P115OpenError, httpx.HTTPError) as exc:
+        raise HTTPException(status_code=502, detail=str(exc))
+
+
+@router.post("/p115/open/logout")
+def p115_open_logout(request: Request, ctx: AuthContext = Depends(require_admin)):
+    state(request).p115.open.logout()
+    return Response(status_code=204)
 
 
 @router.post("/p115/qrcode")
@@ -128,6 +165,15 @@ textarea{width:100%;box-sizing:border-box;height:80px}
 <div id="main" style="display:none">
   <div class="box"><b>目前狀態：</b><span id="st">讀取中…</span></div>
   <div class="box">
+    <b>115 開放平台（建議）</b>
+    <p class="muted">需要先在 open.115.com 申請應用取得 AppID。授權後優先使用開放平台，cookie 只當備援。</p>
+    <input id="appid" placeholder="AppID（已設定過可留空）">
+    <button onclick="startOpenQr()">產生開放平台授權二維碼</button>
+    <div id="oqr"></div><p id="oqrst" class="muted"></p>
+    <button onclick="logoutOpen()">取消開放平台授權</button>
+  </div>
+  <div class="box">
+    <b>Cookie 登入（備援）</b>
     <button onclick="startQr()">產生 115 登入二維碼</button>
     <div id="qr"></div><p id="qrst" class="muted"></p>
   </div>
@@ -140,7 +186,7 @@ textarea{width:100%;box-sizing:border-box;height:80px}
     <button onclick="syncStrm()">立即從 115 同步 strm</button>
     <p id="syncst" class="muted"></p>
   </div>
-  <button onclick="logout115()">登出 115</button>
+  <button onclick="logout115()">登出 115 cookie</button>
 </div>
 <script>
 let token = sessionStorage.getItem('t') || '';
@@ -163,7 +209,11 @@ async function show() {
     document.getElementById('login').style.display = 'none';
     document.getElementById('main').style.display = '';
     pollSync();
-    st.textContent = s.logged_in ? ('已登入' + (s.user ? '：' + s.user.user_name : '（cookie 可能已失效）')) : '未登入';
+    const parts = [];
+    parts.push('開放平台：' + (s.open.authorized ? '已授權' : '未授權'));
+    parts.push('Cookie：' + (s.cookie ? ('已登入' + (s.user ? '（' + s.user.user_name + '）' : '（可能已失效）')) : '未登入'));
+    st.textContent = parts.join('；');
+    if (s.open.app_id && !appid.value) appid.placeholder = 'AppID：' + s.open.app_id;
   } catch (e) { sessionStorage.removeItem('t'); token = ''; }
 }
 let timer = null;
@@ -185,6 +235,28 @@ async function startQr() {
   };
   poll();
 }
+let otimer = null;
+async function startOpenQr() {
+  clearTimeout(otimer);
+  let t;
+  try { t = await api('/p115/open/qrcode', {method: 'POST', body: JSON.stringify({app_id: appid.value})}); }
+  catch (e) { oqrst.textContent = '錯誤：' + e.message; return; }
+  oqr.innerHTML = '<img src="' + t.qrcode_image + '">';
+  oqrst.textContent = '請用 115 App 掃描並授權';
+  const poll = async () => {
+    try {
+      const r = await api('/p115/open/qrcode/status?uid=' + t.uid + '&time=' + t.time + '&sign=' + t.sign);
+      const msg = {waiting: '等待掃描', scanned: '已掃描，請在手機上確認', success: '授權成功',
+                   expired: '二維碼已過期，請重新產生', canceled: '已取消'}[r.status] || r.status;
+      oqrst.textContent = msg;
+      if (r.status === 'success') { oqr.innerHTML = ''; show(); return; }
+      if (r.status === 'expired' || r.status === 'canceled') return;
+    } catch (e) { oqrst.textContent = '錯誤：' + e.message; return; }
+    otimer = setTimeout(poll, 1500);
+  };
+  poll();
+}
+async function logoutOpen() { await api('/p115/open/logout', {method: 'POST'}); show(); }
 async function saveCookie() { await api('/p115/cookies', {method: 'POST', body: JSON.stringify({cookies: ck.value})}); ck.value = ''; show(); }
 async function syncStrm() {
   try { await api('/p115/strm/sync', {method: 'POST'}); } catch (e) { syncst.textContent = '錯誤：' + e.message; return; }

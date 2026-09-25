@@ -71,6 +71,8 @@ class P115Config:
     # 掃碼後綁定的 115 裝置類型；同類型的舊登入會被踢下線
     app: str = "alipaymini"
     timeout: float = 15.0
+    # 115 開放平台 AppID（在 open.115.com 申請）；授權後優先走開放平台，cookie 當備援
+    open_app_id: str = ""
     strm: P115StrmConfig = field(default_factory=P115StrmConfig)
 
 

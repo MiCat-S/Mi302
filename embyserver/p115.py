@@ -19,6 +19,7 @@ from urllib.parse import parse_qs, parse_qsl, unquote, urlsplit
 import httpx
 
 from .db import Database
+from .p115_open import P115OpenClient, P115OpenError
 
 log = logging.getLogger(__name__)
 
@@ -73,8 +74,10 @@ class P115Service:
         app: str = "alipaymini",
         timeout: float = 15.0,
         transport: Optional[httpx.BaseTransport] = None,
+        open_app_id: str = "",
     ):
         self.db = db
+        self.open = P115OpenClient(db, open_app_id, timeout, transport=transport)
         self.app = app
         self._client = httpx.Client(timeout=timeout, follow_redirects=False, transport=transport)
         self._cache: Dict[Tuple[str, str], Tuple[str, float]] = {}
@@ -99,7 +102,34 @@ class P115Service:
 
     @property
     def logged_in(self) -> bool:
-        return bool(self.cookies)
+        return bool(self.cookies) or self.open.authorized
+
+    # ---------------- 通道分派：開放平台優先，cookie 備援 ----------------
+
+    def _dispatch(self, action: str, open_call, cookie_call):
+        if self.open.authorized:
+            try:
+                return open_call()
+            except (P115OpenError, httpx.HTTPError) as exc:
+                if not self.cookies:
+                    raise P115Error(f"開放平台{action}失敗：{exc}") from exc
+                log.warning("開放平台%s失敗，改用 cookie：%s", action, exc)
+        if not self.cookies:
+            raise P115Error("尚未登入 115")
+        return cookie_call()
+
+    def dir_id(self, path: str) -> int:
+        return self._dispatch("查詢目錄", lambda: self.open.dir_id(path), lambda: self._cookie_dir_id(path))
+
+    def list_dir(self, cid: int) -> List[dict]:
+        return self._dispatch("列目錄", lambda: self.open.list_dir(cid), lambda: self._cookie_list_dir(cid))
+
+    def _fetch_download_url(self, pickcode: str, user_agent: str) -> str:
+        return self._dispatch(
+            "取直鏈",
+            lambda: self.open.download_url(pickcode, user_agent),
+            lambda: self._cookie_download_url(pickcode, user_agent),
+        )
 
     def user_info(self) -> Optional[dict]:
         """用目前的 cookie 取得 115 帳號資訊，cookie 失效時回傳 None。"""
@@ -177,7 +207,7 @@ class P115Service:
             raise P115Error(f"115 webapi 錯誤：{data.get('error') or data.get('errNo') or data}")
         return data
 
-    def dir_id(self, path: str) -> int:
+    def _cookie_dir_id(self, path: str) -> int:
         """由 115 路徑取目錄 id；根目錄為 0。"""
         path = "/" + path.strip("/")
         if path == "/":
@@ -188,7 +218,7 @@ class P115Service:
             raise P115Error(f"115 上找不到目錄：{path}")
         return cid
 
-    def list_dir(self, cid: int) -> List[dict]:
+    def _cookie_list_dir(self, cid: int) -> List[dict]:
         """列出目錄的直接子項，回傳 {name, is_dir, id, pickcode, size, mtime}。"""
         out: List[dict] = []
         offset = 0
@@ -235,7 +265,7 @@ class P115Service:
     # ---------------- 下載直鏈 ----------------
 
     def download_url(self, pickcode: str, user_agent: str = "") -> str:
-        if not self.cookies:
+        if not self.logged_in:
             raise P115Error("尚未登入 115")
         pickcode = pickcode.lower()
         key = (pickcode, user_agent or "NoUA")
@@ -266,7 +296,7 @@ class P115Service:
                 return hit[0]
         return None
 
-    def _fetch_download_url(self, pickcode: str, user_agent: str) -> str:
+    def _cookie_download_url(self, pickcode: str, user_agent: str) -> str:
         from p115cipher import rsa_decrypt, rsa_encrypt
 
         payload = json.dumps({"pick_code": pickcode}, separators=(",", ":")).encode()
