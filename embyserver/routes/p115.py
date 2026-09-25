@@ -79,11 +79,7 @@ def p115_strm_status(request: Request, ctx: AuthContext = Depends(require_admin)
     }
 
 
-# strm 可以直接寫成本伺服器的網址；也相容 P115StrmHelper 的路徑，舊 strm 換個主機即可沿用
-@router.api_route("/p115/redirect", methods=["GET", "HEAD"])
-@router.api_route("/api/v1/plugin/p115strmhelper/redirect_url", methods=["GET", "HEAD"])
-def p115_redirect(request: Request):
-    pickcode = q(request, "pickcode") or q(request, "pick_code") or ""
+def _redirect(request: Request, pickcode: str) -> Response:
     if not PICKCODE_RE.match(pickcode):
         raise HTTPException(status_code=400, detail=f"Bad pickcode: {pickcode}")
     try:
@@ -91,6 +87,20 @@ def p115_redirect(request: Request):
     except P115Error as exc:
         raise HTTPException(status_code=502, detail=str(exc))
     return RedirectResponse(url=url, status_code=302)
+
+
+# 本伺服器產生的 strm：/d/{pickcode}.mkv（可再帶 ?/原檔名 或 /原檔名，會被忽略）
+@router.api_route("/d/{code}", methods=["GET", "HEAD"])
+@router.api_route("/d/{code}/{name:path}", methods=["GET", "HEAD"])
+def p115_short_link(code: str, request: Request):
+    return _redirect(request, code.split(".", 1)[0])
+
+
+# 相容其他工具產生的 strm（例如 P115StrmHelper），換個主機即可沿用
+@router.api_route("/p115/redirect", methods=["GET", "HEAD"])
+@router.api_route("/api/v1/plugin/p115strmhelper/redirect_url", methods=["GET", "HEAD"])
+def p115_redirect(request: Request):
+    return _redirect(request, q(request, "pickcode") or q(request, "pick_code") or "")
 
 
 @router.get("/web/115")

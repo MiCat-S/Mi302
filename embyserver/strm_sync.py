@@ -40,26 +40,15 @@ class SyncResult:
         return asdict(self)
 
 
-REDIRECT_PATH = "/api/v1/plugin/P115StrmHelper/redirect_url"
-
-
 def strm_content(cfg: P115StrmConfig, pickcode: str, file_name: str) -> str:
-    """與 P115StrmHelper 相同的格式：{base_url}/api/v1/plugin/P115StrmHelper/redirect_url?pickcode=xxx
+    """本伺服器的短連結：{base_url}/d/{pickcode}.{副檔名}
 
-    strm_url_format 為 pickname 時再附上 &file_name=原檔名（strm_url_encode 決定是否編碼）。
+    副檔名讓播放器與掃描器認得容器格式；include_name 時再附上 ?/{原檔名} 方便辨識。
     """
-    url = f"{cfg.base_url.rstrip('/')}{REDIRECT_PATH}?pickcode={pickcode}"
-    if cfg.strm_url_format == "pickname":
-        url += f"&file_name={quote(file_name) if cfg.strm_url_encode else file_name}"
+    url = f"{cfg.base_url.rstrip('/')}/d/{pickcode}{Path(file_name).suffix.lower()}"
+    if cfg.include_name:
+        url += f"?/{quote(file_name)}"
     return url
-
-
-def strm_filename(name: str) -> str:
-    """與 P115StrmHelper 相同：iso 保留副檔名（movie.iso.strm），其餘換成 .strm。"""
-    path = Path(name)
-    if path.suffix.lower() == ".iso":
-        return f"{path.stem}.iso.strm"
-    return f"{path.stem}.strm"
 
 
 class StrmSync:
@@ -127,7 +116,7 @@ class StrmSync:
             if suffix in VIDEO_EXTS:
                 if info["size"] < self.cfg.min_size_mb * 1024 * 1024:
                     continue
-                target = local / Path(rel).parent / strm_filename(Path(rel).name)
+                target = local / Path(rel).with_suffix(".strm")
                 produced.add(str(target))
                 self._write_strm(target, info)
             elif suffix in METADATA_EXTS and self.cfg.download_metadata:

@@ -59,12 +59,9 @@ def test_generate_strm_and_metadata(tmp_path: Path):
     r = sync.run()
     media = tmp_path / "media"
     movie = media / "電影" / "Inception (2010)" / "Inception (2010).strm"
-    # 與 P115StrmHelper 預設（pickcode 格式）完全相同
-    assert movie.read_text() == f"http://nas:8096/api/v1/plugin/P115StrmHelper/redirect_url?pickcode={PC_MOVIE}"
-    assert (media / "劇集" / "Dark" / "Dark.S01E01.strm").read_text() == (
-        f"http://nas:8096/api/v1/plugin/P115StrmHelper/redirect_url?pickcode={PC_EP}"
-    )
-    assert (media / "電影" / "Inception (2010)" / "Inception (2010) 原盤.iso.strm").is_file()
+    assert movie.read_text() == f"http://nas:8096/d/{PC_MOVIE}.mkv"
+    assert (media / "劇集" / "Dark" / "Dark.S01E01.strm").read_text() == f"http://nas:8096/d/{PC_EP}.mp4"
+    assert (media / "電影" / "Inception (2010)" / "Inception (2010) 原盤.strm").read_text().endswith(".iso")
     assert (media / "電影" / "Inception (2010)" / "movie.nfo").read_bytes() == b"<nfo>"
     # 1MB 的預告片低於 min_size_mb，不產生
     assert not (media / "電影" / "Inception (2010)" / "trailer.strm").exists()
@@ -75,30 +72,24 @@ def test_generate_strm_and_metadata(tmp_path: Path):
     assert r2.strm_created == 0 and r2.strm_unchanged == 3 and r2.metadata_downloaded == 0
 
 
-def test_pickname_format(tmp_path: Path):
-    sync = make_sync(tmp_path, base_url="http://nas:8096", strm_url_format="pickname")
-    sync.run()
-    ep = tmp_path / "media" / "劇集" / "Dark" / "Dark.S01E01.strm"
-    assert ep.read_text() == (
-        f"http://nas:8096/api/v1/plugin/P115StrmHelper/redirect_url?pickcode={PC_EP}&file_name=Dark.S01E01.mp4"
-    )
-    sync.cfg.strm_url_encode = True
+def test_include_name(tmp_path: Path):
+    sync = make_sync(tmp_path, base_url="http://nas:8096", include_name=True)
     sync.run()
     movie = tmp_path / "media" / "電影" / "Inception (2010)" / "Inception (2010).strm"
-    assert movie.read_text().endswith("&file_name=Inception%20%282010%29.mkv")
+    assert movie.read_text() == f"http://nas:8096/d/{PC_MOVIE}.mkv?/Inception%20%282010%29.mkv"
 
 
 def test_delete_stale(tmp_path: Path):
     stale = tmp_path / "media" / "電影" / "Old" / "Old.strm"
     stale.parent.mkdir(parents=True)
-    stale.write_text("http://127.0.0.1:8096/api/v1/plugin/P115StrmHelper/redirect_url?pickcode=zzzzzzzzzzzzzzzzz")
+    stale.write_text("http://127.0.0.1:8096/d/zzzzzzzzzzzzzzzzz.mkv")
     keep = tmp_path / "media" / "電影" / "Old" / "mine.txt"
     keep.write_text("x")
     sync = make_sync(tmp_path, delete_stale=True, download_metadata=False)
     r = sync.run()
     # 未設定 base_url 時預設指向本機 8096
     assert (tmp_path / "media" / "劇集" / "Dark" / "Dark.S01E01.strm").read_text() == (
-        f"http://127.0.0.1:8096/api/v1/plugin/P115StrmHelper/redirect_url?pickcode={PC_EP}"
+        f"http://127.0.0.1:8096/d/{PC_EP}.mp4"
     )
     assert not stale.exists() and keep.exists()
     assert r.removed == 1

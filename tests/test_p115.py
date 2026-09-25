@@ -12,10 +12,16 @@ from embyserver.db import Database
 from embyserver.p115 import P115Service, extract_pickcode
 
 PICKCODE = "abcdefghijklmnopq"
+PC_UP = PICKCODE.upper()
 CDN = "https://cdnfhnfile.115cdn.net/abc/Inception.mkv?t=4102444800&u=1"
 
 
 def test_extract_pickcode():
+    assert extract_pickcode(f"http://nas:8096/d/{PC_UP}.mkv") == PICKCODE
+    assert extract_pickcode(f"http://nas:8096/d/{PICKCODE}.mkv?/Inception.mkv") == PICKCODE
+    assert extract_pickcode(f"http://nas:8096/d/{PICKCODE}") == PICKCODE
+    assert extract_pickcode(f"http://nas:8096/d/{PICKCODE}.mkv/Inception.mkv") == PICKCODE
+    assert extract_pickcode("http://alist:5244/d/電影/Inception.mkv") is None
     assert extract_pickcode(
         f"http://mp:3000/api/v1/plugin/P115StrmHelper/redirect_url?pickcode={PICKCODE}&file_name=a.mkv"
     ) == PICKCODE
@@ -81,9 +87,7 @@ def test_download_request_is_encrypted_and_cached(monkeypatch):
 def client(tmp_path: Path, monkeypatch):
     movie = tmp_path / "movies" / "Inception (2010)"
     movie.mkdir(parents=True)
-    (movie / "Inception (2010).strm").write_text(
-        f"http://moviepilot:3000/api/v1/plugin/P115StrmHelper/redirect_url?pickcode={PICKCODE}&file_name=Inception.mkv"
-    )
+    (movie / "Inception (2010).strm").write_text(f"http://nas:8096/d/{PICKCODE}.mkv")
     config = config_from_dict(
         {
             "server": {"data_dir": str(tmp_path / "data")},
@@ -127,7 +131,14 @@ def test_strm_pickcode_redirects_via_115(client):
     assert client.seen == [(PICKCODE, "Infuse/8")]
 
 
-def test_p115strmhelper_compatible_endpoint(client):
+def test_short_link_endpoint(client):
+    for path in (f"/d/{PICKCODE}.mkv", f"/d/{PICKCODE}.mkv?/Inception.mkv", f"/d/{PICKCODE}/Inception.mkv"):
+        r = client.get(path, follow_redirects=False)
+        assert r.status_code == 302 and r.headers["location"] == CDN, path
+    assert client.get("/d/bad.mkv", follow_redirects=False).status_code == 400
+
+
+def test_other_tools_strm_endpoint(client):
     r = client.get(
         f"/api/v1/plugin/P115StrmHelper/redirect_url?pickcode={PICKCODE}", follow_redirects=False
     )

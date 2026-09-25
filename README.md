@@ -15,27 +15,25 @@
 
 ## 115 網盤
 
-參考 [p115strmhelper](https://github.com/DDSRem-Dev/MoviePilot-Plugins/tree/main/plugins.v2/p115strmhelper) 的做法，伺服器本身就能登入 115 並產生直鏈，不需要另外跑 MoviePilot：
+伺服器本身就能登入 115、從 115 目錄產生 strm，並在播放時取得 115 直鏈，不需要 MoviePilot 或其他工具。
 
-1. 開啟 `http://<主機>:8096/web/115`，先用本伺服器的管理員帳號登入，再按「產生 115 登入二維碼」，然後用 115 App 掃描並確認。也可以直接貼上 cookie，或寫在設定檔的 `p115.cookies`。
-2. strm 內容只要帶有 pickcode 就會被接手，以下格式都可以：
-   - `http://<MoviePilot>/api/v1/plugin/P115StrmHelper/redirect_url?pickcode=xxx`：P115StrmHelper 產生的 strm 不必改
-   - `http://<本伺服器>/p115/redirect?pickcode=xxx`
-   - `115://xxx`
-3. 播放時，伺服器以**播放器自己的 User-Agent** 向 115 取下載直鏈（115 的直鏈綁定 UA），然後 302 過去。直鏈依 (pickcode, UA) 快取到到期前 5 分鐘。
-4. 115 取直鏈失敗時，會退回 strm 原網址（例如交給 MoviePilot 處理）。
+### 登入
+
+開啟 `http://<主機>:8096/web/115`，先用本伺服器的管理員帳號登入，再按「產生 115 登入二維碼」，然後用 115 App 掃描並確認。也可以直接貼上 cookie，或寫在設定檔的 `p115.cookies`。
 
 ### 從 115 產生 strm
 
 在設定檔的 `p115.strm.tasks` 寫好「115 目錄 → 本機資料夾」的對應，然後把本機資料夾設成媒體庫路徑。同步時伺服器會遞迴列出 115 目錄：影片產生 `.strm`，`nfo`、圖片、字幕可以一併下載，目錄結構保持不變。同步完會自動重新掃描媒體庫。
 
-產生的 strm 與 P115StrmHelper 格式相同，兩邊可以互換使用：
+strm 內容是本伺服器的短連結：
 
 ```
-http://192.168.1.10:8096/api/v1/plugin/P115StrmHelper/redirect_url?pickcode=abcdefghijklmnopq
+http://192.168.1.10:8096/d/abcdefghijklmnopq.mkv
 ```
 
-`base_url` 對應 P115StrmHelper 的「MoviePilot 地址」。`strm_url_format: pickname` 會再附上 `&file_name=檔名`。檔名規則也相同：`電影.mkv` 產生 `電影.strm`，`原盤.iso` 產生 `原盤.iso.strm`。
+- `base_url` 填本伺服器對外的位址。
+- 網址最後的副檔名讓播放器與掃描器認得容器格式。
+- `include_name: true` 會在網址後面附上 `?/原檔名`，方便人工辨識；伺服器會忽略這一段。
 
 觸發方式：
 - `/web/115` 頁面上的「立即從 115 同步 strm」
@@ -43,6 +41,12 @@ http://192.168.1.10:8096/api/v1/plugin/P115StrmHelper/redirect_url?pickcode=abcd
 - 命令列 `python -m embyserver -c config.yaml --sync-115`
 
 第二次同步時，內容沒變的 strm 不會重寫，已下載且大小相同的中繼資料也不會重新下載。開啟 `delete_stale` 會刪除 115 上已經不存在的項目。
+
+### 播放
+
+1. 播放器請求 strm 項目時，伺服器從 strm 取出 pickcode，以**播放器自己的 User-Agent** 向 115 取下載直鏈（115 的直鏈綁定 UA），然後 302 過去。直鏈依 (pickcode, UA) 快取到到期前 5 分鐘。
+2. 其他工具產生的 strm 也認得，例如 `…/d/{pickcode}`、`…?pickcode=xxx`，舊檔案不必重新產生。
+3. 115 取直鏈失敗時，會退回 strm 原網址。
 
 ## 使用
 

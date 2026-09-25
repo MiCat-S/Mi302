@@ -33,6 +33,7 @@ BROWSER_UA = (
 )
 LIST_PAGE_SIZE = 1150
 PICKCODE_RE = re.compile(r"^[a-zA-Z0-9]{17}$")
+SHORT_LINK_RE = re.compile(r"/d/([a-zA-Z0-9]{17})(?:\.[A-Za-z0-9]{1,5})?(?:/[^/]*)?$")
 COOKIE_META_KEY = "p115_cookies"
 
 
@@ -43,11 +44,14 @@ class P115Error(Exception):
 def extract_pickcode(url: str) -> Optional[str]:
     """從 strm 內容取出 pickcode。
 
-    支援 P115StrmHelper 的 `.../redirect_url?pickcode=xxx`、本伺服器的 `/p115/redirect?pickcode=xxx`，
-    以及簡寫 `115://xxx`。
+    本伺服器產生的格式是 `/d/{pickcode}.mkv`；另外也認得其他工具產生的 strm：
+    `.../d/{pickcode}`（115-station 等）、`?pickcode=xxx`（P115StrmHelper 等）、`115://xxx`。
     """
     if not url:
         return None
+    m = SHORT_LINK_RE.search(url.split("?", 1)[0])
+    if m:
+        return m.group(1).lower()
     if url.startswith("115://"):
         code = url[len("115://"):].split("/", 1)[0].split("?", 1)[0]
         return code.lower() if PICKCODE_RE.match(code) else None
