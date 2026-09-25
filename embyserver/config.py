@@ -53,8 +53,11 @@ class StrmTask:
 @dataclass
 class P115StrmConfig:
     tasks: List[StrmTask] = field(default_factory=list)
-    # strm 內容裡本伺服器的網址；留空時寫成 115://pickcode（只有本伺服器看得懂）
-    base_url: str = ""
+    # strm 內容裡的伺服器位址（與 P115StrmHelper 的 MoviePilot 位址同義）
+    base_url: str = "http://127.0.0.1:8096"
+    # pickcode：只帶 pickcode；pickname：再附上 &file_name=檔名
+    strm_url_format: str = "pickcode"
+    strm_url_encode: bool = False  # file_name 是否 URL 編碼
     download_metadata: bool = True  # 一併下載 nfo、圖片、字幕
     delete_stale: bool = False  # 刪除 115 上已不存在的 strm
     min_size_mb: float = 0  # 小於此大小的影片不產生 strm（例如預告片）

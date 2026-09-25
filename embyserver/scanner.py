@@ -11,6 +11,7 @@ import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
+from urllib.parse import unquote
 
 from .config import Config, LibraryConfig
 from .db import Database
@@ -298,10 +299,20 @@ class Scanner:
     def _container_for(self, path: Path) -> str:
         if path.suffix.lower() != ".strm":
             return path.suffix.lower().lstrip(".")
+        # P115StrmHelper 對 iso 產生 xxx.iso.strm
+        inner = Path(path.stem).suffix.lower()
+        if inner in VIDEO_EXTS:
+            return inner.lstrip(".")
         target = read_strm(path)
         ext = Path(target.split("?", 1)[0]).suffix.lower()
         if ext in VIDEO_EXTS and ext != ".strm":
             return ext.lstrip(".")
+        # pickname 格式把檔名放在 file_name 參數
+        m = re.search(r"[?&]file_name=([^&]+)", target)
+        if m:
+            ext = Path(unquote(m.group(1))).suffix.lower()
+            if ext in VIDEO_EXTS and ext != ".strm":
+                return ext.lstrip(".")
         return self.config.redirect.default_container
 
     # ---- 劇集 ----

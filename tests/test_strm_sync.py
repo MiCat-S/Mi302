@@ -25,6 +25,7 @@ TREE = {
         {"fid": 1, "cid": 102, "n": "Inception (2010).mkv", "pc": PC_MOVIE, "s": 5_000_000_000},
         {"fid": 2, "cid": 102, "n": "movie.nfo", "pc": PC_NFO, "s": 5},
         {"fid": 5, "cid": 102, "n": "trailer.mp4", "pc": PC_TRAILER, "s": 1_000_000},
+        {"fid": 6, "cid": 102, "n": "Inception (2010) 原盤.iso", "pc": "aaaaaaaaaaaaaaaa5", "s": 40_000_000_000},
     ],
     103: [{"cid": 104, "n": "Dark"}],
     104: [{"fid": 3, "cid": 104, "n": "Dark.S01E01.mp4", "pc": PC_EP, "s": 900_000_000}],
@@ -58,27 +59,47 @@ def test_generate_strm_and_metadata(tmp_path: Path):
     r = sync.run()
     media = tmp_path / "media"
     movie = media / "電影" / "Inception (2010)" / "Inception (2010).strm"
-    assert movie.read_text() == f"http://nas:8096/p115/redirect?pickcode={PC_MOVIE}&file_name=Inception%20%282010%29.mkv"
-    assert (media / "劇集" / "Dark" / "Dark.S01E01.strm").read_text().endswith(f"pickcode={PC_EP}&file_name=Dark.S01E01.mp4")
+    # 與 P115StrmHelper 預設（pickcode 格式）完全相同
+    assert movie.read_text() == f"http://nas:8096/api/v1/plugin/P115StrmHelper/redirect_url?pickcode={PC_MOVIE}"
+    assert (media / "劇集" / "Dark" / "Dark.S01E01.strm").read_text() == (
+        f"http://nas:8096/api/v1/plugin/P115StrmHelper/redirect_url?pickcode={PC_EP}"
+    )
+    assert (media / "電影" / "Inception (2010)" / "Inception (2010) 原盤.iso.strm").is_file()
     assert (media / "電影" / "Inception (2010)" / "movie.nfo").read_bytes() == b"<nfo>"
     # 1MB 的預告片低於 min_size_mb，不產生
     assert not (media / "電影" / "Inception (2010)" / "trailer.strm").exists()
-    assert r.strm_created == 2 and r.metadata_downloaded == 1 and not r.errors
+    assert r.strm_created == 3 and r.metadata_downloaded == 1 and not r.errors
 
     # 第二次同步：內容相同就不重寫
     r2 = sync.run()
-    assert r2.strm_created == 0 and r2.strm_unchanged == 2 and r2.metadata_downloaded == 0
+    assert r2.strm_created == 0 and r2.strm_unchanged == 3 and r2.metadata_downloaded == 0
 
 
-def test_default_strm_uses_115_scheme_and_delete_stale(tmp_path: Path):
+def test_pickname_format(tmp_path: Path):
+    sync = make_sync(tmp_path, base_url="http://nas:8096", strm_url_format="pickname")
+    sync.run()
+    ep = tmp_path / "media" / "劇集" / "Dark" / "Dark.S01E01.strm"
+    assert ep.read_text() == (
+        f"http://nas:8096/api/v1/plugin/P115StrmHelper/redirect_url?pickcode={PC_EP}&file_name=Dark.S01E01.mp4"
+    )
+    sync.cfg.strm_url_encode = True
+    sync.run()
+    movie = tmp_path / "media" / "電影" / "Inception (2010)" / "Inception (2010).strm"
+    assert movie.read_text().endswith("&file_name=Inception%20%282010%29.mkv")
+
+
+def test_delete_stale(tmp_path: Path):
     stale = tmp_path / "media" / "電影" / "Old" / "Old.strm"
     stale.parent.mkdir(parents=True)
-    stale.write_text("115://zzzzzzzzzzzzzzzzz")
+    stale.write_text("http://127.0.0.1:8096/api/v1/plugin/P115StrmHelper/redirect_url?pickcode=zzzzzzzzzzzzzzzzz")
     keep = tmp_path / "media" / "電影" / "Old" / "mine.txt"
     keep.write_text("x")
     sync = make_sync(tmp_path, delete_stale=True, download_metadata=False)
     r = sync.run()
-    assert (tmp_path / "media" / "劇集" / "Dark" / "Dark.S01E01.strm").read_text() == f"115://{PC_EP}"
+    # 未設定 base_url 時預設指向本機 8096
+    assert (tmp_path / "media" / "劇集" / "Dark" / "Dark.S01E01.strm").read_text() == (
+        f"http://127.0.0.1:8096/api/v1/plugin/P115StrmHelper/redirect_url?pickcode={PC_EP}"
+    )
     assert not stale.exists() and keep.exists()
     assert r.removed == 1
 

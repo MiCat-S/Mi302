@@ -29,6 +29,14 @@
 
 在設定檔的 `p115.strm.tasks` 寫好「115 目錄 → 本機資料夾」的對應，然後把本機資料夾設成媒體庫路徑。同步時伺服器會遞迴列出 115 目錄：影片產生 `.strm`，`nfo`、圖片、字幕可以一併下載，目錄結構保持不變。同步完會自動重新掃描媒體庫。
 
+產生的 strm 與 P115StrmHelper 格式相同，兩邊可以互換使用：
+
+```
+http://192.168.1.10:8096/api/v1/plugin/P115StrmHelper/redirect_url?pickcode=abcdefghijklmnopq
+```
+
+`base_url` 對應 P115StrmHelper 的「MoviePilot 地址」。`strm_url_format: pickname` 會再附上 `&file_name=檔名`。檔名規則也相同：`電影.mkv` 產生 `電影.strm`，`原盤.iso` 產生 `原盤.iso.strm`。
+
 觸發方式：
 - `/web/115` 頁面上的「立即從 115 同步 strm」
 - 設定 `interval` 定時同步
