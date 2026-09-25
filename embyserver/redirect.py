@@ -12,6 +12,7 @@ from urllib.parse import urlparse
 import httpx
 
 from .config import RedirectConfig
+from .p115 import P115Error, P115Service, extract_pickcode
 from .scanner import read_strm
 
 log = logging.getLogger(__name__)
@@ -42,8 +43,9 @@ def apply_path_rules(value: str, rules) -> str:
 
 
 class Redirector:
-    def __init__(self, config: RedirectConfig):
+    def __init__(self, config: RedirectConfig, p115: Optional[P115Service] = None):
         self.config = config
+        self.p115 = p115
         self._cache: Dict[Tuple[int, str], Tuple[str, float]] = {}
         self._lock = threading.Lock()
         self._client = httpx.Client(follow_redirects=True, timeout=config.resolve_timeout)
@@ -57,13 +59,34 @@ class Redirector:
             return None
         return apply_path_rules(raw, self.config.path_rules)
 
+    def display_target(self, item, base_url: str) -> Optional[str]:
+        """PlaybackInfo 裡要讓播放器看到的 Path。
+
+        115 pickcode 項目改成指回本伺服器的串流網址：有些播放器遇到 Http 來源會直接播 Path，
+        這樣才能確保請求經過本伺服器、用播放器自己的 UA 向 115 取直鏈。
+        """
+        target = self.strm_target(item)
+        if target and extract_pickcode(target) and self.p115 and self.p115.logged_in:
+            container = item["container"] or "mkv"
+            return f"{base_url.rstrip('/')}/videos/{item['id']}/stream.{container}?Static=true"
+        return target
+
     def final_url(self, item, headers: Dict[str, str]) -> Optional[str]:
         target = self.strm_target(item)
-        if not target or not target.startswith(("http://", "https://")):
+        if not target:
+            return None
+        ua = headers.get("user-agent", "")
+        # strm 帶 pickcode（P115StrmHelper 格式或 115://）且已登入 115：直接向 115 取直鏈
+        pickcode = extract_pickcode(target)
+        if pickcode and self.p115 and self.p115.logged_in:
+            try:
+                return self.p115.download_url(pickcode, ua)
+            except P115Error:
+                log.warning("115 取直鏈失敗，改用 strm 原網址：%s", target, exc_info=True)
+        if not target.startswith(("http://", "https://")):
             return None
         if not self.config.resolve_redirects:
             return target
-        ua = headers.get("user-agent", "")
         key = (item["id"], ua)
         now = time.monotonic()
         with self._lock:

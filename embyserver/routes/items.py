@@ -42,7 +42,7 @@ def _dto(request: Request, ctx: AuthContext, row, full: bool = False) -> dict:
         user_id=ctx.user_id,
         token=ctx.token,
         with_media_sources=full or "mediasources" in fields,
-        resolve_remote=st.redirector.strm_target,
+        resolve_remote=lambda it: st.redirector.display_target(it, str(request.base_url)),
     )
 
 

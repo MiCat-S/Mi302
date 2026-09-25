@@ -37,3 +37,27 @@ redirect:
 
 # 額外的固定 API Key（以第一個管理員身分存取），可留空
 api_keys: []
+
+# 115 網盤：登入後可從 115 產生 strm，播放時由本伺服器向 115 取直鏈並 302
+# 登入方式：開 http://<本伺服器>:8096/web/115 用管理員帳號登入後掃碼，或在下方直接填 cookie
+p115:
+  open_app_id: ""          # 115 開放平台 AppID（open.115.com 申請）；授權後優先使用，cookie 當備援
+  cookies: ""
+  app: alipaymini          # 掃碼綁定的裝置類型，同類型的舊登入會被踢下線
+  timeout: 15
+  # 從 115 產生 strm：把 115 目錄映射成本機資料夾，本機資料夾再設成上面的媒體庫路徑
+  strm:
+    tasks:
+      - remote: /影視/電影     # 115 上的目錄
+        local: /media/movies  # strm 輸出位置
+      - remote: /影視/劇集
+        local: /media/tv
+    # strm 內容為 {base_url}/d/{pickcode}.mkv
+    base_url: http://127.0.0.1:8096   # 填本伺服器對外的位址，例如 http://192.168.1.10:8096
+    include_name: false       # 在網址後附上 ?/原檔名，方便人工辨識
+    download_metadata: true   # 一併下載 nfo、圖片、字幕
+    delete_stale: false       # 刪除 115 上已不存在的 strm（與已下載的 nfo／圖片／字幕）
+    min_size_mb: 0            # 小於此大小的影片不產生 strm，例如設 50 可略過預告片
+    interval: 0               # 定時同步（分鐘），0 = 只手動
+    request_delay: 0.2        # 每列一個目錄前等待的秒數，避免觸發 115 風控
+    scan_after_sync: true     # 同步完自動重新掃描媒體庫

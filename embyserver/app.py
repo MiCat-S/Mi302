@@ -15,9 +15,11 @@ from fastapi.responses import PlainTextResponse
 from .auth import AuthService
 from .config import Config
 from .db import Database
+from .p115 import P115Service
 from .redirect import Redirector
-from .routes import items, playback, system
+from .routes import items, p115, playback, system
 from .scanner import Scanner
+from .strm_sync import StrmSync
 
 log = logging.getLogger(__name__)
 
@@ -41,6 +43,7 @@ def create_app(config: Config, db_path: Optional[str] = None, scan_on_start: boo
     async def lifespan(app: FastAPI):
         if scan_on_start:
             threading.Thread(target=scanner.scan_all, daemon=True).start()
+            app.state.strm_sync.start_schedule()
         yield
 
     app = FastAPI(title="Emby 相容伺服器", lifespan=lifespan, docs_url="/api-docs", redoc_url=None)
@@ -49,7 +52,15 @@ def create_app(config: Config, db_path: Optional[str] = None, scan_on_start: boo
     app.state.server_id = server_id
     app.state.auth = auth
     app.state.scanner = scanner
-    app.state.redirector = Redirector(config.redirect)
+    app.state.p115 = P115Service(
+        db, config.p115.cookies, config.p115.app, config.p115.timeout, open_app_id=config.p115.open_app_id
+    )
+    app.state.redirector = Redirector(config.redirect, app.state.p115)
+    app.state.strm_sync = StrmSync(
+        app.state.p115,
+        config.p115.strm,
+        on_done=scanner.scan_all if config.p115.strm.scan_after_sync else None,
+    )
 
     app.add_middleware(
         CORSMiddleware,
@@ -83,4 +94,5 @@ def create_app(config: Config, db_path: Optional[str] = None, scan_on_start: boo
     app.include_router(system.router)
     app.include_router(items.router)
     app.include_router(playback.router)
+    app.include_router(p115.router)
     return app
