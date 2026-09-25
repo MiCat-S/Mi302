@@ -53,7 +53,29 @@ http://192.168.1.10:8096/d/abcdefghijklmnopq.mkv
 2. 其他工具產生的 strm 也認得，例如 `…/d/{pickcode}`、`…?pickcode=xxx`，舊檔案不必重新產生。
 3. 115 取直鏈失敗時，會退回 strm 原網址。
 
-## 使用
+## 部署
+
+### Docker Compose（建議）
+
+```bash
+git clone https://github.com/MiCat-S/Mi302.git
+cd Mi302
+mkdir -p config
+cp config.example.yaml config/config.yaml
+# 編輯 config/config.yaml：帳號密碼、媒體庫路徑（用容器內路徑 /media/...）、115 設定
+# 編輯 docker-compose.yml：把 /path/to/media 改成主機上的媒體資料夾
+docker compose up -d --build
+docker compose logs -f   # 看啟動與掃描紀錄
+```
+
+- 資料庫存在 `config/data/`，更新或重建容器都不會遺失。
+- 更新版本：`git pull && docker compose up -d --build`。
+- 設定檔裡的路徑都要寫**容器內**的路徑，例如主機 `/volume1/media` 掛到 `/media` 時，媒體庫路徑寫 `/media/movies`。
+- `p115.strm.base_url` 填播放器連得到的位址，例如 `http://192.168.1.10:8096`。
+
+### 直接用 Python
+
+需要 Python 3.10 以上。
 
 ```bash
 pip install -r requirements.txt
@@ -61,16 +83,11 @@ cp config.example.yaml config.yaml   # 修改帳號與媒體庫路徑
 python -m embyserver -c config.yaml
 ```
 
-客戶端新增伺服器時填 `http://<主機>:8096`。
+### 啟動後
 
-Docker：
-
-```bash
-docker build -t embyserver .
-docker run -d -p 8096:8096 -v $PWD/config:/config -v /path/to/media:/media embyserver
-```
-
-`config.yaml` 裡的 `data_dir` 建議設成 `/config/data`，這樣資料庫會保留在掛載的資料夾中。
+1. 播放器（Infuse、VidHub、SenPlayer、Emby 官方 App 等）新增 Emby 伺服器，位址填 `http://<主機>:8096`，用設定檔裡的帳號登入。
+2. 要用 115：開啟 `http://<主機>:8096/web/115` 登入 115，再按「立即從 115 同步 strm」。
+3. 需要從外網連線時，在前面加一層反向代理（例如 Nginx、Caddy）提供 HTTPS，並把 `base_url` 改成對外網址。
 
 ## 媒體庫結構
 

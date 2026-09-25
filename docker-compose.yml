@@ -1,0 +1,12 @@
+services:
+  mi302:
+    build: .
+    container_name: mi302
+    restart: unless-stopped
+    ports:
+      - "8096:8096"
+    environment:
+      - TZ=Asia/Shanghai
+    volumes:
+      - ./config:/config          # 放 config.yaml，資料庫會存在 /config/data
+      - /path/to/media:/media     # 媒體庫與 115 產生的 strm 放這裡，改成你的實際路徑
