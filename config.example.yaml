@@ -39,11 +39,11 @@
 #   timeout: 15            # 呼叫 115 的逾時秒數
 #   open_app_id: ""        # 115 開放平台 AppID，只有自己申請到應用的人才需要
 #   strm:
-#     interval: 0          # 每隔幾分鐘自動「增量」同步（只處理新增、改名、移入的檔案）；0 = 不自動
-#     full_interval: 0     # 每隔幾小時自動「全量」同步（重新比對整個目錄，才能清掉已刪除的項目）；建議 24
+#     interval: 0          # 每隔幾分鐘自動「增量」同步（讀 115 生活事件：上傳、移動、改名、刪除）；0 = 不自動，建議 5
+#     full_interval: 168   # 每隔幾小時自動「全量」同步（重新比對整個目錄，查漏補缺）；預設每週
 #     min_size_mb: 0       # 小於這個大小（MB）的影片不產生 strm
 #     download_metadata: true   # 一併下載 nfo、海報、字幕
-#     delete_stale: false       # 115 上刪掉的影片，本機的 strm 也跟著刪（只在全量同步時）
+#     delete_stale: false       # 115 上刪掉或移出同步目錄的影片，本機的 strm 和刮削資料也跟著刪
 #     base_url: ""         # strm 裡的伺服器網址，留空 = 自動使用開網頁時的網址
 #     include_name: false  # strm 網址後附上 ?/原檔名
 #     request_delay: 0.2   # 每列一個 115 目錄前等待的秒數

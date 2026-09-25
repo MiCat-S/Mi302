@@ -1,4 +1,4 @@
-"""增量同步、刪除過期項目、115 帳號狀態。115 以一個可變的假目錄樹模擬。"""
+"""增量同步（生活事件＋修改時間）、刪除過期項目、115 帳號狀態。115 以一個可變的假目錄樹模擬。"""
 
 import json
 import time
@@ -9,7 +9,7 @@ import httpx
 from embyserver.config import P115StrmConfig, StrmTask
 from embyserver.db import Database
 from embyserver.p115 import P115Service
-from embyserver.strm_sync import INCREMENTAL, StrmSync
+from embyserver.strm_sync import FULL, INCREMENTAL, StrmSync, _sidecars
 
 T0 = 1_700_000_000
 
@@ -24,6 +24,25 @@ class Fake115:
             {"fid": 2, "cid": 103, "n": "Dark.S01E01.mkv", "pc": "b" * 17, "s": 900_000_000, "te": T0 + 10},
         ]
         self.calls = []
+        self.events = []  # 生活事件，由舊到新
+        self.life_enabled = False
+
+    # ---- 在假 115 上操作，同時記一筆生活事件（不改修改時間，確定是靠事件抓到的） ----
+    def event(self, type_, fid, is_dir=False):
+        if is_dir:
+            name, parent = self.dirs.get(fid, ("", 0))
+            pc, size = "", 0
+        else:
+            f = next((f for f in self.files if f["fid"] == fid), None) or {"n": "", "cid": 0, "pc": "", "s": 0}
+            name, parent, pc, size = f["n"], f["cid"], f["pc"], f["s"]
+        self.events.append({
+            "id": str(1000 + len(self.events)), "type": type_, "file_id": str(fid), "parent_id": str(parent),
+            "file_name": name, "file_category": "0" if is_dir else "1", "pick_code": pc, "file_size": size,
+            "update_time": T0 + 100 + len(self.events),
+        })
+
+    def file(self, fid):
+        return next(f for f in self.files if f["fid"] == fid)
 
     def ancestors(self, cid):
         chain = []
@@ -42,6 +61,14 @@ class Fake115:
 
     def handler(self, request: httpx.Request) -> httpx.Response:
         p = request.url.params
+        if request.url.host == "life.115.com":
+            self.life_enabled = True
+            return httpx.Response(200, json={"state": True})
+        if request.url.path == "/behavior/detail":
+            evs = list(reversed(self.events))
+            offset, limit = int(p.get("offset", 0)), int(p.get("limit", 1000))
+            return httpx.Response(200, json={"state": True, "data": {
+                "count": len(evs), "list": evs[offset: offset + limit]}})
         self.calls.append((request.url.path, dict(p)))
         if request.url.path == "/files/getid":
             for cid in self.dirs:
@@ -50,6 +77,8 @@ class Fake115:
             return httpx.Response(200, json={"state": True, "id": "0"})
         if request.url.path == "/files":
             cid = int(p["cid"])
+            if cid not in self.dirs:  # 不存在的目錄，115 會回根目錄
+                return httpx.Response(200, json={"state": True, "count": 0, "data": [], "path": self.ancestors(0)})
             offset, limit = int(p.get("offset", 0)), int(p.get("limit", 1150))
             if p.get("cur") == "0":
                 items = sorted(
@@ -114,11 +143,15 @@ def test_incremental_picks_up_renamed_file(tmp_path: Path):
     fake = Fake115()
     sync = make(tmp_path, fake)
     sync.run()
-    # 改名會更新修改時間
+    movies = tmp_path / "media" / "電影"
+    (movies / "Old Movie (2001).nfo").write_text("<movie/>")  # MoviePilot 刮削的
+    # 沒有生活事件也抓得到：改名會更新修改時間
     fake.files[0].update(n="Old Movie (2001) 4K.mkv", te=T0 + 9000)
     r = sync.run(INCREMENTAL)
-    assert (tmp_path / "media" / "電影" / "Old Movie (2001) 4K.strm").exists()
-    assert len(r.new_files) == 1
+    assert (movies / "Old Movie (2001) 4K.strm").exists()
+    assert not (movies / "Old Movie (2001).strm").exists()
+    assert (movies / "Old Movie (2001) 4K.nfo").read_text() == "<movie/>"  # 刮削資料跟著改名
+    assert r.moved == 1 and not r.new_files  # 不是新片，不會再送去刮削
 
 
 def test_delete_stale_keeps_moviepilot_metadata(tmp_path: Path):
@@ -189,3 +222,119 @@ def test_account_info_expired_cookie():
     info = svc.account_info()
     assert info["cookie"]["valid"] is False and "重新登录" in info["cookie"]["error"]
     assert info["account"] is None
+
+
+def life_sync(tmp_path: Path, **kw):
+    fake = Fake115()
+    fake.event(2, 2)  # 之前的舊事件
+    sync = make(tmp_path, fake, delete_stale=True, **kw)
+    r = sync.run(INCREMENTAL)  # 第一次：全量，並記下目前最新的事件
+    assert r.fell_back_to_full == ["/影視"] and fake.life_enabled
+    assert sync.task_states()[0]["life_id"] == 1000
+    return fake, sync, tmp_path / "media"
+
+
+def test_life_events_upload_move_rename_delete(tmp_path: Path):
+    fake, sync, media = life_sync(tmp_path)
+    (media / "劇集" / "Dark" / "tvshow.nfo").write_text("<tvshow/>")
+    (media / "劇集" / "Dark" / "Dark.S01E01.nfo").write_text("<ep/>")
+    (media / "電影" / "Old Movie (2001).nfo").write_text("<movie/>")
+    (media / "電影" / "Old Movie (2001)-poster.jpg").write_bytes(b"jpg")
+
+    # 上傳新片（修改時間很舊，只有事件抓得到）
+    fake.files.append({"fid": 7, "cid": 101, "n": "Up (2009).mkv", "pc": "u" * 17, "s": 900_000_000, "te": T0 - 99999})
+    fake.event(2, 7)
+    # 電影移到新資料夾
+    fake.dirs[105] = ("Old Movie (2001)", 101)
+    fake.event(17, 105, is_dir=True)
+    fake.file(1)["cid"] = 105
+    fake.event(6, 1)
+    # 劇集資料夾改名
+    fake.dirs[103] = ("Dark (2017)", 102)
+    fake.event(20, 103, is_dir=True)
+    # 放到任務目錄外面的上傳不理
+    fake.dirs[200] = ("待整理", 0)
+    fake.files.append({"fid": 8, "cid": 200, "n": "x.mkv", "pc": "x" * 17, "s": 900_000_000, "te": T0})
+    fake.event(2, 8)
+    fake.calls.clear()
+
+    r = sync.run(INCREMENTAL)
+    assert not r.errors and not r.fell_back_to_full and r.events == 5
+    assert [Path(f).name for f in r.new_files] == ["Up (2009).strm"]
+    moved = media / "電影" / "Old Movie (2001)"
+    assert (moved / "Old Movie (2001).strm").exists() and not (media / "電影" / "Old Movie (2001).strm").exists()
+    assert (moved / "Old Movie (2001).nfo").read_text() == "<movie/>"
+    assert (moved / "Old Movie (2001)-poster.jpg").exists()
+    show = media / "劇集" / "Dark (2017)"
+    assert (show / "tvshow.nfo").exists() and (show / "Dark.S01E01.strm").exists()
+    assert not (media / "劇集" / "Dark").exists()
+    assert r.moved == 2 and sync.task_states()[0]["life_id"] == 1005
+    assert not (media / "待整理").exists()
+
+    # 刪除：strm 連同刮削資料一起刪
+    fake.files = [f for f in fake.files if f["fid"] != 1]
+    fake.event(22, 1)
+    fake.files = [f for f in fake.files if f["cid"] != 103]
+    del fake.dirs[103]
+    fake.event(22, 103, is_dir=True)
+    r = sync.run(INCREMENTAL)
+    assert not r.errors and r.removed >= 5
+    assert not moved.exists() and not show.exists()
+    assert (media / "電影" / "Up (2009).strm").exists()
+
+
+def test_life_events_folder_moved_in_and_out(tmp_path: Path):
+    fake, sync, media = life_sync(tmp_path)
+    # 從任務目錄外面移進一整個資料夾（MoviePilot 整理完常這樣）
+    fake.dirs[300] = ("Arrival (2016)", 0)
+    fake.files.append({"fid": 9, "cid": 300, "n": "Arrival (2016).mkv", "pc": "r" * 17, "s": 900_000_000, "te": T0})
+    fake.dirs[300] = ("Arrival (2016)", 101)
+    fake.event(6, 300, is_dir=True)
+    r = sync.run(INCREMENTAL)
+    assert (media / "電影" / "Arrival (2016)" / "Arrival (2016).strm").exists()
+    assert [Path(f).name for f in r.new_files] == ["Arrival (2016).strm"]
+
+    # 再移出任務目錄：開了 delete_stale 就刪掉
+    fake.dirs[300] = ("Arrival (2016)", 200)
+    fake.dirs[200] = ("待整理", 0)
+    fake.event(6, 300, is_dir=True)
+    sync.run(INCREMENTAL)
+    assert not (media / "電影" / "Arrival (2016)").exists()
+
+
+def test_life_event_gap_falls_back_to_full(tmp_path: Path):
+    fake, sync, media = life_sync(tmp_path)
+    # 115 只保留最新的事件：上次讀到的位置已經不在清單裡
+    fake.events = [dict(e, id=str(5000 + i)) for i, e in enumerate(fake.events)]
+    fake.event(2, 2)
+    fake.events[-1]["id"] = "6000"
+    r = sync.run(INCREMENTAL)
+    assert r.fell_back_to_full == ["/影視"] and "超過 115 保留的範圍" in r.notes[0]
+    assert sync.task_states()[0]["life_id"] == 6000
+
+
+def test_full_schedule_uses_last_full_time(tmp_path: Path):
+    fake = Fake115()
+    sync = make(tmp_path, fake, full_interval=168)
+    assert not sync._full_due(time.time())  # 還沒同步過，不搶著跑
+    sync.run(FULL)
+    now = time.time()
+    assert not sync._full_due(now + 167 * 3600)
+    assert sync._full_due(now + 169 * 3600)
+
+
+def test_sidecars_do_not_steal_longer_names(tmp_path: Path):
+    for name in ["Movie.strm", "Movie.nfo", "Movie-poster.jpg", "Movie-2.strm", "Movie-2.nfo", "Movie-2-poster.jpg", "notes.txt"]:
+        (tmp_path / name).write_text("x")
+    assert sorted(f.name for f in _sidecars(tmp_path, "Movie")) == ["Movie-poster.jpg", "Movie.nfo"]
+
+
+def test_life_events_paging_and_filtering():
+    fake = Fake115()
+    for i in range(100):
+        fake.event(8 if i % 10 == 0 else 2, 1)  # 8 = 瀏覽影片，不處理
+    svc = P115Service(Database(":memory:"), initial_cookies="UID=1", transport=httpx.MockTransport(fake.handler))
+    evs = svc.life_events(1049, int(time.time()) - 60)
+    assert [e["id"] for e in evs] == [i for i in range(1051, 1100) if (i - 1000) % 10]
+    assert evs[0]["name"] == "Old Movie (2001).mkv" and evs[0]["pickcode"] == "a" * 17 and not evs[0]["is_dir"]
+    assert svc.latest_life_event()[0] == 1099

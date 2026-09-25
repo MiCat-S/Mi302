@@ -81,6 +81,16 @@ CREATE TABLE IF NOT EXISTS user_data (
     last_played TEXT,
     PRIMARY KEY (user_id, item_id)
 );
+
+-- 115 同步產生的本機檔案：115 的檔案／資料夾 id → 任務本機資料夾底下的相對路徑。
+-- 生活事件只給 id，靠這張表找到移動、改名、刪除前的本機位置。
+CREATE TABLE IF NOT EXISTS p115_index (
+    task TEXT NOT NULL,
+    file_id INTEGER NOT NULL,
+    is_dir INTEGER NOT NULL,
+    path TEXT NOT NULL,
+    PRIMARY KEY (task, file_id)
+);
 """
 
 
@@ -102,6 +112,11 @@ class Database:
             cur = self.conn.execute(sql, tuple(params))
             self.conn.commit()
             return cur
+
+    def executemany(self, sql: str, rows: Iterable[Iterable[Any]]) -> None:
+        with self.lock:
+            self.conn.executemany(sql, (tuple(r) for r in rows))
+            self.conn.commit()
 
     def query(self, sql: str, params: Iterable[Any] = ()) -> List[sqlite3.Row]:
         with self.lock:

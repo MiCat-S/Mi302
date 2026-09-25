@@ -63,7 +63,7 @@ class P115StrmConfig:
     delete_stale: bool = False  # 刪除 115 上已不存在的 strm
     min_size_mb: float = 0  # 小於此大小的影片不產生 strm（例如預告片）
     interval: int = 0  # 自動增量同步間隔（分鐘），0 表示不自動
-    full_interval: int = 0  # 自動全量同步間隔（小時），0 表示不自動；全量才能清掉 115 上已刪除的項目
+    full_interval: int = 168  # 自動全量同步間隔（小時），預設每週一次查漏補缺；0 表示不自動
     request_delay: float = 0.2  # 每列一個目錄前的等待秒數，避免被 115 風控
     scan_after_sync: bool = True  # 同步完自動重新掃描媒體庫
 

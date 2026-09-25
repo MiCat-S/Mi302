@@ -41,10 +41,27 @@ SHORT_LINK_RE = re.compile(r"/d/([a-zA-Z0-9]{17})(?:\.[A-Za-z0-9]{1,5})?(?:/[^/]
 COOKIE_META_KEY = "p115_cookies"
 LOGIN_META_KEY = "p115_login"  # 怎麼登入的：{"method": "qrcode"/"cookie"/"config", "app": ..., "at": 時間}
 ACCOUNT_CACHE_SECONDS = 60
+LIFE_OPTION_API = "https://life.115.com/api/1.0/web/1.0/calendar/setoption"
+# 生活事件類型：會改變檔案位置或內容的才處理，瀏覽、星標、標籤等略過
+LIFE_UPLOAD_IMAGE, LIFE_UPLOAD, LIFE_MOVE_IMAGE, LIFE_MOVE = 1, 2, 5, 6
+LIFE_RECEIVE, LIFE_NEW_FOLDER, LIFE_COPY_FOLDER, LIFE_FOLDER_RENAME = 14, 17, 18, 20
+LIFE_DELETE, LIFE_COPY, LIFE_RENAME = 22, 23, 24
+LIFE_TYPES = {
+    LIFE_UPLOAD_IMAGE, LIFE_UPLOAD, LIFE_MOVE_IMAGE, LIFE_MOVE, LIFE_RECEIVE, LIFE_NEW_FOLDER,
+    LIFE_COPY_FOLDER, LIFE_FOLDER_RENAME, LIFE_DELETE, LIFE_COPY, LIFE_RENAME,
+}
 
 
 class P115Error(Exception):
     pass
+
+
+class P115NotFound(P115Error):
+    """目錄或檔案已經不在 115 上（被刪除，或 id 不存在）。"""
+
+
+class LifeEventGap(P115Error):
+    """上次讀到的生活事件已經不在 115 給的範圍內，中間可能有漏掉的事件。"""
 
 
 def extract_pickcode(url: str) -> Optional[str]:
@@ -381,7 +398,7 @@ class P115Service:
             )
             # cid 不存在時 115 會回傳根目錄，要擋掉
             if cid != 0 and str((data.get("path") or [{}])[-1].get("cid", cid)) != str(cid):
-                raise P115Error(f"115 目錄不存在：{cid}")
+                raise P115NotFound(f"115 目錄不存在：{cid}")
             items = data.get("data") or []
             for info in items:
                 is_dir = "fid" not in info
@@ -439,16 +456,72 @@ class P115Service:
             if not items or not newer or offset >= _int(data.get("count")):
                 return
 
-    def walk(self, cid: int, rel: str = "", delay: float = 0.0) -> Iterator[Tuple[str, dict]]:
-        """遞迴遍歷，產生 (相對路徑, 檔案資訊)。"""
+    def walk(
+        self, cid: int, rel: str = "", delay: float = 0.0, dirs: bool = False
+    ) -> Iterator[Tuple[str, dict]]:
+        """遞迴遍歷，產生 (相對路徑, 檔案資訊)；dirs=True 時資料夾也會產生（在它的內容之前）。"""
         for entry in self.list_dir(cid):
             child = f"{rel}/{entry['name']}" if rel else entry["name"]
             if entry["is_dir"]:
+                if dirs:
+                    yield child, entry
                 if delay:
                     time.sleep(delay)
-                yield from self.walk(entry["id"], child, delay)
+                yield from self.walk(entry["id"], child, delay, dirs)
             else:
                 yield child, entry
+
+    # ---------------- 生活事件（115 的操作紀錄） ----------------
+
+    def enable_life(self) -> None:
+        """打開 115 生活的「最近記錄」；關閉時 115 不會記錄操作事件。失敗不影響同步。"""
+        try:
+            self._client.post(
+                LIFE_OPTION_API, data={"locus": 1, "open_life": 1},
+                headers={"Cookie": self.cookies, "User-Agent": BROWSER_UA},
+            )
+        except P115Error as exc:
+            log.warning("無法開啟 115 生活的最近記錄：%s", exc)
+
+    def latest_life_event(self) -> Tuple[int, int]:
+        """最新一筆生活事件的 (id, 時間)；還沒有任何事件時是 (0, 0)。"""
+        items = _life_body(self._webapi_get("/behavior/detail", {"type": "", "limit": 1, "offset": 0})).get("list") or []
+        if not items:
+            return 0, 0
+        return _int(items[0].get("id")), _int(items[0].get("update_time"))
+
+    def life_events(self, after_id: int, after_time: int = 0) -> List[dict]:
+        """after_id 之後的生活事件，由舊到新。
+
+        回傳 {id, type, file_id, parent_id, name, is_dir, pickcode, size, mtime}；
+        115 由新到舊給，讀到 after_id（含）以前的事件就停。
+        """
+        if not self.cookies:
+            raise P115Error("讀取生活事件需要掃碼或 cookie 登入")
+        params = {"type": "", "limit": 64, "offset": 0}
+        # 上次讀到的事件在今天（北京時間）時只查今天，115 的回應會快很多
+        day = _life_day(after_time)
+        if day:
+            params["date"] = day
+        out: List[dict] = []
+        while True:
+            body = _life_body(self._webapi_get("/behavior/detail", params))
+            items = body.get("list") or []
+            for ev in items:
+                if _int(ev.get("id")) <= after_id:
+                    out.reverse()
+                    return out
+                if _int(ev.get("type")) in LIFE_TYPES:
+                    out.append(_life_event(ev))
+            params["offset"] += len(items)
+            if not items or params["offset"] >= _int(body.get("count")):
+                break
+            params["limit"] = 1000
+        if after_id and not day:
+            # 翻完了還沒讀到上次的位置：事件太多或太久沒同步，中間可能有漏的
+            raise LifeEventGap("上次同步之後的生活事件超過 115 保留的範圍")
+        out.reverse()
+        return out
 
     # ---------------- 下載直鏈 ----------------
 
@@ -538,6 +611,38 @@ def _date(ts) -> str:
     return time.strftime("%Y-%m-%d", time.localtime(ts)) if ts > 0 else ""
 
 
+def _life_day(after_time: int) -> str:
+    """after_time 是今天（北京時間）而且離午夜超過一小時，回傳今天的日期，否則空字串。"""
+    if not after_time:
+        return ""
+    tz8 = 8 * 3600
+    today = int(time.time() + tz8) // 86400
+    if int(after_time + tz8) // 86400 != today or (after_time + tz8) % 86400 < 3600:
+        return ""
+    return time.strftime("%Y-%m-%d", time.gmtime(after_time + tz8))
+
+
+def _life_body(data: dict) -> dict:
+    body = data.get("data") or {}
+    if not isinstance(body, dict) or data.get("state") is False:
+        raise P115Error(f"115 生活事件回應異常：{data.get('error') or data.get('message') or data}")
+    return body
+
+
+def _life_event(ev: dict) -> dict:
+    return {
+        "id": _int(ev.get("id")),
+        "type": _int(ev.get("type")),
+        "file_id": _int(ev.get("file_id")),
+        "parent_id": _int(ev.get("parent_id")),
+        "name": str(ev.get("file_name") or ""),
+        "is_dir": str(ev.get("file_category", "1")) == "0",
+        "pickcode": str(ev.get("pick_code") or ""),
+        "size": _int(ev.get("file_size")),
+        "mtime": _int(ev.get("update_time")),
+    }
+
+
 def _cookie_uid(cookies: str) -> str:
     m = re.search(r"(?:^|;\s*)UID=(\d+)", cookies or "")
     return m.group(1) if m else ""
@@ -565,7 +670,7 @@ def path_from_ancestors(ancestors, cid: int) -> str:
     last = ancestors[-1]
     last_id = last.get("cid", last.get("file_id"))
     if str(last_id) != str(cid):
-        raise P115Error(f"115 目錄不存在：{cid}")
+        raise P115NotFound(f"115 目錄不存在：{cid}")
     names = [
         str(a.get("name") or a.get("file_name") or "")
         for a in ancestors

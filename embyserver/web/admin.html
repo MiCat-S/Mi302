@@ -115,19 +115,19 @@ code{background:var(--soft);padding:1px 5px;border-radius:4px;word-break:break-a
       <p class="muted">strm 內的伺服器位址：<span id="base"></span></p>
       <button class="primary" onclick="syncStrm('incremental')">增量同步</button>
       <button onclick="syncStrm('full')">全量同步</button>
-      <p class="muted">增量：只處理上次同步之後在 115 新增、改名、移入的檔案，速度快，適合常常跑。<br>
-        全量：重新比對整個目錄，會補齊漏掉的檔案；勾選下方「跟著刪」時也會清掉 115 上已刪除的項目。<br>
-        第一次增量同步會自動先跑一次全量。</p>
+      <p class="muted">增量：讀 115 的生活事件（操作紀錄），處理上次同步之後的上傳、移動、改名、刪除；移動和改名時，本機的 strm 連同刮好的 nfo、海報一起搬。再依修改時間補抓沒有產生事件的上傳（例如離線下載）。速度快，適合常常跑。<br>
+        全量：重新比對整個目錄，查漏補缺，預設每週自動跑一次。<br>
+        任務第一次增量同步、或太久沒同步超出 115 保留的事件範圍時，會自動改跑全量。</p>
       <p id="syncst" class="muted"></p>
       <details><summary class="muted">同步選項</summary>
-        <label class="field">自動增量同步間隔（分鐘，0 = 不自動）</label>
+        <label class="field">自動增量同步間隔（分鐘，0 = 不自動，建議 5）</label>
         <input type="number" min="0" data-key="p115.strm.interval">
-        <label class="field">自動全量同步間隔（小時，0 = 不自動，建議 24）</label>
+        <label class="field">自動全量同步間隔（小時，0 = 不自動，預設 168 = 每週）</label>
         <input type="number" min="0" data-key="p115.strm.full_interval">
         <label class="field">略過小於這個大小的影片（MB，例如 50 可略過預告片）</label>
         <input type="number" min="0" data-key="p115.strm.min_size_mb">
         <label class="check"><input type="checkbox" data-key="p115.strm.download_metadata">一併下載 nfo、海報、字幕</label>
-        <label class="check"><input type="checkbox" data-key="p115.strm.delete_stale">115 上刪掉的影片，本機的 strm 也跟著刪（只在全量同步時）</label>
+        <label class="check"><input type="checkbox" data-key="p115.strm.delete_stale">115 上刪掉或移出同步目錄的影片，本機的 strm 和刮削資料也跟著刪</label>
         <button onclick="saveFields(this.parentElement)">儲存同步選項</button> <span class="muted msg"></span>
       </details>
     </div>
@@ -494,9 +494,11 @@ async function pollSync(first) {
   const r = s.result;
   if (!r.started) { syncst.textContent = ''; return; }
   const kind = r.mode === 'incremental' ? '增量' : '全量';
-  let text = (r.running ? kind + '同步中… ' : '上次' + kind + '同步（' + fmtTime(r.finished) + '）：') + '新檔案 ' + r.new_files +
+  let text = (r.running ? kind + '同步中… ' : '上次' + kind + '同步（' + fmtTime(r.finished) + '）：') +
+    (r.mode === 'incremental' ? '生活事件 ' + r.events + '，搬移 ' + r.moved + '，' : '') + '新檔案 ' + r.new_files +
     '，更新 ' + (r.strm_created - r.new_files) + '，未變 ' + r.strm_unchanged + '，下載中繼資料 ' + r.metadata_downloaded + '，刪除 ' + r.removed;
-  if (r.fell_back_to_full.length) text += '。第一次同步，已先全量：' + r.fell_back_to_full.join('、');
+  if (r.notes.length) text += '。' + r.notes.join('；');
+  if (r.fell_back_to_full.length) text += '。已改跑全量：' + r.fell_back_to_full.join('、');
   if (r.errors.length) text += '。錯誤 ' + r.errors.length + '：' + r.errors.slice(0, 3).join('；');
   syncst.textContent = text;
   if (r.running) setTimeout(() => pollSync(false), 2000);
