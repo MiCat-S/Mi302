@@ -135,12 +135,19 @@ class MoviePilot:
         return path
 
     def test(self) -> dict:
-        """用空路徑呼叫刮削 API：認證通過時 MoviePilot 回「刮削路徑無效」，不會真的刮削。"""
+        """用空路徑呼叫刮削 API 驗證網址與令牌。
+
+        MoviePilot 會以「刮削路径无效」拒絕空路徑，所以不會真的刮削；那是預期的回應，不是路徑設定錯了。
+        """
         try:
-            body = self._post(SCRAPE_API, {"storage": "local", "type": "file", "path": ""}, timeout=15)
+            self._post(SCRAPE_API, {"storage": "local", "type": "file", "path": ""}, timeout=15)
         except MoviePilotError as exc:
             return {"ok": False, "message": str(exc)}
-        return {"ok": True, "message": f"連線成功（MoviePilot 回應：{body.get('message') or 'OK'}）"}
+        return {
+            "ok": True,
+            "message": "連線成功，MoviePilot 接受了 API 令牌。測試用空路徑，不會真的刮削；"
+            "兩邊路徑對不對得上，要看第一次刮削的結果。",
+        }
 
     def scrape_one(self, path: Path, is_dir: bool) -> Tuple[bool, str]:
         mp_path = self.map_path(str(path))
@@ -155,7 +162,10 @@ class MoviePilot:
             item["extension"] = path.suffix.lstrip(".").lower()
         body = self._post(SCRAPE_API, item)
         ok = bool(body.get("success"))
-        return ok, body.get("message") or ("完成" if ok else "失敗")
+        message = body.get("message") or ("完成" if ok else "失敗")
+        if not ok and "不存在" in message:
+            message += f"（MoviePilot 找不到 {mp_path}，請檢查路徑對應）"
+        return ok, message
 
     # ---------------- 決定要送哪些路徑 ----------------
 

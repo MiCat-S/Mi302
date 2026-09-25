@@ -369,7 +369,7 @@ dialog .card-b{max-height:70vh;overflow:auto}
             <label class="field"><span>API 令牌</span><input type="text" data-key="moviepilot.api_token"><small>MoviePilot 的「設定 → 系統 → API 令牌」</small></label>
           </div>
           <label class="field"><span>路徑對應</span><textarea id="mpMap" rows="2" placeholder="/media => /mnt/media"></textarea>
-            <small>兩邊看到的資料夾路徑不同時才需要，一行一條：Mi302 的路徑 =&gt; MoviePilot 的路徑。兩個都用 Docker 時，把同一個主機資料夾掛進兩個容器；掛載路徑一樣就不用填。</small></label>
+            <small>一行一條：Mi302 的路徑 =&gt; MoviePilot 的路徑。兩邊看到的路徑一樣（例如裝在同一台機器）就不用填。不一樣的例子：Mi302 在 Parallels 虛擬機裡看到 /media/psf/Vo，MoviePilot 裝在 Mac 上看到 /Volumes/Vo，就填 /media/psf/Vo =&gt; /Volumes/Vo；Docker 則看各自的掛載路徑。</small></label>
           <label class="switch"><input type="checkbox" data-key="moviepilot.scrape_after_sync"><span class="track"></span><span class="lbl">同步產生新的 strm 後自動送去刮削</span></label>
           <details class="more"><summary>舊版 MoviePilot：改用帳號密碼</summary><div class="in stack">
             <p class="hint">舊版的刮削 API 不接受 API 令牌，測試連線出現「拒絕存取」時再填。</p>

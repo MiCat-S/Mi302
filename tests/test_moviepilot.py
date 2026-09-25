@@ -109,7 +109,8 @@ def test_test_connection_messages(tmp_path: Path):
     ok = MoviePilot(cfg.moviepilot, cfg, transport=httpx.MockTransport(
         lambda r: httpx.Response(200, json={"success": False, "message": "刮削路径无效"})
     ))
-    assert ok.test() == {"ok": True, "message": "連線成功（MoviePilot 回應：刮削路径无效）"}
+    res = ok.test()
+    assert res["ok"] and res["message"].startswith("連線成功") and "无效" not in res["message"]
 
     denied = MoviePilot(cfg.moviepilot, cfg, transport=httpx.MockTransport(lambda r: httpx.Response(401)))
     res = denied.test()
@@ -170,3 +171,13 @@ def test_emby_endpoints_for_moviepilot(tmp_path: Path):
 
     c.delete(f"/web/api/apikeys/{key}", headers={"X-Emby-Token": token})
     assert c.get("/emby/Items/Counts", params=q).status_code == 401
+
+
+def test_missing_path_hints_path_mapping(tmp_path: Path):
+    cfg = make_config(tmp_path)
+    mp = MoviePilot(cfg.moviepilot, cfg, transport=httpx.MockTransport(
+        lambda r: httpx.Response(200, json={"success": False, "message": "刮削路径不存在"})
+    ))
+    movie = touch(tmp_path / "movies" / "A.strm")
+    ok, message = mp.scrape_one(Path(movie), False)
+    assert not ok and "路徑對應" in message and movie in message

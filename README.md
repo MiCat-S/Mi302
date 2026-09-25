@@ -125,10 +125,14 @@ Mi302 不自己刮削，只讀取資料夾裡已經有的 nfo 和海報。這些
 
 ### 設定
 
-1. **兩邊要看得到同一批檔案**。兩個都用 Docker 時，把同一個主機資料夾掛進兩個容器，例如 Mi302 掛 `/volume1/media:/media`，MoviePilot 也掛 `/volume1/media:/media`。掛載路徑一樣就不用填路徑對應；不一樣時（例如 MoviePilot 掛成 `/mnt/media`），在路徑對應填 `/media => /mnt/media`。
+1. **兩邊要看得到同一批檔案**。兩邊看到的路徑一樣（例如都直接裝在同一台機器上）就不用填路徑對應；不一樣時在「路徑對應」填 `Mi302 的路徑 => MoviePilot 的路徑`：
+   - Mi302 在 Parallels 虛擬機裡看到 `/media/psf/Vo`，MoviePilot 裝在 Mac 上看到 `/Volumes/Vo`：填 `/media/psf/Vo => /Volumes/Vo`。
+   - 兩個都用 Docker：把同一個主機資料夾掛進兩個容器，掛載路徑一樣就不用填；例如 Mi302 掛成 `/media`、MoviePilot 掛成 `/mnt/media`，就填 `/media => /mnt/media`。
 2. 在 MoviePilot 的「設定 → 系統」複製 **API 令牌**。
 3. 在 Mi302 網頁的「MoviePilot」分頁填 MoviePilot 網址（例如 `http://192.168.1.10:3000`）和 API 令牌，按「儲存」再按「測試連線」。
 4. 測試出現「拒絕存取」時，表示你的 MoviePilot 版本較舊、刮削 API 只接受登入，請展開「舊版 MoviePilot」填帳號密碼。
+
+「測試連線」只檢查網址和 API 令牌：它送一個空路徑給刮削 API，MoviePilot 會回「刮削路径无效」拒絕，所以不會真的刮削。路徑對應對不對，要看第一次刮削的結果；MoviePilot 找不到檔案時，「刮削」卡片會列出它收到的路徑。
 
 ### 送出規則
 
