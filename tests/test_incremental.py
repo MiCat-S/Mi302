@@ -323,6 +323,21 @@ def test_full_schedule_uses_last_full_time(tmp_path: Path):
     assert sync._full_due(now + 169 * 3600)
 
 
+def test_background_sync_reports_running_immediately(tmp_path: Path):
+    fake = Fake115()
+    sync = make(tmp_path, fake)
+    before = time.time()
+    assert sync.run_in_background(FULL)
+    # 網頁按下同步後馬上查狀態，看到的就是這一次（不會是上一次的結果）
+    started = sync.result.started
+    assert started >= before and sync.result.mode == FULL
+    assert not sync.run_in_background(INCREMENTAL) or sync.result.started != started
+    deadline = time.time() + 10
+    while sync._lock.locked() and time.time() < deadline:
+        time.sleep(0.01)
+    assert not sync.result.running and sync.result.finished >= started
+
+
 def test_sidecars_do_not_steal_longer_names(tmp_path: Path):
     for name in ["Movie.strm", "Movie.nfo", "Movie-poster.jpg", "Movie-2.strm", "Movie-2.nfo", "Movie-2-poster.jpg", "notes.txt"]:
         (tmp_path / name).write_text("x")

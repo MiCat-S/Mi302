@@ -263,12 +263,21 @@ class StrmSync:
     # ---------------- 執行 ----------------
 
     def run(self, mode: str = FULL) -> SyncResult:
-        if not self._lock.acquire(blocking=False):
+        if not self._begin(mode):
             log.info("115 strm 同步已在進行，略過")
             return self.result
+        return self._run_started(mode)
+
+    def _begin(self, mode: str) -> bool:
+        """佔住同步鎖並換上新的結果，讓呼叫端立刻看得到「同步中」與這次的開始時間。"""
+        if not self._lock.acquire(blocking=False):
+            return False
         self.result = SyncResult(mode=mode, started=time.time(), running=True)
         self._dirs = {}
         self._latest = None
+        return True
+
+    def _run_started(self, mode: str) -> SyncResult:
         try:
             self._run(mode)
         finally:
@@ -336,9 +345,9 @@ class StrmSync:
             self.result.errors.append(msg)
 
     def run_in_background(self, mode: str = FULL) -> bool:
-        if self._lock.locked():
+        if not self._begin(mode):
             return False
-        threading.Thread(target=self.run, args=(mode,), daemon=True).start()
+        threading.Thread(target=self._run_started, args=(mode,), daemon=True).start()
         return True
 
     def start_schedule(self) -> None:
