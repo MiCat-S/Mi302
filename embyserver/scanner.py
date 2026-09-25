@@ -29,15 +29,18 @@ PAREN_YEAR_RE = re.compile(r"^(?P<title>.+?)\s*[(（\[](?P<year>(?:19|20)\d{2})[
 EPISODE_PATTERNS = [
     re.compile(r"[Ss](?P<season>\d{1,3})[\s._-]*[Ee][Pp]?(?P<episode>\d{1,4})"),
     re.compile(r"(?P<season>\d{1,2})x(?P<episode>\d{1,3})(?!\d)"),
-    re.compile(r"第\s*(?P<episode>\d{1,4})\s*[集话話]"),
+    re.compile(r"第\s*(?P<episode>\d{1,4}|[一二三四五六七八九十百零〇两兩]{1,6})\s*[集话話]"),
     re.compile(r"(?:^|[\s._\-\[])[Ee][Pp]?(?P<episode>\d{1,4})(?!\d)"),
 ]
 SEASON_DIR_PATTERNS = [
     re.compile(r"^(?:season|series)[\s._-]*(?P<season>\d{1,3})$", re.I),
     re.compile(r"^s(?P<season>\d{1,3})$", re.I),
-    re.compile(r"^第\s*(?P<season>\d{1,3})\s*季$"),
+    re.compile(r"^第\s*(?P<season>\d{1,3}|[一二三四五六七八九十百零〇两兩]{1,4})\s*[季部]$"),
 ]
 SPECIALS_DIRS = {"specials", "special", "sp", "特别篇", "特別篇"}
+CN_DIGITS = {"零": 0, "〇": 0, "一": 1, "二": 2, "两": 2, "兩": 2, "三": 3, "四": 4, "五": 5, "六": 6, "七": 7, "八": 8, "九": 9}
+# 分類資料夾（例如 電視劇/國產劇/劇名）最多往下找幾層
+MAX_CATEGORY_DEPTH = 3
 QUALITY_JUNK_RE = re.compile(
     r"[\s._-]+(?:2160p|1080p|720p|480p|4k|uhd|bluray|blu-ray|web-?dl|webrip|hdtv|remux|"
     r"x264|x265|h\.?264|h\.?265|hevc|hdr|dv|atmos|dts|aac).*$",
@@ -66,13 +69,30 @@ def clean_title(stem: str) -> Tuple[str, Optional[int]]:
     return name or stem, year
 
 
+def _number(text: str) -> int:
+    """阿拉伯數字或中文數字（十二、二十三、一百零五）。"""
+    if text.isdigit():
+        return int(text)
+    total, cur = 0, 0
+    for ch in text:
+        if ch == "百":
+            total += (cur or 1) * 100
+            cur = 0
+        elif ch == "十":
+            total += (cur or 1) * 10
+            cur = 0
+        else:
+            cur = CN_DIGITS[ch]
+    return total + cur
+
+
 def parse_episode(stem: str) -> Tuple[Optional[int], Optional[int]]:
     for pat in EPISODE_PATTERNS:
         m = pat.search(stem)
         if m:
             gd = m.groupdict()
             season = int(gd["season"]) if gd.get("season") else None
-            return season, int(gd["episode"])
+            return season, _number(gd["episode"])
     return None, None
 
 
@@ -82,8 +102,33 @@ def parse_season_dir(name: str) -> Optional[int]:
     for pat in SEASON_DIR_PATTERNS:
         m = pat.match(name.strip())
         if m:
-            return int(m.group("season"))
+            return _number(m.group("season"))
     return None
+
+
+def _skip_dir(name: str) -> bool:
+    """隱藏資料夾與 NAS 的系統資料夾（@eaDir、#recycle）。"""
+    return name.startswith((".", "@", "#"))
+
+
+def looks_like_series(folder: Path) -> bool:
+    """劇集資料夾：有 tvshow.nfo、名稱帶年份（劇名 (2020)）、裡面有季資料夾或直接放著影片。
+
+    其他資料夾（例如「國產劇」「日番」這種分類）不是劇集，要再往下一層找。
+    """
+    if (folder / "tvshow.nfo").is_file() or PAREN_YEAR_RE.match(folder.name):
+        return True
+    try:
+        entries = list(folder.iterdir())
+    except OSError:
+        return False
+    for entry in entries:
+        if entry.is_dir():
+            if parse_season_dir(entry.name) is not None:
+                return True
+        elif entry.suffix.lower() in VIDEO_EXTS:
+            return True
+    return False
 
 
 def read_strm(path: Path) -> str:
@@ -312,10 +357,15 @@ class Scanner:
         return self.config.redirect.default_container
 
     # ---- 劇集 ----
-    def _scan_shows(self, lib_id: int, root: Path) -> None:
+    def _scan_shows(self, lib_id: int, root: Path, depth: int = 0) -> None:
+        """媒體庫路徑底下的每個劇集資料夾各是一部劇；分類資料夾（國產劇、日番…）會往下找。"""
         for entry in sorted(root.iterdir()):
-            if entry.is_dir():
+            if not entry.is_dir() or _skip_dir(entry.name):
+                continue
+            if looks_like_series(entry):
                 self._add_series(lib_id, entry)
+            elif depth < MAX_CATEGORY_DEPTH:
+                self._scan_shows(lib_id, entry, depth + 1)
 
     def _add_series(self, lib_id: int, folder: Path) -> None:
         name, year = clean_title(folder.name)
