@@ -72,14 +72,28 @@ async def setup(request: Request):
 # ---------------- 設定 ----------------
 
 
-def _settings_view(request: Request) -> dict:
+def _settings_view(request: Request, file_error: str = "") -> dict:
     st = state(request)
-    return {**settings.export_settings(st.config), "port": st.config.server.port}
+    return {
+        **settings.export_settings(st.config),
+        "port": st.config.server.port,
+        "config_path": str(Path(st.config.path).resolve()) if st.config.path else "",
+        "file_error": file_error,
+    }
+
+
+def _refresh(request: Request) -> str:
+    """設定檔被手動改過時重新套用；檔案有錯時回傳錯誤訊息，繼續用目前的設定。"""
+    try:
+        settings.refresh(state(request))
+    except SettingsError as exc:
+        return str(exc)
+    return ""
 
 
 @router.get("/web/api/settings")
 def get_settings(request: Request, ctx: AuthContext = Depends(require_admin)):
-    return _settings_view(request)
+    return _settings_view(request, _refresh(request))
 
 
 @router.put("/web/api/settings")
@@ -91,11 +105,7 @@ async def put_settings(request: Request, ctx: AuthContext = Depends(require_admi
         settings.save(st.db, st.config, body)
     except SettingsError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
-    # P115Service 建立時複製了這兩個值，要同步過去
-    st.p115.app = st.config.p115.app
-    st.p115.open.default_app_id = st.config.p115.open_app_id
-    if settings.export_settings(st.config)["libraries"] != before:
-        threading.Thread(target=st.scanner.scan_all, daemon=True).start()
+    settings.after_change(st, before)
     return _settings_view(request)
 
 

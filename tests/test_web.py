@@ -61,10 +61,8 @@ def test_libraries_from_web_are_scanned_and_persist(tmp_path: Path):
     assert scan["libraries"] == [{"name": "電影", "count": 1, "missing": []}]
     assert c.get("/System/Info/Public").json()["ServerName"] == "家"
 
-    # 重新啟動（同一個資料庫）後，網頁設定蓋過設定檔
-    c2 = make_client(tmp_path, {"server": {"name": "檔案裡的名字"}, "libraries": []})
-    assert c2.app.state.config.server.name == "家"
-    assert [l.name for l in c2.app.state.config.libraries] == ["電影"]
+    # 沒有設定檔時（例如測試直接給設定），設定只在記憶體裡
+    assert c.app.state.config.path is None
 
 
 def test_settings_update_live_objects(tmp_path: Path):

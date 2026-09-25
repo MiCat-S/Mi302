@@ -11,9 +11,10 @@ from fastapi.responses import RedirectResponse
 import httpx
 
 from ..auth import AuthContext, require_admin
-from ..config import StrmTask
+from .. import settings
 from ..p115 import PICKCODE_RE, P115Error
 from ..p115_open import P115OpenError
+from ..settings import SettingsError
 from ..strm_sync import FULL, INCREMENTAL
 from .common import q, state
 
@@ -135,6 +136,10 @@ def p115_strm_sync(request: Request, ctx: AuthContext = Depends(require_admin)):
 @router.get("/p115/strm/status")
 def p115_strm_status(request: Request, ctx: AuthContext = Depends(require_admin)):
     st = state(request)
+    try:
+        settings.refresh(st)  # 手動改過設定檔的同步任務也要看得到
+    except SettingsError:
+        pass  # 設定頁會顯示錯誤
     return {
         "tasks": _tasks_view(st),
         "libraries": [{"name": lib.name, "type": lib.type, "paths": lib.paths} for lib in st.config.libraries],
@@ -149,17 +154,12 @@ async def p115_strm_tasks(request: Request, ctx: AuthContext = Depends(require_a
         body = json.loads(await request.body() or b"[]")
     except ValueError:
         raise HTTPException(status_code=400, detail="格式錯誤")
-    tasks = []
-    for t in body if isinstance(body, list) else []:
-        remote = str(t.get("remote") or "").strip()
-        local = str(t.get("local") or "").strip()
-        if not (remote and local):
-            raise HTTPException(status_code=400, detail="115 目錄和本機資料夾都要填")
-        if not remote.startswith("/"):
-            remote = "/" + remote
-        tasks.append(StrmTask(remote=remote, local=local))
     st = state(request)
-    st.strm_sync.set_tasks(tasks)
+    try:
+        settings.save(st.db, st.config, {"p115": {"strm": {"tasks": body if isinstance(body, list) else []}}})
+    except SettingsError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    st.strm_sync.prune_index()
     return {"tasks": _tasks_view(st)}
 
 

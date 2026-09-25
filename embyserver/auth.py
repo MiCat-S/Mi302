@@ -111,7 +111,7 @@ API_KEYS_META_KEY = "api_keys"
 class AuthService:
     def __init__(self, db: Database, api_keys: list[str]):
         self.db = db
-        self.api_keys = set(api_keys)
+        self.api_keys = api_keys  # 設定檔的 api_keys（同一個 list，設定檔重新讀取時跟著變）
 
     # ---- API 金鑰（給 MoviePilot 等工具用，網頁上建立） ----
     def list_api_keys(self) -> list[dict]:

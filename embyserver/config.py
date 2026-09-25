@@ -113,6 +113,9 @@ class Config:
     api_keys: List[str] = field(default_factory=list)
     p115: P115Config = field(default_factory=P115Config)
     moviepilot: MoviePilotConfig = field(default_factory=MoviePilotConfig)
+    # 設定檔的位置與讀取時的修改時間；網頁儲存時寫回這個檔案，檔案被手動改過時重新讀取
+    path: Optional[str] = field(default=None, repr=False, compare=False)
+    file_mtime: float = field(default=0.0, repr=False, compare=False)
 
     @property
     def data_path(self) -> Path:
@@ -162,11 +165,22 @@ def load_config(path: Optional[str] = None) -> Config:
     path = path or os.environ.get("EMBYSERVER_CONFIG", "config.yaml")
     p = Path(path)
     if not p.exists():
-        # 設定檔可有可無：沒有時用預設值啟動，其餘在網頁上設定
+        # 設定檔可有可無：沒有時用預設值啟動，網頁上第一次儲存設定時建立
         log.info("沒有設定檔 %s，使用預設值；請到 http://<主機>:<埠>/web 完成設定", p)
-        return _build({})
-    with p.open(encoding="utf-8") as f:
-        return _build(yaml.safe_load(f))
+        config = _build({})
+    else:
+        config = read_file(p)
+        config.file_mtime = p.stat().st_mtime
+    config.path = str(p)
+    return config
+
+
+def read_file(path: Path) -> Config:
+    try:
+        with Path(path).open(encoding="utf-8") as f:
+            return _build(yaml.safe_load(f))
+    except (yaml.YAMLError, TypeError, KeyError) as exc:
+        raise ValueError(f"設定檔 {path} 格式錯誤：{exc}") from exc
 
 
 def config_from_dict(raw: dict) -> Config:

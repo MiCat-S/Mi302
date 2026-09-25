@@ -28,7 +28,17 @@
 
 家人的帳號在「使用者」分頁新增；自動同步間隔、strm 網址等在「115 網盤」的同步選項和「進階設定」。忘記管理員密碼時，執行 `python -m embyserver --reset-password admin 新密碼`（Docker：`docker compose exec mi302 python -m embyserver -c /config/config.yaml --reset-password admin 新密碼`）。
 
-設定檔 `config.yaml` 可有可無，只在要改埠號或想用檔案預先寫好設定時才需要，說明見 `config.example.yaml`。網頁上儲存過的設定會蓋過設定檔裡的同名項目。
+### 設定檔
+
+網頁上的設定都存在設定檔 `config.yaml`（Docker 版在 `config/config.yaml`），兩邊保持一致：
+
+- 第一次啟動時自動產生，每一項都附說明註解，不用自己建立。
+- 在網頁上儲存設定時自動寫回，覆寫前把舊檔留成 `config.yaml.bak`。檔案每次都依範本重新產生，自己加的註解不會保留。
+- 也可以直接改檔案，網頁重新整理後就會套用；`server` 的 `host`、`port`、`data_dir` 要重新啟動才生效。檔案格式寫錯時，網頁上方會顯示錯誤，並繼續用上次讀到的設定。
+- 帳號密碼、115 登入狀態、網頁上建立的 API 金鑰存在資料庫（`data/`），不寫進設定檔。檔案裡的 `users` 只在第一次啟動時用來建立帳號。
+- 舊版存在資料庫裡的網頁設定和同步任務，更新後第一次啟動會自動搬進設定檔。
+
+各項目的說明見 `config.example.yaml`。
 
 ## 115 網盤
 
@@ -154,7 +164,7 @@ docker compose logs -f   # 看啟動與掃描紀錄
 
 然後開 `http://<主機>:8096/web`，照「快速開始」設定。
 
-- 帳號、媒體庫、115 登入狀態、同步任務都存在 `config/data/`，更新或重建容器都不會遺失。
+- 設定存在 `config/config.yaml`，帳號、115 登入狀態、同步進度存在 `config/data/`，更新或重建容器都不會遺失。
 - 更新版本：`git pull && docker compose up -d --build`。
 - 要改埠號：改 `docker-compose.yml` 的 `"8096:8096"` 左邊的數字。
 
@@ -167,7 +177,7 @@ pip install -r requirements.txt
 python -m embyserver
 ```
 
-然後開 `http://<主機>:8096/web`。資料庫存在目前資料夾的 `data/`。要改埠號時，複製 `config.example.yaml` 成 `config.yaml` 並設定 `server.port`，再用 `python -m embyserver -c config.yaml` 啟動。
+然後開 `http://<主機>:8096/web`。設定檔 `config.yaml` 和資料庫 `data/` 會建立在目前的資料夾。要改埠號時，改 `config.yaml` 的 `server.port` 後重新啟動。
 
 ### 從外網連線
 

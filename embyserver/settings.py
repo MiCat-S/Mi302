@@ -1,4 +1,8 @@
-"""網頁上可修改的設定：存在資料庫 meta，啟動時蓋過設定檔的同名項目。
+"""網頁上可修改的設定，與設定檔 config.yaml 保持一致。
+
+- 網頁儲存時：先在副本上驗證，寫進設定檔，再套用到執行中的設定。
+- 設定檔被手動改過（修改時間變了）：網頁讀取設定時重新讀檔並套用。
+- 舊版把網頁設定存在資料庫 meta，啟動時搬進設定檔。
 
 各元件持有的是同一個 Config 物件裡的子物件（config.libraries、config.p115.strm、
 config.redirect…），所以這裡一律就地修改，不替換物件，改完立即生效。
@@ -8,13 +12,21 @@ from __future__ import annotations
 
 import copy
 import json
+import logging
+import threading
 from dataclasses import fields
+from pathlib import Path
 from typing import Any, Dict, List
 
-from .config import Config, LibraryConfig, PathRule
+from . import config_file
+from .config import Config, LibraryConfig, PathRule, StrmTask, read_file
 from .db import Database
 
+log = logging.getLogger(__name__)
+
+# 舊版存放網頁設定、同步任務的位置
 SETTINGS_META_KEY = "web_settings"
+TASKS_META_KEY = "p115_strm_tasks"
 
 # 網頁可修改的欄位；port、host、data_dir 牽涉啟動方式，不開放在網頁改
 SERVER_FIELDS = ("name", "public_users")
@@ -37,7 +49,10 @@ def export_settings(config: Config) -> Dict[str, Any]:
         "libraries": [{"name": l.name, "type": l.type, "paths": list(l.paths)} for l in config.libraries],
         "p115": {
             **{k: getattr(config.p115, k) for k in P115_FIELDS},
-            "strm": {k: getattr(config.p115.strm, k) for k in STRM_FIELDS},
+            "strm": {
+                **{k: getattr(config.p115.strm, k) for k in STRM_FIELDS},
+                "tasks": [{"remote": t.remote, "local": t.local} for t in config.p115.strm.tasks],
+            },
         },
         "moviepilot": {
             **{k: getattr(config.moviepilot, k) for k in MOVIEPILOT_FIELDS},
@@ -103,6 +118,8 @@ def apply_settings(config: Config, raw: dict) -> None:
     _set_fields(config.p115, P115_FIELDS, p115)
     if "strm" in p115:
         _set_fields(config.p115.strm, STRM_FIELDS, p115["strm"] or {})
+        if "tasks" in (p115["strm"] or {}):
+            config.p115.strm.tasks[:] = _tasks(p115["strm"]["tasks"])
     redirect = raw.get("redirect") or {}
     _set_fields(config.redirect, REDIRECT_FIELDS, redirect)
     if "path_rules" in redirect:
@@ -116,6 +133,16 @@ def apply_settings(config: Config, raw: dict) -> None:
         config.moviepilot.path_mappings[:] = _rules(mp["path_mappings"])
 
 
+def _tasks(raw) -> List[StrmTask]:
+    tasks = []
+    for t in raw or []:
+        remote, local = str(t.get("remote") or "").strip(), str(t.get("local") or "").strip()
+        if not (remote and local):
+            raise SettingsError("115 目錄和本機資料夾都要填")
+        tasks.append(StrmTask(remote=remote if remote.startswith("/") else "/" + remote, local=local))
+    return tasks
+
+
 def _rules(raw) -> List[PathRule]:
     rules = []
     for r in raw or []:
@@ -125,14 +152,83 @@ def _rules(raw) -> List[PathRule]:
     return rules
 
 
+def _write(config: Config) -> None:
+    if not config.path:
+        return
+    try:
+        config.file_mtime = config_file.write(config, config.path)
+    except OSError as exc:
+        raise SettingsError(f"無法寫入設定檔 {config.path}：{exc}") from exc
+
+
 def load_saved(db: Database, config: Config) -> None:
+    """啟動時：把舊版存在資料庫的網頁設定、同步任務搬進設定檔；沒有設定檔時產生一個。"""
     raw = db.get_meta(SETTINGS_META_KEY)
+    tasks = db.get_meta(TASKS_META_KEY)
     if raw:
         apply_settings(config, json.loads(raw))
+    if tasks is not None:
+        config.p115.strm.tasks[:] = _tasks(json.loads(tasks))
+    if not config.path or (raw is None and tasks is None and Path(config.path).exists()):
+        return
+    try:
+        _write(config)
+    except SettingsError as exc:
+        log.warning("%s；網頁設定暫時只存在記憶體", exc)
+        return
+    if raw is not None or tasks is not None:
+        log.info("已把網頁上的設定搬進設定檔 %s", config.path)
+        db.execute("DELETE FROM meta WHERE key IN (?, ?)", (SETTINGS_META_KEY, TASKS_META_KEY))
+
+
+def reload_if_changed(config: Config) -> bool:
+    """設定檔被手動改過時重新讀取，就地套用；有變動回傳 True。"""
+    if not config.path:
+        return False
+    path = Path(config.path)
+    try:
+        mtime = path.stat().st_mtime
+    except OSError:
+        return False
+    if mtime == config.file_mtime:
+        return False
+    try:
+        new = read_file(path)
+        apply_settings(copy.deepcopy(config), export_settings(new))
+    except (ValueError, OSError) as exc:
+        raise SettingsError(f"設定檔有錯，沒有套用：{exc}") from exc
+    apply_settings(config, export_settings(new))
+    # 這些只在啟動時使用，先記下來；server 的 host、port、data_dir 要重新啟動才生效
+    config.users[:] = new.users
+    config.api_keys[:] = new.api_keys
+    config.p115.cookies = new.p115.cookies
+    config.p115.timeout = new.p115.timeout
+    config.file_mtime = mtime
+    log.info("設定檔 %s 被修改，已重新套用", path)
+    return True
 
 
 def save(db: Database, config: Config, raw: dict) -> None:
-    """驗證並套用，成功後把完整的網頁設定存進資料庫。"""
-    apply_settings(copy.deepcopy(config), raw)  # 先在副本上驗證，失敗時不留下改一半的設定
+    """驗證並寫進設定檔，成功後才套用到執行中的設定。"""
+    reload_if_changed(config)  # 先接上手動改過的內容，免得被網頁的舊內容蓋掉
+    trial = copy.deepcopy(config)
+    apply_settings(trial, raw)  # 先在副本上驗證，失敗時不留下改一半的設定
+    _write(trial)
     apply_settings(config, raw)
-    db.set_meta(SETTINGS_META_KEY, json.dumps(export_settings(config), ensure_ascii=False))
+    config.file_mtime = trial.file_mtime
+
+
+def refresh(st) -> None:
+    """設定檔被手動改過時重新套用，並處理跟著要做的事（重新掃描、115 設定）。"""
+    before = export_settings(st.config)["libraries"]
+    if reload_if_changed(st.config):
+        after_change(st, before)
+
+
+def after_change(st, libraries_before: list) -> None:
+    # P115Service 建立時複製了這兩個值，要同步過去
+    st.p115.app = st.config.p115.app
+    st.p115.open.default_app_id = st.config.p115.open_app_id
+    st.strm_sync.prune_index()
+    if export_settings(st.config)["libraries"] != libraries_before:
+        threading.Thread(target=st.scanner.scan_all, daemon=True).start()

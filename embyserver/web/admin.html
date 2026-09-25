@@ -63,6 +63,7 @@ code{background:var(--soft);padding:1px 5px;border-radius:4px;word-break:break-a
     <a href="#settings" data-tab="settings">進階設定</a>
     <a href="#" onclick="logoutWeb();return false" style="margin-left:auto">登出</a>
   </nav>
+  <p id="fileErr" class="warn hidden"></p>
 
   <!-- 媒體庫 -->
   <section id="tab-libraries" class="hidden">
@@ -190,6 +191,7 @@ code{background:var(--soft);padding:1px 5px;border-radius:4px;word-break:break-a
       <input type="text" data-key="server.name">
       <label class="check"><input type="checkbox" data-key="server.public_users">播放器登入畫面列出使用者名稱</label>
       <p class="muted">埠號目前是 <span id="port"></span>，要改埠號請改 Docker 的埠對應或設定檔。</p>
+      <p class="muted">網頁上的設定都存在設定檔 <code id="cfgPath"></code>，儲存時自動寫入（舊檔留成 .bak）。直接改檔案也可以，重新整理網頁就會套用；host、port、data_dir 要重新啟動才生效。</p>
     </div>
     <div class="box">
       <b>115 與 strm</b>
@@ -295,6 +297,9 @@ function fillFields() {
     if (el.type === 'checkbox') el.checked = !!v; else el.value = v ?? '';
   }
   $('port').textContent = cfg.port;
+  $('cfgPath').textContent = cfg.config_path || '（沒有設定檔）';
+  $('fileErr').textContent = cfg.file_error ? cfg.file_error + '。網頁目前用的是上次讀到的設定，修正設定檔後重新整理網頁。' : '';
+  $('fileErr').classList.toggle('hidden', !cfg.file_error);
   $('rules').value = cfg.redirect.path_rules.map(r => r.from + ' => ' + r.to).join('\n');
 }
 async function saveFields(scope, withRules) {

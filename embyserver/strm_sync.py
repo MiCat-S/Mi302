@@ -44,8 +44,7 @@ VIDEO_EXTS = {
 }
 METADATA_EXTS = {".nfo", ".jpg", ".jpeg", ".png", ".webp", ".srt", ".ass", ".ssa", ".sup", ".vtt"}
 
-# 網頁上設定的同步任務、自動偵測到的伺服器位址、各任務的增量同步進度，存在資料庫 meta
-TASKS_META_KEY = "p115_strm_tasks"
+# 自動偵測到的伺服器位址、各任務的同步進度，存在資料庫 meta
 SERVER_URL_META_KEY = "server_url"
 STATE_META_KEY = "p115_sync_state"
 # 增量同步往回多看一段時間，避免 115 與本機時間差或同一秒上傳的檔案漏掉；重複處理只會判定為「未變」
@@ -218,17 +217,12 @@ class StrmSync:
 
     @property
     def tasks(self) -> List[StrmTask]:
-        """網頁上存過任務就用網頁的，否則用設定檔的 p115.strm.tasks。"""
-        raw = self.p115.db.get_meta(TASKS_META_KEY)
-        if raw is None:
-            return list(self.cfg.tasks)
-        return [StrmTask(remote=t["remote"], local=t["local"]) for t in json.loads(raw)]
+        """設定檔的 p115.strm.tasks（網頁上修改時會寫回設定檔）。"""
+        return list(self.cfg.tasks)
 
-    def set_tasks(self, tasks: List[StrmTask]) -> None:
-        data = [{"remote": t.remote, "local": t.local} for t in tasks]
-        self.p115.db.set_meta(TASKS_META_KEY, json.dumps(data, ensure_ascii=False))
-        # 刪掉的任務不再需要對照表
-        keys = {_task_key(t) for t in tasks}
+    def prune_index(self) -> None:
+        """刪掉的任務不再需要對照表。"""
+        keys = {_task_key(t) for t in self.tasks}
         stale = [r["task"] for r in self.p115.db.query("SELECT DISTINCT task FROM p115_index") if r["task"] not in keys]
         self.p115.db.executemany("DELETE FROM p115_index WHERE task=?", [(k,) for k in stale])
 
