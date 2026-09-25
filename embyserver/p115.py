@@ -13,7 +13,7 @@ import logging
 import re
 import threading
 import time
-from typing import Dict, Optional, Tuple
+from typing import Dict, Iterator, List, Optional, Tuple
 from urllib.parse import parse_qs, parse_qsl, unquote, urlsplit
 
 import httpx
@@ -25,6 +25,13 @@ log = logging.getLogger(__name__)
 QRCODE_API = "https://qrcodeapi.115.com"
 DOWNLOAD_API = "http://proapi.115.com/android/2.0/ufile/download"
 USER_INFO_API = "https://my.115.com/?ct=ajax&ac=nav"
+WEBAPI = "https://webapi.115.com"
+# webapi 需要像瀏覽器的 UA，否則容易被擋
+BROWSER_UA = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/124.0 Safari/537.36 115Browser/27.0"
+)
+LIST_PAGE_SIZE = 1150
 PICKCODE_RE = re.compile(r"^[a-zA-Z0-9]{17}$")
 COOKIE_META_KEY = "p115_cookies"
 
@@ -152,6 +159,74 @@ class P115Service:
             raise P115Error(f"換取 cookie 失敗：{data.get('message') or data.get('error') or data}")
         self.set_cookies("; ".join(f"{k}={v}" for k, v in cookie.items() if k and v))
         log.info("115 掃碼登入成功")
+
+    # ---------------- 目錄 ----------------
+
+    def _webapi_get(self, path: str, params: dict) -> dict:
+        if not self.cookies:
+            raise P115Error("尚未登入 115")
+        resp = self._client.get(
+            f"{WEBAPI}{path}", params=params, headers={"Cookie": self.cookies, "User-Agent": BROWSER_UA}
+        )
+        data = _json(resp)
+        if not data.get("state", True) and "data" not in data:
+            raise P115Error(f"115 webapi 錯誤：{data.get('error') or data.get('errNo') or data}")
+        return data
+
+    def dir_id(self, path: str) -> int:
+        """由 115 路徑取目錄 id；根目錄為 0。"""
+        path = "/" + path.strip("/")
+        if path == "/":
+            return 0
+        data = self._webapi_get("/files/getid", {"path": path})
+        cid = int(data.get("id") or 0)
+        if cid == 0:
+            raise P115Error(f"115 上找不到目錄：{path}")
+        return cid
+
+    def list_dir(self, cid: int) -> List[dict]:
+        """列出目錄的直接子項，回傳 {name, is_dir, id, pickcode, size, mtime}。"""
+        out: List[dict] = []
+        offset = 0
+        while True:
+            data = self._webapi_get(
+                "/files",
+                {
+                    "cid": cid, "limit": LIST_PAGE_SIZE, "offset": offset, "show_dir": 1,
+                    "cur": 1, "aid": 1, "count_folders": 1, "record_open_time": 0,
+                },
+            )
+            # cid 不存在時 115 會回傳根目錄，要擋掉
+            if cid != 0 and str((data.get("path") or [{}])[-1].get("cid", cid)) != str(cid):
+                raise P115Error(f"115 目錄不存在：{cid}")
+            items = data.get("data") or []
+            for info in items:
+                is_dir = "fid" not in info
+                out.append(
+                    {
+                        "name": info.get("n") or "",
+                        "is_dir": is_dir,
+                        "id": int(info["cid"] if is_dir else info["fid"]),
+                        "pickcode": info.get("pc") or "",
+                        "size": int(info.get("s") or 0),
+                        "mtime": int(info.get("te") or info.get("t") or 0),
+                    }
+                )
+            offset += len(items)
+            if not items or offset >= int(data.get("count") or 0):
+                break
+        return out
+
+    def walk(self, cid: int, rel: str = "", delay: float = 0.0) -> Iterator[Tuple[str, dict]]:
+        """遞迴遍歷，產生 (相對路徑, 檔案資訊)。"""
+        for entry in self.list_dir(cid):
+            child = f"{rel}/{entry['name']}" if rel else entry["name"]
+            if entry["is_dir"]:
+                if delay:
+                    time.sleep(delay)
+                yield from self.walk(entry["id"], child, delay)
+            else:
+                yield child, entry
 
     # ---------------- 下載直鏈 ----------------
 

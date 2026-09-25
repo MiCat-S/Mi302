@@ -59,6 +59,26 @@ def p115_logout(request: Request, ctx: AuthContext = Depends(require_admin)):
     return Response(status_code=204)
 
 
+@router.post("/p115/strm/sync")
+def p115_strm_sync(request: Request, ctx: AuthContext = Depends(require_admin)):
+    st = state(request)
+    if not st.p115.logged_in:
+        raise HTTPException(status_code=400, detail="尚未登入 115")
+    if not st.config.p115.strm.tasks:
+        raise HTTPException(status_code=400, detail="設定檔裡沒有 p115.strm.tasks")
+    started = st.strm_sync.run_in_background()
+    return {"started": started, "result": st.strm_sync.result.as_dict()}
+
+
+@router.get("/p115/strm/status")
+def p115_strm_status(request: Request, ctx: AuthContext = Depends(require_admin)):
+    st = state(request)
+    return {
+        "tasks": [{"remote": t.remote, "local": t.local} for t in st.config.p115.strm.tasks],
+        "result": st.strm_sync.result.as_dict(),
+    }
+
+
 # strm 可以直接寫成本伺服器的網址；也相容 P115StrmHelper 的路徑，舊 strm 換個主機即可沿用
 @router.api_route("/p115/redirect", methods=["GET", "HEAD"])
 @router.api_route("/api/v1/plugin/p115strmhelper/redirect_url", methods=["GET", "HEAD"])
@@ -105,6 +125,11 @@ textarea{width:100%;box-sizing:border-box;height:80px}
     <p class="muted">或直接貼上 115 cookie（UID=…; CID=…; SEID=…）</p>
     <textarea id="ck"></textarea><button onclick="saveCookie()">儲存 cookie</button>
   </div>
+  <div class="box">
+    <b>產生 strm</b><div id="tasks" class="muted"></div>
+    <button onclick="syncStrm()">立即從 115 同步 strm</button>
+    <p id="syncst" class="muted"></p>
+  </div>
   <button onclick="logout115()">登出 115</button>
 </div>
 <script>
@@ -127,6 +152,7 @@ async function show() {
   try { const s = await api('/p115/status');
     document.getElementById('login').style.display = 'none';
     document.getElementById('main').style.display = '';
+    pollSync();
     st.textContent = s.logged_in ? ('已登入' + (s.user ? '：' + s.user.user_name : '（cookie 可能已失效）')) : '未登入';
   } catch (e) { sessionStorage.removeItem('t'); token = ''; }
 }
@@ -150,6 +176,19 @@ async function startQr() {
   poll();
 }
 async function saveCookie() { await api('/p115/cookies', {method: 'POST', body: JSON.stringify({cookies: ck.value})}); ck.value = ''; show(); }
+async function syncStrm() {
+  try { await api('/p115/strm/sync', {method: 'POST'}); } catch (e) { syncst.textContent = '錯誤：' + e.message; return; }
+  pollSync();
+}
+async function pollSync() {
+  const s = await api('/p115/strm/status');
+  tasks.innerHTML = s.tasks.map(t => '115:' + t.remote + ' → ' + t.local).join('<br>') || '設定檔裡還沒有同步任務';
+  const r = s.result;
+  if (!r.started) { syncst.textContent = ''; return; }
+  syncst.textContent = (r.running ? '同步中… ' : '上次同步完成：') + '新增/更新 ' + r.strm_created + '，未變 ' + r.strm_unchanged +
+    '，下載中繼資料 ' + r.metadata_downloaded + '，刪除 ' + r.removed + (r.errors.length ? '，錯誤 ' + r.errors.length + '：' + r.errors.slice(0, 3).join('；') : '');
+  if (r.running) setTimeout(pollSync, 2000);
+}
 async function logout115() { await api('/p115/logout', {method: 'POST'}); show(); }
 if (token) show();
 </script></body></html>

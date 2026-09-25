@@ -45,12 +45,32 @@ class RedirectConfig:
 
 
 @dataclass
+class StrmTask:
+    remote: str  # 115 上的目錄路徑
+    local: str  # 產生 strm 的本機資料夾
+
+
+@dataclass
+class P115StrmConfig:
+    tasks: List[StrmTask] = field(default_factory=list)
+    # strm 內容裡本伺服器的網址；留空時寫成 115://pickcode（只有本伺服器看得懂）
+    base_url: str = ""
+    download_metadata: bool = True  # 一併下載 nfo、圖片、字幕
+    delete_stale: bool = False  # 刪除 115 上已不存在的 strm
+    min_size_mb: float = 0  # 小於此大小的影片不產生 strm（例如預告片）
+    interval: int = 0  # 定時同步間隔（分鐘），0 表示只手動同步
+    request_delay: float = 0.2  # 每列一個目錄前的等待秒數，避免被 115 風控
+    scan_after_sync: bool = True  # 同步完自動重新掃描媒體庫
+
+
+@dataclass
 class P115Config:
     # 可直接填 cookie，也可以之後在 /web/115 掃碼登入
     cookies: str = ""
     # 掃碼後綁定的 115 裝置類型；同類型的舊登入會被踢下線
     app: str = "alipaymini"
     timeout: float = 15.0
+    strm: P115StrmConfig = field(default_factory=P115StrmConfig)
 
 
 @dataclass
@@ -97,8 +117,15 @@ def _build(raw: dict) -> Config:
         libraries=libraries,
         redirect=redirect,
         api_keys=list(raw.get("api_keys") or []),
-        p115=P115Config(**(raw.get("p115") or {})),
+        p115=_build_p115(raw.get("p115") or {}),
     )
+
+
+def _build_p115(raw: dict) -> P115Config:
+    raw = dict(raw)
+    sraw = dict(raw.pop("strm", None) or {})
+    tasks = [StrmTask(remote=t["remote"], local=t["local"]) for t in sraw.pop("tasks", None) or []]
+    return P115Config(strm=P115StrmConfig(tasks=tasks, **sraw), **raw)
 
 
 def load_config(path: Optional[str] = None) -> Config:

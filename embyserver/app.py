@@ -19,6 +19,7 @@ from .p115 import P115Service
 from .redirect import Redirector
 from .routes import items, p115, playback, system
 from .scanner import Scanner
+from .strm_sync import StrmSync
 
 log = logging.getLogger(__name__)
 
@@ -42,6 +43,7 @@ def create_app(config: Config, db_path: Optional[str] = None, scan_on_start: boo
     async def lifespan(app: FastAPI):
         if scan_on_start:
             threading.Thread(target=scanner.scan_all, daemon=True).start()
+            app.state.strm_sync.start_schedule()
         yield
 
     app = FastAPI(title="Emby 相容伺服器", lifespan=lifespan, docs_url="/api-docs", redoc_url=None)
@@ -52,6 +54,11 @@ def create_app(config: Config, db_path: Optional[str] = None, scan_on_start: boo
     app.state.scanner = scanner
     app.state.p115 = P115Service(db, config.p115.cookies, config.p115.app, config.p115.timeout)
     app.state.redirector = Redirector(config.redirect, app.state.p115)
+    app.state.strm_sync = StrmSync(
+        app.state.p115,
+        config.p115.strm,
+        on_done=scanner.scan_all if config.p115.strm.scan_after_sync else None,
+    )
 
     app.add_middleware(
         CORSMiddleware,
