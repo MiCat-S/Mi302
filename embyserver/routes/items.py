@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import base64
+import binascii
+import json
+import logging
 from typing import Any, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
@@ -9,7 +13,11 @@ from fastapi.responses import FileResponse
 
 from ..auth import AuthContext, now_iso, require_admin, require_user
 from ..dto import item_dto, query_result, user_data_dto
+from ..scanner import image_ext
 from .common import q, q_bool, q_int, q_list, state
+
+log = logging.getLogger(__name__)
+MAX_IMAGE_BYTES = 30 * 1024 * 1024
 
 router = APIRouter()
 
@@ -139,22 +147,38 @@ def item_counts(request: Request, ctx: AuthContext = Depends(require_user)):
     }
 
 
-def _rescan(request: Request) -> Response:
+def _background(target, *args) -> Response:
     import threading
 
-    threading.Thread(target=state(request).scanner.scan_all, daemon=True).start()
+    threading.Thread(target=target, args=args, daemon=True).start()
     return Response(status_code=204)
 
 
 @router.post("/items/{item_id}/refresh")
 def item_refresh(item_id: str, request: Request, ctx: AuthContext = Depends(require_admin)):
-    # 目前掃描是整個媒體庫一起做，很快，所以刷新單一項目也直接重新掃描
-    return _rescan(request)
+    """只重新掃描這個項目：一部片、一部劇（季、集也是重掃整部劇），媒體庫則掃整個媒體庫。"""
+    st = state(request)
+    row = st.db.get_item(item_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="Item not found")
+    if row["type"] == "CollectionFolder":
+        return _background(st.scanner.scan_libraries, [row["name"]])
+    return _background(st.scanner.scan_paths, [row["path"].split("#", 1)[0]])
 
 
 @router.post("/library/media/updated")
-def library_media_updated(request: Request, ctx: AuthContext = Depends(require_admin)):
-    return _rescan(request)
+async def library_media_updated(request: Request, ctx: AuthContext = Depends(require_admin)):
+    """MoviePilot 等工具整理完檔案後通知：{"Updates": [{"Path": "...", "UpdateType": "Created"}]}，只掃那些路徑。"""
+    st = state(request)
+    try:
+        body = json.loads(await request.body() or b"{}")
+    except ValueError:
+        body = {}
+    updates = body.get("Updates") if isinstance(body, dict) else None
+    paths = [st.moviepilot.unmap_path(str(u["Path"])) for u in updates or [] if isinstance(u, dict) and u.get("Path")]
+    if not paths:
+        return _background(st.scanner.scan_all)
+    return _background(st.scanner.scan_paths, paths)
 
 
 # ---------------- 項目查詢 ----------------
@@ -541,6 +565,58 @@ def item_image(item_id: str, image_type: str, request: Request, index: int = 0):
     if not path:
         raise HTTPException(status_code=404, detail="Image not found")
     return FileResponse(path, headers={"Cache-Control": "public, max-age=31536000"})
+
+
+def _image_body(body: bytes) -> bytes:
+    """Emby 的上傳圖片 API 收 base64 文字；也接受直接傳圖片檔。"""
+    data = body.strip()
+    if data.startswith(b"data:"):
+        data = data.split(b",", 1)[-1]
+    if image_ext(data):
+        return data
+    try:
+        return base64.b64decode(data)
+    except (ValueError, binascii.Error):
+        raise HTTPException(status_code=400, detail="圖片內容無法解讀")
+
+
+@router.post("/items/{item_id}/images/{image_type}")
+@router.post("/items/{item_id}/images/{image_type}/{index}")
+async def upload_image(item_id: str, image_type: str, request: Request, ctx: AuthContext = Depends(require_admin)):
+    """上傳圖片（例如 MoviePilot 的媒體庫封面插件）。存在資料夾 data/images，重新掃描時不會被蓋掉。"""
+    st = state(request)
+    row = st.db.get_item(item_id)
+    col = IMAGE_COLUMNS.get(image_type.lower())
+    if not row or not col:
+        raise HTTPException(status_code=404, detail="Item not found")
+    data = _image_body(await request.body())
+    if len(data) > MAX_IMAGE_BYTES:
+        raise HTTPException(status_code=413, detail="圖片太大")
+    try:
+        st.scanner.save_custom_image(row["id"], col, data)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    log.info("已更新「%s」的 %s 圖片（%s KB）", row["name"], image_type, len(data) // 1024)
+    return Response(status_code=204)
+
+
+@router.delete("/items/{item_id}/images/{image_type}")
+@router.delete("/items/{item_id}/images/{image_type}/{index}")
+def delete_image(item_id: str, image_type: str, request: Request, ctx: AuthContext = Depends(require_admin)):
+    """刪掉上傳的圖片，改回媒體資料夾裡的圖。"""
+    st = state(request)
+    row = st.db.get_item(item_id)
+    col = IMAGE_COLUMNS.get(image_type.lower())
+    if not row or not col:
+        raise HTTPException(status_code=404, detail="Item not found")
+    st.scanner.remove_custom_image(row["id"], col)
+    if row["type"] == "CollectionFolder":
+        lib = next((l for l in st.config.libraries if l.name == row["name"]), None)
+        cover = st.scanner.library_cover(lib, row["id"]) if lib else None
+        st.db.execute("UPDATE items SET primary_image=? WHERE id=?", (cover, row["id"]))
+        return Response(status_code=204)
+    st.db.execute(f"UPDATE items SET {col}=NULL WHERE id=?", (row["id"],))
+    return _background(st.scanner.scan_paths, [row["path"].split("#", 1)[0]])
 
 
 @router.api_route("/users/{user_id}/images/{image_type}", methods=["GET", "HEAD"])

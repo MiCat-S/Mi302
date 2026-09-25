@@ -61,7 +61,7 @@ class MoviePilot:
         self,
         cfg: MoviePilotConfig,
         config: Config,
-        on_done: Optional[Callable[[], None]] = None,
+        on_done: Optional[Callable[[List[str]], None]] = None,
         transport: Optional[httpx.BaseTransport] = None,
     ):
         self.cfg = cfg
@@ -125,6 +125,14 @@ class MoviePilot:
         raise MoviePilotError("MoviePilot 登入失敗")
 
     # ---------------- 功能 ----------------
+
+    def unmap_path(self, path: str) -> str:
+        """MoviePilot 看到的路徑轉回 Mi302 的路徑（MoviePilot 通知媒體伺服器時用的是它自己的路徑）。"""
+        for rule in sorted(self.cfg.path_mappings, key=lambda r: len(r.target), reverse=True):
+            dst = rule.target.rstrip("/")
+            if path == dst or path.startswith(dst + "/"):
+                return rule.source.rstrip("/") + path[len(dst):]
+        return path
 
     def map_path(self, path: str) -> str:
         """Mi302 的路徑轉成 MoviePilot 看到的路徑（最長前綴優先）。"""
@@ -229,6 +237,7 @@ class MoviePilot:
             log.info("MoviePilot 刮削已在進行，略過")
             return self.result
         self.result = ScrapeResult(source=source, started=time.time(), running=True)
+        scraped: List[str] = []
         try:
             items = self.plan(paths)
             self.result.total = len(items)
@@ -245,6 +254,7 @@ class MoviePilot:
                     break
                 if ok:
                     self.result.done += 1
+                    scraped.append(str(path))
                 else:
                     self.result.failed += 1
                     self.result.errors.append(f"{path.name}：{message}")
@@ -254,8 +264,8 @@ class MoviePilot:
             self.result.current = ""
             self.result.finished = time.time()
             self._lock.release()
-        if self.result.done and self.on_done:
-            self.on_done()
+        if scraped and self.on_done:
+            self.on_done(scraped)  # 只重新掃描刮削過的地方
         return self.result
 
     def scrape_in_background(self, paths: Optional[List[str]], source: str) -> bool:

@@ -7,10 +7,12 @@ import logging
 import mimetypes
 from pathlib import Path
 from typing import Optional
+from urllib.parse import urlsplit
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import FileResponse, RedirectResponse
 
+from .. import logs
 from ..auth import AuthContext, now_iso, require_user
 from ..dto import media_source_dto
 from .common import q, q_int, state
@@ -57,7 +59,11 @@ def _stream(item_id: str, name: str, request: Request):
         headers = {k.lower(): v for k, v in request.headers.items()}
         url = st.redirector.final_url(row, headers)
         if url:
-            log.info("302 重導向：item_id=%s -> %s", item_id, url)
+            log.info(
+                "播放 %s：302 到 %s（%s）",
+                Path(row["path"]).name, urlsplit(url).netloc or url[:60], request.headers.get("user-agent", "")[:60],
+            )
+            log.debug("302 完整網址：%s", logs.redact(url))
             return RedirectResponse(url=url, status_code=302)
         # strm 裡寫的是本機路徑：直接送檔
         target = st.redirector.strm_target(row)

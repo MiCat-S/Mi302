@@ -130,6 +130,20 @@ details.more>.in{margin-top:12px}
 .qr img{width:180px;height:180px;background:#fff;border-radius:8px;padding:6px}
 .spin{width:14px;height:14px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;animation:sp .8s linear infinite;display:inline-block;flex:none}
 @keyframes sp{to{transform:rotate(360deg)}}
+.cover{display:flex;gap:14px;align-items:center;flex-wrap:wrap;padding-bottom:14px;border-bottom:1px solid var(--line)}
+.cover img,.cover .ph{width:176px;aspect-ratio:16/9;object-fit:cover;border-radius:8px;background:var(--panel2);border:1px solid var(--line);flex:none}
+.cover .ph{display:grid;place-items:center;color:var(--muted);font-size:12.5px}
+.logbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;justify-content:flex-start}
+.logbar select{width:auto}.logbar input[type=search]{flex:1 1 180px;width:auto}
+.logs{font:12.5px/1.55 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;height:calc(100vh - 330px);min-height:280px;overflow:auto}
+.lg{display:flex;flex-wrap:wrap;gap:0 10px;padding:5px 18px;border-top:1px solid var(--line)}
+.lg:first-child{border-top:0}
+.lg .t,.lg .src{color:var(--muted);white-space:nowrap}
+.lg .lv{font-weight:600;white-space:nowrap}
+.lg .m{flex:1 1 320px;min-width:0;white-space:pre-wrap;word-break:break-all}
+.lg.WARNING .lv{color:var(--warn)}
+.lg.ERROR,.lg.CRITICAL{background:var(--danger-soft)}.lg.ERROR .lv,.lg.CRITICAL .lv{color:var(--danger)}
+.lg.DEBUG .m{color:var(--muted)}
 .savebar{position:sticky;bottom:16px;display:flex;gap:10px;align-items:center;justify-content:flex-end;padding:10px 12px;background:var(--panel);border:1px solid var(--line);border-radius:var(--r);box-shadow:0 6px 20px rgba(16,24,40,.12);margin-top:8px}
 
 /* 登入 */
@@ -186,6 +200,8 @@ dialog .card-b{max-height:70vh;overflow:auto}
   <symbol id="i-qr" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><path d="M14 14h3v3h-3zM20 14v.01M14 20h.01M17 20h3v-3"/></symbol>
   <symbol id="i-alert" viewBox="0 0 24 24"><path d="M12 3.5l9.5 16.5h-19z"/><path d="M12 10v4.5M12 17.5v.01"/></symbol>
   <symbol id="i-play" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M10 9l5 3-5 3z"/></symbol>
+  <symbol id="i-doc" viewBox="0 0 24 24"><path d="M6 3h8l5 5v13H6z"/><path d="M14 3v5h5M9 12h7M9 16h7"/></symbol>
+  <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></symbol>
   <symbol id="i-logo" viewBox="0 0 32 32"><rect width="32" height="32" rx="9" fill="var(--accent)" stroke="none"/><path d="M12 9.5l10.5 6.5L12 22.5z" fill="#fff" stroke="none"/></symbol>
 </svg>
 
@@ -225,6 +241,7 @@ dialog .card-b{max-height:70vh;overflow:auto}
       <a href="#115" data-tab="115"><svg class="i"><use href="#i-cloud"/></svg><span>115 網盤</span></a>
       <a href="#moviepilot" data-tab="moviepilot"><svg class="i"><use href="#i-spark"/></svg><span>MoviePilot</span></a>
       <a href="#users" data-tab="users"><svg class="i"><use href="#i-users"/></svg><span>使用者</span></a>
+      <a href="#logs" data-tab="logs"><svg class="i"><use href="#i-doc"/></svg><span>日誌</span></a>
       <a href="#settings" data-tab="settings"><svg class="i"><use href="#i-sliders"/></svg><span>進階設定</span></a>
     </nav>
     <div class="foot"><button class="btn ghost full" onclick="logoutWeb()" title="登出"><svg class="i"><use href="#i-logout"/></svg><span>登出</span></button></div>
@@ -278,7 +295,7 @@ dialog .card-b{max-height:70vh;overflow:auto}
     <section id="tab-libraries" class="page hidden">
       <div class="page-h">
         <div><h1>媒體庫</h1><p class="sub">播放器首頁看到的分類。每個媒體庫可以有多個資料夾，裡面放影片或 .strm 檔。底下有「国产剧」「日番」這類分類資料夾時，直接選上層資料夾就好，會自動往下找。</p></div>
-        <div class="row"><span id="scanSt" class="hint"></span><button class="btn" onclick="scanNow()"><svg class="i"><use href="#i-refresh"/></svg>重新掃描</button></div>
+        <div class="row wrap"><span id="scanSt" class="hint"></span><button class="btn" onclick="scanFolder()"><svg class="i"><use href="#i-folder"/></svg>掃描資料夾…</button><button class="btn" onclick="scanNow()"><svg class="i"><use href="#i-refresh"/></svg>全部重新掃描</button></div>
       </div>
       <div id="libs"></div>
       <button class="btn" onclick="addLib()"><svg class="i"><use href="#i-plus"/></svg>新增媒體庫</button>
@@ -417,6 +434,30 @@ dialog .card-b{max-height:70vh;overflow:auto}
         </div>
         <div class="card-f"><button class="btn primary">新增</button></div>
       </form>
+    </section>
+
+    <!-- 日誌 -->
+    <section id="tab-logs" class="page hidden">
+      <div class="page-h">
+        <div><h1>日誌</h1><p class="sub">同步、刮削、播放和錯誤的紀錄，最新的在最上面。這裡顯示最近 3000 筆，完整紀錄在日誌檔 <code id="logFile"></code>。</p></div>
+        <button class="btn" onclick="downloadLog()"><svg class="i"><use href="#i-download"/></svg>下載日誌檔</button>
+      </div>
+      <div class="card">
+        <div class="card-h logbar">
+          <select id="logLevel" onchange="loadLogs(true)" aria-label="等級">
+            <option value="DEBUG">全部</option><option value="INFO" selected>一般</option>
+            <option value="WARNING">警告和錯誤</option><option value="ERROR">只看錯誤</option>
+          </select>
+          <input id="logQ" type="search" placeholder="搜尋，例如片名、115、MoviePilot" oninput="clearTimeout(logQT); logQT = setTimeout(() => loadLogs(true), 300)">
+          <label class="switch" style="padding:0"><input type="checkbox" id="logLive" checked onchange="loadLogs(false)"><span class="track"></span><span class="lbl">自動更新</span></label>
+        </div>
+        <div id="logList" class="logs"></div>
+        <div class="card-f">
+          <label class="switch grow" style="padding:0"><input type="checkbox" id="logDebug" onchange="setLogLevel(this.checked)"><span class="track"></span>
+            <span class="lbl">詳細模式<small>另外記錄每個播放器請求。播放器連不上、播不了的時候打開，找完原因再關掉</small></span></label>
+          <span id="logFiles" class="hint"></span>
+        </div>
+      </div>
     </section>
 
     <!-- 進階設定 -->
@@ -576,7 +617,7 @@ async function login() {
 }
 async function logoutWeb() { try { await api('/Sessions/Logout', {method: 'POST'}); } catch (e) {} token = ''; localStorage.removeItem('mi302'); show('login'); }
 
-const PAGES = {overview: () => loadOverview(), libraries: () => loadLibs(), '115': () => load115(false), moviepilot: () => loadMP(), users: () => loadUsers(), settings: () => {}};
+const PAGES = {overview: () => loadOverview(), libraries: () => loadLibs(), '115': () => load115(false), moviepilot: () => loadMP(), users: () => loadUsers(), logs: () => loadLogs(true), settings: () => {}};
 function route() {
   let tab = (location.hash || '#overview').slice(1);
   if (!PAGES[tab]) tab = 'overview';
@@ -657,31 +698,66 @@ function renderLibs() {
   if (!libs.length) box.innerHTML = `<div class="card"><div class="card-b">${emptyState('還沒有媒體庫', '按「新增媒體庫」開始，例如「電影」選 /media/movies。')}</div></div>`;
   libs.forEach((l, i) => {
     const st = status?.libraries.find(s => s.name === l.name);
+    const saved = st?.id;
     const card = document.createElement('div'); card.className = 'card';
     card.innerHTML = `<div class="card-h"><div class="row grow" style="min-width:220px">${icon(l.type === 'tvshows' ? 'tv' : 'film')}
         <input type="text" class="grow" value="${esc(l.name)}" placeholder="名稱，例如 電影">
         <select style="width:auto"><option value="movies">電影</option><option value="tvshows">劇集</option></select></div>
-        <div class="row">${st ? `<span class="pill accent">${st.count} 個項目</span>` : ''}<button class="btn sm ghost icon danger" title="刪除媒體庫">${icon('trash')}</button></div></div>
-      <div class="card-b stack"><div class="list paths"></div>
-        <div><button class="btn sm">${icon('plus')}加入資料夾</button></div></div>`;
-    const [name, type] = card.querySelectorAll('input, select'); type.value = l.type;
+        <div class="row">${st ? `<span class="pill accent">${st.count} 個項目</span>` : ''}
+          ${saved ? `<button class="btn sm js-scan" title="只掃描這個媒體庫">${icon('refresh')}掃描</button>` : ''}
+          <button class="btn sm ghost icon danger js-del" title="刪除媒體庫">${icon('trash')}</button></div></div>
+      <div class="card-b stack">
+        ${saved ? `<div class="cover">${st.cover ? `<img src="/Items/${st.id}/Images/Primary?tag=${st.cover}&maxWidth=360" alt="">` : '<div class="ph">還沒有封面</div>'}
+          <div class="grow" style="min-width:180px"><b>封面</b><p class="hint">${st.custom_cover ? '上傳的封面（例如 MoviePilot 封面插件產生的）' : st.cover ? '媒體庫資料夾裡的 poster／folder／cover 圖' : '可以在這裡上傳，或用 MoviePilot 的媒體庫封面插件產生'}</p>
+            <div class="row" style="margin-top:8px"><button class="btn sm js-up">上傳封面</button>${st.custom_cover ? '<button class="btn sm ghost js-reset">改回預設</button>' : ''}</div></div></div>` : ''}
+        <div class="list paths"></div>
+        <div><button class="btn sm js-add">${icon('plus')}加入資料夾</button></div></div>`;
+    const [name, type] = card.querySelectorAll('.card-h input, .card-h select'); type.value = l.type;
     name.oninput = () => { l.name = name.value; dirtyLibs(true); };
     type.onchange = () => { l.type = type.value; dirtyLibs(true); renderLibs(); };
-    const [del, add] = card.querySelectorAll('.card-h button, .card-b > div > button');
-    del.onclick = async () => { if (await ask({title: '刪除媒體庫「' + (l.name || '未命名') + '」？', text: '資料夾裡的檔案不會被刪。', ok: '刪除', danger: true})) { libs.splice(i, 1); dirtyLibs(true); renderLibs(); } };
-    add.onclick = async () => { const path = await pickDir('local', l.paths.at(-1)); if (path) { l.paths.push(path); dirtyLibs(true); renderLibs(); } };
+    const on = (sel, fn) => { const b = card.querySelector(sel); if (b) b.onclick = fn; };
+    on('.js-del', async () => { if (await ask({title: '刪除媒體庫「' + (l.name || '未命名') + '」？', text: '資料夾裡的檔案不會被刪。', ok: '刪除', danger: true})) { libs.splice(i, 1); dirtyLibs(true); renderLibs(); } });
+    on('.js-add', async () => { const path = await pickDir('local', l.paths.at(-1)); if (path) { l.paths.push(path); dirtyLibs(true); renderLibs(); } });
+    on('.js-scan', () => scanReq({library: st.name}, '「' + st.name + '」'));
+    on('.js-up', () => uploadCover(st.id));
+    on('.js-reset', () => resetCover(st.id));
     const paths = card.querySelector('.paths');
     if (!l.paths.length) paths.innerHTML = '<p class="hint">還沒有資料夾</p>';
     l.paths.forEach((p, j) => {
       const missing = st?.missing.includes(p);
       const r = document.createElement('div'); r.className = 'li';
-      r.innerHTML = `<div class="main path">${icon('folder')}<span>${esc(p)}</span>${missing ? '<span class="pill warn">資料夾不存在</span>' : ''}</div><button class="btn sm ghost">移除</button>`;
-      r.querySelector('button').onclick = () => { l.paths.splice(j, 1); dirtyLibs(true); renderLibs(); };
+      r.innerHTML = `<div class="main path">${icon('folder')}<span>${esc(p)}</span>${missing ? '<span class="pill warn">資料夾不存在</span>' : ''}</div>
+        ${saved && !missing ? '<button class="btn sm ghost js-scan-path">掃描</button>' : ''}<button class="btn sm ghost js-rm">移除</button>`;
+      r.querySelector('.js-rm').onclick = () => { l.paths.splice(j, 1); dirtyLibs(true); renderLibs(); };
+      const sp = r.querySelector('.js-scan-path'); if (sp) sp.onclick = () => scanReq({path: p}, '：' + p);
       paths.appendChild(r);
     });
     box.appendChild(card);
   });
-  renderOvLibs();
+}
+async function scanReq(body, label) {
+  try { await api('/web/api/scan', {method: 'POST', body: JSON.stringify(body)}); }
+  catch (e) { toast('無法掃描：' + e.message, 'bad'); return; }
+  toast('開始掃描' + label); setTimeout(refreshScan, 300);
+}
+async function scanFolder() {
+  const p = await pickDir('local', libs[0]?.paths[0]);
+  if (p) scanReq({path: p}, '：' + p);
+}
+function uploadCover(id) {
+  const inp = document.createElement('input'); inp.type = 'file'; inp.accept = 'image/png,image/jpeg,image/gif,image/webp';
+  inp.onchange = async () => {
+    const f = inp.files[0]; if (!f) return;
+    const r = await fetch('/Items/' + id + '/Images/Primary', {method: 'POST', body: f,
+      headers: {'X-Emby-Token': token, 'Content-Type': f.type || 'application/octet-stream'}});
+    if (!r.ok) { toast('上傳失敗：' + (await r.text() || r.status), 'bad'); return; }
+    toast('已更新封面'); refreshScan();
+  };
+  inp.click();
+}
+async function resetCover(id) {
+  try { await api('/Items/' + id + '/Images/Primary', {method: 'DELETE'}); } catch (e) { toast(e.message, 'bad'); return; }
+  toast('已改回預設封面'); refreshScan();
 }
 function addLib() { libs.push({name: libs.length ? '' : '電影', type: 'movies', paths: []}); dirtyLibs(true); renderLibs(); }
 async function saveLibs() {
@@ -690,12 +766,12 @@ async function saveLibs() {
 }
 async function refreshScan() {
   try { S.scan = await api('/web/api/scan'); } catch (e) { return; }
-  $('scanSt').innerHTML = S.scan.scanning ? '<span class="row"><span class="spin"></span>掃描中…</span>' : '';
-  if (!$('tab-libraries').classList.contains('hidden')) renderLibs(); else renderOvLibs();
+  $('scanSt').innerHTML = S.scan.scanning ? `<span class="row"><span class="spin"></span>掃描中${S.scan.current ? '：' + esc(S.scan.current) : '…'}</span>` : '';
+  const el = document.activeElement, typing = el?.closest('#libs') && /^(INPUT|SELECT|TEXTAREA)$/.test(el.tagName);
+  if (!$('tab-libraries').classList.contains('hidden') && !typing) renderLibs();  // 正在改名稱時不重畫，免得輸入框跳掉
   if (S.scan.scanning) setTimeout(refreshScan, 2000);
 }
-function renderOvLibs() {}  // 概覽頁的媒體庫數字在上方統計卡片
-async function scanNow() { await api('/web/api/scan', {method: 'POST'}); toast('開始重新掃描'); setTimeout(refreshScan, 300); }
+function scanNow() { scanReq({}, '全部媒體庫'); }
 
 // ---- 使用者 ----
 async function loadUsers() {
@@ -956,6 +1032,56 @@ async function loadKeys() {
   }
 }
 async function addKey() { await api('/web/api/apikeys', {method: 'POST', body: JSON.stringify({name: keyName.value || 'MoviePilot'})}); keyName.value = ''; toast('已建立 API 金鑰'); loadKeys(); }
+
+// ---- 日誌 ----
+const LOG_LV = {DEBUG: '詳細', INFO: '資訊', WARNING: '警告', ERROR: '錯誤', CRITICAL: '嚴重'};
+const LOG_SRC = {'embyserver.strm_sync': '115 同步', 'embyserver.p115': '115', 'embyserver.p115_open': '115 開放平台',
+  'embyserver.moviepilot': 'MoviePilot', 'embyserver.scanner': '掃描', 'embyserver.access': '請求',
+  'embyserver.routes.playback': '播放', 'embyserver.redirect': '播放', 'embyserver.settings': '設定',
+  'embyserver.auth': '登入', 'embyserver.routes.items': '媒體庫', 'embyserver.app': '伺服器', 'uvicorn.error': '伺服器', 'embyserver.logs': '日誌'};
+let logLast = 0, logRows = [], logTimer = null, logQT = null;
+function logTime(ts) {
+  const d = new Date(ts * 1000), z = n => String(n).padStart(2, '0');
+  return `${z(d.getMonth() + 1)}/${z(d.getDate())} ${z(d.getHours())}:${z(d.getMinutes())}:${z(d.getSeconds())}`;
+}
+function renderLogs() {
+  const box = $('logList');
+  const keep = box.scrollTop > 0 ? box.scrollHeight - box.scrollTop : null;  // 往下看舊紀錄時，新紀錄進來不要跳走
+  box.innerHTML = logRows.length ? logRows.map(r =>
+    `<div class="lg ${r.level}"><span class="t">${logTime(r.time)}</span><span class="lv">${LOG_LV[r.level] || r.level}</span>` +
+    `<span class="src">${esc(LOG_SRC[r.logger] || r.logger.replace(/^embyserver\.(routes\.)?/, ''))}</span><span class="m">${esc(r.message)}</span></div>`).join('')
+    : emptyState('沒有符合的紀錄', $('logQ').value ? '換個關鍵字，或把等級改成「全部」。' : '');
+  if (keep !== null) box.scrollTop = box.scrollHeight - keep;
+}
+async function loadLogs(reset) {
+  clearTimeout(logTimer);
+  if (reset) { logLast = 0; logRows = []; }
+  let r;
+  try { r = await api(`/web/api/logs?after=${logLast}&level=${logLevel.value}&q=${encodeURIComponent(logQ.value)}&limit=1000`); }
+  catch (e) { $('logList').innerHTML = `<p class="notice bad" style="margin:18px">${esc(e.message)}</p>`; return; }
+  logLast = r.last;
+  if (reset || r.items.length) { logRows = r.items.reverse().concat(logRows).slice(0, 1000); renderLogs(); }
+  $('logFile').textContent = r.file || '（無法寫入日誌檔，只保留在記憶體）';
+  $('logDebug').checked = r.log_level === 'debug';
+  const old = r.files.slice(1);
+  $('logFiles').innerHTML = old.length ? '舊檔：' + old.map(f => `<a href="#logs" data-log="${esc(f.name)}">${esc(f.name)}</a>（${fmtSize(f.size)}）`).join('、') : '';
+  if ($('logLive').checked && !$('tab-logs').classList.contains('hidden')) logTimer = setTimeout(() => loadLogs(false), 2000);
+}
+document.addEventListener('click', e => { const a = e.target.closest('[data-log]'); if (a) { e.preventDefault(); downloadLog(a.dataset.log); } });
+async function downloadLog(name) {
+  const r = await fetch('/web/api/logs/download' + (name ? '?name=' + encodeURIComponent(name) : ''), {headers: H()});
+  if (!r.ok) { toast('下載失敗：' + (await r.text() || r.status), 'bad'); return; }
+  const url = URL.createObjectURL(await r.blob());
+  const a = document.createElement('a'); a.href = url; a.download = name || 'mi302.log'; document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+async function setLogLevel(on) {
+  try { await putSettings({server: {log_level: on ? 'debug' : 'info'}}); }
+  catch (e) { toast('儲存失敗：' + e.message, 'bad'); $('logDebug').checked = !on; return; }
+  toast(on ? '已開啟詳細模式，播放器的請求會記在日誌裡' : '已關閉詳細模式');
+  if (on && logLevel.value !== 'DEBUG') { logLevel.value = 'DEBUG'; }
+  loadLogs(true);
+}
 
 // ---- 資料夾選擇器 ----
 let pickKind = 'local', pickResolve = null, pickCur = '';

@@ -58,7 +58,8 @@ def test_libraries_from_web_are_scanned_and_persist(tmp_path: Path):
     assert r.status_code == 200 and r.json()["libraries"] == libs
     wait_scan(c)
     scan = c.get("/web/api/scan", headers=h).json()
-    assert scan["libraries"] == [{"name": "電影", "count": 1, "missing": []}]
+    lib = scan["libraries"][0]
+    assert (lib["name"], lib["count"], lib["missing"], lib["custom_cover"]) == ("電影", 1, [], False)
     assert c.get("/System/Info/Public").json()["ServerName"] == "家"
 
     # 沒有設定檔時（例如測試直接給設定），設定只在記憶體裡

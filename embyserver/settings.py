@@ -18,7 +18,7 @@ from dataclasses import fields
 from pathlib import Path
 from typing import Any, Dict, List
 
-from . import config_file
+from . import config_file, logs
 from .config import Config, LibraryConfig, PathRule, StrmTask, read_file
 from .db import Database
 
@@ -29,7 +29,7 @@ SETTINGS_META_KEY = "web_settings"
 TASKS_META_KEY = "p115_strm_tasks"
 
 # 網頁可修改的欄位；port、host、data_dir 牽涉啟動方式，不開放在網頁改
-SERVER_FIELDS = ("name", "public_users")
+SERVER_FIELDS = ("name", "public_users", "log_level")
 STRM_FIELDS = (
     "base_url", "include_name", "download_metadata", "delete_stale",
     "min_size_mb", "interval", "full_interval", "request_delay", "scan_after_sync",
@@ -114,6 +114,7 @@ def apply_settings(config: Config, raw: dict) -> None:
         config.libraries[:] = _libraries(raw["libraries"])
     if "server" in raw:
         _set_fields(config.server, SERVER_FIELDS, raw["server"] or {})
+        config.server.log_level = "debug" if str(config.server.log_level).lower() == "debug" else "info"
     p115 = raw.get("p115") or {}
     _set_fields(config.p115, P115_FIELDS, p115)
     if "strm" in p115:
@@ -226,9 +227,13 @@ def refresh(st) -> None:
 
 
 def after_change(st, libraries_before: list) -> None:
+    logs.set_level(st.config.server.log_level)
     # P115Service 建立時複製了這兩個值，要同步過去
     st.p115.app = st.config.p115.app
     st.p115.open.default_app_id = st.config.p115.open_app_id
     st.strm_sync.prune_index()
-    if export_settings(st.config)["libraries"] != libraries_before:
-        threading.Thread(target=st.scanner.scan_all, daemon=True).start()
+    after = export_settings(st.config)["libraries"]
+    if after != libraries_before:
+        # 只掃新增或改過的媒體庫；刪掉的媒體庫，它的項目在掃描時一起移除
+        changed = [lib["name"] for lib in after if lib not in libraries_before]
+        threading.Thread(target=st.scanner.scan_libraries, args=(changed,), daemon=True).start()

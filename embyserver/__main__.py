@@ -5,6 +5,7 @@ import logging
 
 import uvicorn
 
+from . import logs
 from .app import create_app
 from .config import load_config
 
@@ -23,8 +24,9 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+    logging.basicConfig(level=logging.INFO, format=logs.FORMAT)
     config = load_config(args.config)
+    logs.setup(config.data_path, config.server.log_level)
     oneshot = args.scan or args.sync_115 or args.reset_password
     app = create_app(config, scan_on_start=not oneshot)
     if args.reset_password:
@@ -37,7 +39,11 @@ def main() -> None:
     if args.scan:
         app.state.scanner.scan_all()
         return
-    uvicorn.run(app, host=config.server.host, port=config.server.port, proxy_headers=True, forwarded_allow_ips="*")
+    # 不讓 uvicorn 另外設定日誌，它的訊息才會進日誌檔和網頁；請求紀錄由 app 自己記（詳細模式）
+    uvicorn.run(
+        app, host=config.server.host, port=config.server.port, proxy_headers=True, forwarded_allow_ips="*",
+        log_config=None, access_log=False,
+    )
 
 
 if __name__ == "__main__":

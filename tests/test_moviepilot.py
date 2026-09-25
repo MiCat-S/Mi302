@@ -65,11 +65,12 @@ def test_scrape_sends_mapped_paths_with_api_token(tmp_path: Path):
 
     cfg = make_config(tmp_path, path_mappings=[{"from": str(tmp_path), "to": "/mp"}])
     done = []
-    mp = MoviePilot(cfg.moviepilot, cfg, on_done=lambda: done.append(1), transport=httpx.MockTransport(handler))
+    mp = MoviePilot(cfg.moviepilot, cfg, on_done=lambda paths: done.append(paths), transport=httpx.MockTransport(handler))
     movie = touch(tmp_path / "movies" / "A (2020)" / "A (2020).strm")
     ep = touch(tmp_path / "tv" / "Show" / "S01E01.strm")
     r = mp.scrape([movie, ep], "sync")
-    assert (r.total, r.done, r.failed) == (2, 2, 0) and done == [1]
+    # 還沒刮削過的劇送整個劇集資料夾；刮好的路徑交給掃描器只掃那些地方
+    assert (r.total, r.done, r.failed) == (2, 2, 0) and done == [[movie, str(tmp_path / "tv" / "Show")]]
 
     first = json.loads(sent[0].content)
     assert sent[0].url.path == "/api/v1/media/scrape/local"

@@ -102,6 +102,7 @@ class ServerConfig:
     port: int = 8096
     data_dir: str = "./data"
     public_users: bool = True
+    log_level: str = "info"  # info = 一般；debug = 詳細（另外記錄每個播放器請求）
 
 
 @dataclass

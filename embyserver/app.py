@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import threading
+import time
 import uuid
 from contextlib import asynccontextmanager
 from typing import Optional
@@ -19,17 +20,24 @@ from .moviepilot import MoviePilot
 from .p115 import P115Service
 from .redirect import Redirector
 from .routes import items, p115, playback, system, web
-from . import settings
+from . import logs, settings
 from .scanner import Scanner
 from .strm_sync import StrmSync
 
 log = logging.getLogger(__name__)
+access_log = logging.getLogger("embyserver.access")
 
 # Emby 客戶端可能加上這些前綴，路由一律以去掉前綴後的小寫路徑比對
 PATH_PREFIXES = ("/emby", "/mediabrowser")
 
 
+def _quiet(path: str) -> bool:
+    """管理網頁自己的請求（含定時查狀態）不記，只記播放器的請求。"""
+    return path == "/web" or path.startswith("/web/") or (path.startswith("/p115/") and path.endswith("/status"))
+
+
 def create_app(config: Config, db_path: Optional[str] = None, scan_on_start: bool = True) -> FastAPI:
+    logs.attach()
     db = Database(db_path or config.data_path / "library.db")
     server_id = db.get_meta("server_id")
     if not server_id:
@@ -60,16 +68,15 @@ def create_app(config: Config, db_path: Optional[str] = None, scan_on_start: boo
         db, config.p115.cookies, config.p115.app, config.p115.timeout, open_app_id=config.p115.open_app_id
     )
     app.state.redirector = Redirector(config.redirect, app.state.p115)
-    app.state.moviepilot = MoviePilot(config.moviepilot, config, on_done=scanner.scan_all)
+    app.state.moviepilot = MoviePilot(config.moviepilot, config, on_done=scanner.scan_paths)
 
     def after_sync(result) -> None:
-        # 新產生的 strm 交給 MoviePilot 刮削（刮削有完成就會重新掃描），否則直接掃描
+        # 先只掃有變動的地方，新片馬上出現；再把新產生的 strm 交給 MoviePilot 刮削，刮好的會再掃一次
+        if config.p115.strm.scan_after_sync and result.changed:
+            scanner.scan_paths(result.changed)
         mp = app.state.moviepilot
         if result.new_files and mp.enabled and config.moviepilot.scrape_after_sync:
-            if mp.scrape(result.new_files, "sync").done:
-                return
-        if config.p115.strm.scan_after_sync:
-            scanner.scan_all()
+            mp.scrape(result.new_files, "sync")
 
     app.state.strm_sync = StrmSync(
         app.state.p115,
@@ -97,9 +104,19 @@ def create_app(config: Config, db_path: Optional[str] = None, scan_on_start: boo
         if len(lower) > 1:
             lower = lower.rstrip("/")
         request.scope["path"] = lower
+        started = time.monotonic()
         response = await call_next(request)
-        if response.status_code == 404:
-            log.debug("未實作或找不到：%s %s", request.method, path)
+        if access_log.isEnabledFor(logging.DEBUG) and not _quiet(lower):
+            query = request.scope.get("query_string", b"").decode("latin-1")
+            access_log.debug(
+                "%s %s → %s（%d ms）%s%s",
+                request.method,
+                logs.redact(path + ("?" + query if query else "")),
+                response.status_code,
+                (time.monotonic() - started) * 1000,
+                request.headers.get("user-agent", "")[:80],
+                "　未實作或找不到" if response.status_code == 404 else "",
+            )
         return response
 
     @app.exception_handler(HTTPException)

@@ -73,10 +73,13 @@ class SyncResult:
     # 增量同步時改跑全量的任務，以及原因
     fell_back_to_full: List[str] = field(default_factory=list)
     notes: List[str] = field(default_factory=list)
+    # 本機有變動的路徑（新增、更新、搬移前後、刪除），同步後只重新掃描這些地方
+    changed: List[str] = field(default_factory=list)
 
     def as_dict(self) -> dict:
         d = asdict(self)
         d["new_files"] = len(self.new_files)
+        d["changed"] = len(self.changed)
         return d
 
 
@@ -327,6 +330,7 @@ class StrmSync:
             except P115Error as exc:
                 # 讀不到事件時仍然用修改時間補抓新檔案，事件下次再讀
                 self.result.errors.append(f"讀取 115 生活事件失敗：{exc}")
+                log.warning("讀取 115 生活事件失敗，這次只用修改時間補抓：%s", exc)
 
         for task in full:
             self._guard(task, lambda: self._run_full(task))
@@ -575,6 +579,7 @@ class StrmSync:
                     shutil.move(str(f), str(moved))
         shutil.move(str(src), str(dst))
         self.result.moved += 1
+        self.result.changed += [str(src), str(dst)]
         log.info("115 上移動或改名，本機跟著搬：%s -> %s", old, new)
         self._prune(ctx, src.parent)
 
@@ -587,6 +592,7 @@ class StrmSync:
                 dst.parent.mkdir(parents=True, exist_ok=True)
                 shutil.move(str(src), str(dst))
             self.result.moved += 1
+            self.result.changed += [str(src), str(dst)]
             log.info("115 上移動或改名資料夾，本機跟著搬：%s -> %s", old, new)
             self._prune(ctx, src.parent)
         ctx.index.move_tree(old, new)
@@ -631,6 +637,7 @@ class StrmSync:
                 path.unlink()
                 self.result.removed += 1
             ctx.index.delete_tree(rel)
+        self.result.changed.append(str(path))
         log.info("115 上已刪除或移走，本機跟著刪：%s", rel)
         self._prune(ctx, path.parent)
 
@@ -639,6 +646,7 @@ class StrmSync:
         while folder != ctx.local and ctx.local in folder.parents:
             if folder.is_dir():
                 if self.cfg.delete_stale and not _has_video(folder):
+                    self.result.changed.append(str(folder))
                     for f in sorted(folder.rglob("*"), key=lambda p: len(p.parts), reverse=True):
                         if f.is_file() and f.suffix.lower() in METADATA_EXTS:
                             f.unlink(missing_ok=True)
@@ -657,6 +665,7 @@ class StrmSync:
     def _write_strm(self, target: Path, info: dict) -> None:
         if not info["pickcode"]:
             self.result.errors.append(f"{target.name}: 沒有 pickcode")
+            log.warning("115 沒有回傳 pickcode，略過：%s", target)
             return
         content = strm_content(self.cfg, info["pickcode"].lower(), info["name"], self.base_url)
         existed = target.is_file()
@@ -669,6 +678,7 @@ class StrmSync:
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(content, encoding="utf-8")
         self.result.strm_created += 1
+        self.result.changed.append(str(target))
         if not existed:
             self.result.new_files.append(str(target))
 
@@ -681,12 +691,14 @@ class StrmSync:
             resp.raise_for_status()
         except (P115Error, httpx.HTTPError) as exc:
             self.result.errors.append(f"{target.name}: {exc}")
+            log.warning("下載 %s 失敗：%s", target.name, exc)
             return
         target.parent.mkdir(parents=True, exist_ok=True)
         tmp = target.with_name(target.name + ".part")
         tmp.write_bytes(resp.content)
         os.replace(tmp, target)
         self.result.metadata_downloaded += 1
+        self.result.changed.append(str(target))
 
     def _remove_stale(self, local: Path, produced: set[str]) -> None:
         """刪除 115 上已不存在的 strm，以及跟著它的中繼資料。
@@ -702,6 +714,7 @@ class StrmSync:
                 if path.suffix.lower() == ".strm" and str(path) not in produced:
                     path.unlink(missing_ok=True)
                     self.result.removed += 1
+                    self.result.changed.append(str(path))
                     gone_stems.setdefault(path.parent, []).append(path.stem)
         for folder, stems in gone_stems.items():
             for stem in stems:
@@ -720,6 +733,7 @@ class StrmSync:
                 if f.suffix.lower() in METADATA_EXTS and str(f) not in produced:
                     f.unlink(missing_ok=True)
                     self.result.removed += 1
+                    self.result.changed.append(str(f))
             try:
                 folder.rmdir()  # 只有空資料夾才刪得掉
             except OSError:

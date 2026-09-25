@@ -14,6 +14,7 @@ server:
   port: 8096                        # 播放器連線用的埠號（Docker 用戶改 docker-compose.yml 的埠對應就好）
   data_dir: ./data                  # 資料庫存放位置
   public_users: true                # 播放器登入畫面是否列出使用者
+  log_level: info                   # 日誌：info = 一般，debug = 詳細（另外記錄每個播放器請求）
 
 # 第一次啟動時預先建立的帳號；之後新增帳號、改密碼請用網頁，不會寫回這裡
 users: []

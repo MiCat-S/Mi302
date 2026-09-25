@@ -150,6 +150,23 @@ MoviePilot 可以把 Mi302 加成媒體伺服器，用來判斷片子是否已�
 1. 在 Mi302 網頁的「MoviePilot」分頁建立一把 API 金鑰。
 2. 在 MoviePilot 的「設定 → 媒體伺服器」新增 Emby，地址填 `http://<Mi302 主機>:8096`，API 金鑰貼上剛才那把。
 
+MoviePilot 通知 Mi302 某些檔案有變動時，Mi302 只掃那些檔案所在的劇或電影（路徑會依「路徑對應」換回 Mi302 的路徑），不會重掃整個媒體庫。
+
+### 媒體庫封面（MoviePilot 封面插件）
+
+播放器首頁每個媒體庫的封面可以用 MoviePilot 的媒體庫封面插件產生（例如 [wio-ki/MoviePilot-Plugins](https://github.com/wio-ki/MoviePilot-Plugins) 的「媒體庫封面生成」）：
+
+1. 先照上一節把 Mi302 加成 MoviePilot 的 Emby 媒體伺服器。
+2. 安裝插件，在插件設定的媒體伺服器選 Mi302，選要產生封面的媒體庫。
+3. 按插件的「立即更新」，或設定排程（例如每天一次）。
+
+插件會從媒體庫裡隨機挑海報組成封面，再上傳到 Mi302（Emby 的 `POST /Items/{id}/Images/Primary`）。上傳的封面：
+
+- 存在 `data/images/`，重新掃描不會被蓋掉，也比媒體庫資料夾裡的 `poster.jpg` 優先。
+- 在網頁「媒體庫」分頁看得到，也可以自己上傳圖片，或按「改回預設」刪掉上傳的封面。
+
+插件的「入庫監控」要 MoviePilot 整理完成或 Emby 的新增通知才會觸發；Mi302 從 115 同步進來的檔案不經過這兩個，所以新片進來後封面不會自動更新，請用排程或手動更新。
+
 ## 部署
 
 ### Docker Compose
@@ -205,6 +222,32 @@ tv/
 
 劇集媒體庫裡可以有分類資料夾（例如 MoviePilot 二級分類的 `电视剧/国产剧/庆余年 (2019)/`），媒體庫路徑直接選 `电视剧` 就好，不用每個分類各加一次。判斷方式：有 `tvshow.nfo`、名稱帶年份（`劇名 (2019)`）、裡面有季資料夾或直接放著影片的資料夾是一部劇；其他資料夾當成分類，往下找（最多三層）。想讓每個分類在播放器首頁各佔一列，就每個分類各建一個媒體庫。
 
+## 掃描
+
+不一定要整個重新掃描。網頁「媒體庫」分頁可以：
+
+- 按某個媒體庫的「掃描」，只掃這個媒體庫。
+- 按某個資料夾那一行的「掃描」，只掃這個資料夾。
+- 按上方的「掃描資料夾…」，選任何一個媒體庫裡的資料夾，例如一個分類 `电视剧/国产剧` 或一部劇 `电视剧/国产剧/庆余年 (2019)`。
+- 按「全部重新掃描」，掃全部媒體庫。
+
+自動掃描也只掃有變動的地方：
+
+- 115 同步完成後，只掃新增、改名、移動或刪除的檔案所在的劇或電影。
+- MoviePilot 刮削完成後，只掃刮削過的那些。
+- MoviePilot 或其他工具通知 `Library/Media/Updated` 時，只掃通知裡的路徑；播放器對單一項目按「重新整理」時，只掃那一項。
+- 改了媒體庫設定（新增、改路徑）時，只掃有改的媒體庫；刪掉的媒體庫會連同裡面的項目一起移除。
+
+掃描單位是一部劇或一部電影：給一集的路徑會重掃整部劇，給分類資料夾會掃裡面所有劇。一次超過 300 個單位時改成掃整個媒體庫。部分掃描不會改變劇集和電影的 id，觀看紀錄不會掉；已經刪掉的檔案在掃到時會從媒體庫移除。
+
+## 日誌
+
+網頁「日誌」分頁顯示最近 3000 筆紀錄（同步、刮削、掃描、播放、錯誤），可以按等級篩選、搜尋，打開「自動更新」時新紀錄會即時出現。
+
+- 完整紀錄寫在 `data/logs/mi302.log`（Docker 是 `config/data/logs/mi302.log`），滿 5 MB 換新檔，保留 5 份舊檔。日誌頁可以直接下載。
+- 播放器連不上或播不了時，打開日誌頁下方的「詳細模式」，會另外記錄每個播放器請求，找到原因後記得關掉。也可以在 `config.yaml` 設定 `server.log_level: debug`。
+- 網址裡的 `api_key`、`token`、密碼等憑證在寫入前一律遮成 `***`。
+
 ## 已實作的端點
 
 - 系統：`System/Info/Public`、`System/Info`、`System/Ping`、`System/Endpoint`
@@ -213,7 +256,7 @@ tv/
 - 項目：`Users/{id}/Items`、`Items`（ParentId、Recursive、IncludeItemTypes、SortBy、SearchTerm、Filters、分頁）、`Users/{id}/Items/{itemId}`、`Items/Latest`、`Items/Resume`、`Shows/{id}/Seasons`、`Shows/{id}/Episodes`、`Shows/NextUp`、`Genres`、`Items/Counts`、`Items/{id}/Refresh`
 - 播放：`Items/{id}/PlaybackInfo`、`Videos/{id}/*`、`Items/{id}/Download`、`Sessions/Playing[/Progress|/Stopped]`
 - 使用者資料：`PlayedItems`、`FavoriteItems`
-- 圖片：`Items/{id}/Images/{type}`
+- 圖片：`Items/{id}/Images/{type}`（讀取、上傳、刪除）
 
 ## 測試
 

@@ -10,10 +10,11 @@ from pathlib import Path
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse, RedirectResponse
 
-from .. import settings
+from .. import logs, settings
 from ..auth import AuthContext, client_info, require_admin
+from ..dto import image_tag
 from ..p115 import P115Error
 from ..p115_open import P115OpenError
 from ..settings import SettingsError
@@ -121,20 +122,42 @@ def scan_status(request: Request, ctx: AuthContext = Depends(require_admin)):
         "WHERE l.type='CollectionFolder' GROUP BY l.id"
     )
     counts = {r["name"]: r["c"] for r in rows}
+    items = {
+        r["name"]: r for r in st.db.query("SELECT id, name, primary_image FROM items WHERE type='CollectionFolder'")
+    }
     libs = [
         {
             "name": lib.name,
             "count": counts.get(lib.name, 0),
+            "id": str(items[lib.name]["id"]) if lib.name in items else None,
+            "cover": image_tag(items[lib.name]["primary_image"]) if lib.name in items else None,
+            "custom_cover": bool(lib.name in items and st.scanner.custom_image(items[lib.name]["id"], "primary_image")),
             "missing": [p for p in lib.paths if not Path(p).expanduser().is_dir()],
         }
         for lib in st.config.libraries
     ]
-    return {"scanning": st.scanner.scanning, "libraries": libs}
+    return {"scanning": st.scanner.scanning, "current": st.scanner.current, "libraries": libs}
 
 
 @router.post("/web/api/scan")
-def scan_now(request: Request, ctx: AuthContext = Depends(require_admin)):
-    threading.Thread(target=state(request).scanner.scan_all, daemon=True).start()
+async def scan_now(request: Request, ctx: AuthContext = Depends(require_admin)):
+    """重新掃描：{"library": 名稱} 只掃一個媒體庫，{"path": 路徑} 只掃一個資料夾或檔案，都沒有就全部掃。"""
+    st = state(request)
+    body = await _body(request)
+    scanner = st.scanner
+    if body.get("library"):
+        name = str(body["library"])
+        if name not in {lib.name for lib in st.config.libraries}:
+            raise HTTPException(status_code=400, detail=f"找不到媒體庫「{name}」，新加的媒體庫要先儲存")
+        job, args = scanner.scan_libraries, ([name],)
+    elif body.get("path"):
+        path = str(body["path"]).strip()
+        if not scanner.in_library(path):
+            raise HTTPException(status_code=400, detail="這個位置不在任何媒體庫的資料夾裡")
+        job, args = scanner.scan_paths, ([path],)
+    else:
+        job, args = scanner.scan_all, ()
+    threading.Thread(target=job, args=args, daemon=True).start()
     return Response(status_code=204)
 
 
@@ -257,6 +280,39 @@ def moviepilot_scrape(request: Request, ctx: AuthContext = Depends(require_admin
         raise HTTPException(status_code=400, detail="請先填好 MoviePilot 網址與 API 令牌並儲存")
     started = mp.scrape_in_background(None, "manual")
     return {"started": started, "result": mp.result.as_dict()}
+
+
+# ---------------- 日誌 ----------------
+
+
+@router.get("/web/api/logs")
+def get_logs(request: Request, ctx: AuthContext = Depends(require_admin)):
+    """最近的日誌；after = 上次拿到的最後序號，只回傳比它新的。"""
+    try:
+        after = int(q(request, "after") or 0)
+        limit = min(max(int(q(request, "limit") or 500), 1), 3000)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="after、limit 要是數字")
+    result = logs.MEMORY.query(after, q(request, "level") or "INFO", q(request, "q") or "", limit)
+    path = logs.file_path()
+    result.update(
+        log_level=state(request).config.server.log_level,
+        file=str(path) if path else None,
+        files=logs.files(),
+    )
+    return result
+
+
+@router.get("/web/api/logs/download")
+def download_logs(request: Request, ctx: AuthContext = Depends(require_admin)):
+    """下載日誌檔（name 可指定換下來的舊檔）；沒有日誌檔時下載記憶體裡的紀錄。"""
+    name = q(request, "name") or logs.LOG_FILE
+    path = logs.file_path()
+    if path and name in {f["name"] for f in logs.files()}:
+        return FileResponse(path.with_name(name), media_type="text/plain; charset=utf-8", filename=name)
+    return PlainTextResponse(
+        logs.MEMORY.dump(), headers={"Content-Disposition": 'attachment; filename="mi302.log"'}
+    )
 
 
 # ---------------- API 金鑰 ----------------
