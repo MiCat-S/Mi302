@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import json
 import re
 import secrets
 import uuid
@@ -104,10 +105,33 @@ class AuthContext:
         return self.user["id"] if self.user else None
 
 
+API_KEYS_META_KEY = "api_keys"
+
+
 class AuthService:
     def __init__(self, db: Database, api_keys: list[str]):
         self.db = db
         self.api_keys = set(api_keys)
+
+    # ---- API 金鑰（給 MoviePilot 等工具用，網頁上建立） ----
+    def list_api_keys(self) -> list[dict]:
+        try:
+            return json.loads(self.db.get_meta(API_KEYS_META_KEY) or "[]")
+        except ValueError:
+            return []
+
+    def create_api_key(self, name: str) -> dict:
+        entry = {"key": secrets.token_hex(16), "name": name.strip() or "API", "created": now_iso()}
+        keys = self.list_api_keys() + [entry]
+        self.db.set_meta(API_KEYS_META_KEY, json.dumps(keys, ensure_ascii=False))
+        return entry
+
+    def delete_api_key(self, key: str) -> None:
+        keys = [k for k in self.list_api_keys() if k["key"] != key]
+        self.db.set_meta(API_KEYS_META_KEY, json.dumps(keys, ensure_ascii=False))
+
+    def _is_api_key(self, token: str) -> bool:
+        return token in self.api_keys or any(k["key"] == token for k in self.list_api_keys())
 
     # ---- users ----
     def ensure_user(self, name: str, password: str, admin: bool) -> None:
@@ -216,7 +240,7 @@ class AuthService:
         token = extract_token(request)
         if not token:
             return AuthContext(None, None)
-        if token in self.api_keys:
+        if self._is_api_key(token):
             admin = self.db.one("SELECT * FROM users WHERE is_admin=1 ORDER BY name LIMIT 1")
             return AuthContext(dict(admin) if admin else None, token)
         row = self.db.one(

@@ -22,8 +22,9 @@
 3. **115 網盤**：
    - 按「產生登入二維碼」，用手機 115 App 掃描確認。
    - 按「瀏覽」選 115 目錄和要放 strm 的本機資料夾，按「新增」。本機資料夾要在某個媒體庫裡，建議用子資料夾，例如 `/media/movies/115`。
-   - 按「立即從 115 同步 strm」。同步完會自動掃描媒體庫。
-4. **播放器**（Infuse、VidHub、SenPlayer、Emby 官方 App 等）新增 Emby 伺服器，位址填 `http://<主機>:8096`，用剛才的帳號登入。
+   - 按「增量同步」。第一次會自動先跑一次全量，同步完會自動掃描媒體庫。
+4. **刮削**（選用）：有 MoviePilot 的話，在「MoviePilot」分頁填網址和 API 令牌，之後新產生的 strm 會自動送去刮削。見下面「[刮削：交給 MoviePilot](#刮削交給-moviepilot)」。
+5. **播放器**（Infuse、VidHub、SenPlayer、Emby 官方 App 等）新增 Emby 伺服器，位址填 `http://<主機>:8096`，用剛才的帳號登入。
 
 家人的帳號在「使用者」分頁新增；自動同步間隔、strm 網址等在「115 網盤」的同步選項和「進階設定」。忘記管理員密碼時，執行 `python -m embyserver --reset-password admin 新密碼`（Docker：`docker compose exec mi302 python -m embyserver -c /config/config.yaml --reset-password admin 新密碼`）。
 
@@ -38,6 +39,18 @@
 在 `/web` 的「115 網盤」分頁掃碼登入即可，不需要申請任何東西。登入會佔用 115 的一個裝置類型（預設是支付寶小程式），同類型的其他登入會被踢下線；要換類型可以改進階設定 `p115.app`。
 
 也可以在網頁上貼上 cookie，或寫在設定檔的 `p115.cookies`。
+
+### 帳號狀態
+
+登入後「115 網盤」分頁的第 1 步會顯示帳號資訊，按「重新整理」會立即向 115 重新查詢（平常一分鐘內用快取）：
+
+- 帳號名稱、UID、頭像
+- VIP 等級與到期日（永久 VIP 會標示）
+- 空間：已用、總量、剩餘，附用量條
+- Cookie 是否仍然有效；失效時顯示 115 回的原因，重新掃碼即可
+- 登入方式（掃碼、貼 cookie 或設定檔）、掃碼時佔用的裝置類型、登入時間
+- 目前登入這個帳號的所有裝置，標出哪一個是本伺服器；看得出是不是被其他同類型登入踢掉
+- 有授權 115 開放平台時，另外顯示開放平台的帳號與 token 到期時間
 
 **進階：115 開放平台**。如果你自己在 [115 開放平台](https://open.115.com) 申請到了應用，可以在網頁的進階區塊填 AppID 掃碼授權。授權後取直鏈與列目錄會優先走開放平台，失敗再改用掃碼登入。一般用戶不需要這一步。
 
@@ -55,18 +68,63 @@ http://192.168.1.10:8096/d/abcdefghijklmnopq.mkv
 - 網址最後的副檔名讓播放器與掃描器認得容器格式。
 - 進階設定可以在網址後面附上 `?/原檔名`，方便人工辨識；伺服器會忽略這一段。
 
-觸發方式：
-- 網頁上的「立即從 115 同步 strm」
-- 同步選項裡設定自動同步間隔（分鐘）
-- 命令列 `python -m embyserver -c config.yaml --sync-115`
+### 增量同步與全量同步
 
-第二次同步時，內容沒變的 strm 不會重寫，已下載且大小相同的中繼資料也不會重新下載。
+| | 增量同步 | 全量同步 |
+|---|---|---|
+| 做什麼 | 只處理上次同步之後在 115 新增、改名、移入的檔案 | 逐層列出整個 115 目錄重新比對 |
+| 速度 | 快，只向 115 要一份依修改時間排序的清單，看到舊檔案就停 | 目錄多時較慢 |
+| 刪除 | 不處理 | 勾選「跟著刪」時，清掉 115 上已刪除的項目 |
+| 適合 | 每隔幾分鐘自動跑 | 每天跑一次，補齊漏掉的、清掉刪除的 |
+
+- 每個同步任務各自記錄上次同步看到的最新修改時間，網頁上會顯示上次增量、全量的時間。
+- 增量會往回多看 10 分鐘，避免剛好在同步期間上傳的檔案被漏掉；內容沒變的 strm 不會重寫。
+- 任務第一次同步、或還沒有記錄時，增量會自動改跑全量。
+- 115 上刪除影片時，「跟著刪」會一併清掉同名的 nfo、海報、字幕；整部劇都刪光時，資料夾裡的中繼資料和空資料夾也會清掉。其他檔案不動。
+
+觸發方式：
+- 網頁上的「增量同步」、「全量同步」按鈕
+- 同步選項裡的自動增量同步間隔（分鐘）與自動全量同步間隔（小時）
+- 命令列 `python -m embyserver -c config.yaml --sync-115`（全量）或 `--sync-115 incremental`
+
+已下載且大小相同的中繼資料不會重新下載。
 
 ### 播放
 
 1. 播放器請求 strm 項目時，伺服器從 strm 取出 pickcode，以**播放器自己的 User-Agent** 向 115 取下載直鏈（115 的直鏈綁定 UA），然後 302 過去。直鏈依 (pickcode, UA) 快取到到期前 5 分鐘。
 2. 其他工具產生的 strm 也認得，例如 `…/d/{pickcode}`、`…?pickcode=xxx`，舊檔案不必重新產生。
 3. 115 取直鏈失敗時，會退回 strm 原網址。
+
+## 刮削：交給 MoviePilot
+
+Mi302 不自己刮削，只讀取資料夾裡已經有的 nfo 和海報。這些資料可以來自 115（同步時一併下載），或交給 [MoviePilot](https://github.com/jxxghp/MoviePilot) 刮削：
+
+1. 同步產生新的 strm 後，Mi302 把這些檔案的路徑送給 MoviePilot 的刮削 API。
+2. MoviePilot 辨識影片、到 TMDB 等來源查資料，把 nfo、海報、背景圖寫進同一個資料夾。
+3. 刮削完成後 Mi302 自動重新掃描，播放器就看得到海報和簡介。
+
+### 設定
+
+1. **兩邊要看得到同一批檔案**。兩個都用 Docker 時，把同一個主機資料夾掛進兩個容器，例如 Mi302 掛 `/volume1/media:/media`，MoviePilot 也掛 `/volume1/media:/media`。掛載路徑一樣就不用填路徑對應；不一樣時（例如 MoviePilot 掛成 `/mnt/media`），在路徑對應填 `/media => /mnt/media`。
+2. 在 MoviePilot 的「設定 → 系統」複製 **API 令牌**。
+3. 在 Mi302 網頁的「MoviePilot」分頁填 MoviePilot 網址（例如 `http://192.168.1.10:3000`）和 API 令牌，按「儲存」再按「測試連線」。
+4. 測試出現「拒絕存取」時，表示你的 MoviePilot 版本較舊、刮削 API 只接受登入，請展開「舊版 MoviePilot」填帳號密碼。
+
+### 送出規則
+
+- 電影：送 strm 檔本身。
+- 劇集：整部劇還沒有 `tvshow.nfo` 時送整個劇集資料夾，一次處理劇、季、集；已經刮削過的劇只送新的那幾集。
+- 已經有 nfo 的影片不送（包括單片資料夾裡的 `movie.nfo`），避免覆蓋從 115 帶下來或之前刮好的資料。
+- 連線或認證失敗時會停下整批，網頁上顯示原因。
+
+「同步產生新的 strm 後自動送去刮削」預設開啟；關掉時同步完直接掃描。已經存在的媒體庫可以按「刮削缺少資料的項目」，把所有還沒有 nfo 的影片送一次。
+
+### 讓 MoviePilot 把 Mi302 當成 Emby
+
+MoviePilot 可以把 Mi302 加成媒體伺服器，用來判斷片子是否已經有了、整理完自動通知 Mi302 重新掃描：
+
+1. 在 Mi302 網頁的「MoviePilot」分頁建立一把 API 金鑰。
+2. 在 MoviePilot 的「設定 → 媒體伺服器」新增 Emby，地址填 `http://<Mi302 主機>:8096`，API 金鑰貼上剛才那把。
 
 ## 部署
 
@@ -124,9 +182,9 @@ tv/
 ## 已實作的端點
 
 - 系統：`System/Info/Public`、`System/Info`、`System/Ping`、`System/Endpoint`
-- 使用者：`Users/AuthenticateByName`、`Users/Public`、`Users/{id}`、`Sessions/Logout`
-- 媒體庫：`Users/{id}/Views`、`Library/MediaFolders`、`Library/VirtualFolders`、`Library/Refresh`
-- 項目：`Users/{id}/Items`、`Items`（ParentId、Recursive、IncludeItemTypes、SortBy、SearchTerm、Filters、分頁）、`Users/{id}/Items/{itemId}`、`Items/Latest`、`Items/Resume`、`Shows/{id}/Seasons`、`Shows/{id}/Episodes`、`Shows/NextUp`、`Genres`
+- 使用者：`Users`、`Users/AuthenticateByName`、`Users/Public`、`Users/{id}`、`Sessions/Logout`
+- 媒體庫：`Users/{id}/Views`、`Library/MediaFolders`、`Library/VirtualFolders`、`Library/VirtualFolders/Query`、`Library/SelectableMediaFolders`、`Library/Refresh`、`Library/Media/Updated`
+- 項目：`Users/{id}/Items`、`Items`（ParentId、Recursive、IncludeItemTypes、SortBy、SearchTerm、Filters、分頁）、`Users/{id}/Items/{itemId}`、`Items/Latest`、`Items/Resume`、`Shows/{id}/Seasons`、`Shows/{id}/Episodes`、`Shows/NextUp`、`Genres`、`Items/Counts`、`Items/{id}/Refresh`
 - 播放：`Items/{id}/PlaybackInfo`、`Videos/{id}/*`、`Items/{id}/Download`、`Sessions/Playing[/Progress|/Stopped]`
 - 使用者資料：`PlayedItems`、`FavoriteItems`
 - 圖片：`Items/{id}/Images/{type}`

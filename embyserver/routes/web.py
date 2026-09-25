@@ -223,3 +223,47 @@ def browse_115(request: Request, ctx: AuthContext = Depends(require_admin)):
     dirs = sorted((e["name"] for e in entries if e["is_dir"]), key=str.lower)
     parent = None if path == "/" else ("/" + path.strip("/").rpartition("/")[0]).rstrip("/") or "/"
     return {"path": path, "parent": parent, "dirs": dirs}
+
+
+# ---------------- MoviePilot ----------------
+
+
+@router.post("/web/api/moviepilot/test")
+def moviepilot_test(request: Request, ctx: AuthContext = Depends(require_admin)):
+    return state(request).moviepilot.test()
+
+
+@router.get("/web/api/moviepilot/status")
+def moviepilot_status(request: Request, ctx: AuthContext = Depends(require_admin)):
+    mp = state(request).moviepilot
+    return {"enabled": mp.enabled, "result": mp.result.as_dict()}
+
+
+@router.post("/web/api/moviepilot/scrape")
+def moviepilot_scrape(request: Request, ctx: AuthContext = Depends(require_admin)):
+    """把媒體庫裡還沒有 nfo 的影片都送去 MoviePilot 刮削。"""
+    mp = state(request).moviepilot
+    if not mp.enabled:
+        raise HTTPException(status_code=400, detail="請先填好 MoviePilot 網址與 API 令牌並儲存")
+    started = mp.scrape_in_background(None, "manual")
+    return {"started": started, "result": mp.result.as_dict()}
+
+
+# ---------------- API 金鑰 ----------------
+
+
+@router.get("/web/api/apikeys")
+def list_api_keys(request: Request, ctx: AuthContext = Depends(require_admin)):
+    return state(request).auth.list_api_keys()
+
+
+@router.post("/web/api/apikeys")
+async def create_api_key(request: Request, ctx: AuthContext = Depends(require_admin)):
+    body = await _body(request)
+    return state(request).auth.create_api_key(str(body.get("name") or ""))
+
+
+@router.delete("/web/api/apikeys/{key}")
+def delete_api_key(key: str, request: Request, ctx: AuthContext = Depends(require_admin)):
+    state(request).auth.delete_api_key(key)
+    return Response(status_code=204)

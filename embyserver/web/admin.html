@@ -28,6 +28,12 @@ dialog{border:1px solid var(--line);border-radius:10px;width:min(520px,92vw);bac
 #pickList{max-height:50vh;overflow:auto;margin:8px 0}
 #pickList div{padding:8px;border-bottom:1px solid var(--line);cursor:pointer}#pickList div:hover{background:var(--soft)}
 .hidden{display:none}
+.acct{display:flex;gap:12px;align-items:center}.acct img{width:52px;height:52px;border-radius:50%;background:var(--soft)}
+.bar{height:8px;background:var(--soft);border-radius:4px;overflow:hidden;margin:6px 0}.bar>div{height:100%;background:var(--accent)}
+.badge{display:inline-block;padding:1px 8px;border-radius:10px;font-size:12px;border:1px solid var(--line);margin-left:4px}
+.badge.ok{color:#2a9d4b;border-color:#2a9d4b}.badge.bad{color:var(--warn);border-color:var(--warn)}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;font-size:14px;margin:10px 0}.kv>span:nth-child(odd){color:var(--muted)}
+code{background:var(--soft);padding:1px 5px;border-radius:4px;word-break:break-all}
 </style></head><body>
 <h2>Mi302 管理</h2>
 
@@ -52,6 +58,7 @@ dialog{border:1px solid var(--line);border-radius:10px;width:min(520px,92vw);bac
   <nav>
     <a href="#libraries" data-tab="libraries">媒體庫</a>
     <a href="#115" data-tab="115">115 網盤</a>
+    <a href="#moviepilot" data-tab="moviepilot">MoviePilot</a>
     <a href="#users" data-tab="users">使用者</a>
     <a href="#settings" data-tab="settings">進階設定</a>
     <a href="#" onclick="logoutWeb();return false" style="margin-left:auto">登出</a>
@@ -74,8 +81,8 @@ dialog{border:1px solid var(--line);border-radius:10px;width:min(520px,92vw);bac
   <!-- 115 -->
   <section id="tab-115" class="hidden">
     <div class="box">
-      <b>第 1 步：登入 115</b>
-      <p>目前狀態：<span id="st">讀取中…</span></p>
+      <div class="row"><b class="grow">第 1 步：登入 115</b><button class="small" onclick="load115(true)">重新整理</button></div>
+      <div id="acct"><p class="muted">讀取中…</p></div>
       <button class="primary" onclick="startQr()">產生登入二維碼</button>
       <button onclick="logout115()">登出 115</button>
       <p class="muted">用手機 115 App 掃描並確認。</p>
@@ -106,17 +113,59 @@ dialog{border:1px solid var(--line);border-radius:10px;width:min(520px,92vw);bac
     <div class="box">
       <b>第 3 步：同步</b>
       <p class="muted">strm 內的伺服器位址：<span id="base"></span></p>
-      <button class="primary" onclick="syncStrm()">立即從 115 同步 strm</button>
+      <button class="primary" onclick="syncStrm('incremental')">增量同步</button>
+      <button onclick="syncStrm('full')">全量同步</button>
+      <p class="muted">增量：只處理上次同步之後在 115 新增、改名、移入的檔案，速度快，適合常常跑。<br>
+        全量：重新比對整個目錄，會補齊漏掉的檔案；勾選下方「跟著刪」時也會清掉 115 上已刪除的項目。<br>
+        第一次增量同步會自動先跑一次全量。</p>
       <p id="syncst" class="muted"></p>
       <details><summary class="muted">同步選項</summary>
-        <label class="field">自動同步間隔（分鐘，0 = 只手動）</label>
+        <label class="field">自動增量同步間隔（分鐘，0 = 不自動）</label>
         <input type="number" min="0" data-key="p115.strm.interval">
+        <label class="field">自動全量同步間隔（小時，0 = 不自動，建議 24）</label>
+        <input type="number" min="0" data-key="p115.strm.full_interval">
         <label class="field">略過小於這個大小的影片（MB，例如 50 可略過預告片）</label>
         <input type="number" min="0" data-key="p115.strm.min_size_mb">
         <label class="check"><input type="checkbox" data-key="p115.strm.download_metadata">一併下載 nfo、海報、字幕</label>
-        <label class="check"><input type="checkbox" data-key="p115.strm.delete_stale">115 上刪掉的影片，本機的 strm 也跟著刪</label>
+        <label class="check"><input type="checkbox" data-key="p115.strm.delete_stale">115 上刪掉的影片，本機的 strm 也跟著刪（只在全量同步時）</label>
         <button onclick="saveFields(this.parentElement)">儲存同步選項</button> <span class="muted msg"></span>
       </details>
+    </div>
+  </section>
+
+  <!-- MoviePilot -->
+  <section id="tab-moviepilot" class="hidden">
+    <p class="muted">Mi302 不自己刮削，而是交給 MoviePilot：同步產生新的 strm 後，請 MoviePilot 查影片資料，把 nfo 和海報寫到同一個資料夾，Mi302 再重新掃描。</p>
+    <div class="box">
+      <b>連線設定</b>
+      <label class="field">MoviePilot 網址</label>
+      <input type="text" data-key="moviepilot.url" placeholder="例如 http://192.168.1.10:3000">
+      <label class="field">API 令牌（MoviePilot 的「設定 → 系統 → API 令牌」）</label>
+      <input type="text" data-key="moviepilot.api_token">
+      <details><summary class="muted">舊版 MoviePilot：改用帳號密碼</summary>
+        <p class="muted">舊版的刮削 API 不接受 API 令牌，測試連線出現「拒絕存取」時再填。</p>
+        <input type="text" data-key="moviepilot.username" placeholder="MoviePilot 帳號">
+        <input type="password" data-key="moviepilot.password" placeholder="MoviePilot 密碼">
+      </details>
+      <label class="field">路徑對應（兩邊看到的資料夾路徑不同時才需要），一行一條：Mi302 的路徑 =&gt; MoviePilot 的路徑</label>
+      <textarea id="mpMap" rows="2" placeholder="/media => /mnt/media"></textarea>
+      <p class="muted">MoviePilot 要能讀寫同一批 strm 檔案。兩個都用 Docker 時，把同一個主機資料夾掛進兩個容器；掛載路徑一樣就不用填對應。</p>
+      <label class="check"><input type="checkbox" data-key="moviepilot.scrape_after_sync">同步產生新的 strm 後自動送去刮削</label>
+      <button class="primary" onclick="saveMP()">儲存</button>
+      <button onclick="testMP()">測試連線</button>
+      <span id="mpMsg" class="muted"></span>
+    </div>
+    <div class="box">
+      <div class="row"><b class="grow">刮削</b><button class="small" onclick="scrapeMP()">刮削缺少資料的項目</button></div>
+      <p class="muted">把媒體庫裡還沒有 nfo 的影片送去 MoviePilot。已經有 nfo 的不會重送；劇集沒有 tvshow.nfo 時整部劇一起刮削。</p>
+      <p id="mpSt" class="muted"></p>
+    </div>
+    <div class="box">
+      <b>讓 MoviePilot 把 Mi302 當成 Emby</b>
+      <p class="muted">MoviePilot 可以把 Mi302 加成媒體伺服器，用來判斷片子是否已經有了、整理完自動通知 Mi302 重新掃描。在 MoviePilot 的「設定 → 媒體伺服器」新增一個 Emby：</p>
+      <div class="kv"><span>地址</span><span><code id="mpHost"></code></span><span>API 金鑰</span><span>在下面建立一把，複製過去</span></div>
+      <div id="keys"></div>
+      <div class="row"><input id="keyName" type="text" class="grow" placeholder="用途，例如 MoviePilot"><button class="small" onclick="addKey()">建立 API 金鑰</button></div>
     </div>
   </section>
 
@@ -233,7 +282,7 @@ function route() {
   for (const a of document.querySelectorAll('nav a[data-tab]')) a.classList.toggle('on', a.dataset.tab === tab);
   for (const s of document.querySelectorAll('section')) s.classList.toggle('hidden', s.id !== 'tab-' + tab);
   fillFields();
-  ({libraries: loadLibs, '115': load115, users: loadUsers, settings: () => {}})[tab]?.();
+  ({libraries: loadLibs, '115': () => load115(false), moviepilot: loadMP, users: loadUsers, settings: () => {}})[tab]?.();
 }
 window.addEventListener('hashchange', () => { if (token && cfg) route(); });
 
@@ -323,14 +372,59 @@ async function addUser() {
 }
 
 // ---- 115 ----
-async function load115() {
+function fmtSize(b) {
+  if (!b) return '0';
+  const u = ['B', 'KB', 'MB', 'GB', 'TB', 'PB']; let i = 0;
+  while (b >= 1024 && i < u.length - 1) { b /= 1024; i++; }
+  return b.toFixed(i >= 3 ? 2 : 0) + ' ' + u[i];
+}
+function fmtTime(ts) { return ts ? new Date(ts * 1000).toLocaleString() : ''; }
+const LOGIN_METHOD = {qrcode: '掃碼登入', cookie: '貼上 cookie', config: '設定檔 cookie'};
+const APP_NAME = {alipaymini: '支付寶小程式', wechatmini: '微信小程式', tv: '115 TV 版', qandroid: '115 管理（Android）',
+  ios: '115（iOS）', android: '115（Android）', web: '網頁版'};
+async function load115(refresh) {
+  const box = $('acct');
   let s;
-  try { s = await api('/p115/status'); } catch (e) { $('st').textContent = e.message; return; }
-  let text = s.cookie ? ('已登入' + (s.user ? '（' + s.user.user_name + '）' : '（可能已失效，請重新掃碼）')) : '未登入';
-  if (s.open.authorized) text += '，開放平台已授權';
-  $('st').textContent = text;
+  try { s = await api('/p115/status' + (refresh ? '?refresh=1' : '')); }
+  catch (e) { box.innerHTML = '<p class="warn">' + esc(e.message) + '</p>'; return; }
   if (s.open.app_id && !appid.value) appid.value = s.open.app_id;
   pollSync(true);
+  const c = s.cookie_info, o = s.open, a = s.account;
+  if (!s.logged_in) { box.innerHTML = '<p>目前狀態：<span class="badge bad">未登入</span></p>'; return; }
+  let h = '';
+  if (a) {
+    const vip = a.vip || {};
+    const vipText = vip.is_forever ? '永久 VIP' : vip.is_vip ? ((vip.level || 'VIP') + (vip.expire ? '，到期 ' + vip.expire : '')) : '非 VIP';
+    h += `<div class="acct">${a.avatar ? `<img src="${esc(a.avatar)}" referrerpolicy="no-referrer">` : ''}
+      <div><b>${esc(a.user_name || '')}</b> <span class="muted">UID ${esc(a.user_id || '')}</span><br>
+      <span class="badge ${vip.is_vip ? 'ok' : ''}">${esc(vipText)}</span></div></div>`;
+    if (a.space && a.space.total) {
+      const pct = Math.min(100, a.space.used / a.space.total * 100);
+      h += `<div class="bar"><div style="width:${pct.toFixed(1)}%"></div></div>
+        <div class="muted">空間：已用 ${fmtSize(a.space.used)} / 共 ${fmtSize(a.space.total)}，剩 ${fmtSize(a.space.remain)}</div>`;
+    }
+  }
+  h += '<div class="kv">';
+  if (c) {
+    const login = s.login || {};
+    h += `<span>Cookie</span><span>${c.valid ? '<span class="badge ok">有效</span>' : '<span class="badge bad">已失效</span> ' + esc(c.error || '') + '，請重新掃碼'}</span>`;
+    if (login.method) h += `<span>登入方式</span><span>${esc(LOGIN_METHOD[login.method] || login.method)}${login.app ? '（佔用 ' + esc(APP_NAME[login.app] || login.app) + '）' : ''}</span>`;
+    if (login.at) h += `<span>登入時間</span><span>${fmtTime(login.at)}</span>`;
+  } else {
+    h += '<span>Cookie</span><span>未登入</span>';
+  }
+  if (o.authorized) {
+    h += `<span>開放平台</span><span>${o.valid === false ? '<span class="badge bad">授權失效</span> ' + esc(o.error || '') : '<span class="badge ok">已授權</span>'}${o.expires_at ? '，token 到期 ' + fmtTime(o.expires_at) + '（會自動續期）' : ''}</span>`;
+  }
+  h += `<span>檢查時間</span><span>${fmtTime(s.checked_at)}</span></div>`;
+  if (c && c.devices && c.devices.length) {
+    h += '<details><summary class="muted">目前登入這個帳號的裝置（' + c.devices.length + '）</summary>';
+    for (const d of c.devices) {
+      h += `<div class="item">${esc(d.name || d.app)}${d.current ? ' <span class="badge ok">本伺服器</span>' : ''}<div class="muted">${esc([d.ip, d.city, fmtTime(d.time)].filter(Boolean).join('　'))}</div></div>`;
+    }
+    h += '</details>';
+  }
+  box.innerHTML = h;
 }
 function pollQr(t, statusUrl, box, label, holder) {
   const poll = async () => {
@@ -372,7 +466,9 @@ function renderTasks(list) {
   const box = $('tasks'); box.innerHTML = list.length ? '' : '<p class="muted">還沒有任務</p>';
   list.forEach((t, i) => {
     const r = document.createElement('div'); r.className = 'row item';
-    r.innerHTML = `<div class="grow">115:${esc(t.remote)} → ${esc(t.local)}${t.in_library ? '' : '<div class="warn">這個資料夾不在任何媒體庫裡，播放器會看不到</div>'}</div><button class="small">刪除</button>`;
+    const st = t.state || {};
+    const when = [st.full_at ? '全量 ' + fmtTime(st.full_at) : '', st.incremental_at ? '增量 ' + fmtTime(st.incremental_at) : ''].filter(Boolean).join('，');
+    r.innerHTML = `<div class="grow">115:${esc(t.remote)} → ${esc(t.local)}${t.in_library ? '' : '<div class="warn">這個資料夾不在任何媒體庫裡，播放器會看不到</div>'}<div class="muted">${when ? '上次同步：' + when : '還沒同步過'}</div></div><button class="small">刪除</button>`;
     r.querySelector('button').onclick = () => saveTasks(tasks.filter((_, j) => j !== i));
     box.appendChild(r);
   });
@@ -387,20 +483,70 @@ function addTask() {
   saveTasks(tasks.concat([{remote: remote.value.trim(), local: local.value.trim()}]));
   remote.value = local.value = '';
 }
-async function syncStrm() {
-  try { await api('/p115/strm/sync', {method: 'POST'}); } catch (e) { syncst.textContent = '錯誤：' + e.message; return; }
+async function syncStrm(mode) {
+  try { await api('/p115/strm/sync?mode=' + mode, {method: 'POST'}); } catch (e) { syncst.textContent = '錯誤：' + e.message; return; }
   pollSync(false);
 }
 async function pollSync(first) {
   const s = await api('/p115/strm/status');
-  if (first) renderTasks(s.tasks);
+  if (first || !s.result.running) renderTasks(s.tasks);
   $('base').textContent = s.base_url;
   const r = s.result;
   if (!r.started) { syncst.textContent = ''; return; }
-  syncst.textContent = (r.running ? '同步中… ' : '上次同步完成：') + '新增/更新 ' + r.strm_created + '，未變 ' + r.strm_unchanged +
-    '，下載中繼資料 ' + r.metadata_downloaded + '，刪除 ' + r.removed + (r.errors.length ? '，錯誤 ' + r.errors.length + '：' + r.errors.slice(0, 3).join('；') : '');
+  const kind = r.mode === 'incremental' ? '增量' : '全量';
+  let text = (r.running ? kind + '同步中… ' : '上次' + kind + '同步（' + fmtTime(r.finished) + '）：') + '新檔案 ' + r.new_files +
+    '，更新 ' + (r.strm_created - r.new_files) + '，未變 ' + r.strm_unchanged + '，下載中繼資料 ' + r.metadata_downloaded + '，刪除 ' + r.removed;
+  if (r.fell_back_to_full.length) text += '。第一次同步，已先全量：' + r.fell_back_to_full.join('、');
+  if (r.errors.length) text += '。錯誤 ' + r.errors.length + '：' + r.errors.slice(0, 3).join('；');
+  syncst.textContent = text;
   if (r.running) setTimeout(() => pollSync(false), 2000);
 }
+
+// ---- MoviePilot ----
+function mpRulesText() { return (cfg.moviepilot.path_mappings || []).map(r => r.from + ' => ' + r.to).join('\n'); }
+async function loadMP() {
+  $('mpMap').value = mpRulesText();
+  $('mpHost').textContent = location.origin;
+  loadKeys(); pollMP();
+}
+async function saveMP() {
+  const body = {moviepilot: {}};
+  for (const el of $('tab-moviepilot').querySelectorAll('[data-key]')) setKey(body, el.dataset.key, el.type === 'checkbox' ? el.checked : el.value);
+  body.moviepilot.path_mappings = $('mpMap').value.split('\n').map(l => l.split('=>')).filter(x => x.length === 2).map(([f, t]) => ({from: f.trim(), to: t.trim()}));
+  try { cfg = await api('/web/api/settings', {method: 'PUT', body: JSON.stringify(body)}); fillFields(); $('mpMap').value = mpRulesText(); flash($('mpMsg'), '已儲存', 'ok'); return true; }
+  catch (e) { flash($('mpMsg'), '錯誤：' + e.message, 'warn'); return false; }
+}
+async function testMP() {
+  if (!await saveMP()) return;
+  flash($('mpMsg'), '測試中…');
+  const r = await api('/web/api/moviepilot/test', {method: 'POST'});
+  flash($('mpMsg'), r.message, r.ok ? 'ok' : 'warn');
+}
+async function scrapeMP() {
+  try { await api('/web/api/moviepilot/scrape', {method: 'POST'}); } catch (e) { $('mpSt').textContent = '錯誤：' + e.message; return; }
+  pollMP();
+}
+async function pollMP() {
+  const s = await api('/web/api/moviepilot/status');
+  const r = s.result;
+  if (!r.started) { $('mpSt').textContent = s.enabled ? '還沒有刮削紀錄' : '填好網址和 API 令牌後就能使用'; return; }
+  let text = (r.running ? '刮削中（' + (r.done + r.failed) + '/' + r.total + '）' + (r.current ? '：' + r.current : '')
+    : '上次刮削（' + (r.source === 'sync' ? '同步後自動' : '手動') + '，' + fmtTime(r.finished) + '）：共 ' + r.total + ' 項，成功 ' + r.done + '，失敗 ' + r.failed);
+  if (r.errors.length) text += '。' + r.errors.slice(0, 3).join('；');
+  $('mpSt').textContent = text;
+  if (r.running) setTimeout(pollMP, 2000);
+}
+async function loadKeys() {
+  const list = await api('/web/api/apikeys');
+  const box = $('keys'); box.innerHTML = '';
+  for (const k of list) {
+    const r = document.createElement('div'); r.className = 'row item';
+    r.innerHTML = `<div class="grow"><b>${esc(k.name)}</b><br><code>${esc(k.key)}</code></div><button class="small">刪除</button>`;
+    r.querySelector('button').onclick = async () => { if (confirm('刪除「' + k.name + '」？用這把金鑰的程式會連不上。')) { await api('/web/api/apikeys/' + k.key, {method: 'DELETE'}); loadKeys(); } };
+    box.appendChild(r);
+  }
+}
+async function addKey() { await api('/web/api/apikeys', {method: 'POST', body: JSON.stringify({name: keyName.value || 'MoviePilot'})}); keyName.value = ''; loadKeys(); }
 
 // ---- 資料夾選擇器 ----
 let pickKind = 'local', pickResolve = null, pickCur = '';

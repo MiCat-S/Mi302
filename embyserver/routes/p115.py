@@ -14,6 +14,7 @@ from ..auth import AuthContext, require_admin
 from ..config import StrmTask
 from ..p115 import PICKCODE_RE, P115Error
 from ..p115_open import P115OpenError
+from ..strm_sync import FULL, INCREMENTAL
 from .common import q, state
 
 router = APIRouter()
@@ -25,11 +26,15 @@ def p115_status(request: Request, ctx: AuthContext = Depends(require_admin)):
     svc = st.p115
     # 管理員從哪個網址開這個頁面，播放器通常也連得到，拿來當 strm 裡的伺服器位址
     st.strm_sync.remember_base_url(str(request.base_url))
+    account = svc.account_info(refresh=q(request, "refresh") in ("1", "true"))
+    cookie = account.get("cookie") or {}
     return {
-        "logged_in": svc.logged_in,
+        **account,
         "cookie": bool(svc.cookies),
-        "user": svc.user_info() if svc.cookies else None,
-        "open": svc.open.status(),
+        "cookie_info": account.get("cookie"),
+        # 舊欄位：cookie 有效時的帳號
+        "user": {"user_id": cookie.get("user_id"), "user_name": cookie.get("user_name")} if cookie.get("valid") else None,
+        "open": {**svc.open.status(), **(account.get("open") or {})},
     }
 
 
@@ -109,8 +114,8 @@ def _tasks_view(st) -> list:
         return any(path == lib or lib in path.parents or path in lib.parents for lib in libs)
 
     return [
-        {"remote": t.remote, "local": t.local, "in_library": in_library(t.local)}
-        for t in st.strm_sync.tasks
+        {"remote": t.remote, "local": t.local, "in_library": in_library(t.local), "state": state_}
+        for t, state_ in zip(st.strm_sync.tasks, st.strm_sync.task_states())
     ]
 
 
@@ -122,7 +127,8 @@ def p115_strm_sync(request: Request, ctx: AuthContext = Depends(require_admin)):
     if not st.strm_sync.tasks:
         raise HTTPException(status_code=400, detail="還沒有同步任務，請先新增「115 目錄 → 本機資料夾」")
     st.strm_sync.remember_base_url(str(request.base_url))
-    started = st.strm_sync.run_in_background()
+    mode = INCREMENTAL if (q(request, "mode") or "").lower().startswith("inc") else FULL
+    started = st.strm_sync.run_in_background(mode)
     return {"started": started, "result": st.strm_sync.result.as_dict()}
 
 

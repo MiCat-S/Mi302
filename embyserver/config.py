@@ -62,7 +62,8 @@ class P115StrmConfig:
     download_metadata: bool = True  # 一併下載 nfo、圖片、字幕
     delete_stale: bool = False  # 刪除 115 上已不存在的 strm
     min_size_mb: float = 0  # 小於此大小的影片不產生 strm（例如預告片）
-    interval: int = 0  # 定時同步間隔（分鐘），0 表示只手動同步
+    interval: int = 0  # 自動增量同步間隔（分鐘），0 表示不自動
+    full_interval: int = 0  # 自動全量同步間隔（小時），0 表示不自動；全量才能清掉 115 上已刪除的項目
     request_delay: float = 0.2  # 每列一個目錄前的等待秒數，避免被 115 風控
     scan_after_sync: bool = True  # 同步完自動重新掃描媒體庫
 
@@ -77,6 +78,21 @@ class P115Config:
     # 進階：115 開放平台 AppID，只有自己在 open.115.com 申請到應用的人才需要
     open_app_id: str = ""
     strm: P115StrmConfig = field(default_factory=P115StrmConfig)
+
+
+@dataclass
+class MoviePilotConfig:
+    """刮削交給 MoviePilot：Mi302 產生新的 strm 後，呼叫 MoviePilot 的刮削 API。"""
+
+    url: str = ""  # MoviePilot 網址，例如 http://192.168.1.10:3000
+    api_token: str = ""  # MoviePilot 設定 → 系統 → API 令牌
+    # 舊版 MoviePilot 的刮削 API 只接受登入後的 token，這時改用帳號密碼
+    username: str = ""
+    password: str = ""
+    # Mi302 看到的路徑 → MoviePilot 看到的路徑（兩邊容器掛載點不同時才需要）
+    path_mappings: List[PathRule] = field(default_factory=list)
+    scrape_after_sync: bool = True  # 同步產生新 strm 後自動送去刮削
+    timeout: float = 300  # MoviePilot 刮削是同步完成才回應，一部片可能要幾十秒
 
 
 @dataclass
@@ -96,6 +112,7 @@ class Config:
     redirect: RedirectConfig = field(default_factory=RedirectConfig)
     api_keys: List[str] = field(default_factory=list)
     p115: P115Config = field(default_factory=P115Config)
+    moviepilot: MoviePilotConfig = field(default_factory=MoviePilotConfig)
 
     @property
     def data_path(self) -> Path:
@@ -124,7 +141,14 @@ def _build(raw: dict) -> Config:
         redirect=redirect,
         api_keys=list(raw.get("api_keys") or []),
         p115=_build_p115(raw.get("p115") or {}),
+        moviepilot=_build_moviepilot(raw.get("moviepilot") or {}),
     )
+
+
+def _build_moviepilot(raw: dict) -> MoviePilotConfig:
+    raw = dict(raw)
+    rules = [PathRule(source=r["from"], target=r["to"]) for r in raw.pop("path_mappings", None) or []]
+    return MoviePilotConfig(path_mappings=rules, **raw)
 
 
 def _build_p115(raw: dict) -> P115Config:

@@ -15,6 +15,7 @@ from fastapi.responses import PlainTextResponse
 from .auth import AuthService
 from .config import Config
 from .db import Database
+from .moviepilot import MoviePilot
 from .p115 import P115Service
 from .redirect import Redirector
 from .routes import items, p115, playback, system, web
@@ -59,10 +60,21 @@ def create_app(config: Config, db_path: Optional[str] = None, scan_on_start: boo
         db, config.p115.cookies, config.p115.app, config.p115.timeout, open_app_id=config.p115.open_app_id
     )
     app.state.redirector = Redirector(config.redirect, app.state.p115)
+    app.state.moviepilot = MoviePilot(config.moviepilot, config, on_done=scanner.scan_all)
+
+    def after_sync(result) -> None:
+        # 新產生的 strm 交給 MoviePilot 刮削（刮削有完成就會重新掃描），否則直接掃描
+        mp = app.state.moviepilot
+        if result.new_files and mp.enabled and config.moviepilot.scrape_after_sync:
+            if mp.scrape(result.new_files, "sync").done:
+                return
+        if config.p115.strm.scan_after_sync:
+            scanner.scan_all()
+
     app.state.strm_sync = StrmSync(
         app.state.p115,
         config.p115.strm,
-        on_done=scanner.scan_all,
+        on_done=after_sync,
         port=config.server.port,
     )
 

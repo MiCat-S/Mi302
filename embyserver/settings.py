@@ -20,8 +20,9 @@ SETTINGS_META_KEY = "web_settings"
 SERVER_FIELDS = ("name", "public_users")
 STRM_FIELDS = (
     "base_url", "include_name", "download_metadata", "delete_stale",
-    "min_size_mb", "interval", "request_delay", "scan_after_sync",
+    "min_size_mb", "interval", "full_interval", "request_delay", "scan_after_sync",
 )
+MOVIEPILOT_FIELDS = ("url", "api_token", "username", "password", "scrape_after_sync", "timeout")
 REDIRECT_FIELDS = ("resolve_redirects", "resolve_timeout", "cache_ttl", "require_auth", "default_container")
 P115_FIELDS = ("app", "open_app_id")
 
@@ -37,6 +38,10 @@ def export_settings(config: Config) -> Dict[str, Any]:
         "p115": {
             **{k: getattr(config.p115, k) for k in P115_FIELDS},
             "strm": {k: getattr(config.p115.strm, k) for k in STRM_FIELDS},
+        },
+        "moviepilot": {
+            **{k: getattr(config.moviepilot, k) for k in MOVIEPILOT_FIELDS},
+            "path_mappings": [{"from": r.source, "to": r.target} for r in config.moviepilot.path_mappings],
         },
         "redirect": {
             **{k: getattr(config.redirect, k) for k in REDIRECT_FIELDS},
@@ -101,12 +106,23 @@ def apply_settings(config: Config, raw: dict) -> None:
     redirect = raw.get("redirect") or {}
     _set_fields(config.redirect, REDIRECT_FIELDS, redirect)
     if "path_rules" in redirect:
-        rules = []
-        for r in redirect["path_rules"] or []:
-            src, dst = str(r.get("from") or "").strip(), str(r.get("to") or "").strip()
-            if src and dst:
-                rules.append(PathRule(source=src, target=dst))
-        config.redirect.path_rules[:] = rules
+        config.redirect.path_rules[:] = _rules(redirect["path_rules"])
+    mp = raw.get("moviepilot") or {}
+    _set_fields(config.moviepilot, MOVIEPILOT_FIELDS, mp)
+    config.moviepilot.url = config.moviepilot.url.rstrip("/")
+    if config.moviepilot.url and not config.moviepilot.url.startswith(("http://", "https://")):
+        raise SettingsError("MoviePilot 網址要以 http:// 或 https:// 開頭")
+    if "path_mappings" in mp:
+        config.moviepilot.path_mappings[:] = _rules(mp["path_mappings"])
+
+
+def _rules(raw) -> List[PathRule]:
+    rules = []
+    for r in raw or []:
+        src, dst = str(r.get("from") or "").strip(), str(r.get("to") or "").strip()
+        if src and dst:
+            rules.append(PathRule(source=src, target=dst))
+    return rules
 
 
 def load_saved(db: Database, config: Config) -> None:

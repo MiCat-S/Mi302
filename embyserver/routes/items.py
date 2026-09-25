@@ -7,7 +7,7 @@ from typing import Any, List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import FileResponse
 
-from ..auth import AuthContext, now_iso, require_user
+from ..auth import AuthContext, now_iso, require_admin, require_user
 from ..dto import item_dto, query_result, user_data_dto
 from .common import q, q_bool, q_int, q_list, state
 
@@ -74,22 +74,87 @@ def media_folders(request: Request, ctx: AuthContext = Depends(require_user)):
     return query_result(items, len(items))
 
 
-@router.get("/library/virtualfolders")
-def virtual_folders(request: Request, ctx: AuthContext = Depends(require_user)):
+def _virtual_folders(request: Request) -> List[dict]:
     st = state(request)
     out = []
     for lib in _libraries(request):
         conf = next((l for l in st.config.libraries if l.name == lib["name"]), None)
+        paths = conf.paths if conf else []
         out.append(
             {
                 "Name": lib["name"],
-                "Locations": conf.paths if conf else [],
+                "Locations": paths,
                 "CollectionType": lib["collection_type"],
                 "ItemId": str(lib["id"]),
                 "Id": str(lib["id"]),
+                "LibraryOptions": {"PathInfos": [{"Path": p} for p in paths]},
             }
         )
     return out
+
+
+@router.get("/library/virtualfolders")
+def virtual_folders(request: Request, ctx: AuthContext = Depends(require_user)):
+    return _virtual_folders(request)
+
+
+# MoviePilot 等工具把 Mi302 當 Emby 媒體伺服器時會用到下面幾個端點
+
+
+@router.get("/library/virtualfolders/query")
+def virtual_folders_query(request: Request, ctx: AuthContext = Depends(require_user)):
+    items = _virtual_folders(request)
+    return {"Items": items, "TotalRecordCount": len(items)}
+
+
+@router.get("/library/selectablemediafolders")
+def selectable_media_folders(request: Request, ctx: AuthContext = Depends(require_user)):
+    return [
+        {
+            "Name": f["Name"],
+            "Id": f["Id"],
+            "Guid": f["Id"],
+            "SubFolders": [
+                {"Name": p.rstrip("/").rsplit("/", 1)[-1] or p, "Id": f"{f['Id']}-{i}", "Path": p}
+                for i, p in enumerate(f["Locations"])
+            ],
+        }
+        for f in _virtual_folders(request)
+    ]
+
+
+@router.get("/items/counts")
+def item_counts(request: Request, ctx: AuthContext = Depends(require_user)):
+    rows = state(request).db.query("SELECT type, COUNT(*) AS c FROM items GROUP BY type")
+    counts = {r["type"]: r["c"] for r in rows}
+    return {
+        "MovieCount": counts.get("Movie", 0),
+        "SeriesCount": counts.get("Series", 0),
+        "EpisodeCount": counts.get("Episode", 0),
+        "ItemCount": sum(counts.get(t, 0) for t in ("Movie", "Series", "Episode")),
+        **{k: 0 for k in (
+            "GameCount", "ArtistCount", "ProgramCount", "GameSystemCount", "TrailerCount", "SongCount",
+            "AlbumCount", "MusicVideoCount", "BoxSetCount", "BookCount",
+        )},
+    }
+
+
+def _rescan(request: Request) -> Response:
+    import threading
+
+    threading.Thread(target=state(request).scanner.scan_all, daemon=True).start()
+    return Response(status_code=204)
+
+
+@router.post("/items/{item_id}/refresh")
+def item_refresh(item_id: str, request: Request, ctx: AuthContext = Depends(require_admin)):
+    # 目前掃描是整個媒體庫一起做，很快，所以刷新單一項目也直接重新掃描
+    return _rescan(request)
+
+
+@router.post("/library/media/updated")
+def library_media_updated(request: Request, ctx: AuthContext = Depends(require_admin)):
+    return _rescan(request)
 
 
 # ---------------- 項目查詢 ----------------

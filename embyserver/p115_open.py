@@ -20,7 +20,7 @@ import logging
 import secrets
 import threading
 import time
-from typing import Dict, List, Optional
+from typing import Dict, Iterator, List, Optional
 
 import httpx
 
@@ -256,6 +256,51 @@ class P115OpenClient:
         if not cid:
             raise P115OpenError(f"115 上找不到目錄：{path}")
         return cid
+
+    def user_info(self) -> dict:
+        return self._call("GET", "/open/user/info").get("data") or {}
+
+    def dir_path(self, cid: int) -> str:
+        from .p115 import path_from_ancestors
+
+        body = self._call("GET", "/open/ufile/files", params={"cid": cid, "limit": 1, "show_dir": 1, "cur": 1})
+        return path_from_ancestors(body.get("path"), cid)
+
+    def iter_changed_files(self, cid: int, since: float) -> Iterator[dict]:
+        offset = 0
+        while True:
+            body = self._call(
+                "GET", "/open/ufile/files",
+                params={
+                    "cid": cid, "cur": 0, "show_dir": 0, "o": "user_utime", "asc": 0,
+                    "custom_order": 2, "limit": 1000, "offset": offset,
+                },
+            )
+            items = body.get("data")
+            count = body.get("count")
+            if isinstance(items, dict):
+                count = items.get("count", count)
+                items = items.get("list")
+            items = items or []
+            newer = 0
+            for info in items:
+                if str(info.get("fc", info.get("file_category", "1"))) == "0":
+                    continue
+                mtime = int(float(info.get("upt") or info.get("uet") or info.get("te") or 0))
+                if mtime < since:
+                    continue
+                newer += 1
+                yield {
+                    "name": info.get("fn") or info.get("file_name") or "",
+                    "id": int(info.get("fid") or info.get("file_id") or 0),
+                    "parent_id": int(info.get("pid") or info.get("parent_id") or info.get("cid") or 0),
+                    "pickcode": info.get("pc") or info.get("pick_code") or "",
+                    "size": int(info.get("fs") or info.get("size") or 0),
+                    "mtime": mtime,
+                }
+            offset += len(items)
+            if not items or not newer or offset >= int(count or 0):
+                return
 
     def list_dir(self, cid: int) -> List[dict]:
         out: List[dict] = []

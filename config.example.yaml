@@ -39,10 +39,11 @@
 #   timeout: 15            # 呼叫 115 的逾時秒數
 #   open_app_id: ""        # 115 開放平台 AppID，只有自己申請到應用的人才需要
 #   strm:
-#     interval: 0          # 每隔幾分鐘自動同步；0 = 只手動
+#     interval: 0          # 每隔幾分鐘自動「增量」同步（只處理新增、改名、移入的檔案）；0 = 不自動
+#     full_interval: 0     # 每隔幾小時自動「全量」同步（重新比對整個目錄，才能清掉已刪除的項目）；建議 24
 #     min_size_mb: 0       # 小於這個大小（MB）的影片不產生 strm
 #     download_metadata: true   # 一併下載 nfo、海報、字幕
-#     delete_stale: false       # 115 上刪掉的影片，本機的 strm 也跟著刪
+#     delete_stale: false       # 115 上刪掉的影片，本機的 strm 也跟著刪（只在全量同步時）
 #     base_url: ""         # strm 裡的伺服器網址，留空 = 自動使用開網頁時的網址
 #     include_name: false  # strm 網址後附上 ?/原檔名
 #     request_delay: 0.2   # 每列一個 115 目錄前等待的秒數
@@ -50,6 +51,19 @@
 #     tasks:               # 同步任務；網頁上存過任務之後以網頁為準
 #       - remote: /影視/電影
 #         local: /media/movies/115
+
+# 刮削交給 MoviePilot：新產生的 strm 送給 MoviePilot 查資料、寫 nfo 和海報
+# MoviePilot 必須讀寫得到同一批 strm 檔案（兩個 Docker 容器掛同一個主機資料夾）
+# moviepilot:
+#   url: http://192.168.1.10:3000   # MoviePilot 網址
+#   api_token: ""          # MoviePilot 的「設定 → 系統 → API 令牌」
+#   username: ""           # 舊版 MoviePilot 的刮削 API 不接受令牌時，改填帳號密碼
+#   password: ""
+#   path_mappings:         # 兩邊看到的路徑不同時：Mi302 的路徑 → MoviePilot 的路徑
+#     - from: /media
+#       to: /mnt/media
+#   scrape_after_sync: true   # 同步產生新的 strm 後自動送去刮削
+#   timeout: 300           # 每一項刮削最多等幾秒
 
 # 給其他工具產生的 strm（例如 alist 網址或本機路徑）
 # redirect:
@@ -62,4 +76,4 @@
 #   require_auth: false    # 播放網址是否要求登入（很多播放器不帶 token）
 #   default_container: mkv # strm 看不出影片格式時的預設格式
 
-# api_keys: []             # 固定的 API Key，給其他程式以管理員身分呼叫 API
+# api_keys: []             # 固定的 API 金鑰，給其他程式以管理員身分呼叫 API（網頁上也能建立）
