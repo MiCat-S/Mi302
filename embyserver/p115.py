@@ -298,7 +298,7 @@ class P115Service:
         return None
 
     def _cookie_download_url(self, pickcode: str, user_agent: str) -> str:
-        from p115cipher import rsa_decrypt, rsa_encrypt
+        from p115cipher import rsa_encrypt
 
         payload = json.dumps({"pick_code": pickcode}, separators=(",", ":")).encode()
         resp = self._client.post(
@@ -309,13 +309,34 @@ class P115Service:
         data = _json(resp)
         if not data.get("state"):
             raise P115Error(f"115 取直鏈失敗：{data.get('error') or data.get('msg') or data}")
-        detail = json.loads(rsa_decrypt(data["data"]))
+        try:
+            detail = json.loads(rsa_decrypt(data["data"]))
+        except (ValueError, TypeError, KeyError) as exc:
+            raise P115Error(f"無法解析 115 回傳的直鏈：{exc}") from exc
         url = detail.get("url")
         if isinstance(url, dict):
             url = url.get("url")
         if not url:
             raise P115Error(f"115 回傳內容沒有網址：{detail}")
         return url
+
+
+def rsa_decrypt(cipher_data) -> bytes:
+    """解開 115 回傳的 RSA 加密內容。
+
+    p115cipher 0.0.5.x 的 rsa_decrypt 對反轉後的 memoryview 再做 cast，會丟出
+    「memoryview: casts are restricted to C-contiguous views」，所以這裡照同樣的演算法自己做，
+    反轉前先轉成 bytes。
+    """
+    from base64 import b64decode
+
+    from p115cipher import RSA_KEY
+    from p115cipher.util import rsa_decrypt_with_pubkey, rsa_gen_key, xor
+
+    data = bytes(rsa_decrypt_with_pubkey(b64decode(cipher_data)))
+    key_l = rsa_gen_key(data[:16], 12)
+    tmp = bytes(xor(data[16:], key_l))[::-1]
+    return bytes(xor(tmp, RSA_KEY))
 
 
 def _json(resp: httpx.Response) -> dict:

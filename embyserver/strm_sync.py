@@ -115,7 +115,9 @@ class StrmSync:
             for task in self.tasks:
                 try:
                     self._run_task(task.remote, Path(task.local).expanduser())
-                except P115Error as exc:
+                except Exception as exc:  # 一個任務出錯不影響其他任務，錯誤顯示在網頁上
+                    if not isinstance(exc, P115Error):
+                        log.exception("115 strm 同步發生未預期的錯誤")
                     msg = f"{task.remote}: {exc}"
                     log.error("115 strm 同步失敗：%s", msg)
                     self.result.errors.append(msg)

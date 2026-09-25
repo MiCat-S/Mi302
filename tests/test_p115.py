@@ -67,9 +67,9 @@ def test_download_request_is_encrypted_and_cached(monkeypatch):
         return httpx.Response(200, json={"state": True, "data": "ENC"})
 
     svc = P115Service(Database(":memory:"), initial_cookies="UID=1", transport=httpx.MockTransport(handler))
-    import p115cipher
+    import embyserver.p115 as mod
 
-    monkeypatch.setattr(p115cipher, "rsa_decrypt", lambda data: b'{"url": {"url": "%s"}}' % CDN.encode())
+    monkeypatch.setattr(mod, "rsa_decrypt", lambda data: b'{"url": {"url": "%s"}}' % CDN.encode())
     assert svc.download_url(PICKCODE, "Infuse/8") == CDN
     assert svc.download_url(PICKCODE, "Infuse/8") == CDN  # 第二次走快取
     assert len(sent) == 1
@@ -179,3 +179,24 @@ def test_network_error_is_reported_not_500():
     svc = P115Service(Database(":memory:"), transport=httpx.MockTransport(handler))
     with pytest.raises(P115Error, match="連不到 qrcodeapi.115.com：無法連線"):
         svc.qrcode_token()
+
+
+def test_rsa_decrypt_inverts_115_scheme(monkeypatch):
+    """115 用私鑰加密回應，測試時略過 RSA 那層，只驗證外層的 xor／反轉是否還原正確。
+
+    p115cipher 內建的 rsa_decrypt 在這一步會丟 memoryview cast 的 TypeError。
+    """
+    import os
+
+    import p115cipher.util as util
+    from p115cipher import RSA_KEY
+    import embyserver.p115 as mod
+
+    monkeypatch.setattr(util, "rsa_decrypt_with_pubkey", lambda b: bytearray(b))
+    msg = b'{"url": {"url": "https://cdn.115.com/a.mkv?t=1"}}'
+    rand_key = os.urandom(16)
+    inner = bytes(util.xor(msg, RSA_KEY))[::-1]
+    payload = rand_key + bytes(util.xor(inner, util.rsa_gen_key(rand_key, 12)))
+    import base64
+
+    assert mod.rsa_decrypt(base64.b64encode(payload)) == msg
