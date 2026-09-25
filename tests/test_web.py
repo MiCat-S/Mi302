@@ -89,7 +89,10 @@ def test_settings_update_live_objects(tmp_path: Path):
 def test_user_management(tmp_path: Path):
     c = make_client(tmp_path, {"users": [{"name": "admin", "password": "pw", "admin": True}]})
     h = admin_headers(c)
+    assert c.post("/web/api/users", json={"name": "kid", "password": ""}, headers=h).status_code == 400
     uid = c.post("/web/api/users", json={"name": "kid", "password": "k"}, headers=h).json()["id"]
+    assert c.put(f"/web/api/users/{uid}", json={"password": ""}, headers=h).status_code == 400
+    assert c.post("/Users/AuthenticateByName", json={"Username": "kid", "Pw": ""}).status_code == 401
     assert c.post("/web/api/users", json={"name": "KID", "password": "k"}, headers=h).status_code == 400
     # 一般使用者不能進管理 API
     assert c.get("/web/api/users", headers=admin_headers(c, "kid", "k")).status_code == 403

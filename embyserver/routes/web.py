@@ -139,6 +139,8 @@ def list_users(request: Request, ctx: AuthContext = Depends(require_admin)):
 @router.post("/web/api/users")
 async def add_user(request: Request, ctx: AuthContext = Depends(require_admin)):
     body = await _body(request)
+    if not str(body.get("password") or ""):
+        raise HTTPException(status_code=400, detail="密碼不可空白")
     try:
         user = state(request).auth.create_user(
             str(body.get("name") or ""), str(body.get("password") or ""), bool(body.get("admin"))
@@ -151,6 +153,8 @@ async def add_user(request: Request, ctx: AuthContext = Depends(require_admin)):
 @router.put("/web/api/users/{user_id}")
 async def edit_user(user_id: str, request: Request, ctx: AuthContext = Depends(require_admin)):
     body = await _body(request)
+    if "password" in body and not str(body["password"] or ""):
+        raise HTTPException(status_code=400, detail="密碼不可空白")
     try:
         user = state(request).auth.update_user(
             user_id,
