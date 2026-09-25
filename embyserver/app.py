@@ -17,7 +17,8 @@ from .config import Config
 from .db import Database
 from .p115 import P115Service
 from .redirect import Redirector
-from .routes import items, p115, playback, system
+from .routes import items, p115, playback, system, web
+from . import settings
 from .scanner import Scanner
 from .strm_sync import StrmSync
 
@@ -34,6 +35,8 @@ def create_app(config: Config, db_path: Optional[str] = None, scan_on_start: boo
         server_id = uuid.uuid4().hex
         db.set_meta("server_id", server_id)
 
+    # 網頁上存過的設定蓋過設定檔
+    settings.load_saved(db, config)
     auth = AuthService(db, config.api_keys)
     for user in config.users:
         auth.ensure_user(user.name, user.password, user.admin)
@@ -59,7 +62,7 @@ def create_app(config: Config, db_path: Optional[str] = None, scan_on_start: boo
     app.state.strm_sync = StrmSync(
         app.state.p115,
         config.p115.strm,
-        on_done=scanner.scan_all if config.p115.strm.scan_after_sync else None,
+        on_done=scanner.scan_all,
         port=config.server.port,
     )
 
@@ -96,4 +99,5 @@ def create_app(config: Config, db_path: Optional[str] = None, scan_on_start: boo
     app.include_router(items.router)
     app.include_router(playback.router)
     app.include_router(p115.router)
+    app.include_router(web.router)
     return app

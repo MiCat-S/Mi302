@@ -128,7 +128,7 @@ class StrmSync:
             "115 strm 同步完成：新增/更新 %s，未變 %s，下載中繼資料 %s，刪除 %s，錯誤 %s",
             r.strm_created, r.strm_unchanged, r.metadata_downloaded, r.removed, len(r.errors),
         )
-        if self.on_done:
+        if self.on_done and self.cfg.scan_after_sync:
             self.on_done()
         return r
 
@@ -139,11 +139,15 @@ class StrmSync:
         return True
 
     def start_schedule(self) -> None:
-        if self.cfg.interval <= 0:
-            return
+        """定時同步；間隔在網頁上可隨時修改，所以每分鐘檢查一次是否到期。"""
 
         def loop():
-            while not self._stop.wait(self.cfg.interval * 60):
+            last = time.time()
+            while not self._stop.wait(60):
+                interval = self.cfg.interval
+                if interval <= 0 or time.time() - last < interval * 60:
+                    continue
+                last = time.time()
                 if self.p115.logged_in and self.tasks:
                     self.run()
 

@@ -1,0 +1,431 @@
+<!doctype html>
+<html lang="zh-Hant"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Mi302 管理</title>
+<style>
+:root{--line:#ddd;--muted:#777;--accent:#2f6fde;--warn:#b35c00;--bg:#fff;--fg:#222;--soft:#f5f6f8}
+@media (prefers-color-scheme: dark){:root{--line:#3a3a3a;--muted:#9a9a9a;--accent:#6c9cff;--warn:#e0a050;--bg:#18191b;--fg:#e8e8e8;--soft:#232427}}
+*{box-sizing:border-box}
+body{font-family:system-ui,sans-serif;max-width:640px;margin:0 auto;padding:24px 16px 60px;color:var(--fg);background:var(--bg)}
+h2{margin:8px 0 16px}
+input,button,select,textarea{font:inherit;font-size:15px;padding:8px;margin:4px 0;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--fg)}
+input[type=text],input[type=password],input[type=number],select,textarea{width:100%}
+input[type=checkbox]{width:auto;margin-right:6px}
+button{cursor:pointer;background:var(--soft)}button.primary{background:var(--accent);color:#fff;border-color:var(--accent)}
+button.small{padding:4px 10px;font-size:14px}button.full{width:100%}
+.muted{color:var(--muted);font-size:14px}.warn{color:var(--warn);font-size:14px}.ok{color:#2a9d4b;font-size:14px}
+.box{border:1px solid var(--line);border-radius:8px;padding:16px;margin:16px 0}
+.row{display:flex;gap:8px;align-items:center}.row>.grow{flex:1;min-width:0;word-break:break-all}
+.item{border-top:1px solid var(--line);padding:8px 0}
+nav{display:flex;gap:4px;border-bottom:1px solid var(--line);margin-bottom:8px;overflow-x:auto}
+nav a{padding:10px 10px;text-decoration:none;color:var(--muted);border-bottom:2px solid transparent;white-space:nowrap}
+nav a.on{color:var(--fg);border-color:var(--accent)}
+label.field{display:block;margin:12px 0 2px;font-size:14px}
+label.check{display:flex;align-items:center;margin:10px 0}
+summary{cursor:pointer;margin-top:8px}
+#qr img,#oqr img{width:220px;height:220px;display:block;margin:12px auto;background:#fff}
+dialog{border:1px solid var(--line);border-radius:10px;width:min(520px,92vw);background:var(--bg);color:var(--fg)}
+#pickList{max-height:50vh;overflow:auto;margin:8px 0}
+#pickList div{padding:8px;border-bottom:1px solid var(--line);cursor:pointer}#pickList div:hover{background:var(--soft)}
+.hidden{display:none}
+</style></head><body>
+<h2>Mi302 管理</h2>
+
+<div id="setup" class="box hidden">
+  <b>歡迎！先建立管理員帳號</b>
+  <p class="muted">這組帳號用來登入這個管理網頁，也可以直接在播放器裡登入。</p>
+  <input id="sName" type="text" placeholder="帳號" value="admin">
+  <input id="sPw" type="password" placeholder="密碼">
+  <input id="sPw2" type="password" placeholder="再輸入一次密碼">
+  <button class="primary full" onclick="doSetup()">建立並登入</button>
+  <p id="sMsg" class="warn"></p>
+</div>
+
+<div id="login" class="box hidden">
+  <p class="muted">用管理員帳號登入</p>
+  <input id="u" type="text" placeholder="帳號"><input id="p" type="password" placeholder="密碼">
+  <button class="primary full" onclick="login()">登入</button>
+  <p id="lMsg" class="warn"></p>
+</div>
+
+<div id="main" class="hidden">
+  <nav>
+    <a href="#libraries" data-tab="libraries">媒體庫</a>
+    <a href="#115" data-tab="115">115 網盤</a>
+    <a href="#users" data-tab="users">使用者</a>
+    <a href="#settings" data-tab="settings">進階設定</a>
+    <a href="#" onclick="logoutWeb();return false" style="margin-left:auto">登出</a>
+  </nav>
+
+  <!-- 媒體庫 -->
+  <section id="tab-libraries" class="hidden">
+    <p class="muted">播放器首頁看到的分類。每個媒體庫可以有多個資料夾，裡面放影片或 .strm 檔。</p>
+    <div id="libs"></div>
+    <button onclick="addLib()">＋ 新增媒體庫</button>
+    <button class="primary" onclick="saveLibs()">儲存</button>
+    <span id="libMsg" class="muted"></span>
+    <div class="box">
+      <div class="row"><div class="grow"><b>掃描</b> <span id="scanSt" class="muted"></span></div>
+        <button class="small" onclick="scanNow()">重新掃描</button></div>
+      <p class="muted">新增的檔案要掃描後才會出現在播放器裡；從 115 同步完會自動掃描。</p>
+    </div>
+  </section>
+
+  <!-- 115 -->
+  <section id="tab-115" class="hidden">
+    <div class="box">
+      <b>第 1 步：登入 115</b>
+      <p>目前狀態：<span id="st">讀取中…</span></p>
+      <button class="primary" onclick="startQr()">產生登入二維碼</button>
+      <button onclick="logout115()">登出 115</button>
+      <p class="muted">用手機 115 App 掃描並確認。</p>
+      <div id="qr"></div><p id="qrst" class="muted"></p>
+      <details><summary class="muted">改用貼上 cookie</summary>
+        <p class="muted">格式像 UID=…; CID=…; SEID=…</p>
+        <textarea id="ck" rows="3"></textarea><button onclick="saveCookie()">儲存 cookie</button>
+      </details>
+      <details><summary class="muted">進階：115 開放平台（需要自己申請的 AppID，一般用戶不用管）</summary>
+        <p class="muted">只有在 open.115.com 申請到應用的人才用得到。授權後會優先走開放平台，失敗再用上面的登入。AppID 也可以在「進階設定」存起來。</p>
+        <input id="appid" type="text" placeholder="AppID">
+        <button onclick="startOpenQr()">產生開放平台授權二維碼</button>
+        <button onclick="logoutOpen()">取消開放平台授權</button>
+        <div id="oqr"></div><p id="oqrst" class="muted"></p>
+      </details>
+    </div>
+    <div class="box">
+      <b>第 2 步：選擇要產生 strm 的 115 目錄</b>
+      <p class="muted">115 目錄裡的影片會產生成 .strm 放到本機資料夾，目錄結構不變。本機資料夾要在某個媒體庫裡面，播放器才看得到；建議用媒體庫底下的子資料夾，例如 …/movies/115。</p>
+      <div id="tasks"></div>
+      <label class="field">115 目錄</label>
+      <div class="row"><input id="remote" type="text" class="grow" placeholder="例如 /影視/電影"><button class="small" onclick="pick115()">瀏覽…</button></div>
+      <label class="field">放到本機資料夾</label>
+      <div class="row"><input id="local" type="text" class="grow" placeholder="例如 /media/movies/115"><button class="small" onclick="pickLocal('local')">瀏覽…</button></div>
+      <button onclick="addTask()">新增</button>
+      <p id="taskst" class="warn"></p>
+    </div>
+    <div class="box">
+      <b>第 3 步：同步</b>
+      <p class="muted">strm 內的伺服器位址：<span id="base"></span></p>
+      <button class="primary" onclick="syncStrm()">立即從 115 同步 strm</button>
+      <p id="syncst" class="muted"></p>
+      <details><summary class="muted">同步選項</summary>
+        <label class="field">自動同步間隔（分鐘，0 = 只手動）</label>
+        <input type="number" min="0" data-key="p115.strm.interval">
+        <label class="field">略過小於這個大小的影片（MB，例如 50 可略過預告片）</label>
+        <input type="number" min="0" data-key="p115.strm.min_size_mb">
+        <label class="check"><input type="checkbox" data-key="p115.strm.download_metadata">一併下載 nfo、海報、字幕</label>
+        <label class="check"><input type="checkbox" data-key="p115.strm.delete_stale">115 上刪掉的影片，本機的 strm 也跟著刪</label>
+        <button onclick="saveFields(this.parentElement)">儲存同步選項</button> <span class="muted msg"></span>
+      </details>
+    </div>
+  </section>
+
+  <!-- 使用者 -->
+  <section id="tab-users" class="hidden">
+    <p class="muted">這些帳號可以在播放器裡登入。管理員才能進這個網頁。</p>
+    <div id="users"></div>
+    <div class="box">
+      <b>新增使用者</b>
+      <input id="nuName" type="text" placeholder="帳號">
+      <input id="nuPw" type="password" placeholder="密碼">
+      <label class="check"><input id="nuAdmin" type="checkbox">管理員</label>
+      <button onclick="addUser()">新增</button> <span id="uMsg" class="warn"></span>
+    </div>
+  </section>
+
+  <!-- 進階設定 -->
+  <section id="tab-settings" class="hidden">
+    <div class="box">
+      <b>伺服器</b>
+      <label class="field">伺服器名稱（播放器裡顯示）</label>
+      <input type="text" data-key="server.name">
+      <label class="check"><input type="checkbox" data-key="server.public_users">播放器登入畫面列出使用者名稱</label>
+      <p class="muted">埠號目前是 <span id="port"></span>，要改埠號請改 Docker 的埠對應或設定檔。</p>
+    </div>
+    <div class="box">
+      <b>115 與 strm</b>
+      <label class="field">strm 裡的伺服器網址（留空 = 自動使用你開這個網頁的網址）</label>
+      <input type="text" data-key="p115.strm.base_url" placeholder="例如 https://emby.example.com">
+      <label class="check"><input type="checkbox" data-key="p115.strm.include_name">strm 網址後附上原檔名，方便人工辨識</label>
+      <label class="check"><input type="checkbox" data-key="p115.strm.scan_after_sync">同步完自動重新掃描媒體庫</label>
+      <label class="field">每列一個 115 目錄前等待的秒數（太快可能被 115 限制）</label>
+      <input type="number" step="0.1" min="0" data-key="p115.strm.request_delay">
+      <label class="field">掃碼登入佔用的 115 裝置類型（同類型的其他登入會被踢下線）</label>
+      <select data-key="p115.app">
+        <option value="alipaymini">支付寶小程式（預設）</option>
+        <option value="wechatmini">微信小程式</option>
+        <option value="tv">115 TV 版</option>
+        <option value="qandroid">115 管理（Android）</option>
+        <option value="ios">115（iOS）</option>
+        <option value="android">115（Android）</option>
+        <option value="web">網頁版</option>
+      </select>
+      <label class="field">115 開放平台 AppID（沒有申請過就留空）</label>
+      <input type="text" data-key="p115.open_app_id">
+    </div>
+    <div class="box">
+      <b>其他工具產生的 strm</b>
+      <p class="muted">strm 內容不是本伺服器產生的（例如 alist 網址或本機路徑）時才需要。</p>
+      <label class="field">路徑替換，一行一條，格式：原本開頭 =&gt; 替換成</label>
+      <textarea id="rules" rows="3" placeholder="/mnt/115 => http://alist:5244/d/115"></textarea>
+      <label class="check"><input type="checkbox" data-key="redirect.resolve_redirects">由伺服器先跟著上游的重導向走到底，再把最終網址給播放器</label>
+      <label class="check"><input type="checkbox" data-key="redirect.require_auth">播放網址要求登入（很多播放器不帶 token，建議不勾）</label>
+      <label class="field">看不出格式時預設的影片格式</label>
+      <input type="text" data-key="redirect.default_container">
+    </div>
+    <button class="primary" onclick="saveFields(document.getElementById('tab-settings'), true)">儲存</button> <span class="muted msg"></span>
+  </section>
+</div>
+
+<dialog id="picker">
+  <b id="pickTitle">選擇資料夾</b>
+  <div class="row"><input id="pickPath" type="text" class="grow"><button class="small" onclick="pickGo(pickPath.value)">前往</button></div>
+  <p id="pickMsg" class="warn"></p>
+  <div id="pickList"></div>
+  <div class="row"><span class="grow"></span><button onclick="picker.close()">取消</button><button class="primary" onclick="pickDone()">選這個資料夾</button></div>
+</dialog>
+
+<script>
+let token = localStorage.getItem('mi302') || '';
+let cfg = null, tasks = [];
+const $ = id => document.getElementById(id);
+const H = () => ({'X-Emby-Token': token, 'Content-Type': 'application/json'});
+async function api(path, opt = {}) {
+  const r = await fetch(path, {...opt, headers: H()});
+  if (r.status === 401) { token = ''; localStorage.removeItem('mi302'); boot(); throw new Error('請重新登入'); }
+  if (!r.ok) throw new Error(await r.text() || r.status);
+  return r.status === 204 ? null : r.json();
+}
+function show(id) { for (const s of ['setup', 'login', 'main']) $(s).classList.toggle('hidden', s !== id); }
+function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+function flash(el, text, cls = 'muted') { el.className = cls + ' msg'; el.textContent = text; }
+
+async function boot() {
+  const s = await (await fetch('/web/api/setup')).json();
+  if (s.needed) return show('setup');
+  if (!token) return show('login');
+  try { cfg = await api('/web/api/settings'); } catch (e) { return show('login'); }
+  show('main'); route();
+}
+async function doSetup() {
+  if (!sPw.value || sPw.value !== sPw2.value) { sMsg.textContent = '兩次密碼不一樣或是空的'; return; }
+  const r = await fetch('/web/api/setup', {method: 'POST', headers: {'Content-Type': 'application/json',
+    'X-Emby-Authorization': 'MediaBrowser Client="Mi302 Web", Device="Browser", DeviceId="mi302web", Version="1"'},
+    body: JSON.stringify({name: sName.value, password: sPw.value})});
+  if (!r.ok) { sMsg.textContent = await r.text(); return; }
+  token = (await r.json()).token; localStorage.setItem('mi302', token);
+  location.hash = '#libraries'; boot();
+}
+async function login() {
+  const r = await fetch('/Users/AuthenticateByName', {method: 'POST',
+    headers: {'Content-Type': 'application/json',
+      'X-Emby-Authorization': 'MediaBrowser Client="Mi302 Web", Device="Browser", DeviceId="mi302web", Version="1"'},
+    body: JSON.stringify({Username: u.value, Pw: p.value})});
+  if (!r.ok) { lMsg.textContent = '帳號或密碼錯誤'; return; }
+  const j = await r.json();
+  if (!j.User.Policy.IsAdministrator) { lMsg.textContent = '這個帳號不是管理員'; return; }
+  token = j.AccessToken; localStorage.setItem('mi302', token); boot();
+}
+async function logoutWeb() { try { await api('/Sessions/Logout', {method: 'POST'}); } catch (e) {} token = ''; localStorage.removeItem('mi302'); show('login'); }
+
+function route() {
+  const tab = (location.hash || '#libraries').slice(1);
+  for (const a of document.querySelectorAll('nav a[data-tab]')) a.classList.toggle('on', a.dataset.tab === tab);
+  for (const s of document.querySelectorAll('section')) s.classList.toggle('hidden', s.id !== 'tab-' + tab);
+  fillFields();
+  ({libraries: loadLibs, '115': load115, users: loadUsers, settings: () => {}})[tab]?.();
+}
+window.addEventListener('hashchange', () => { if (token && cfg) route(); });
+
+// ---- 表單欄位 data-key="a.b.c" 對應設定 ----
+function getKey(obj, key) { return key.split('.').reduce((o, k) => o?.[k], obj); }
+function setKey(obj, key, v) { const ks = key.split('.'); let o = obj; ks.slice(0, -1).forEach(k => o = o[k] ??= {}); o[ks.at(-1)] = v; }
+function fillFields() {
+  for (const el of document.querySelectorAll('[data-key]')) {
+    const v = getKey(cfg, el.dataset.key);
+    if (el.type === 'checkbox') el.checked = !!v; else el.value = v ?? '';
+  }
+  $('port').textContent = cfg.port;
+  $('rules').value = cfg.redirect.path_rules.map(r => r.from + ' => ' + r.to).join('\n');
+}
+async function saveFields(scope, withRules) {
+  const body = {};
+  for (const el of scope.querySelectorAll('[data-key]')) setKey(body, el.dataset.key, el.type === 'checkbox' ? el.checked : el.value);
+  if (withRules) setKey(body, 'redirect.path_rules', $('rules').value.split('\n').map(l => l.split('=>')).filter(x => x.length === 2).map(([f, t]) => ({from: f.trim(), to: t.trim()})));
+  const msg = scope.querySelector('.msg') || scope.parentElement.querySelector('.msg');
+  try { cfg = await api('/web/api/settings', {method: 'PUT', body: JSON.stringify(body)}); fillFields(); flash(msg, '已儲存', 'ok'); }
+  catch (e) { flash(msg, '錯誤：' + e.message, 'warn'); }
+}
+
+// ---- 媒體庫 ----
+let libs = [];
+function loadLibs() { libs = structuredClone(cfg.libraries); renderLibs(); scanStatus(); }
+function renderLibs(status) {
+  const box = $('libs'); box.innerHTML = '';
+  if (!libs.length) box.innerHTML = '<p class="warn">還沒有媒體庫。按「新增媒體庫」開始，例如「電影」選 /media/movies。</p>';
+  libs.forEach((l, i) => {
+    const st = status?.libraries.find(s => s.name === l.name);
+    const div = document.createElement('div'); div.className = 'box';
+    div.innerHTML = `<div class="row"><input type="text" class="grow" value="${esc(l.name)}" placeholder="名稱，例如 電影">
+      <select style="width:auto"><option value="movies">電影</option><option value="tvshows">劇集</option></select>
+      <button class="small">刪除</button></div>
+      <div class="paths"></div><button class="small">＋ 加入資料夾</button>
+      ${st ? `<p class="muted">已掃描到 ${st.count} 個項目</p>` : ''}`;
+    const [name, type] = div.querySelectorAll('input, select'); type.value = l.type;
+    name.oninput = () => l.name = name.value; type.onchange = () => l.type = type.value;
+    const [del, add] = div.querySelectorAll('button.small:not(.p)');
+    del.onclick = () => { if (confirm('刪除媒體庫「' + l.name + '」？資料夾裡的檔案不會被刪。')) { libs.splice(i, 1); renderLibs(); } };
+    add.onclick = async () => { const path = await pickDir('local', l.paths.at(-1)); if (path) { l.paths.push(path); renderLibs(); } };
+    const paths = div.querySelector('.paths');
+    l.paths.forEach((p, j) => {
+      const missing = st?.missing.includes(p);
+      const r = document.createElement('div'); r.className = 'row item';
+      r.innerHTML = `<div class="grow">${esc(p)}${missing ? '<div class="warn">這個資料夾不存在</div>' : ''}</div><button class="small p">移除</button>`;
+      r.querySelector('button').onclick = () => { l.paths.splice(j, 1); renderLibs(); };
+      paths.appendChild(r);
+    });
+    box.appendChild(div);
+  });
+}
+function addLib() { libs.push({name: libs.length ? '' : '電影', type: 'movies', paths: []}); renderLibs(); }
+async function saveLibs() {
+  try { cfg = await api('/web/api/settings', {method: 'PUT', body: JSON.stringify({libraries: libs})}); flash($('libMsg'), '已儲存，正在重新掃描', 'ok'); loadLibs(); }
+  catch (e) { flash($('libMsg'), '錯誤：' + e.message, 'warn'); }
+}
+async function scanStatus() {
+  const s = await api('/web/api/scan');
+  $('scanSt').textContent = s.scanning ? '掃描中…' : '';
+  renderLibs(s);
+  if (s.scanning) setTimeout(scanStatus, 2000);
+}
+async function scanNow() { await api('/web/api/scan', {method: 'POST'}); setTimeout(scanStatus, 300); }
+
+// ---- 使用者 ----
+async function loadUsers() {
+  const list = await api('/web/api/users');
+  const box = $('users'); box.innerHTML = '';
+  for (const usr of list) {
+    const r = document.createElement('div'); r.className = 'row item';
+    r.innerHTML = `<div class="grow"><b>${esc(usr.name)}</b> <span class="muted">${usr.admin ? '管理員' : '一般使用者'}</span></div>
+      <button class="small">改密碼</button><button class="small">${usr.admin ? '取消管理員' : '設為管理員'}</button><button class="small">刪除</button>`;
+    const [pw, adm, del] = r.querySelectorAll('button');
+    const act = async (fn) => { try { await fn(); loadUsers(); } catch (e) { alert(e.message); } };
+    pw.onclick = () => { const v = prompt('新密碼'); if (v) act(() => api('/web/api/users/' + usr.id, {method: 'PUT', body: JSON.stringify({password: v})})); };
+    adm.onclick = () => act(() => api('/web/api/users/' + usr.id, {method: 'PUT', body: JSON.stringify({admin: !usr.admin})}));
+    del.onclick = () => { if (confirm('刪除使用者「' + usr.name + '」？')) act(() => api('/web/api/users/' + usr.id, {method: 'DELETE'})); };
+    box.appendChild(r);
+  }
+}
+async function addUser() {
+  try { await api('/web/api/users', {method: 'POST', body: JSON.stringify({name: nuName.value, password: nuPw.value, admin: nuAdmin.checked})}); }
+  catch (e) { $('uMsg').textContent = e.message; return; }
+  nuName.value = nuPw.value = ''; nuAdmin.checked = false; $('uMsg').textContent = ''; loadUsers();
+}
+
+// ---- 115 ----
+async function load115() {
+  let s;
+  try { s = await api('/p115/status'); } catch (e) { $('st').textContent = e.message; return; }
+  let text = s.cookie ? ('已登入' + (s.user ? '（' + s.user.user_name + '）' : '（可能已失效，請重新掃碼）')) : '未登入';
+  if (s.open.authorized) text += '，開放平台已授權';
+  $('st').textContent = text;
+  if (s.open.app_id && !appid.value) appid.value = s.open.app_id;
+  pollSync(true);
+}
+function pollQr(t, statusUrl, box, label, holder) {
+  const poll = async () => {
+    try {
+      const r = await api(statusUrl + '?uid=' + t.uid + '&time=' + t.time + '&sign=' + t.sign);
+      label.textContent = {waiting: '等待掃描', scanned: '已掃描，請在手機上確認', success: '成功',
+        expired: '二維碼已過期，請重新產生', canceled: '已取消'}[r.status] || r.status;
+      if (r.status === 'success') { box.innerHTML = ''; load115(); return; }
+      if (r.status === 'expired' || r.status === 'canceled') return;
+    } catch (e) { label.textContent = '錯誤：' + e.message; return; }
+    holder.timer = setTimeout(poll, 1500);
+  };
+  poll();
+}
+const qrT = {}, oqrT = {};
+async function startQr() {
+  clearTimeout(qrT.timer);
+  let t;
+  try { t = await api('/p115/qrcode', {method: 'POST'}); } catch (e) { qrst.textContent = '錯誤：' + e.message; return; }
+  qr.innerHTML = '<img src="' + t.qrcode_image + '">'; qrst.textContent = '請用 115 App 掃描';
+  pollQr(t, '/p115/qrcode/status', qr, qrst, qrT);
+}
+async function startOpenQr() {
+  clearTimeout(oqrT.timer);
+  let t;
+  try { t = await api('/p115/open/qrcode', {method: 'POST', body: JSON.stringify({app_id: appid.value})}); }
+  catch (e) { oqrst.textContent = '錯誤：' + e.message; return; }
+  oqr.innerHTML = '<img src="' + t.qrcode_image + '">'; oqrst.textContent = '請用 115 App 掃描並授權';
+  pollQr(t, '/p115/open/qrcode/status', oqr, oqrst, oqrT);
+}
+async function logoutOpen() { await api('/p115/open/logout', {method: 'POST'}); load115(); }
+async function logout115() { if (confirm('登出 115？')) { await api('/p115/logout', {method: 'POST'}); load115(); } }
+async function saveCookie() {
+  try { await api('/p115/cookies', {method: 'POST', body: JSON.stringify({cookies: ck.value})}); } catch (e) { alert(e.message); return; }
+  ck.value = ''; load115();
+}
+function renderTasks(list) {
+  tasks = list.map(t => ({remote: t.remote, local: t.local}));
+  const box = $('tasks'); box.innerHTML = list.length ? '' : '<p class="muted">還沒有任務</p>';
+  list.forEach((t, i) => {
+    const r = document.createElement('div'); r.className = 'row item';
+    r.innerHTML = `<div class="grow">115:${esc(t.remote)} → ${esc(t.local)}${t.in_library ? '' : '<div class="warn">這個資料夾不在任何媒體庫裡，播放器會看不到</div>'}</div><button class="small">刪除</button>`;
+    r.querySelector('button').onclick = () => saveTasks(tasks.filter((_, j) => j !== i));
+    box.appendChild(r);
+  });
+}
+async function saveTasks(list) {
+  $('taskst').textContent = '';
+  try { renderTasks((await api('/p115/strm/tasks', {method: 'PUT', body: JSON.stringify(list)})).tasks); }
+  catch (e) { $('taskst').textContent = '錯誤：' + e.message; }
+}
+function addTask() {
+  if (!remote.value.trim() || !local.value.trim()) { $('taskst').textContent = '115 目錄和本機資料夾都要填'; return; }
+  saveTasks(tasks.concat([{remote: remote.value.trim(), local: local.value.trim()}]));
+  remote.value = local.value = '';
+}
+async function syncStrm() {
+  try { await api('/p115/strm/sync', {method: 'POST'}); } catch (e) { syncst.textContent = '錯誤：' + e.message; return; }
+  pollSync(false);
+}
+async function pollSync(first) {
+  const s = await api('/p115/strm/status');
+  if (first) renderTasks(s.tasks);
+  $('base').textContent = s.base_url;
+  const r = s.result;
+  if (!r.started) { syncst.textContent = ''; return; }
+  syncst.textContent = (r.running ? '同步中… ' : '上次同步完成：') + '新增/更新 ' + r.strm_created + '，未變 ' + r.strm_unchanged +
+    '，下載中繼資料 ' + r.metadata_downloaded + '，刪除 ' + r.removed + (r.errors.length ? '，錯誤 ' + r.errors.length + '：' + r.errors.slice(0, 3).join('；') : '');
+  if (r.running) setTimeout(() => pollSync(false), 2000);
+}
+
+// ---- 資料夾選擇器 ----
+let pickKind = 'local', pickResolve = null, pickCur = '';
+function pickDir(kind, start) {
+  pickKind = kind;
+  $('pickTitle').textContent = kind === '115' ? '選擇 115 目錄' : '選擇伺服器上的資料夾';
+  picker.showModal(); pickGo(start || '');
+  return new Promise(res => { pickResolve = res; picker.onclose = () => { res(null); }; });
+}
+async function pickGo(path) {
+  $('pickMsg').textContent = ''; $('pickList').innerHTML = '<p class="muted">讀取中…</p>';
+  let r;
+  try { r = await api((pickKind === '115' ? '/web/api/115/browse?path=' : '/web/api/browse?path=') + encodeURIComponent(path)); }
+  catch (e) { $('pickMsg').textContent = e.message; $('pickList').innerHTML = ''; return; }
+  pickCur = r.path; pickPath.value = r.path;
+  const list = $('pickList'); list.innerHTML = '';
+  const entry = (label, target) => { const d = document.createElement('div'); d.textContent = label; d.onclick = () => pickGo(target); list.appendChild(d); };
+  if (r.parent) entry('⬆ 上一層', r.parent);
+  const sep = pickKind === 'local' && r.path.includes('\\') ? '\\' : '/';
+  for (const d of r.dirs) entry('📁 ' + d, r.path.replace(/[\\/]$/, '') + sep + d);
+  if (!r.dirs.length) list.insertAdjacentHTML('beforeend', '<p class="muted">沒有子資料夾</p>');
+}
+function pickDone() { const res = pickResolve; pickResolve = null; picker.onclose = null; picker.close(); res?.(pickCur); }
+async function pick115() { const p = await pickDir('115', remote.value || '/'); if (p) remote.value = p; }
+async function pickLocal(id) { const p = await pickDir('local', $(id).value); if (p) $(id).value = p; }
+
+boot();
+</script></body></html>

@@ -111,22 +111,59 @@ class AuthService:
 
     # ---- users ----
     def ensure_user(self, name: str, password: str, admin: bool) -> None:
-        row = self.db.one("SELECT id FROM users WHERE name=?", (name,))
-        if row:
-            self.db.execute(
-                "UPDATE users SET password_hash=?, is_admin=? WHERE id=?",
-                (hash_password(password) if password else "", int(admin), row["id"]),
-            )
+        """設定檔裡的帳號：不存在才建立，之後以網頁上的修改為準。"""
+        if self.db.one("SELECT id FROM users WHERE name=?", (name,)):
             return
+        self.create_user(name, password, admin)
+
+    def create_user(self, name: str, password: str, admin: bool) -> dict:
+        name = name.strip()
+        if not name:
+            raise ValueError("使用者名稱不可空白")
+        if self.db.one("SELECT id FROM users WHERE lower(name)=lower(?)", (name,)):
+            raise ValueError(f"使用者已存在：{name}")
+        user_id = uuid.uuid4().hex
         self.db.execute(
             "INSERT INTO users(id, name, password_hash, is_admin) VALUES(?,?,?,?)",
-            (
-                uuid.uuid4().hex,
-                name,
-                hash_password(password) if password else "",
-                int(admin),
-            ),
+            (user_id, name, hash_password(password) if password else "", int(admin)),
         )
+        return self.get_user(user_id)
+
+    def update_user(self, user_id: str, password: Optional[str] = None, admin: Optional[bool] = None) -> dict:
+        user = self.get_user(user_id)
+        if not user:
+            raise KeyError(user_id)
+        if admin is False and user["is_admin"] and self._admin_count() <= 1:
+            raise ValueError("至少要保留一個管理員")
+        if password is not None:
+            self.db.execute(
+                "UPDATE users SET password_hash=? WHERE id=?",
+                (hash_password(password) if password else "", user["id"]),
+            )
+        if admin is not None:
+            self.db.execute("UPDATE users SET is_admin=? WHERE id=?", (int(admin), user["id"]))
+        return self.get_user(user["id"])
+
+    def delete_user(self, user_id: str) -> None:
+        user = self.get_user(user_id)
+        if not user:
+            raise KeyError(user_id)
+        if user["is_admin"] and self._admin_count() <= 1:
+            raise ValueError("至少要保留一個管理員")
+        self.db.execute("DELETE FROM tokens WHERE user_id=?", (user["id"],))
+        self.db.execute("DELETE FROM user_data WHERE user_id=?", (user["id"],))
+        self.db.execute("DELETE FROM users WHERE id=?", (user["id"],))
+
+    def reset_password(self, name: str, password: str) -> None:
+        """命令列忘記密碼用：帳號不存在時建立成管理員。"""
+        row = self.db.one("SELECT id FROM users WHERE name=?", (name,))
+        if row:
+            self.update_user(row["id"], password=password)
+        else:
+            self.create_user(name, password, True)
+
+    def _admin_count(self) -> int:
+        return self.db.one("SELECT COUNT(*) AS c FROM users WHERE is_admin=1")["c"]
 
     def get_user(self, user_id: str) -> Optional[dict]:
         row = self.db.one("SELECT * FROM users WHERE lower(id)=lower(?)", (user_id,))

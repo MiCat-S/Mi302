@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import logging
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List, Optional
 
 import yaml
+
+log = logging.getLogger(__name__)
 
 
 @dataclass
@@ -135,7 +138,9 @@ def load_config(path: Optional[str] = None) -> Config:
     path = path or os.environ.get("EMBYSERVER_CONFIG", "config.yaml")
     p = Path(path)
     if not p.exists():
-        raise FileNotFoundError(f"找不到設定檔：{p}")
+        # 設定檔可有可無：沒有時用預設值啟動，其餘在網頁上設定
+        log.info("沒有設定檔 %s，使用預設值；請到 http://<主機>:<埠>/web 完成設定", p)
+        return _build({})
     with p.open(encoding="utf-8") as f:
         return _build(yaml.safe_load(f))
 
