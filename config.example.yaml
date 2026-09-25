@@ -1,0 +1,39 @@
+# Emby 相容伺服器設定範例：複製為 config.yaml 後修改
+
+server:
+  name: My Emby            # 客戶端看到的伺服器名稱
+  host: 0.0.0.0
+  port: 8096               # Emby 預設埠號，客戶端通常預設連這個埠
+  data_dir: ./data         # SQLite 資料庫放置處
+  public_users: true       # 登入畫面是否列出使用者
+
+users:                     # 啟動時建立或更新的帳號
+  - name: admin
+    password: change-me
+    admin: true
+
+libraries:
+  - name: 電影
+    type: movies           # movies 或 tvshows
+    paths:
+      - /media/movies
+  - name: 劇集
+    type: tvshows          # 每個子資料夾是一部劇，底下可有 Season 1 / S01 / 第1季 等季資料夾
+    paths:
+      - /media/tv
+
+redirect:
+  # strm 內容的前綴替換，可作用於本機路徑或網址
+  # 例：strm 內寫 /mnt/115/電影/a.mkv → 302 到 http://alist:5244/d/115/電影/a.mkv
+  path_rules:
+    - from: /mnt/115
+      to: http://alist:5244/d/115
+  # 先由伺服器跟隨上游的重導向鏈，再把最終直鏈 302 給播放器
+  resolve_redirects: false
+  resolve_timeout: 10
+  cache_ttl: 90            # 最終直鏈快取秒數
+  require_auth: false      # 串流請求是否要求 token（很多播放器的串流請求不帶 token）
+  default_container: mkv   # strm 網址看不出副檔名時回報的容器格式
+
+# 額外的固定 API Key（以第一個管理員身分存取），可留空
+api_keys: []

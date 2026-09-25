@@ -1,0 +1,19 @@
+[project]
+name = "embyserver"
+version = "0.1.0"
+description = "Emby 相容的影片管理伺服器，strm 播放以 302 重導向到真實網址"
+requires-python = ">=3.10"
+dependencies = ["fastapi>=0.110", "uvicorn[standard]>=0.29", "httpx>=0.27", "PyYAML>=6.0"]
+
+[project.optional-dependencies]
+test = ["pytest"]
+
+[project.scripts]
+embyserver = "embyserver.__main__:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["embyserver*"]
