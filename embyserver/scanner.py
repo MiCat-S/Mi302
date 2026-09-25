@@ -138,6 +138,15 @@ def _scope_sql(scope: Path) -> Tuple[str, Tuple]:
     return "(path=? OR substr(path, 1, ?)=? OR substr(path, 1, ?)=?)", (s, n, s + os.sep, n, s + "#")
 
 
+def _root_offline(root: Path) -> bool:
+    """媒體庫資料夾不存在、讀不到或完全是空的：多半是網路磁碟或共用資料夾還沒掛載好。"""
+    try:
+        with os.scandir(root) as it:
+            return next(it, None) is None
+    except OSError:
+        return True
+
+
 def looks_like_series(folder: Path) -> bool:
     """劇集資料夾：有 tvshow.nfo、名稱帶年份（劇名 (2020)）、裡面有季資料夾或直接放著影片。
 
@@ -401,6 +410,10 @@ class Scanner:
         媒體庫以外的路徑略過。
         """
         units = self._units(paths)
+        offline = {root for _, root, _, _ in units if _root_offline(root)}
+        if offline:
+            log.warning("媒體庫路徑不存在或是空的，略過：%s", "、".join(sorted(map(str, offline))))
+            units = [u for u in units if u[1] not in offline]
         if not units:
             return
         if len(units) > MAX_PARTIAL_UNITS:
@@ -522,8 +535,11 @@ class Scanner:
         self.db.execute("UPDATE items SET primary_image=? WHERE id=?", (self.library_cover(lib, lib_id), lib_id))
         for root in lib.paths:
             rp = Path(os.path.normpath(Path(root).expanduser()))
-            if not rp.is_dir():
-                log.warning("媒體庫路徑不存在：%s", rp)
+            if _root_offline(rp):
+                # 開機時網路磁碟、共用資料夾可能還沒掛載，不能當成檔案全被刪了：保留原本的項目和觀看紀錄
+                where, params = _scope_sql(rp)
+                kept = self.db.execute(f"UPDATE items SET seen_scan=1 WHERE {where}", params).rowcount
+                log.warning("媒體庫路徑不存在或是空的：%s（沒掛載好？）；保留原本的 %s 個項目", rp, kept)
                 continue
             if _is_tv(lib):
                 self._scan_shows(lib_id, rp)

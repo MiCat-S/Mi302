@@ -97,3 +97,25 @@ def test_scan_one_library_and_drop_removed_library(tmp_path: Path):
     scanner.scan_libraries([])
     assert not ids(db, "Movie")
     assert [r["name"] for r in db.query("SELECT name FROM items WHERE type='CollectionFolder'")] == ["劇集"]
+
+
+def test_unmounted_library_keeps_items_and_watch_history(tmp_path: Path):
+    tv, movies, config, db, scanner = setup(tmp_path)
+    movie = db.one("SELECT id FROM items WHERE type='Movie' AND path LIKE '%英雄%'")["id"]
+    db.execute("INSERT INTO user_data (user_id, item_id, played) VALUES ('u', ?, 1)", (movie,))
+    before = db.one("SELECT COUNT(*) AS c FROM items")["c"]
+
+    # 共用資料夾還沒掛載：資料夾不見了，或只剩空的掛載點
+    movies.rename(tmp_path / "offline")
+    scanner.scan_all()
+    scanner.scan_paths([str(movies / "华语电影" / "英雄 (2002)" / "英雄 (2002).strm")])
+    movies.mkdir()
+    scanner.scan_libraries(["電影"])
+    assert db.one("SELECT COUNT(*) AS c FROM items")["c"] == before
+    assert db.one("SELECT played FROM user_data WHERE item_id=?", (movie,))["played"] == 1
+
+    # 掛載好之後照常掃描，同一部片 id 不變
+    movies.rmdir()
+    (tmp_path / "offline").rename(movies)
+    scanner.scan_all()
+    assert ids(db, "Movie")["英雄"] == movie

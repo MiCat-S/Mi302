@@ -11,7 +11,7 @@
 server:
   name: Mi302                       # 播放器裡顯示的伺服器名稱
   host: 0.0.0.0                     # 監聽位址
-  port: 8096                        # 播放器連線用的埠號（Docker 用戶改 docker-compose.yml 的埠對應就好）
+  port: 8096                        # 播放器連線用的埠號（Docker 版改 .env 的 MI302_PORT）
   data_dir: ./data                  # 資料庫存放位置
   public_users: true                # 播放器登入畫面是否列出使用者
   log_level: info                   # 日誌：info = 一般，debug = 詳細（另外記錄每個播放器請求）

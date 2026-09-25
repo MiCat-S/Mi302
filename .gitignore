@@ -3,3 +3,10 @@ __pycache__/
 .pytest_cache/
 data/
 config.yaml
+config.yaml.bak
+# install.sh 產生的部署設定、虛擬環境和設定資料夾
+/.env
+/.venv/
+/config/
+/local-changes-*.patch
+mi302.pid

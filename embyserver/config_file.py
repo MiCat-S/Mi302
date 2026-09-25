@@ -48,7 +48,7 @@ def render(config: Config) -> str:
         "server:",
         _kv("  name", s.name, "播放器裡顯示的伺服器名稱"),
         _kv("  host", s.host, "監聽位址"),
-        _kv("  port", s.port, "播放器連線用的埠號（Docker 用戶改 docker-compose.yml 的埠對應就好）"),
+        _kv("  port", s.port, "播放器連線用的埠號（Docker 版改 .env 的 MI302_PORT）"),
         _kv("  data_dir", s.data_dir, "資料庫存放位置"),
         _kv("  public_users", s.public_users, "播放器登入畫面是否列出使用者"),
         _kv("  log_level", s.log_level, "日誌：info = 一般，debug = 詳細（另外記錄每個播放器請求）"),

@@ -1,6 +1,9 @@
 .git
+.venv
+.env
 data
 config
 tests
 __pycache__
 .pytest_cache
+*.patch

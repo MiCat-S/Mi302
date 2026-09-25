@@ -1,21 +1,190 @@
-# embyserver
+# Mi302
 
-一個 API 與 Emby 相容的影片管理伺服器。支援 Emby 的第三方播放器（Infuse、VidHub、SenPlayer、Emby 官方 App 等）可以直接登入使用。播放 `.strm` 時，伺服器以 **HTTP 302** 把播放器導向 strm 內記載的真實網址，影片流量不經過伺服器。
+Mi302 是一個 API 與 Emby 相容的影片伺服器，主要給放在 115 網盤的影片用：
 
-## 運作方式
+- 自己掃碼登入 115，把 115 的資料夾同步成本機的 `.strm` 檔，之後依 115 的「生活事件」增量同步。
+- 支援 Emby 的播放器（Infuse、VidHub、SenPlayer、Emby 官方 App 等）可以直接登入觀看。
+- 播放時用 **HTTP 302** 把播放器導向 115 直鏈，影片流量不經過伺服器。
+- 刮削交給 MoviePilot；媒體庫封面可以用 MoviePilot 的封面插件產生。
+- 所有設定都在網頁 `/web` 上完成，並和 `config.yaml` 保持一致。
 
-1. 掃描設定中的媒體庫資料夾，把 `.strm` 與一般影片檔、NFO、海報寫入 SQLite。
-2. 播放器呼叫 `POST /Items/{id}/PlaybackInfo`。strm 項目回傳 `Protocol=Http`、`IsRemote=true`，並強制 DirectPlay（關閉轉碼），`DirectStreamUrl` 指回 `/videos/{id}/stream.{container}`。
-3. 播放器請求 `/videos/{id}/stream`、`/videos/{id}/original.xxx`、`/items/{id}/download` 時：
-   - strm 項目：讀取 strm 內容，套用 `path_rules`，可選擇先跟隨上游重導向鏈，然後回 `302 Location: <真實網址>`。
-   - 一般影片檔：直接送檔，支援 Range。
-4. 路徑不分大小寫，`/emby`、`/mediabrowser` 前綴可有可無。
+目錄：[安裝](#安裝) · [第一次設定](#第一次設定) · [115 網盤](#115-網盤) · [刮削：交給 MoviePilot](#刮削交給-moviepilot) · [媒體庫結構](#媒體庫結構) · [掃描](#掃描) · [日誌](#日誌) · [常見問題](#常見問題)
 
-302 流程參考自 [DDSRem-Dev/MoviePilot-Plugins](https://github.com/DDSRem-Dev/MoviePilot-Plugins) 的 `embyreverseproxy` 外掛。差別在於這裡不需要背後有真的 Emby，Emby API 由本專案自行實作。
+## 安裝
 
-## 快速開始
+三種方式選一種：
 
-不需要改任何設定檔，全部在網頁上完成。照下面「部署」啟動後，用瀏覽器開 `http://<主機>:8096/web`：
+| 方式 | 適合 | 開機自動啟動 |
+| --- | --- | --- |
+| [一鍵安裝腳本](#一鍵安裝腳本建議)（建議） | Linux、macOS | 自動設定 |
+| [手動用 Python](#手動用-python) | 想自己控制每一步 | 自己設定 |
+| [手動用 Docker Compose](#手動用-docker-compose) | NAS，或已經在用 Docker | Docker 負責 |
+
+系統需求：Linux 或 macOS（Windows 請用 Docker Desktop，或手動用 Python）。直接用 Python 需要 Python 3.10 以上，一鍵安裝腳本會自動安裝；用 Docker 需要 Docker 和 Docker Compose。
+
+### 一鍵安裝腳本（建議）
+
+在要跑 Mi302 的機器上執行：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/MiCat-S/Mi302/main/install.sh | sudo bash
+```
+
+腳本會先問完問題，再自動安裝：
+
+1. **安裝方式**：`1` 直接用 Python（建議，媒體路徑和主機上一樣，和 MoviePilot 對路徑最簡單），`2` 用 Docker。
+2. **用哪個使用者執行**（直接用 Python）：預設是你自己（執行 sudo 的帳號）。這個帳號要能讀寫媒體資料夾，115 同步產生的 strm 也是用它的身分寫入。
+3. **媒體資料夾**（Docker）：主機上放影片和 strm 的資料夾，容器裡看到的是 `/media`。
+4. **埠號**：預設 8096。
+
+接著它會下載程式、安裝 Python 和相依套件（或建立 Docker 容器）、設定開機自動啟動、啟動 Mi302 並確認網頁有回應，最後印出管理網頁的網址。打開網址，照[第一次設定](#第一次設定)做。
+
+裝好的檔案（Linux 在 `/opt/mi302`，macOS 在 `~/Mi302`）：
+
+```
+/opt/mi302/
+  config/               設定和資料，更新、重裝都不會動到
+    config.yaml         設定檔（網頁上的設定也寫在這裡）
+    data/               資料庫、115 登入狀態、上傳的封面
+      logs/mi302.log    日誌
+  .env                  安裝時選的方式和選項
+  .venv/                Python 虛擬環境（直接用 Python 時）
+  embyserver/ …         程式
+```
+
+不想一題一題回答，可以把選項一次給完，`-y` 表示其他都用預設值：
+
+```bash
+# 直接用 Python，以 cat 這個帳號執行
+curl -fsSL https://raw.githubusercontent.com/MiCat-S/Mi302/main/install.sh | sudo bash -s -- --python --user cat -y
+
+# 用 Docker，媒體資料夾是 /volume1/media
+curl -fsSL https://raw.githubusercontent.com/MiCat-S/Mi302/main/install.sh | sudo bash -s -- --docker --media /volume1/media -y
+```
+
+| 選項 | 說明 |
+| --- | --- |
+| `--python`、`--docker` | 安裝方式 |
+| `--user 帳號` | 直接用 Python 時，用哪個 Linux 帳號執行 |
+| `--media 資料夾` | Docker：掛進容器的媒體資料夾 |
+| `--port 埠號` | 網頁和播放器用的埠號 |
+| `--dir 資料夾` | 安裝位置 |
+| `--mirror` | pip 改用清華鏡像（連不上 PyPI 時會自動改用） |
+| `-y` | 不詢問，沒給的都用預設值 |
+
+其他情況：
+
+- **已經自己 `git clone` 下來跑過**：在那個資料夾裡執行 `sudo bash install.sh`，會直接裝在原地，原本的 `config.yaml` 和 `data/` 照用。記得先把手動開的 Mi302 關掉，不然埠號會被佔用（腳本會提醒）。以前照舊版說明改過 `docker-compose.yml` 的，腳本會把改過的地方備份成 `local-changes-*.patch`，並把裡面的媒體資料夾和埠號搬到 `.env`。
+- **macOS**：不要加 sudo，執行 `curl -fsSL https://raw.githubusercontent.com/MiCat-S/Mi302/main/install.sh | bash`。沒有 Python 3.10 以上時會用 Homebrew 安裝。Mi302 在你登入 macOS 後自動啟動（launchd）。
+- **沒有 systemd 的環境**（容器、WSL）：改成在背景執行，重新開機後要自己執行 `mi302 start`。
+
+#### 管理指令
+
+裝好後可以用 `mi302` 指令管理，需要 root 的操作會自動加 sudo：
+
+| 指令 | 作用 |
+| --- | --- |
+| `mi302` 或 `mi302 status` | 是否在執行、網址、版本 |
+| `mi302 logs` | 即時看日誌（Ctrl+C 離開） |
+| `mi302 restart`、`mi302 stop`、`mi302 start` | 重新啟動、停止、啟動 |
+| `mi302 update` | 更新到最新版並重新啟動，設定和資料不動 |
+| `mi302 reset-password admin 新密碼` | 忘記密碼時重設（帳號不存在會建立成管理員） |
+| `mi302 uninstall` | 移除開機自動啟動和 `mi302` 指令，程式、設定和資料留著；要全部刪掉再執行 `sudo rm -rf /opt/mi302` |
+
+要換選項（例如埠號、執行的帳號），重新執行安裝腳本並加上新選項，例如 `sudo bash /opt/mi302/install.sh --port 8097`；已經裝好的部分會沿用，等於順便更新。
+
+直接用 Python 時服務是 systemd 的 `mi302.service`，也可以用 `systemctl status mi302`、`journalctl -u mi302 -f` 查看。
+
+### 手動用 Python
+
+需要 Python 3.10 以上（`python3 --version` 查看）。Debian、Ubuntu 沒有 venv 時先 `sudo apt install python3-venv`。
+
+```bash
+git clone https://github.com/MiCat-S/Mi302.git
+cd Mi302
+python3 -m venv .venv
+.venv/bin/pip install -r requirements.txt
+.venv/bin/python -m embyserver
+```
+
+然後開 `http://<主機>:8096/web`。
+
+- 設定檔 `config.yaml` 和資料 `data/` 會放在**執行指令時所在的資料夾**，上面的例子就是 `Mi302/`。
+- 更新：`git pull && .venv/bin/pip install -r requirements.txt`，然後重新啟動。
+- 改埠號：改 `config.yaml` 的 `server.port`，然後重新啟動。
+- 國內網路 pip 很慢時，加上 `-i https://pypi.tuna.tsinghua.edu.cn/simple`。
+
+開機自動啟動可以用 systemd。把下面的 `cat` 和路徑換成你的，存成 `/etc/systemd/system/mi302.service`，再執行 `sudo systemctl enable --now mi302`：
+
+```ini
+[Unit]
+Description=Mi302
+Wants=network-online.target
+After=network-online.target remote-fs.target
+
+[Service]
+User=cat
+WorkingDirectory=/home/cat/Mi302
+ExecStart=/home/cat/Mi302/.venv/bin/python -m embyserver -c /home/cat/Mi302/config.yaml
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+```
+
+### 手動用 Docker Compose
+
+```bash
+git clone https://github.com/MiCat-S/Mi302.git
+cd Mi302
+cat > .env <<'CONF'
+MI302_PORT=8096
+MI302_MEDIA=/volume1/media
+TZ=Asia/Shanghai
+CONF
+docker compose up -d --build
+```
+
+然後開 `http://<主機>:8096/web`。
+
+- `MI302_MEDIA` 是主機上放影片和 strm 的資料夾，容器裡叫 `/media`。網頁上選媒體庫資料夾、115 同步任務的本機資料夾，都要選 `/media` 底下的。
+- 設定和資料在 `config/`（`config/config.yaml`、`config/data/`），重建容器不會遺失。
+- 看日誌：`docker compose logs -f`，或打開 `config/data/logs/mi302.log`。
+- 更新：`git pull && docker compose up -d --build`。
+- 改埠號：改 `.env` 的 `MI302_PORT`，再 `docker compose up -d`。
+- 忘記密碼：`docker compose exec mi302 python -m embyserver -c /config/config.yaml --reset-password admin 新密碼`。
+- 國內網路 pip 很慢時，在 `.env` 加一行 `PIP_MIRROR=https://pypi.tuna.tsinghua.edu.cn/simple`。
+- 要多掛幾個資料夾，建立 `docker-compose.override.yml`，不要直接改 `docker-compose.yml`，更新時才不會衝突：
+
+  ```yaml
+  services:
+    mi302:
+      volumes:
+        - /volume2/anime:/media/anime
+  ```
+
+- Docker 裡的 Mi302 看到的是 `/media/...`，和主機上的路徑不同。MoviePilot 要刮削時，記得填[路徑對應](#設定)。
+
+### 從外網連線
+
+在前面加一層反向代理（例如 Nginx、Caddy）提供 HTTPS，並在網頁「進階設定」把 strm 的伺服器網址填成對外網址，再同步一次讓 strm 更新。
+
+### 常見問題
+
+- **其他裝置連不上**：確認防火牆放行埠號，例如 `sudo ufw allow 8096/tcp`，或 `sudo firewall-cmd --permanent --add-port=8096/tcp && sudo firewall-cmd --reload`。一鍵安裝腳本發現防火牆開著時會提醒。
+- **埠號被佔用**：多半是之前手動開的 Mi302 還在跑，關掉它（或換埠號）再裝。
+- **網路磁碟、共用資料夾開機後才掛上**（NAS 的 NFS/SMB、Parallels 的 `/media/psf/...` 等）：Mi302 發現媒體庫資料夾不存在或是空的，會保留原本的項目和觀看紀錄，不會當成影片全被刪了。掛好之後在網頁「媒體庫」按「全部重新掃描」即可。
+- **strm 寫不進去、掃描不到影片**：執行 Mi302 的帳號沒有媒體資料夾的權限。直接用 Python 的可以用 `sudo -u 帳號 ls 資料夾` 測試，或重新安裝時用 `--user` 換成有權限的帳號。
+- **國內網路**：
+  - pip：一鍵安裝腳本連不上 PyPI 時會自動改用清華鏡像，也可以加 `--mirror`。
+  - Docker：拉不到 `python:3.12-slim` 映像檔時，先在 Docker 設定映像加速（`registry-mirrors`）。
+  - GitHub：`raw.githubusercontent.com` 連不上時，到 GitHub 網頁按「Code → Download ZIP」下載，解壓後在資料夾裡執行 `sudo bash install.sh`。之後 `mi302 update` 仍然需要連上 GitHub。
+- **忘記管理員密碼**：`mi302 reset-password admin 新密碼`；手動安裝的見上面各自的說明。
+
+## 第一次設定
+
+不需要改任何設定檔，全部在網頁上完成。用瀏覽器開 `http://<主機>:8096/web`：
 
 1. **建立管理員**：第一次打開會請你設定帳號密碼。登入後的「概覽」頁有設定步驟清單，照著點「前往」就好。
 2. **媒體庫**：按「新增媒體庫」，取名（例如「電影」）、選類型，再按「加入資料夾」點選伺服器上的資料夾，最後按下方的「儲存並掃描」。Docker 版的媒體資料夾在 `/media` 底下。
@@ -26,11 +195,11 @@
 4. **刮削**（選用）：有 MoviePilot 的話，在「MoviePilot」分頁填網址和 API 令牌，之後新產生的 strm 會自動送去刮削。見下面「[刮削：交給 MoviePilot](#刮削交給-moviepilot)」。
 5. **播放器**（Infuse、VidHub、SenPlayer、Emby 官方 App 等）新增 Emby 伺服器，位址填 `http://<主機>:8096`，用剛才的帳號登入。
 
-家人的帳號在「使用者」分頁新增；自動同步間隔、strm 網址等在「115 網盤」的同步選項和「進階設定」。忘記管理員密碼時，執行 `python -m embyserver --reset-password admin 新密碼`（Docker：`docker compose exec mi302 python -m embyserver -c /config/config.yaml --reset-password admin 新密碼`）。
+家人的帳號在「使用者」分頁新增；自動同步間隔、strm 網址等在「115 網盤」的同步選項和「進階設定」。
 
 ### 設定檔
 
-網頁上的設定都存在設定檔 `config.yaml`（Docker 版在 `config/config.yaml`），兩邊保持一致：
+網頁上的設定都存在設定檔 `config.yaml`（一鍵安裝和 Docker 版在 `config/config.yaml`），兩邊保持一致：
 
 - 第一次啟動時自動產生，每一項都附說明註解，不用自己建立。
 - 在網頁上儲存設定時自動寫回，覆寫前把舊檔留成 `config.yaml.bak`。檔案每次都依範本重新產生，自己加的註解不會保留。
@@ -167,43 +336,6 @@ MoviePilot 通知 Mi302 某些檔案有變動時，Mi302 只掃那些檔案所�
 
 插件的「入庫監控」要 MoviePilot 整理完成或 Emby 的新增通知才會觸發；Mi302 從 115 同步進來的檔案不經過這兩個，所以新片進來後封面不會自動更新，請用排程或手動更新。
 
-## 部署
-
-### Docker Compose
-
-```bash
-git clone https://github.com/MiCat-S/Mi302.git
-cd Mi302
-```
-
-編輯 `docker-compose.yml`，把 `/path/to/media` 改成主機上放影片的資料夾，例如 `/volume1/media`。這個資料夾在容器裡叫 `/media`，網頁上選資料夾時會從這裡開始。
-
-```bash
-docker compose up -d --build
-docker compose logs -f   # 看啟動與掃描紀錄
-```
-
-然後開 `http://<主機>:8096/web`，照「快速開始」設定。
-
-- 設定存在 `config/config.yaml`，帳號、115 登入狀態、同步進度存在 `config/data/`，更新或重建容器都不會遺失。
-- 更新版本：`git pull && docker compose up -d --build`。
-- 要改埠號：改 `docker-compose.yml` 的 `"8096:8096"` 左邊的數字。
-
-### 直接用 Python
-
-需要 Python 3.10 以上。
-
-```bash
-pip install -r requirements.txt
-python -m embyserver
-```
-
-然後開 `http://<主機>:8096/web`。設定檔 `config.yaml` 和資料庫 `data/` 會建立在目前的資料夾。要改埠號時，改 `config.yaml` 的 `server.port` 後重新啟動。
-
-### 從外網連線
-
-在前面加一層反向代理（例如 Nginx、Caddy）提供 HTTPS，並在網頁「進階設定」填 strm 的伺服器網址為對外網址，再同步一次讓 strm 更新。
-
 ## 媒體庫結構
 
 ```
@@ -248,6 +380,17 @@ tv/
 - 播放器連不上或播不了時，打開日誌頁下方的「詳細模式」，會另外記錄每個播放器請求，找到原因後記得關掉。也可以在 `config.yaml` 設定 `server.log_level: debug`。
 - 網址裡的 `api_key`、`token`、密碼等憑證在寫入前一律遮成 `***`。
 
+## 播放流程（技術細節）
+
+1. 掃描設定中的媒體庫資料夾，把 `.strm` 與一般影片檔、NFO、海報寫入 SQLite。
+2. 播放器呼叫 `POST /Items/{id}/PlaybackInfo`。strm 項目回傳 `Protocol=Http`、`IsRemote=true`，並強制 DirectPlay（關閉轉碼），`DirectStreamUrl` 指回 `/videos/{id}/stream.{container}`。
+3. 播放器請求 `/videos/{id}/stream`、`/videos/{id}/original.xxx`、`/items/{id}/download` 時：
+   - strm 項目：讀取 strm 內容，套用 `path_rules`，可選擇先跟隨上游重導向鏈，然後回 `302 Location: <真實網址>`。
+   - 一般影片檔：直接送檔，支援 Range。
+4. 路徑不分大小寫，`/emby`、`/mediabrowser` 前綴可有可無。
+
+302 流程參考自 [DDSRem-Dev/MoviePilot-Plugins](https://github.com/DDSRem-Dev/MoviePilot-Plugins) 的 `embyreverseproxy` 外掛。差別在於這裡不需要背後有真的 Emby，Emby API 由本專案自行實作。
+
 ## 已實作的端點
 
 - 系統：`System/Info/Public`、`System/Info`、`System/Ping`、`System/Endpoint`
@@ -258,9 +401,11 @@ tv/
 - 使用者資料：`PlayedItems`、`FavoriteItems`
 - 圖片：`Items/{id}/Images/{type}`（讀取、上傳、刪除）
 
-## 測試
+## 開發
 
 ```bash
-pip install pytest
+pip install -r requirements.txt pytest
 python -m pytest
 ```
+
+`install.sh` 改完可以用 `shellcheck install.sh` 檢查。

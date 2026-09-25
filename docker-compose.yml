@@ -1,12 +1,19 @@
+# 埠號、媒體資料夾、時區寫在同一個資料夾的 .env（install.sh 會產生，也可以自己建立）：
+#   MI302_PORT=8096
+#   MI302_MEDIA=/volume1/media
+#   TZ=Asia/Shanghai
 services:
   mi302:
-    build: .
+    build:
+      context: .
+      args:
+        PIP_MIRROR: ${PIP_MIRROR:-}
     container_name: mi302
     restart: unless-stopped
     ports:
-      - "8096:8096"
+      - "${MI302_PORT:-8096}:8096"
     environment:
-      - TZ=Asia/Shanghai
+      - TZ=${TZ:-Asia/Shanghai}
     volumes:
-      - ./config:/config          # 放 config.yaml，資料庫會存在 /config/data
-      - /path/to/media:/media     # 媒體庫與 115 產生的 strm 放這裡，改成你的實際路徑
+      - ./config:/config                         # config.yaml，資料庫和日誌在 /config/data
+      - ${MI302_MEDIA:-/path/to/media}:/media    # 媒體庫與 115 產生的 strm 放這裡

@@ -470,7 +470,7 @@ dialog .card-b{max-height:70vh;overflow:auto}
         <div class="card-b stack">
           <label class="field"><span>伺服器名稱</span><input type="text" data-key="server.name"><small>播放器裡顯示的名稱</small></label>
           <label class="switch"><input type="checkbox" data-key="server.public_users"><span class="track"></span><span class="lbl">播放器登入畫面列出使用者名稱</span></label>
-          <p class="hint">埠號目前是 <b id="port"></b>。要改埠號請改 Docker 的埠對應，或改設定檔後重新啟動。</p>
+          <p class="hint">埠號目前是 <b id="port"></b>。要改埠號：Docker 版改 <code>.env</code> 的 <code>MI302_PORT</code>，其他改設定檔的 <code>server.port</code>，然後重新啟動。</p>
         </div>
       </div>
       <div class="card">
