@@ -151,3 +151,22 @@ def test_admin_endpoints_require_admin(client):
     token = _login(client)
     assert client.get("/p115/status", headers={"X-Emby-Token": token}).json()["logged_in"] is True
     assert client.get("/web/115").status_code == 200
+
+
+def test_strm_tasks_from_web_and_auto_base_url(client, tmp_path: Path):
+    h = {"X-Emby-Token": _login(client)}
+    s = client.get("/p115/strm/status", headers=h).json()
+    assert s["tasks"] == [] and s["libraries"][0]["name"] == "電影"
+    # 沒填 base_url 時，用管理員開網頁的網址
+    client.get("/p115/status", headers=h)
+    assert client.get("/p115/strm/status", headers=h).json()["base_url"] == "http://testserver"
+
+    body = [
+        {"remote": "影視/電影", "local": str(tmp_path / "movies" / "115")},
+        {"remote": "/影視/劇集", "local": str(tmp_path / "elsewhere")},
+    ]
+    tasks = client.put("/p115/strm/tasks", json=body, headers=h).json()["tasks"]
+    assert [t["remote"] for t in tasks] == ["/影視/電影", "/影視/劇集"]
+    assert [t["in_library"] for t in tasks] == [True, False]
+    assert client.get("/p115/strm/status", headers=h).json()["tasks"] == tasks
+    assert client.put("/p115/strm/tasks", json=[{"remote": "/a"}], headers=h).status_code == 400

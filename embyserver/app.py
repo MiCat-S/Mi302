@@ -60,6 +60,7 @@ def create_app(config: Config, db_path: Optional[str] = None, scan_on_start: boo
         app.state.p115,
         config.p115.strm,
         on_done=scanner.scan_all if config.p115.strm.scan_after_sync else None,
+        port=config.server.port,
     )
 
     app.add_middleware(

@@ -13,22 +13,38 @@
 
 302 流程參考自 [DDSRem-Dev/MoviePilot-Plugins](https://github.com/DDSRem-Dev/MoviePilot-Plugins) 的 `embyreverseproxy` 外掛。差別在於這裡不需要背後有真的 Emby，Emby API 由本專案自行實作。
 
+## 快速開始
+
+整個設定只有兩個地方：
+
+1. **設定檔 `config.yaml`**：只需要改帳號密碼和媒體庫資料夾，範本 `config.example.yaml` 裡標了「要改」的就是。
+2. **網頁 `http://<主機>:8096/web/115`**：登入 115、選擇要產生 strm 的 115 目錄、按同步。
+
+照下面「部署」啟動後：
+
+1. 開 `http://<主機>:8096/web/115`，用設定檔裡的管理員帳號登入。
+2. **第 1 步**：按「產生登入二維碼」，用手機 115 App 掃描確認。
+3. **第 2 步**：填 115 目錄（例如 `/影視/電影`），選要放進哪個媒體庫資料夾，按「新增」。可以新增多個。
+4. **第 3 步**：按「立即從 115 同步 strm」。同步完伺服器會自動掃描媒體庫。
+5. 播放器（Infuse、VidHub、SenPlayer、Emby 官方 App 等）新增 Emby 伺服器，位址填 `http://<主機>:8096`，用設定檔裡的帳號登入。
+
+> 本機資料夾建議用媒體庫底下的子資料夾（例如 `/media/movies/115`），避免和你自己放的檔案混在一起；開啟 `delete_stale` 時，這個資料夾裡 115 上已不存在的 strm 會被刪除。
+
 ## 115 網盤
 
 伺服器本身就能登入 115、從 115 目錄產生 strm，並在播放時取得 115 直鏈，不需要 MoviePilot 或其他工具。
 
 ### 登入
 
-開啟 `http://<主機>:8096/web/115`，先用本伺服器的管理員帳號登入。有兩種 115 登入方式，可以同時使用：
+在 `/web/115` 掃碼登入即可，不需要申請任何東西。登入會佔用 115 的一個裝置類型（預設是支付寶小程式），同類型的其他登入會被踢下線；要換類型可以改進階設定 `p115.app`。
 
-- **115 開放平台（建議）**：先到 [115 開放平台](https://open.115.com) 申請應用取得 AppID，填進網頁（或設定檔的 `p115.open_app_id`），再掃碼授權。使用官方授權介面，token 會自動續期，比較不會被風控或被其他登入踢下線。
-- **Cookie**：按「產生 115 登入二維碼」掃碼，或直接貼上 cookie，也可以寫在設定檔的 `p115.cookies`。
+也可以在網頁上貼上 cookie，或寫在設定檔的 `p115.cookies`。
 
-兩者都有時，取直鏈與列目錄會優先走開放平台，失敗再改用 cookie。
+**進階：115 開放平台**。如果你自己在 [115 開放平台](https://open.115.com) 申請到了應用，可以在網頁的進階區塊填 AppID 掃碼授權（或寫在 `p115.open_app_id`）。授權後取直鏈與列目錄會優先走開放平台，失敗再改用掃碼登入。一般用戶不需要這一步。
 
-### 從 115 產生 strm
+### 產生 strm
 
-在設定檔的 `p115.strm.tasks` 寫好「115 目錄 → 本機資料夾」的對應，然後把本機資料夾設成媒體庫路徑。同步時伺服器會遞迴列出 115 目錄：影片產生 `.strm`，`nfo`、圖片、字幕可以一併下載，目錄結構保持不變。同步完會自動重新掃描媒體庫。
+同步時伺服器會遞迴列出 115 目錄：影片產生 `.strm`，`nfo`、圖片、字幕可以一併下載，目錄結構保持不變。
 
 strm 內容是本伺服器的短連結：
 
@@ -36,16 +52,16 @@ strm 內容是本伺服器的短連結：
 http://192.168.1.10:8096/d/abcdefghijklmnopq.mkv
 ```
 
-- `base_url` 填本伺服器對外的位址。
+- 伺服器位址會自動使用你開 `/web/115` 時的網址，網頁第 3 步會顯示目前用的位址。放在反向代理後面、想固定用網域時，再到設定檔填 `p115.strm.base_url`。
 - 網址最後的副檔名讓播放器與掃描器認得容器格式。
 - `include_name: true` 會在網址後面附上 `?/原檔名`，方便人工辨識；伺服器會忽略這一段。
 
 觸發方式：
 - `/web/115` 頁面上的「立即從 115 同步 strm」
-- 設定 `interval` 定時同步
+- 設定 `p115.strm.interval` 定時同步（分鐘）
 - 命令列 `python -m embyserver -c config.yaml --sync-115`
 
-第二次同步時，內容沒變的 strm 不會重寫，已下載且大小相同的中繼資料也不會重新下載。開啟 `delete_stale` 會刪除 115 上已經不存在的項目。
+第二次同步時，內容沒變的 strm 不會重寫，已下載且大小相同的中繼資料也不會重新下載。
 
 ### 播放
 
@@ -55,23 +71,27 @@ http://192.168.1.10:8096/d/abcdefghijklmnopq.mkv
 
 ## 部署
 
-### Docker Compose（建議）
+### Docker Compose
 
 ```bash
 git clone https://github.com/MiCat-S/Mi302.git
 cd Mi302
 mkdir -p config
 cp config.example.yaml config/config.yaml
-# 編輯 config/config.yaml：帳號密碼、媒體庫路徑（用容器內路徑 /media/...）、115 設定
-# 編輯 docker-compose.yml：把 /path/to/media 改成主機上的媒體資料夾
+```
+
+然後改兩個檔案：
+
+- `docker-compose.yml`：把 `/path/to/media` 改成主機上放影片的資料夾，例如 `/volume1/media`。這個資料夾在容器裡叫 `/media`。
+- `config/config.yaml`：改密碼。媒體庫路徑用容器裡的路徑，例如主機的 `/volume1/media/movies` 要寫 `/media/movies`。
+
+```bash
 docker compose up -d --build
 docker compose logs -f   # 看啟動與掃描紀錄
 ```
 
-- 資料庫存在 `config/data/`，更新或重建容器都不會遺失。
+- 資料庫、115 登入狀態、網頁上設定的同步任務都存在 `config/data/`，更新或重建容器都不會遺失。
 - 更新版本：`git pull && docker compose up -d --build`。
-- 設定檔裡的路徑都要寫**容器內**的路徑，例如主機 `/volume1/media` 掛到 `/media` 時，媒體庫路徑寫 `/media/movies`。
-- `p115.strm.base_url` 填播放器連得到的位址，例如 `http://192.168.1.10:8096`。
 
 ### 直接用 Python
 
@@ -79,15 +99,13 @@ docker compose logs -f   # 看啟動與掃描紀錄
 
 ```bash
 pip install -r requirements.txt
-cp config.example.yaml config.yaml   # 修改帳號與媒體庫路徑
+cp config.example.yaml config.yaml   # 改密碼，媒體庫路徑寫這台機器上的實際路徑
 python -m embyserver -c config.yaml
 ```
 
-### 啟動後
+### 從外網連線
 
-1. 播放器（Infuse、VidHub、SenPlayer、Emby 官方 App 等）新增 Emby 伺服器，位址填 `http://<主機>:8096`，用設定檔裡的帳號登入。
-2. 要用 115：開啟 `http://<主機>:8096/web/115` 登入 115，再按「立即從 115 同步 strm」。
-3. 需要從外網連線時，在前面加一層反向代理（例如 Nginx、Caddy）提供 HTTPS，並把 `base_url` 改成對外網址。
+在前面加一層反向代理（例如 Nginx、Caddy）提供 HTTPS，並在設定檔填 `p115.strm.base_url` 為對外網址，再同步一次讓 strm 更新。
 
 ## 媒體庫結構
 

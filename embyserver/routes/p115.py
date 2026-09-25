@@ -3,13 +3,15 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import HTMLResponse, RedirectResponse
 
-from ..auth import AuthContext, require_admin
 import httpx
 
+from ..auth import AuthContext, require_admin
+from ..config import StrmTask
 from ..p115 import PICKCODE_RE, P115Error
 from ..p115_open import P115OpenError
 from .common import q, state
@@ -19,7 +21,10 @@ router = APIRouter()
 
 @router.get("/p115/status")
 def p115_status(request: Request, ctx: AuthContext = Depends(require_admin)):
-    svc = state(request).p115
+    st = state(request)
+    svc = st.p115
+    # 管理員從哪個網址開這個頁面，播放器通常也連得到，拿來當 strm 裡的伺服器位址
+    st.strm_sync.remember_base_url(str(request.base_url))
     return {
         "logged_in": svc.logged_in,
         "cookie": bool(svc.cookies),
@@ -96,13 +101,27 @@ def p115_logout(request: Request, ctx: AuthContext = Depends(require_admin)):
     return Response(status_code=204)
 
 
+def _tasks_view(st) -> list:
+    libs = [Path(p).expanduser().resolve() for lib in st.config.libraries for p in lib.paths]
+
+    def in_library(local: str) -> bool:
+        path = Path(local).expanduser().resolve()
+        return any(path == lib or lib in path.parents or path in lib.parents for lib in libs)
+
+    return [
+        {"remote": t.remote, "local": t.local, "in_library": in_library(t.local)}
+        for t in st.strm_sync.tasks
+    ]
+
+
 @router.post("/p115/strm/sync")
 def p115_strm_sync(request: Request, ctx: AuthContext = Depends(require_admin)):
     st = state(request)
     if not st.p115.logged_in:
         raise HTTPException(status_code=400, detail="尚未登入 115")
-    if not st.config.p115.strm.tasks:
-        raise HTTPException(status_code=400, detail="設定檔裡沒有 p115.strm.tasks")
+    if not st.strm_sync.tasks:
+        raise HTTPException(status_code=400, detail="還沒有同步任務，請先新增「115 目錄 → 本機資料夾」")
+    st.strm_sync.remember_base_url(str(request.base_url))
     started = st.strm_sync.run_in_background()
     return {"started": started, "result": st.strm_sync.result.as_dict()}
 
@@ -111,9 +130,31 @@ def p115_strm_sync(request: Request, ctx: AuthContext = Depends(require_admin)):
 def p115_strm_status(request: Request, ctx: AuthContext = Depends(require_admin)):
     st = state(request)
     return {
-        "tasks": [{"remote": t.remote, "local": t.local} for t in st.config.p115.strm.tasks],
+        "tasks": _tasks_view(st),
+        "libraries": [{"name": lib.name, "type": lib.type, "paths": lib.paths} for lib in st.config.libraries],
+        "base_url": st.strm_sync.base_url,
         "result": st.strm_sync.result.as_dict(),
     }
+
+
+@router.put("/p115/strm/tasks")
+async def p115_strm_tasks(request: Request, ctx: AuthContext = Depends(require_admin)):
+    try:
+        body = json.loads(await request.body() or b"[]")
+    except ValueError:
+        raise HTTPException(status_code=400, detail="格式錯誤")
+    tasks = []
+    for t in body if isinstance(body, list) else []:
+        remote = str(t.get("remote") or "").strip()
+        local = str(t.get("local") or "").strip()
+        if not (remote and local):
+            raise HTTPException(status_code=400, detail="115 目錄和本機資料夾都要填")
+        if not remote.startswith("/"):
+            remote = "/" + remote
+        tasks.append(StrmTask(remote=remote, local=local))
+    st = state(request)
+    st.strm_sync.set_tasks(tasks)
+    return {"tasks": _tasks_view(st)}
 
 
 def _redirect(request: Request, pickcode: str) -> Response:
@@ -145,51 +186,69 @@ def p115_page():
     return HTMLResponse(LOGIN_PAGE)
 
 
+
+
 LOGIN_PAGE = """<!doctype html>
 <html lang="zh-Hant"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>115 登入</title>
+<title>115 設定</title>
 <style>
-body{font-family:system-ui,sans-serif;max-width:420px;margin:40px auto;padding:0 16px;color:#222}
-input,button{font-size:16px;padding:8px;margin:4px 0;width:100%;box-sizing:border-box}
-button{cursor:pointer}#qr img{width:220px;height:220px;display:block;margin:12px auto}
-.muted{color:#777;font-size:14px}.box{border:1px solid #ddd;border-radius:8px;padding:16px;margin:16px 0}
+body{font-family:system-ui,sans-serif;max-width:560px;margin:40px auto;padding:0 16px;color:#222}
+input,button,select{font-size:16px;padding:8px;margin:4px 0;width:100%;box-sizing:border-box}
+button{cursor:pointer}#qr img,#oqr img{width:220px;height:220px;display:block;margin:12px auto}
+.muted{color:#777;font-size:14px}.warn{color:#b35c00;font-size:14px}
+.box{border:1px solid #ddd;border-radius:8px;padding:16px;margin:16px 0}
 textarea{width:100%;box-sizing:border-box;height:80px}
+summary{cursor:pointer;margin-top:8px}
+.task{display:flex;gap:8px;align-items:center;border-top:1px solid #eee;padding:6px 0}
+.task div{flex:1;word-break:break-all}.task button{width:auto}
 </style></head><body>
-<h2>115 網盤登入</h2>
+<h2>115 網盤設定</h2>
 <div id="login" class="box">
-  <p class="muted">先用本伺服器的管理員帳號登入</p>
+  <p class="muted">用設定檔裡的管理員帳號登入</p>
   <input id="u" placeholder="使用者名稱"><input id="p" type="password" placeholder="密碼">
   <button onclick="login()">登入</button>
 </div>
 <div id="main" style="display:none">
-  <div class="box"><b>目前狀態：</b><span id="st">讀取中…</span></div>
   <div class="box">
-    <b>115 開放平台（建議）</b>
-    <p class="muted">需要先在 open.115.com 申請應用取得 AppID。授權後優先使用開放平台，cookie 只當備援。</p>
-    <input id="appid" placeholder="AppID（已設定過可留空）">
-    <button onclick="startOpenQr()">產生開放平台授權二維碼</button>
-    <div id="oqr"></div><p id="oqrst" class="muted"></p>
-    <button onclick="logoutOpen()">取消開放平台授權</button>
-  </div>
-  <div class="box">
-    <b>Cookie 登入（備援）</b>
-    <button onclick="startQr()">產生 115 登入二維碼</button>
+    <b>第 1 步：登入 115</b>
+    <p>目前狀態：<span id="st">讀取中…</span></p>
+    <button onclick="startQr()">產生登入二維碼</button>
+    <p class="muted">用手機 115 App 掃描並確認。登入後同類型裝置（預設是支付寶小程式）的舊登入會被踢下線。</p>
     <div id="qr"></div><p id="qrst" class="muted"></p>
+    <details><summary class="muted">改用貼上 cookie</summary>
+      <p class="muted">格式像 UID=…; CID=…; SEID=…</p>
+      <textarea id="ck"></textarea><button onclick="saveCookie()">儲存 cookie</button>
+    </details>
+    <details><summary class="muted">進階：115 開放平台（需要自己申請的 AppID，一般用戶不用管）</summary>
+      <p class="muted">只有在 open.115.com 申請到應用的人才用得到。授權後取直鏈會優先走開放平台，失敗再用上面的登入。</p>
+      <input id="appid" placeholder="AppID">
+      <button onclick="startOpenQr()">產生開放平台授權二維碼</button>
+      <div id="oqr"></div><p id="oqrst" class="muted"></p>
+      <button onclick="logoutOpen()">取消開放平台授權</button>
+    </details>
+    <button onclick="logout115()">登出 115</button>
   </div>
   <div class="box">
-    <p class="muted">或直接貼上 115 cookie（UID=…; CID=…; SEID=…）</p>
-    <textarea id="ck"></textarea><button onclick="saveCookie()">儲存 cookie</button>
+    <b>第 2 步：選擇要產生 strm 的 115 目錄</b>
+    <p class="muted">伺服器會把 115 目錄裡的影片產生成 .strm，放到本機資料夾，目錄結構不變。本機資料夾要在媒體庫路徑裡面，播放器才看得到。</p>
+    <div id="tasks"></div>
+    <input id="remote" placeholder="115 目錄，例如 /影視/電影">
+    <select id="local"></select>
+    <input id="localtxt" placeholder="或自行輸入本機資料夾" style="display:none">
+    <button onclick="addTask()">新增</button>
+    <p id="taskst" class="warn"></p>
   </div>
   <div class="box">
-    <b>產生 strm</b><div id="tasks" class="muted"></div>
+    <b>第 3 步：同步</b>
+    <p class="muted">strm 內的伺服器位址：<span id="base"></span></p>
     <button onclick="syncStrm()">立即從 115 同步 strm</button>
     <p id="syncst" class="muted"></p>
   </div>
-  <button onclick="logout115()">登出 115 cookie</button>
 </div>
 <script>
 let token = sessionStorage.getItem('t') || '';
+let tasks = [];
 const H = () => ({'X-Emby-Token': token, 'Content-Type': 'application/json'});
 async function api(path, opt = {}) {
   const r = await fetch(path, {...opt, headers: H()});
@@ -205,73 +264,109 @@ async function login() {
   token = (await r.json()).AccessToken; sessionStorage.setItem('t', token); show();
 }
 async function show() {
-  try { const s = await api('/p115/status');
-    document.getElementById('login').style.display = 'none';
-    document.getElementById('main').style.display = '';
-    pollSync();
-    const parts = [];
-    parts.push('開放平台：' + (s.open.authorized ? '已授權' : '未授權'));
-    parts.push('Cookie：' + (s.cookie ? ('已登入' + (s.user ? '（' + s.user.user_name + '）' : '（可能已失效）')) : '未登入'));
-    st.textContent = parts.join('；');
-    if (s.open.app_id && !appid.value) appid.placeholder = 'AppID：' + s.open.app_id;
-  } catch (e) { sessionStorage.removeItem('t'); token = ''; }
+  let s;
+  try { s = await api('/p115/status'); } catch (e) { sessionStorage.removeItem('t'); token = ''; return; }
+  document.getElementById('login').style.display = 'none';
+  document.getElementById('main').style.display = '';
+  let text = s.cookie ? ('已登入' + (s.user ? '（' + s.user.user_name + '）' : '（可能已失效，請重新掃碼）')) : '未登入';
+  if (s.open.authorized) text += '，開放平台已授權';
+  st.textContent = text;
+  if (s.open.app_id && !appid.value) appid.placeholder = 'AppID：' + s.open.app_id;
+  pollSync(true);
 }
-let timer = null;
-async function startQr() {
-  clearTimeout(timer);
-  const t = await api('/p115/qrcode', {method: 'POST'});
-  qr.innerHTML = '<img src="' + t.qrcode_image + '">';
-  qrst.textContent = '請用 115 App 掃描';
+function pollQr(t, statusUrl, box, label, done) {
   const poll = async () => {
     try {
-      const r = await api('/p115/qrcode/status?uid=' + t.uid + '&time=' + t.time + '&sign=' + t.sign);
-      const msg = {waiting: '等待掃描', scanned: '已掃描，請在手機上確認', success: '登入成功',
+      const r = await api(statusUrl + '?uid=' + t.uid + '&time=' + t.time + '&sign=' + t.sign);
+      const msg = {waiting: '等待掃描', scanned: '已掃描，請在手機上確認', success: '成功',
                    expired: '二維碼已過期，請重新產生', canceled: '已取消'}[r.status] || r.status;
-      qrst.textContent = msg;
-      if (r.status === 'success') { qr.innerHTML = ''; show(); return; }
+      label.textContent = msg;
+      if (r.status === 'success') { box.innerHTML = ''; show(); return; }
       if (r.status === 'expired' || r.status === 'canceled') return;
-    } catch (e) { qrst.textContent = '錯誤：' + e.message; return; }
-    timer = setTimeout(poll, 1500);
+    } catch (e) { label.textContent = '錯誤：' + e.message; return; }
+    done.timer = setTimeout(poll, 1500);
   };
   poll();
 }
-let otimer = null;
+const qrTimer = {}, oqrTimer = {};
+async function startQr() {
+  clearTimeout(qrTimer.timer);
+  let t;
+  try { t = await api('/p115/qrcode', {method: 'POST'}); } catch (e) { qrst.textContent = '錯誤：' + e.message; return; }
+  qr.innerHTML = '<img src="' + t.qrcode_image + '">';
+  qrst.textContent = '請用 115 App 掃描';
+  pollQr(t, '/p115/qrcode/status', qr, qrst, qrTimer);
+}
 async function startOpenQr() {
-  clearTimeout(otimer);
+  clearTimeout(oqrTimer.timer);
   let t;
   try { t = await api('/p115/open/qrcode', {method: 'POST', body: JSON.stringify({app_id: appid.value})}); }
   catch (e) { oqrst.textContent = '錯誤：' + e.message; return; }
   oqr.innerHTML = '<img src="' + t.qrcode_image + '">';
   oqrst.textContent = '請用 115 App 掃描並授權';
-  const poll = async () => {
-    try {
-      const r = await api('/p115/open/qrcode/status?uid=' + t.uid + '&time=' + t.time + '&sign=' + t.sign);
-      const msg = {waiting: '等待掃描', scanned: '已掃描，請在手機上確認', success: '授權成功',
-                   expired: '二維碼已過期，請重新產生', canceled: '已取消'}[r.status] || r.status;
-      oqrst.textContent = msg;
-      if (r.status === 'success') { oqr.innerHTML = ''; show(); return; }
-      if (r.status === 'expired' || r.status === 'canceled') return;
-    } catch (e) { oqrst.textContent = '錯誤：' + e.message; return; }
-    otimer = setTimeout(poll, 1500);
-  };
-  poll();
+  pollQr(t, '/p115/open/qrcode/status', oqr, oqrst, oqrTimer);
 }
 async function logoutOpen() { await api('/p115/open/logout', {method: 'POST'}); show(); }
-async function saveCookie() { await api('/p115/cookies', {method: 'POST', body: JSON.stringify({cookies: ck.value})}); ck.value = ''; show(); }
+async function logout115() { await api('/p115/logout', {method: 'POST'}); show(); }
+async function saveCookie() {
+  try { await api('/p115/cookies', {method: 'POST', body: JSON.stringify({cookies: ck.value})}); }
+  catch (e) { alert(e.message); return; }
+  ck.value = ''; show();
+}
+function renderTasks(list) {
+  tasks = list.map(t => ({remote: t.remote, local: t.local}));
+  const box = document.getElementById('tasks');
+  box.innerHTML = '';
+  if (!list.length) { box.innerHTML = '<p class="muted">還沒有任務</p>'; }
+  list.forEach((t, i) => {
+    const row = document.createElement('div'); row.className = 'task';
+    const txt = document.createElement('div');
+    txt.textContent = '115:' + t.remote + ' → ' + t.local;
+    if (!t.in_library) {
+      const w = document.createElement('div'); w.className = 'warn';
+      w.textContent = '這個資料夾不在任何媒體庫裡，播放器會看不到';
+      txt.appendChild(w);
+    }
+    const del = document.createElement('button'); del.textContent = '刪除';
+    del.onclick = () => saveTasks(tasks.filter((_, j) => j !== i));
+    row.appendChild(txt); row.appendChild(del); box.appendChild(row);
+  });
+}
+function renderLibraries(libs) {
+  const sel = document.getElementById('local');
+  if (sel.options.length) return;
+  libs.forEach(l => l.paths.forEach(p => {
+    const o = document.createElement('option'); o.value = p; o.textContent = '媒體庫「' + l.name + '」：' + p; sel.appendChild(o);
+  }));
+  const o = document.createElement('option'); o.value = ''; o.textContent = '其他資料夾…'; sel.appendChild(o);
+  sel.onchange = () => { localtxt.style.display = sel.value ? 'none' : ''; };
+  sel.onchange();
+}
+async function saveTasks(list) {
+  taskst.textContent = '';
+  try { renderTasks((await api('/p115/strm/tasks', {method: 'PUT', body: JSON.stringify(list)})).tasks); }
+  catch (e) { taskst.textContent = '錯誤：' + e.message; }
+}
+function addTask() {
+  const loc = local.value || localtxt.value.trim();
+  if (!remote.value.trim() || !loc) { taskst.textContent = '115 目錄和本機資料夾都要填'; return; }
+  saveTasks(tasks.concat([{remote: remote.value.trim(), local: loc}]));
+  remote.value = ''; localtxt.value = '';
+}
 async function syncStrm() {
   try { await api('/p115/strm/sync', {method: 'POST'}); } catch (e) { syncst.textContent = '錯誤：' + e.message; return; }
-  pollSync();
+  pollSync(false);
 }
-async function pollSync() {
+async function pollSync(first) {
   const s = await api('/p115/strm/status');
-  tasks.innerHTML = s.tasks.map(t => '115:' + t.remote + ' → ' + t.local).join('<br>') || '設定檔裡還沒有同步任務';
+  if (first) { renderTasks(s.tasks); renderLibraries(s.libraries); }
+  base.textContent = s.base_url;
   const r = s.result;
   if (!r.started) { syncst.textContent = ''; return; }
   syncst.textContent = (r.running ? '同步中… ' : '上次同步完成：') + '新增/更新 ' + r.strm_created + '，未變 ' + r.strm_unchanged +
     '，下載中繼資料 ' + r.metadata_downloaded + '，刪除 ' + r.removed + (r.errors.length ? '，錯誤 ' + r.errors.length + '：' + r.errors.slice(0, 3).join('；') : '');
-  if (r.running) setTimeout(pollSync, 2000);
+  if (r.running) setTimeout(() => pollSync(false), 2000);
 }
-async function logout115() { await api('/p115/logout', {method: 'POST'}); show(); }
 if (token) show();
 </script></body></html>
 """

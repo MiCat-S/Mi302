@@ -53,8 +53,8 @@ class StrmTask:
 @dataclass
 class P115StrmConfig:
     tasks: List[StrmTask] = field(default_factory=list)
-    # strm 內容為 {base_url}/d/{pickcode}.mkv，base_url 填本伺服器對外的位址
-    base_url: str = "http://127.0.0.1:8096"
+    # strm 內容為 {base_url}/d/{pickcode}.mkv；留空時自動使用管理員開 /web/115 的網址
+    base_url: str = ""
     include_name: bool = False  # 在網址後附上 ?/原檔名，方便人工辨識
     download_metadata: bool = True  # 一併下載 nfo、圖片、字幕
     delete_stale: bool = False  # 刪除 115 上已不存在的 strm
@@ -71,7 +71,7 @@ class P115Config:
     # 掃碼後綁定的 115 裝置類型；同類型的舊登入會被踢下線
     app: str = "alipaymini"
     timeout: float = 15.0
-    # 115 開放平台 AppID（在 open.115.com 申請）；授權後優先走開放平台，cookie 當備援
+    # 進階：115 開放平台 AppID，只有自己在 open.115.com 申請到應用的人才需要
     open_app_id: str = ""
     strm: P115StrmConfig = field(default_factory=P115StrmConfig)
 

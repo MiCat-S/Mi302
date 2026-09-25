@@ -11,9 +11,11 @@ from pathlib import Path
 from typing import Callable, List, Optional
 from urllib.parse import quote
 
+import json
+
 import httpx
 
-from .config import P115StrmConfig
+from .config import P115StrmConfig, StrmTask
 from .p115 import BROWSER_UA, P115Error, P115Service
 
 log = logging.getLogger(__name__)
@@ -40,26 +42,67 @@ class SyncResult:
         return asdict(self)
 
 
-def strm_content(cfg: P115StrmConfig, pickcode: str, file_name: str) -> str:
+# 網頁上設定的同步任務與自動偵測到的伺服器位址，存在資料庫 meta
+TASKS_META_KEY = "p115_strm_tasks"
+SERVER_URL_META_KEY = "server_url"
+
+
+def strm_content(cfg: P115StrmConfig, pickcode: str, file_name: str, base_url: Optional[str] = None) -> str:
     """本伺服器的短連結：{base_url}/d/{pickcode}.{副檔名}
 
     副檔名讓播放器與掃描器認得容器格式；include_name 時再附上 ?/{原檔名} 方便辨識。
     """
-    url = f"{cfg.base_url.rstrip('/')}/d/{pickcode}{Path(file_name).suffix.lower()}"
+    base = base_url or cfg.base_url or "http://127.0.0.1:8096"
+    url = f"{base.rstrip('/')}/d/{pickcode}{Path(file_name).suffix.lower()}"
     if cfg.include_name:
         url += f"?/{quote(file_name)}"
     return url
 
 
 class StrmSync:
-    def __init__(self, p115: P115Service, cfg: P115StrmConfig, on_done: Optional[Callable[[], None]] = None):
+    def __init__(
+        self,
+        p115: P115Service,
+        cfg: P115StrmConfig,
+        on_done: Optional[Callable[[], None]] = None,
+        port: int = 8096,
+    ):
         self.p115 = p115
         self.cfg = cfg
+        self.port = port
         self.on_done = on_done
         self.result = SyncResult()
         self._lock = threading.Lock()
         self._http = httpx.Client(timeout=60, follow_redirects=True)
         self._stop = threading.Event()
+
+    # ---------------- 設定 ----------------
+
+    @property
+    def tasks(self) -> List[StrmTask]:
+        """網頁上存過任務就用網頁的，否則用設定檔的 p115.strm.tasks。"""
+        raw = self.p115.db.get_meta(TASKS_META_KEY)
+        if raw is None:
+            return list(self.cfg.tasks)
+        return [StrmTask(remote=t["remote"], local=t["local"]) for t in json.loads(raw)]
+
+    def set_tasks(self, tasks: List[StrmTask]) -> None:
+        data = [{"remote": t.remote, "local": t.local} for t in tasks]
+        self.p115.db.set_meta(TASKS_META_KEY, json.dumps(data, ensure_ascii=False))
+
+    @property
+    def base_url(self) -> str:
+        """設定檔有填就用設定檔的；沒填就用管理員開網頁時的網址。"""
+        return (
+            self.cfg.base_url
+            or self.p115.db.get_meta(SERVER_URL_META_KEY)
+            or f"http://127.0.0.1:{self.port}"
+        )
+
+    def remember_base_url(self, url: str) -> None:
+        url = url.rstrip("/")
+        if url and not self.cfg.base_url and self.p115.db.get_meta(SERVER_URL_META_KEY) != url:
+            self.p115.db.set_meta(SERVER_URL_META_KEY, url)
 
     # ---------------- 執行 ----------------
 
@@ -69,7 +112,7 @@ class StrmSync:
             return self.result
         self.result = SyncResult(started=time.time(), running=True)
         try:
-            for task in self.cfg.tasks:
+            for task in self.tasks:
                 try:
                     self._run_task(task.remote, Path(task.local).expanduser())
                 except P115Error as exc:
@@ -96,12 +139,12 @@ class StrmSync:
         return True
 
     def start_schedule(self) -> None:
-        if self.cfg.interval <= 0 or not self.cfg.tasks:
+        if self.cfg.interval <= 0:
             return
 
         def loop():
             while not self._stop.wait(self.cfg.interval * 60):
-                if self.p115.logged_in:
+                if self.p115.logged_in and self.tasks:
                     self.run()
 
         threading.Thread(target=loop, daemon=True).start()
@@ -130,7 +173,7 @@ class StrmSync:
         if not info["pickcode"]:
             self.result.errors.append(f"{target.name}: 沒有 pickcode")
             return
-        content = strm_content(self.cfg, info["pickcode"].lower(), info["name"])
+        content = strm_content(self.cfg, info["pickcode"].lower(), info["name"], self.base_url)
         try:
             if target.is_file() and target.read_text(encoding="utf-8").strip() == content:
                 self.result.strm_unchanged += 1

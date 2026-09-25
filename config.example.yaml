@@ -1,63 +1,84 @@
-# Emby 相容伺服器設定範例：複製為 config.yaml 後修改
+# Mi302 設定檔
+#
+# 使用方式：複製一份改名為 config.yaml，然後只改下面標「要改」的地方。
+# 115 登入和「要同步哪些 115 目錄」都在網頁上設定，不用寫在這裡：
+#   啟動後用瀏覽器開 http://<這台機器的 IP>:8096/web/115
+#
+# 路徑怎麼寫：
+#   - 用 Docker：寫「容器內」的路徑。docker-compose.yml 預設把主機的媒體資料夾掛到 /media，
+#     所以這裡寫 /media/movies、/media/tv 這類路徑就好。
+#   - 直接用 Python 執行：寫這台機器上的實際路徑，例如 /home/cat/media/movies 或 D:/media/movies。
 
 server:
-  name: My Emby            # 客戶端看到的伺服器名稱
-  host: 0.0.0.0
-  port: 8096               # Emby 預設埠號，客戶端通常預設連這個埠
-  data_dir: ./data         # SQLite 資料庫放置處
-  public_users: true       # 登入畫面是否列出使用者
+  name: Mi302              # 播放器裡顯示的伺服器名稱，隨意取
+  port: 8096               # 播放器連線用的埠號，一般不用改
 
-users:                     # 啟動時建立或更新的帳號
+# 【要改】登入帳號。播放器和 115 設定網頁都用這組帳號登入。
+# 帳號在每次啟動時建立；之後改這裡的密碼、重新啟動就會生效。
+users:
   - name: admin
-    password: change-me
-    admin: true
+    password: change-me    # 【要改】換成你自己的密碼
+    admin: true            # 管理員才能進 115 設定網頁
+  # 要給家人另外開帳號，照樣多寫幾組，admin 寫 false：
+  # - name: family
+  #   password: family-pass
+  #   admin: false
 
+# 【要改】媒體庫：播放器首頁看到的「電影」「劇集」分類，以及它們各自讀哪個資料夾。
+# 從 115 產生的 strm 也要放在這些資料夾裡面（在網頁新增同步任務時可以直接選）。
 libraries:
   - name: 電影
-    type: movies           # movies 或 tvshows
+    type: movies           # movies = 電影
     paths:
       - /media/movies
   - name: 劇集
-    type: tvshows          # 每個子資料夾是一部劇，底下可有 Season 1 / S01 / 第1季 等季資料夾
+    type: tvshows          # tvshows = 劇集，每個子資料夾是一部劇
     paths:
       - /media/tv
 
-redirect:
-  # strm 內容的前綴替換，可作用於本機路徑或網址
-  # 例：strm 內寫 /mnt/115/電影/a.mkv → 302 到 http://alist:5244/d/115/電影/a.mkv
-  path_rules:
-    - from: /mnt/115
-      to: http://alist:5244/d/115
-  # 先由伺服器跟隨上游的重導向鏈，再把最終直鏈 302 給播放器
-  resolve_redirects: false
-  resolve_timeout: 10
-  cache_ttl: 90            # 最終直鏈快取秒數
-  require_auth: false      # 串流請求是否要求 token（很多播放器的串流請求不帶 token）
-  default_container: mkv   # strm 網址看不出副檔名時回報的容器格式
-
-# 額外的固定 API Key（以第一個管理員身分存取），可留空
-api_keys: []
-
-# 115 網盤：登入後可從 115 產生 strm，播放時由本伺服器向 115 取直鏈並 302
-# 登入方式：開 http://<本伺服器>:8096/web/115 用管理員帳號登入後掃碼，或在下方直接填 cookie
+# 115 網盤（選填，以下都有預設值，不寫也能用）
 p115:
-  open_app_id: ""          # 115 開放平台 AppID（open.115.com 申請）；授權後優先使用，cookie 當備援
-  cookies: ""
-  app: alipaymini          # 掃碼綁定的裝置類型，同類型的舊登入會被踢下線
-  timeout: 15
-  # 從 115 產生 strm：把 115 目錄映射成本機資料夾，本機資料夾再設成上面的媒體庫路徑
   strm:
-    tasks:
-      - remote: /影視/電影     # 115 上的目錄
-        local: /media/movies  # strm 輸出位置
-      - remote: /影視/劇集
-        local: /media/tv
-    # strm 內容為 {base_url}/d/{pickcode}.mkv
-    base_url: http://127.0.0.1:8096   # 填本伺服器對外的位址，例如 http://192.168.1.10:8096
-    include_name: false       # 在網址後附上 ?/原檔名，方便人工辨識
-    download_metadata: true   # 一併下載 nfo、圖片、字幕
-    delete_stale: false       # 刪除 115 上已不存在的 strm（與已下載的 nfo／圖片／字幕）
-    min_size_mb: 0            # 小於此大小的影片不產生 strm，例如設 50 可略過預告片
-    interval: 0               # 定時同步（分鐘），0 = 只手動
-    request_delay: 0.2        # 每列一個目錄前等待的秒數，避免觸發 115 風控
-    scan_after_sync: true     # 同步完自動重新掃描媒體庫
+    interval: 0            # 每隔幾分鐘自動從 115 同步一次；0 = 只在網頁上按按鈕時同步
+    min_size_mb: 0         # 小於這個大小（MB）的影片不產生 strm，例如填 50 可以略過預告片
+    download_metadata: true   # 一併下載 115 上的 nfo、海報、字幕
+    delete_stale: false       # 115 上刪掉的影片，本機的 strm 也跟著刪
+
+# ─────────────────────────────────────────────────────────────
+# 以下是進階選項，一般用戶不需要。
+# 要用時把需要的那一行複製到上面同名的區塊底下（例如 server 的選項放進上面的 server:），
+# 拿掉行首的 #。同一個區塊名稱在檔案裡只能出現一次。
+# ─────────────────────────────────────────────────────────────
+#
+# server:
+#   host: 0.0.0.0          # 監聽位址
+#   data_dir: ./data       # 資料庫存放位置（Docker 版在 config/data）
+#   public_users: true     # 播放器登入畫面是否列出使用者名稱
+#
+# p115:
+#   cookies: ""            # 直接寫 115 cookie，效果等同在網頁掃碼登入
+#   app: alipaymini        # 掃碼登入時佔用的 115 裝置類型；同類型的其他登入會被踢下線
+#   timeout: 15            # 呼叫 115 的逾時秒數
+#   open_app_id: ""        # 115 開放平台 AppID。只有自己在 open.115.com 申請到應用的人才需要，
+#                          # 一般用戶留空，用網頁掃碼登入即可
+#   strm:
+#     base_url: ""         # strm 裡記錄的本伺服器網址。留空會自動使用你開 /web/115 時的網址；
+#                          # 放在反向代理後面、要用固定網域時才需要填，例如 https://emby.example.com
+#     include_name: false  # strm 網址後面附上 ?/原檔名，方便人工辨識
+#     request_delay: 0.2   # 每列一個 115 目錄前等待的秒數，太快可能被 115 限制
+#     scan_after_sync: true   # 同步完自動重新掃描媒體庫
+#     tasks:               # 同步任務也可以寫在這裡；網頁上存過任務之後以網頁為準
+#       - remote: /影視/電影
+#         local: /media/movies/115
+#
+# redirect:                # 給「不是本伺服器產生」的 strm 用（例如 strm 裡寫的是 alist 網址或本機路徑）
+#   path_rules:            # 把 strm 內容開頭的 from 換成 to，再 302 給播放器
+#     - from: /mnt/115
+#       to: http://alist:5244/d/115
+#   resolve_redirects: false  # 先由伺服器跟著上游的重導向走到底，再把最終網址給播放器
+#   resolve_timeout: 10
+#   cache_ttl: 90          # 上面最終網址的快取秒數
+#   require_auth: false    # 串流請求是否要帶 token（很多播放器不帶，建議保持 false）
+#   default_container: mkv # strm 網址看不出影片格式時，告訴播放器的預設格式
+#
+# api_keys: []             # 固定的 API Key，給其他程式以管理員身分呼叫 API
