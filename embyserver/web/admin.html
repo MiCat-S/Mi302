@@ -320,8 +320,9 @@ dialog .card-b{max-height:70vh;overflow:auto}
             <label class="field"><span>取直鏈間隔（秒）</span><input type="number" step="0.1" min="0.5" data-key="mediainfo.interval"><small>至少 0.5，太快會被 115 限流</small></label>
             <label class="field"><span>每小時最多幾次</span><input type="number" min="0" data-key="mediainfo.hourly_limit"><small>向 115 取直鏈的上限，0 = 不限；首次整庫探測時保護帳號</small></label>
           </div>
-          <label class="switch"><input type="checkbox" data-key="mediainfo.enabled"><span class="track"></span><span class="lbl">開啟探測<small>關閉時仍會讀現成的 X-mediainfo.json</small></span></label>
-          <label class="switch"><input type="checkbox" data-key="mediainfo.after_sync"><span class="track"></span><span class="lbl">同步產生新的 strm 後自動探測</span></label>
+          <label class="switch"><input type="checkbox" data-key="mediainfo.on_demand"><span class="track"></span><span class="lbl">打開影片時自動探測<small>播放器打開某部片或某一集時在背景探測它，不等；下次打開就有</small></span></label>
+          <label class="switch"><input type="checkbox" data-key="mediainfo.enabled"><span class="track"></span><span class="lbl">整庫探測<small>開了才能按「提取缺少的媒體資訊」；關閉時仍會讀現成的 X-mediainfo.json</small></span></label>
+          <label class="switch"><input type="checkbox" data-key="mediainfo.after_sync"><span class="track"></span><span class="lbl">同步產生新的 strm 後自動探測<small>要開整庫探測</small></span></label>
         </div>
         <div class="card-f"><button class="btn primary" onclick="saveFields($('miCard')).then(pollMI)">儲存</button></div>
       </div>
@@ -838,7 +839,7 @@ async function pollMI() {
   S.mi = s;
   setHtml($('miStat'), miHtml(s));
   $('miBtn').disabled = !s.ffprobe || !s.enabled || s.result.running;
-  $('miBtn').title = !s.ffprobe ? '找不到 ffprobe' : !s.enabled ? '先開啟探測並儲存' : '';
+  $('miBtn').title = !s.ffprobe ? '找不到 ffprobe' : !s.enabled ? '先開啟整庫探測並儲存' : '';
   if (s.result.running) miTimer = setTimeout(pollMI, 2000);
 }
 function miHtml(s) {
@@ -846,6 +847,8 @@ function miHtml(s) {
   let h = `<div class="row wrap"><span class="pill ${s.total && s.have >= s.total ? 'ok' : ''}">${s.have} / ${s.total} 支影片有媒體資訊</span></div>`;
   if (!s.ffprobe) h += '<p class="notice warn" style="margin-top:10px">找不到 ffprobe，只能讀現成的 X-mediainfo.json。Docker 版更新映像即可；直接用 Python 的請安裝 ffmpeg（例如 apt install ffmpeg、brew install ffmpeg），或重新執行安裝腳本。</p>';
   if (s.breaker?.tripped) h += `<p class="notice warn" style="margin-top:10px">${esc(s.breaker.message)}</p>`;
+  const od = s.on_demand || {};
+  if (od.enabled && s.ffprobe && (od.queue || od.done || od.failed)) h += `<p class="hint" style="margin-top:8px">打開即探測：排隊中 ${od.queue}，完成 ${od.done}${od.failed ? '，失敗 ' + od.failed : ''}</p>`;
   const u = s.usage || {};
   if (u.limit || u.used) h += `<p class="hint" style="margin-top:8px">這一小時向 115 取了 ${u.used} 次直鏈${u.limit ? '，上限 ' + u.limit : ''}${u.slowdown > 1 ? `（熔斷剛恢復，先放慢 ${u.slowdown} 倍）` : ''}${u.waiting_until ? '；已達上限，' + fmtTime(u.waiting_until) + ' 後繼續' : ''}</p>`;
   if (!r.started) return h;

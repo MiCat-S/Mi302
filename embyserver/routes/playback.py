@@ -38,7 +38,10 @@ def playback_info(item_id: str, request: Request, ctx: AuthContext = Depends(req
         raise HTTPException(status_code=404, detail="Item not found")
     remote = st.redirector.display_target(row, str(request.base_url))
     # 有媒體資訊（X-mediainfo.json）時一起回傳，播放器不必自己探測就知道解析度、音軌、字幕軌
-    ms = media_source_dto(row, remote, ctx.token, MediaInfoStore(st.db).get(row["path"]))
+    info = MediaInfoStore(st.db).get(row["path"])
+    ms = media_source_dto(row, remote, ctx.token, info)
+    if not info and row["is_strm"]:
+        st.prober.enqueue(row["path"])  # 打開即探測：排進背景，不等；下次打開就有
     ms_id = q(request, "MediaSourceId")
     if ms_id and ms_id != ms["Id"]:
         log.debug("PlaybackInfo MediaSourceId 不符：%s", ms_id)

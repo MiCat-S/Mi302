@@ -66,8 +66,9 @@ moviepilot:
 
 # 媒體資訊：用 ffprobe 探測 strm 指向的影片，寫出 X-mediainfo.json（需要安裝 ffmpeg）
 mediainfo:
-  enabled: false                    # 開啟探測；關閉時仍會讀現成的 X-mediainfo.json
-  after_sync: true                  # 同步產生新的 strm 後自動探測
+  enabled: false                    # 整庫探測（手動按鈕、同步後自動）；關閉時仍會讀現成的 X-mediainfo.json
+  after_sync: true                  # 同步產生新的 strm 後自動探測（要開整庫探測）
+  on_demand: true                   # 播放器打開某部片或某一集時，在背景探測它
   concurrency: 2                    # 同時探測幾項（1–3），115 同時最多 3 條連線
   interval: 1.0                     # 每次向 115 取直鏈至少間隔幾秒（0.5–60）
   hourly_limit: 300                 # 每小時最多向 115 取幾次直鏈（0 = 不限）

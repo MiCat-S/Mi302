@@ -344,9 +344,12 @@ def resume(user_id: str, request: Request, ctx: AuthContext = Depends(require_us
 
 @router.get("/users/{user_id}/items/{item_id}")
 def user_item(user_id: str, item_id: str, request: Request, ctx: AuthContext = Depends(require_user)):
-    row = state(request).db.get_item(item_id)
+    st = state(request)
+    row = st.db.get_item(item_id)
     if not row:
         raise HTTPException(status_code=404, detail="Item not found")
+    if row["type"] in ("Movie", "Episode") and row["is_strm"]:
+        st.prober.enqueue(row["path"])  # 打開即探測：排進背景（已有媒體資訊的會直接略過），不等
     return _dto(request, ctx, row, full=True)
 
 

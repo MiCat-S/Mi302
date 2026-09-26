@@ -34,6 +34,8 @@ from .scanner import VIDEO_EXTS, read_strm
 
 log = logging.getLogger(__name__)
 
+QUEUE_MAX = 500  # 打開即探測的佇列上限；一次打開很多集時，多的下次再排
+RETRY_AFTER = 3600  # 打開即探測失敗的，一小時內不再排
 FFPROBE_ARGS = ["-threads", "0", "-v", "error", "-print_format", "json", "-show_streams", "-show_chapters", "-show_format"]
 MAX_ERRORS = 50
 
@@ -87,12 +89,26 @@ class MediaProber:
         self.runner: Callable = subprocess.run  # 測試時換掉
         self.clock: Callable[[], float] = time.monotonic
         self.sleep: Callable[[float], None] = time.sleep
+        # 打開即探測：一條背景執行緒按序處理，和整庫探測共用間隔、每小時上限和熔斷
+        self._queue: deque = deque()
+        self._queued: set = set()
+        self._failed: dict = {}
+        self._qlock = threading.Lock()
+        self._worker: Optional[threading.Thread] = None
+        self.on_demand_done = 0
+        self.on_demand_failed = 0
+        self._which: Tuple[float, str, Optional[str]] = (0.0, "", None)  # (查的時間, 設定的路徑, 找到的路徑)
 
     # ---------------- 狀態 ----------------
 
     def available(self) -> Optional[str]:
-        """ffprobe 的完整路徑；找不到時回傳 None（這時只讀現成的 X-mediainfo.json）。"""
-        return shutil.which(self.cfg.ffprobe or "ffprobe")
+        """ffprobe 的完整路徑；找不到時回傳 None（這時只讀現成的 X-mediainfo.json）。結果快取 60 秒。"""
+        want = self.cfg.ffprobe or "ffprobe"
+        at, key, found = self._which
+        if key != want or time.monotonic() - at > 60:
+            found = shutil.which(want)
+            self._which = (time.monotonic(), want, found)
+        return found
 
     @property
     def concurrency(self) -> int:
@@ -291,6 +307,68 @@ class MediaProber:
             self._lock.release()
         log.info("媒體資訊探測完成：成功 %s，失敗 %s，略過 %s", r.done, r.failed, r.skipped)
         return r
+
+    # ---------------- 打開即探測 ----------------
+
+    def enqueue(self, path: str) -> bool:
+        """播放器打開了這一項：還沒有媒體資訊就排進背景佇列，立刻返回。"""
+        if not self.cfg.on_demand or not self.available():
+            return False
+        with self._qlock:
+            if path in self._queued or len(self._queue) >= QUEUE_MAX:
+                return False
+            if time.time() - self._failed.get(path, 0) < RETRY_AFTER:
+                return False
+            if not self._needs(Path(path)):
+                return False
+            self._queue.append(path)
+            self._queued.add(path)
+            if self._worker is None:
+                self._worker = threading.Thread(target=self._drain, daemon=True)
+                self._worker.start()
+        return True
+
+    def queue_size(self) -> int:
+        return len(self._queue)
+
+    def _drain(self) -> None:
+        while True:
+            with self._qlock:
+                if not self._queue:
+                    self._worker = None
+                    return
+                path = self._queue[0]
+            try:
+                if self._needs(Path(path)):  # 整庫探測可能已經做過了
+                    self.probe_one(Path(path))
+                    self.on_demand_done += 1
+                    log.info("打開即探測：%s", Path(path).name)
+            except (ProbeAbort, P115Throttled) as exc:
+                # 後面的也不會成功：清空佇列，一小時後打開再試
+                with self._qlock:
+                    dropped = list(self._queue)
+                    self._queue.clear()
+                    self._queued.clear()
+                now = time.time()
+                for p in dropped:
+                    self._failed[p] = now
+                self.on_demand_failed += len(dropped)
+                log.warning("打開即探測先停下（%s 項）：%s", len(dropped), exc)
+                continue
+            except ProbeSkip as exc:
+                self._failed[path] = time.time()
+                log.info("打開即探測略過 %s：%s", Path(path).name, exc)
+            except (P115Error, RuntimeError, OSError) as exc:
+                self._failed[path] = time.time()
+                self.on_demand_failed += 1
+                log.warning("打開即探測 %s 失敗：%s", Path(path).name, exc)
+            with self._qlock:
+                if self._queue and self._queue[0] == path:
+                    self._queue.popleft()
+                self._queued.discard(path)
+                if len(self._failed) > 5000:  # 只記最近一小時的
+                    cutoff = time.time() - RETRY_AFTER
+                    self._failed = {p: t for p, t in self._failed.items() if t >= cutoff}
 
     def run_in_background(self, paths: Optional[List[str]], source: str) -> bool:
         if self._lock.locked():

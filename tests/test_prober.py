@@ -222,3 +222,61 @@ def test_slowdown_after_breaker_recovers(tmp_path: Path):
     assert prober.pace() == (2.0, 150)
     breaker.recovered_at = time.time() - 4000
     assert prober.pace() == (1.0, 300)
+
+
+def _wait(cond, seconds=5.0):
+    end = time.monotonic() + seconds
+    while time.monotonic() < end:
+        if cond():
+            return True
+        time.sleep(0.02)
+    return False
+
+
+def test_open_enqueues_probe_without_waiting(tmp_path: Path):
+    import threading
+
+    app, prober, links, cmds = make(tmp_path, enabled=False)  # 不開整庫探測也能打開即探測
+    gate = threading.Event()
+    real = prober.runner
+    prober.runner = lambda cmd, capture_output, timeout: gate.wait(5) and real(cmd, capture_output, timeout)
+    movie = strm(tmp_path, "A (2020)", "http://mi302/d/abcdefghijklmnopq.mkv")
+    strm(tmp_path, "B (2021)", "http://mi302/d/bbcdefghijklmnopq.mkv")
+    app.state.scanner.scan_all()
+    c = TestClient(app)
+    h = {"X-Emby-Token": c.post("/Users/AuthenticateByName", json={"Username": "admin", "Pw": "pw"}).json()["AccessToken"]}
+    items = c.get("/Items", params={"IncludeItemTypes": "Movie", "Recursive": "true"}, headers=h).json()["Items"]
+    assert prober.queue_size() == 0  # 列表不觸發
+    mid = next(i["Id"] for i in items if i["Name"] == "A")
+
+    start = time.monotonic()
+    pb = c.post(f"/Items/{mid}/PlaybackInfo", headers=h).json()["MediaSources"][0]
+    assert time.monotonic() - start < 2 and pb["MediaStreams"] == []  # 不等探測
+    c.get(f"/Items/{mid}", headers=h)
+    assert prober.queue_size() == 1  # 同一項不重複排
+    gate.set()
+    assert _wait(lambda: prober.queue_size() == 0 and prober.on_demand_done == 1)
+    pb = c.post(f"/Items/{mid}/PlaybackInfo", headers=h).json()["MediaSources"][0]
+    assert pb["MediaStreams"][0]["Width"] == 3840 and sidecar_path(movie).exists()
+    c.get(f"/Items/{mid}", headers=h)
+    assert prober.queue_size() == 0 and len(links) == 1  # 有了就不再探測
+    s = c.get("/web/api/mediainfo/status", headers=h).json()["on_demand"]
+    assert (s["enabled"], s["done"], s["queue"]) == (True, 1, 0)
+
+    prober.cfg.on_demand = False  # 關掉開關不排
+    other = next(i["Id"] for i in items if i["Name"] == "B")
+    c.get(f"/Items/{other}", headers=h)
+    assert prober.queue_size() == 0
+
+
+def test_open_while_throttled_drops_queue_for_an_hour(tmp_path: Path):
+    app, prober, links, cmds = make(tmp_path)
+    movie = strm(tmp_path, "A (2020)", "http://mi302/d/abcdefghijklmnopq.mkv")
+    app.state.p115.breaker.trip("HTTP 405")
+    assert prober.enqueue(str(movie))
+    assert _wait(lambda: prober.queue_size() == 0 and prober.on_demand_failed == 1)
+    assert links == [] and not prober.enqueue(str(movie))  # 一小時內不再排
+    prober._failed[str(movie)] -= 3601
+    app.state.p115.breaker.reset()
+    assert prober.enqueue(str(movie))
+    assert _wait(lambda: prober.on_demand_done == 1)

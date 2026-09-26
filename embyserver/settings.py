@@ -37,7 +37,9 @@ STRM_FIELDS = (
 MOVIEPILOT_FIELDS = (
     "url", "api_token", "username", "password", "scrape_after_sync", "fill_after_full_sync", "timeout", "concurrency",
 )
-MEDIAINFO_FIELDS = ("enabled", "after_sync", "concurrency", "interval", "hourly_limit", "timeout", "ffprobe")
+MEDIAINFO_FIELDS = (
+    "enabled", "after_sync", "on_demand", "concurrency", "interval", "hourly_limit", "timeout", "ffprobe",
+)
 REDIRECT_FIELDS = ("resolve_redirects", "resolve_timeout", "cache_ttl", "require_auth", "default_container")
 P115_FIELDS = ("app", "open_app_id")
 

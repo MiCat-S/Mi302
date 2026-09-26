@@ -313,6 +313,10 @@ def mediainfo_status(request: Request, ctx: AuthContext = Depends(require_admin)
         "have": st.db.one(f"SELECT COUNT(*) AS c FROM items i JOIN media_info m ON m.path=i.path WHERE {videos}")["c"],
         "breaker": st.p115.breaker.status(),
         "usage": st.prober.usage(),
+        "on_demand": {
+            "enabled": st.config.mediainfo.on_demand, "queue": st.prober.queue_size(),
+            "done": st.prober.on_demand_done, "failed": st.prober.on_demand_failed,
+        },
         "result": st.prober.result.as_dict(),
     }
 
@@ -322,7 +326,7 @@ def mediainfo_probe(request: Request, ctx: AuthContext = Depends(require_admin))
     """探測媒體庫裡所有還沒有媒體資訊的影片（在背景跑）。"""
     st = state(request)
     if not st.config.mediainfo.enabled:
-        raise HTTPException(status_code=400, detail="請先開啟「媒體資訊探測」並儲存")
+        raise HTTPException(status_code=400, detail="請先開啟「整庫探測」並儲存")
     if not st.prober.available():
         raise HTTPException(status_code=400, detail="找不到 ffprobe，請先安裝 ffmpeg")
     started = st.prober.run_in_background(None, "manual")
