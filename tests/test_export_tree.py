@@ -5,7 +5,7 @@ from pathlib import Path
 import httpx
 import pytest
 
-from embyserver.p115 import P115Error, parse_export_tree, tree_relative
+from embyserver.p115 import BROWSER_UA, PLAIN_UA, P115Error, parse_export_tree, tree_relative
 from embyserver.strm_sync import FULL, INCREMENTAL, _TaskIndex, _task_key, match_tree_dirs
 
 from test_incremental import T0, Fake115, make
@@ -306,7 +306,24 @@ def test_tree_download_retries_with_another_ua(tmp_path: Path):
     sync.p115._client._transport = httpx.MockTransport(flaky)
     r = sync.run(FULL)
     assert not r.notes and r.strm_created == 2 and listings(fake) == []  # 第二次就成功，沒有改回逐層
-    assert len(hits) == 2 and hits[0][0] != hits[1][0] and hits[1][1] == "UID=1"  # 換了 UA、帶上 cookie
+    # 先用一般瀏覽器 UA（115Browser 的會被要求 cookie），失敗再換；cdn 網域有 115 就帶 cookie
+    assert [h[0] for h in hits] == [PLAIN_UA, BROWSER_UA] and hits[1][1] == "UID=1"
+
+
+def test_metadata_download_uses_plain_ua(tmp_path: Path):
+    fake = Fake115()
+    fake.files.append({"fid": 8, "cid": 101, "n": "Old Movie (2001).nfo", "pc": "n" * 17, "s": 5, "te": T0})
+    sync = make(tmp_path, fake)
+    seen = []
+
+    def cdn(request):
+        seen.append((request.headers.get("user-agent"), request.headers.get("cookie")))
+        return httpx.Response(200, content=b"<nfo>")
+
+    sync._http = httpx.Client(transport=httpx.MockTransport(cdn))
+    r = sync.run(FULL)
+    assert r.metadata_downloaded == 1 and not r.errors
+    assert seen == [(PLAIN_UA, "UID=1")]
 
 
 def test_tree_download_failure_keeps_reason(tmp_path: Path):

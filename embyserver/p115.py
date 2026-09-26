@@ -36,9 +36,10 @@ BROWSER_UA = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/124.0 Safari/537.36 115Browser/27.0"
 )
-# 自己下載 115 上的檔案（目錄樹）時用的 UA：直鏈綁定 UA，115 的 CDN 對某些 UA 會回 403，失敗就換一個再試
+# 自己下載 115 上的檔案（目錄樹、nfo、海報）時用的 UA。直鏈綁定 UA；115 的 CDN 對自稱 115Browser 的
+# 請求會要求 cookie（回 403 no cookie value），一般瀏覽器 UA 就不會，所以先用這個，失敗再換
 PLAIN_UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
-DOWNLOAD_UAS = (BROWSER_UA, PLAIN_UA)
+DOWNLOAD_UAS = (PLAIN_UA, BROWSER_UA)
 EXPORT_FETCH_ATTEMPTS = 4
 LIST_PAGE_SIZE = 1150
 # 導出目錄樹：檔案先放在 115 根目錄，讀完就刪掉；115 同時只能跑一個導出任務
@@ -555,21 +556,25 @@ class P115Service:
             log.warning("115 導出目錄樹的開頭：%r", _decode_tree(content)[:300])
             raise
 
+    def file_headers(self, url: str, user_agent: str = PLAIN_UA) -> dict:
+        """自己下載 115 檔案時的標頭：直鏈綁定 UA；cookie 只給 115 自己的網域。"""
+        headers = {"User-Agent": user_agent}
+        if self.cookies and "115" in (urlsplit(url).hostname or ""):
+            headers["Cookie"] = self.cookies
+        return headers
+
     def _fetch_export_file(self, pick_code: str) -> bytes:
         """下載剛導出的目錄樹檔。
 
-        直鏈綁定 User-Agent；檔案剛建立，CDN 可能還沒同步；某些 UA 沒帶 cookie 會被拒絕。
-        所以失敗時換 UA、帶上 cookie、稍等再試，並把 115 回了什麼記下來，方便對照。
+        直鏈綁定 User-Agent；檔案剛建立，CDN 可能還沒同步；115Browser 的 UA 沒帶 cookie 會被拒絕。
+        所以失敗時換 UA、稍等再試，並把 115 回了什麼記下來，方便對照。
         """
         reasons: List[str] = []
         for attempt in range(EXPORT_FETCH_ATTEMPTS):
             ua = DOWNLOAD_UAS[attempt % len(DOWNLOAD_UAS)]
             try:
                 url = self.download_url(pick_code, ua)
-                headers = {"User-Agent": ua}
-                if self.cookies and "115" in (urlsplit(url).hostname or ""):
-                    headers["Cookie"] = self.cookies
-                resp = self._client.get(url, headers=headers, follow_redirects=True)
+                resp = self._client.get(url, headers=self.file_headers(url, ua), follow_redirects=True)
                 if resp.status_code == 200:
                     return resp.content
                 reason = f"HTTP {resp.status_code} {_snippet(resp)}".rstrip()

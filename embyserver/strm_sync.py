@@ -37,7 +37,7 @@ import httpx
 from .config import P115StrmConfig, StrmTask
 from .db import Database
 from .p115 import (
-    BROWSER_UA, LIFE_COPY_FOLDER, LIFE_DELETE, LIFE_NEW_FOLDER, LIFE_RECEIVE, LIFE_UPLOAD,
+    LIFE_COPY_FOLDER, LIFE_DELETE, LIFE_NEW_FOLDER, LIFE_RECEIVE, LIFE_UPLOAD, PLAIN_UA,
     LifeEventGap, P115Error, P115NotFound, P115Service,
 )
 
@@ -906,8 +906,9 @@ class StrmSync:
         if target.is_file() and target.stat().st_size == info["size"]:
             return
         try:
-            url = self.p115.download_url(info["pickcode"], BROWSER_UA)
-            resp = self._http.get(url, headers={"User-Agent": BROWSER_UA})
+            # 115 的 CDN 對 115Browser 的 UA 要 cookie，用一般瀏覽器的 UA
+            url = self.p115.download_url(info["pickcode"], PLAIN_UA)
+            resp = self._http.get(url, headers=self.p115.file_headers(url, PLAIN_UA))
             resp.raise_for_status()
         except (P115Error, httpx.HTTPError) as exc:
             self.result.errors.append(f"{target.name}: {exc}")
