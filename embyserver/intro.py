@@ -3,9 +3,11 @@
 不碰 115、不讀影片：Mi302 本來就會收到播放器的進度回報（每幾秒一次的位置），從裡面看得出
 「在開頭跳過了一段」和「片尾停下來、切下一集」。做法參考 Emby 神醫助手的「片頭探測 ‐ 播放行為」。
 
-- 片頭：開頭 8 分鐘內，位置往前跳了 15 秒以上、而且跳得比實際經過的時間多很多（不是倍速播放），
-  就記下「從哪跳到哪」。同一季的其他集沒有自己的紀錄時，套用這一季所有紀錄的中位數。
-- 片尾：最後 25% 裡停下（切下一集、關掉）但沒播完，記下停的位置；同一季套用「距離結尾多久」的中位數。
+- 片頭：開頭 10 分鐘內（短的集是前 25%），位置往前跳了 15 秒到 3 分鐘、而且跳得比實際經過的時間多很多
+  （不是倍速播放），就記下「從哪跳到哪」。只看跳的那一下，之後怎麼播不管。
+  同一季的其他集沒有自己的紀錄時，套用這一季所有紀錄的中位數。
+- 片尾：最後 5 分鐘（短的集是最後 25%）裡停下（切下一集、關掉）但沒播完，或往前跳了 60 秒以上、跳到結尾，
+  記下位置；同一季套用「距離結尾多久」的中位數。
 - 每個使用者對每一集只留最後一次紀錄，多人多集時取中位數，偶爾亂跳不會蓋掉。
 
 給播放器的格式（三種都給，播放器認哪種用哪種）：
@@ -27,12 +29,25 @@ from .db import Database
 log = logging.getLogger(__name__)
 
 TICK = 10_000_000  # 一秒
-MAX_INTRO_TICKS = 8 * 60 * TICK  # 片頭最晚 8 分鐘內結束
+# 範圍是查過資料訂的：Emby、Intro Skipper 都掃前 10 分鐘；美劇冷開場最長到 9 分多；動畫 OP 前有冷開場的很常見，
+# 3 分鐘後才進 OP 的佔一成；動畫 ED 加預告 99.8% 在最後 5 分鐘內；陸劇規範片頭最多 90 秒、片尾加預告最多 3.5 分鐘。
+INTRO_WINDOW = 10 * 60 * TICK  # 片頭最晚從開頭 10 分鐘內開始跳
+MAX_INTRO_TICKS = 180 * TICK  # 一次跳過的長度上限：片頭 90 秒加前情提要、重複片段（廣電規範合計最多 150 秒）
 MIN_JUMP_TICKS = 15 * TICK  # 往前跳至少 15 秒才算跳片頭
+CREDITS_WINDOW = 5 * 60 * TICK  # 片尾區：最後 5 分鐘
+MIN_CREDITS_JUMP = 60 * TICK  # 片尾區裡往前跳 60 秒以上：跳過 ED（後面可能還有預告，不一定跳到結尾）
 MIN_CREDITS_TICKS = 20 * TICK  # 距離結尾至少 20 秒才算片尾（不然是播完了）
-CREDITS_ZONE = 0.75  # 最後 25% 算片尾區
+ZONE = 0.25  # 短的集改用前 25%、後 25%：24 分鐘的動畫是前 6 分鐘、後 5 分鐘
 SESSION_TTL = 6 * 3600
 MAX_SESSIONS = 2000
+
+
+def windows(runtime: int) -> Tuple[int, Optional[int]]:
+    """片頭區的結束、片尾區的開始（ticks）；片長不明時片頭區用上限、沒有片尾區。"""
+    if not runtime:
+        return INTRO_WINDOW, None
+    zone = int(runtime * ZONE)
+    return min(INTRO_WINDOW, zone), runtime - min(CREDITS_WINDOW, zone)
 
 
 class IntroLearner:
@@ -67,13 +82,16 @@ class IntroLearner:
                 return
             elapsed_ticks = int((now - s["at"]) * TICK)
             delta = pos - s["pos"]
-            # 往前跳：位置前進得比實際時間多很多（3 倍以上再加 15 秒，倍速播放不算）
+            intro_end, credits_start = windows(runtime)
+            # 往前跳：位置前進得比實際時間多很多（3 倍以上再加 15 秒，倍速播放不算）。只看跳的那一下
             if delta >= MIN_JUMP_TICKS and delta > elapsed_ticks * 3 + MIN_JUMP_TICKS:
-                if s["pos"] < MAX_INTRO_TICKS and pos <= MAX_INTRO_TICKS + MIN_JUMP_TICKS:  # 從開頭 8 分鐘內跳出去
+                if s["pos"] < intro_end and delta <= MAX_INTRO_TICKS:  # 在開頭跳過一段片頭長度的東西
                     self._save(item["id"], user_id, "intro", s["pos"], pos)
                     log.info("學到片頭：%s 第 %s 集 %.0f–%.0f 秒", item["name"], item["index_number"], s["pos"] / TICK, pos / TICK)
-                elif runtime and s["pos"] >= runtime * CREDITS_ZONE and pos >= runtime - MIN_CREDITS_TICKS:
-                    self._save(item["id"], user_id, "credits", s["pos"], runtime)  # 從片尾直接跳到結尾
+                elif credits_start is not None and s["pos"] >= credits_start and (
+                    pos >= runtime - MIN_CREDITS_TICKS or delta >= MIN_CREDITS_JUMP
+                ):
+                    self._save(item["id"], user_id, "credits", s["pos"], runtime)  # 從片尾跳到結尾，或跳過 ED
                     log.info("學到片尾：%s 第 %s 集 %.0f 秒起", item["name"], item["index_number"], s["pos"] / TICK)
             s["pos"], s["at"] = pos, now
             if stopped:
@@ -81,8 +99,9 @@ class IntroLearner:
                 self._sessions.pop(key, None)
 
     def _credits(self, user_id: str, item, pos: int, runtime: int) -> None:
-        """在最後 25% 停下、但離結尾還有 20 秒以上：多半是片尾切下一集。"""
-        if runtime and runtime * CREDITS_ZONE <= pos <= runtime - MIN_CREDITS_TICKS:
+        """在片尾區停下、但離結尾還有 20 秒以上：多半是片尾切下一集。"""
+        credits_start = windows(runtime)[1]
+        if credits_start is not None and credits_start <= pos <= runtime - MIN_CREDITS_TICKS:
             self._save(item["id"], user_id, "credits", pos, runtime)
             log.info("學到片尾：%s 第 %s 集 %.0f 秒起", item["name"], item["index_number"], pos / TICK)
 

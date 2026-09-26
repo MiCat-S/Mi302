@@ -9,15 +9,15 @@ from embyserver.config import config_from_dict
 from embyserver.intro import TICK
 
 RUNTIME = 40 * 60 * TICK
-EP_NFO = "<episodedetails><title>第 {n} 集</title><season>1</season><episode>{n}</episode><runtime>40</runtime></episodedetails>"
+EP_NFO = "<episodedetails><title>第 {n} 集</title><season>1</season><episode>{n}</episode><runtime>{runtime}</runtime></episodedetails>"
 
 
-def build(tmp_path: Path, **server):
+def build(tmp_path: Path, runtime: int = 40, **server):
     show = tmp_path / "tv" / "Show (2020)"
     show.mkdir(parents=True)
     for n in (1, 2, 3):
         (show / f"S01E0{n}.strm").write_text("http://x/a.mkv")
-        (show / f"S01E0{n}.nfo").write_text(EP_NFO.format(n=n), encoding="utf-8")
+        (show / f"S01E0{n}.nfo").write_text(EP_NFO.format(n=n, runtime=runtime), encoding="utf-8")
     app = create_app(config_from_dict({
         "server": {"data_dir": str(tmp_path / "data"), **server},
         "users": [{"name": "admin", "password": "pw", "admin": True}, {"name": "kid", "password": "pw"}],
@@ -123,17 +123,66 @@ def test_disabled_learns_and_serves_nothing(tmp_path: Path):
     assert c.get(f"/Episode/{e1}/IntroTimestamps", headers=p.h).status_code == 404
 
 
-def test_learns_credits_from_a_jump_to_the_end(tmp_path: Path):
+def test_learns_credits_from_a_jump(tmp_path: Path):
     app, c = build(tmp_path)
     p = Player(app, c)
-    e1, e2, _ = episodes(c, p.h)
-    p.progress(e1, 1814, after=0)
-    p.progress(e1, 1824)  # 30:24
+    e1, e2, e3 = episodes(c, p.h)
+    p.progress(e1, 2174, after=0)
+    p.progress(e1, 2184)  # 36:24，最後 5 分鐘裡
     p.progress(e1, 2395)  # 10 秒內跳到 39:55：跳過片尾
-    assert markers(c, p.h, e1) == {"CreditsStart": 1824}
-    assert markers(c, p.h, e2) == {"CreditsStart": 1824}  # 同一季套用
-    # 片中往後跳（還沒到片尾區）不算
-    p.progress(e2, 600, after=0)
-    p.progress(e2, 610)
-    p.progress(e2, 2395)
-    assert markers(c, p.h, e2) == {"CreditsStart": 1824}
+    assert markers(c, p.h, e1) == {"CreditsStart": 2184}
+    assert markers(c, p.h, e2) == {"CreditsStart": 2184}  # 同一季套用
+    # 片尾區裡往前跳 60 秒以上也算（ED 後面還有預告，不一定跳到結尾）
+    p.progress(e2, 2150, after=0)
+    p.progress(e2, 2160)
+    p.progress(e2, 2250)
+    assert markers(c, p.h, e2) == {"CreditsStart": 2160}
+    # 片尾區裡只跳一小段、沒到結尾：不算；還沒到片尾區（34:10）就跳到結尾：也不算
+    p.progress(e3, 2160, after=0)
+    p.progress(e3, 2170)
+    p.progress(e3, 2200)
+    p.progress(e3, 2040, after=0)
+    p.progress(e3, 2050)
+    p.progress(e3, 2395)
+    assert markers(c, p.h, e3) == {"CreditsStart": 2172}  # 沒有自己的紀錄，整季中位數
+
+
+def test_intro_window_and_jump_length(tmp_path: Path):
+    app, c = build(tmp_path)
+    p = Player(app, c)
+    e1, e2, e3 = episodes(c, p.h)
+    # 冷開場之後才進片頭：9:39 跳到 10:28
+    p.progress(e1, 569, after=0)
+    p.progress(e1, 579)
+    p.progress(e1, 628)
+    assert markers(c, p.h, e1) == {"IntroStart": 579, "IntroEnd": 628}
+    # 一次跳超過 3 分鐘是跳過劇情，不是片頭
+    p.progress(e2, 0, after=0)
+    p.progress(e2, 10)
+    p.progress(e2, 300)
+    assert markers(c, p.h, e2) == {"IntroStart": 579, "IntroEnd": 628}  # 只有整季套用的
+    # 10 分鐘以後才跳的不算
+    p.progress(e3, 700, after=0)
+    p.progress(e3, 710)
+    p.progress(e3, 800)
+    assert markers(c, p.h, e3) == {"IntroStart": 579, "IntroEnd": 628}
+
+
+def test_short_episodes_use_a_quarter(tmp_path: Path):
+    app, c = build(tmp_path, runtime=24)  # 動畫：片頭區前 6 分鐘、片尾區最後 5 分鐘
+    p = Player(app, c)
+    e1, e2, _ = episodes(c, p.h)
+    p.progress(e1, 380, after=0)
+    p.progress(e1, 390)  # 6:30 才跳：不算
+    p.progress(e1, 480)
+    assert markers(c, p.h, e1) == {}
+    p.progress(e2, 320, after=0)
+    p.progress(e2, 330)  # 5:30 跳：算
+    p.progress(e2, 420)
+    assert markers(c, p.h, e2) == {"IntroStart": 330, "IntroEnd": 420}
+    p.progress(e2, 1100, after=0)
+    p.progress(e2, 1110, stopped=True)  # 18:30 停：還沒到最後 5 分鐘
+    assert "CreditsStart" not in markers(c, p.h, e2)
+    p.progress(e2, 1300, after=0)
+    p.progress(e2, 1310, stopped=True)  # 21:50 停：片尾
+    assert markers(c, p.h, e2)["CreditsStart"] == 1310
