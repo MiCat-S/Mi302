@@ -36,6 +36,12 @@ BROWSER_UA = (
     "(KHTML, like Gecko) Chrome/124.0 Safari/537.36 115Browser/27.0"
 )
 LIST_PAGE_SIZE = 1150
+# 導出目錄樹：檔案先放在 115 根目錄，讀完就刪掉；115 同時只能跑一個導出任務
+EXPORT_TARGET = "U_1_0"
+EXPORT_TIMEOUT = 900
+EXPORT_POLL_SECONDS = 2.0
+TREE_LINE_RE = re.compile(r"^((?:\| )+)\|-(.*)$")
+TREE_ROOT_RE = re.compile(r"^\|[—-]{2}(.*)$")
 PICKCODE_RE = re.compile(r"^[a-zA-Z0-9]{17}$")
 SHORT_LINK_RE = re.compile(r"/d/([a-zA-Z0-9]{17})(?:\.[A-Za-z0-9]{1,5})?(?:/[^/]*)?$")
 COOKIE_META_KEY = "p115_cookies"
@@ -106,6 +112,7 @@ class P115Service:
         self._cache_lock = threading.Lock()
         self._key_locks: Dict[Tuple[str, str], threading.Lock] = {}
         self._account_cache: Optional[Tuple[dict, float]] = None
+        self.export_poll = EXPORT_POLL_SECONDS
         if initial_cookies and not self.cookies:
             self.set_cookies(initial_cookies, source="config")
 
@@ -161,9 +168,15 @@ class P115Service:
 
     def dir_path(self, cid: int) -> str:
         """目錄 id 轉成完整路徑，例如 /影視/電影；根目錄是 /。"""
+        return "/" + "/".join(name for _, name in self.dir_ancestors(cid))
+
+    def dir_ancestors(self, cid: int) -> List[Tuple[int, str]]:
+        """由根往下到這個目錄本身，每一層的 (id, 名稱)，不含根目錄；只要一次請求。"""
         if not cid:
-            return "/"
-        return self._dispatch("查詢目錄路徑", lambda: self.open.dir_path(cid), lambda: self._cookie_dir_path(cid))
+            return []
+        return self._dispatch(
+            "查詢目錄路徑", lambda: self.open.dir_ancestors(cid), lambda: self._cookie_dir_ancestors(cid)
+        )
 
     def iter_changed_files(self, cid: int, since: float) -> Iterator[dict]:
         """cid 底下（含所有子目錄）修改時間不早於 since 的檔案，由新到舊。
@@ -373,6 +386,17 @@ class P115Service:
             raise P115Error(f"115 webapi 錯誤：{data.get('error') or data.get('errNo') or data}")
         return data
 
+    def _webapi_post(self, path: str, data: dict) -> dict:
+        if not self.cookies:
+            raise P115Error("尚未登入 115")
+        resp = self._client.post(
+            f"{WEBAPI}{path}", data=data, headers={"Cookie": self.cookies, "User-Agent": BROWSER_UA}
+        )
+        body = _json(resp)
+        if body.get("state") is False:
+            raise P115Error(f"115 webapi 錯誤：{body.get('error') or body.get('errNo') or body}")
+        return body
+
     def _cookie_dir_id(self, path: str) -> int:
         """由 115 路徑取目錄 id；根目錄為 0。"""
         path = "/" + path.strip("/")
@@ -417,11 +441,11 @@ class P115Service:
                 break
         return out
 
-    def _cookie_dir_path(self, cid: int) -> str:
+    def _cookie_dir_ancestors(self, cid: int) -> List[Tuple[int, str]]:
         data = self._webapi_get(
             "/files", {"cid": cid, "limit": 1, "show_dir": 1, "cur": 1, "aid": 1, "record_open_time": 0}
         )
-        return path_from_ancestors(data.get("path"), cid)
+        return ancestor_chain(data.get("path"), cid)
 
     def _cookie_changed_files(self, cid: int, since: float) -> Iterator[dict]:
         offset = 0
@@ -470,6 +494,45 @@ class P115Service:
                 yield from self.walk(entry["id"], child, delay, dirs)
             else:
                 yield child, entry
+
+    # ---------------- 導出目錄樹 ----------------
+
+    def export_tree(self, cid: int, remote: str, timeout: float = EXPORT_TIMEOUT) -> List[Tuple[str, ...]]:
+        """用 115 的「導出目錄樹」一次拿到 cid 底下所有資料夾和檔案的路徑。
+
+        115 在背景產生一個文字檔（只有名稱，沒有 id 和 pickcode），這裡等它完成、下載、解析後刪掉。
+        回傳每個項目相對於 cid 的路徑（各層名稱）；分不出是資料夾還是空的檔案。需要 cookie 登入。
+        """
+        data = self._webapi_post("/files/export_dir", {"file_ids": cid, "target": EXPORT_TARGET})
+        body = data.get("data")
+        export_id = str(body.get("export_id") or "") if isinstance(body, dict) else ""
+        if not export_id:
+            raise P115Error(f"115 沒有接受導出目錄樹：{data.get('error') or data}")
+        deadline = time.time() + timeout
+        while True:
+            result = self._webapi_get("/files/export_dir", {"export_id": export_id}).get("data")
+            if isinstance(result, dict) and result.get("pick_code"):
+                break
+            if time.time() >= deadline:
+                raise P115Error(f"115 導出目錄樹超過 {int(timeout)} 秒還沒完成")
+            time.sleep(self.export_poll)
+        try:
+            url = self.download_url(str(result["pick_code"]), BROWSER_UA)
+            resp = self._client.get(url, headers={"User-Agent": BROWSER_UA}, follow_redirects=True)
+            if resp.status_code != 200:
+                raise P115Error(f"下載目錄樹失敗：HTTP {resp.status_code}")
+            content = resp.content
+        finally:
+            self._delete_export(result)
+        nodes = parse_export_tree(content)
+        log.info("115 導出目錄樹：%s 有 %s 個項目", remote, len(nodes))
+        return tree_relative(nodes, remote)
+
+    def _delete_export(self, result: dict) -> None:
+        try:
+            self._webapi_post("/rb/delete", {"fid[0]": result.get("file_id"), "ignore_warn": 1})
+        except P115Error as exc:
+            log.warning("刪除 115 根目錄的目錄樹檔案 %s 失敗，可以自己刪掉：%s", result.get("file_name"), exc)
 
     # ---------------- 生活事件（115 的操作紀錄） ----------------
 
@@ -600,9 +663,14 @@ def rsa_decrypt(cipher_data) -> bytes:
 
 
 def _int(value) -> int:
+    # 115 的 id 有 19 位數，先轉成浮點數會失準，所以先試整數
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        pass
     try:
         return int(float(value))
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return 0
 
 
@@ -663,20 +731,80 @@ def parse_space(raw) -> Optional[dict]:
     return {"total": total, "used": used, "remain": remain or max(total - used, 0)}
 
 
-def path_from_ancestors(ancestors, cid: int) -> str:
-    """115 列目錄回應裡的 path（由根到自己的祖先清單）轉成路徑字串。"""
+def ancestor_chain(ancestors, cid: int) -> List[Tuple[int, str]]:
+    """115 列目錄回應裡的 path（由根到自己的祖先清單）轉成 [(id, 名稱)]，不含根目錄。"""
     if not isinstance(ancestors, list) or not ancestors:
         raise P115Error(f"115 沒有回傳目錄 {cid} 的路徑")
     last = ancestors[-1]
     last_id = last.get("cid", last.get("file_id"))
     if str(last_id) != str(cid):
         raise P115NotFound(f"115 目錄不存在：{cid}")
-    names = [
-        str(a.get("name") or a.get("file_name") or "")
-        for a in ancestors
-        if str(a.get("cid", a.get("file_id", 0))) != "0"
-    ]
-    return "/" + "/".join(n for n in names if n)
+    chain = [(_int(a.get("cid", a.get("file_id", 0))), str(a.get("name") or a.get("file_name") or "")) for a in ancestors]
+    return [(i, n) for i, n in chain if i and n]
+
+
+def path_from_ancestors(ancestors, cid: int) -> str:
+    """115 列目錄回應裡的 path 轉成路徑字串，例如 /影視/電影。"""
+    return "/" + "/".join(n for _, n in ancestor_chain(ancestors, cid))
+
+
+def _decode_tree(content: bytes) -> str:
+    """導出的目錄樹是 UTF-16（有 BOM）；也接受 UTF-8。"""
+    if content.startswith((b"\xff\xfe", b"\xfe\xff")):
+        return content.decode("utf-16", errors="replace")
+    if content.startswith(b"\xef\xbb\xbf"):
+        return content[3:].decode("utf-8", errors="replace")
+    if content[1:2] == b"\x00":
+        return content.decode("utf-16-le", errors="replace")
+    return content.decode("utf-8", errors="replace")
+
+
+def parse_export_tree(content: bytes) -> List[Tuple[str, ...]]:
+    """解析 115 導出的目錄樹，回傳每個項目的路徑（各層名稱，不含最上面的「根目录」）。
+
+    格式是每行一個項目，前面每一層一個「| 」，再接「|-名稱」；第一行是「|——根目录」。
+    名稱裡有換行時會接在下一行。115 有時把名稱裡的 ' 寫成 \\'。
+    """
+    entries: List[List] = []
+    for line in _decode_tree(content).split("\n"):
+        line = line.rstrip("\r")
+        m = TREE_LINE_RE.match(line)
+        if m:
+            entries.append([len(m.group(1)) // 2, m.group(2)])
+        elif not entries and TREE_ROOT_RE.match(line):
+            entries.append([0, TREE_ROOT_RE.match(line).group(1)])
+        elif entries and line:
+            entries[-1][1] += "\n" + line
+    out: List[Tuple[str, ...]] = []
+    stack: List[str] = []
+    for depth, name in entries:
+        if depth == 0:
+            stack = []
+            continue
+        if depth - 1 > len(stack):
+            continue  # 格式不對的行
+        del stack[depth - 1:]
+        stack.append(name.replace("\\'", "'"))
+        out.append(tuple(stack))
+    return out
+
+
+def tree_relative(nodes: List[Tuple[str, ...]], remote: str) -> List[Tuple[str, ...]]:
+    """目錄樹最上層是導出的資料夾本身（或它的完整路徑），換成相對於它的路徑。"""
+    root = tuple(p for p in remote.split("/") if p)
+    if not root or not nodes:
+        return nodes
+    single_top = len(nodes[0]) == 1 and all(n[:1] == nodes[0] for n in nodes)
+    if single_top and nodes[0] == root[-1:]:
+        prefix = nodes[0]
+    elif root in set(nodes):
+        prefix = root  # 帶著上層資料夾
+    elif single_top:
+        prefix = nodes[0]  # 名稱寫法不同（例如特殊符號），但只有一個最上層
+    else:
+        raise P115Error(f"看不懂 115 導出的目錄樹：開頭是「{'/'.join(nodes[0])}」，不是 {remote}")
+    k = len(prefix)
+    return [n[k:] for n in nodes if len(n) > k and n[:k] == prefix]
 
 
 def _json(resp: httpx.Response) -> dict:

@@ -26,6 +26,23 @@ class Fake115:
         self.calls = []
         self.events = []  # 生活事件，由舊到新
         self.life_enabled = False
+        self.export_ok = True  # 支援導出目錄樹
+        self.exports = {}  # export_id → [cid, 還要輪詢幾次]
+        self.deleted = []
+
+    def tree(self, cid):
+        """115 導出目錄樹的格式：根目录、導出的資料夾，再往下每層多一個「| 」。"""
+        lines = ["|——根目录", "| |-" + self.dirs[cid][0]]
+
+        def rec(c, depth):
+            for d, (name, parent) in self.dirs.items():
+                if parent == c:
+                    lines.append("| " * depth + "|-" + name)
+                    rec(d, depth + 1)
+            lines.extend("| " * depth + "|-" + f["n"] for f in self.files if f["cid"] == c)
+
+        rec(cid, 2)
+        return ("\n".join(lines) + "\n").encode("utf-16")
 
     # ---- 在假 115 上操作，同時記一筆生活事件（不改修改時間，確定是靠事件抓到的） ----
     def event(self, type_, fid, is_dir=False):
@@ -70,6 +87,26 @@ class Fake115:
             return httpx.Response(200, json={"state": True, "data": {
                 "count": len(evs), "list": evs[offset: offset + limit]}})
         self.calls.append((request.url.path, dict(p)))
+        if request.url.host == "cdn.115.test" and request.url.path.startswith("/tree"):
+            return httpx.Response(200, content=self.tree(int(request.url.path[5:])))
+        if request.url.path == "/files/export_dir":
+            if not self.export_ok:
+                return httpx.Response(200, json={"state": False, "error": "已有导出任务在进行"})
+            if request.method == "POST":
+                form = dict(httpx.QueryParams(request.content.decode()))
+                eid = str(500 + len(self.exports))
+                self.exports[eid] = [int(form["file_ids"]), 1]
+                return httpx.Response(200, json={"state": True, "data": {"export_id": eid}})
+            job = self.exports[p["export_id"]]
+            if job[1] > 0:  # 還在產生
+                job[1] -= 1
+                return httpx.Response(200, json={"state": True, "data": []})
+            return httpx.Response(200, json={"state": True, "data": {
+                "export_id": p["export_id"], "file_id": "9" + p["export_id"], "file_name": "目录树.txt",
+                "pick_code": f"tree{job[0]}"}})
+        if request.url.path == "/rb/delete":
+            self.deleted.append(dict(httpx.QueryParams(request.content.decode()))["fid[0]"])
+            return httpx.Response(200, json={"state": True})
         if request.url.path == "/files/getid":
             for cid in self.dirs:
                 if cid and "/" + "/".join(a["name"] for a in self.ancestors(cid)[1:]) == p["path"]:
@@ -97,6 +134,7 @@ class Fake115:
 def make(tmp_path: Path, fake: Fake115, **kw) -> StrmSync:
     svc = P115Service(Database(":memory:"), initial_cookies="UID=1", transport=httpx.MockTransport(fake.handler))
     svc.download_url = lambda pc, ua="": f"https://cdn.115.test/{pc}"
+    svc.export_poll = 0
     cfg = P115StrmConfig(tasks=[StrmTask(remote="/影視", local=str(tmp_path / "media"))], request_delay=0, **kw)
     sync = StrmSync(svc, cfg)
     sync._http = httpx.Client(transport=httpx.MockTransport(lambda r: httpx.Response(200, content=b"<nfo>")))
@@ -353,3 +391,11 @@ def test_life_events_paging_and_filtering():
     assert [e["id"] for e in evs] == [i for i in range(1051, 1100) if (i - 1000) % 10]
     assert evs[0]["name"] == "Old Movie (2001).mkv" and evs[0]["pickcode"] == "a" * 17 and not evs[0]["is_dir"]
     assert svc.latest_life_event()[0] == 1099
+
+
+def test_life_event_keeps_long_ids_exact():
+    from embyserver.p115 import _life_event
+
+    ev = _life_event({"id": "3006728302924193796", "file_id": "3006728302924193797", "parent_id": "2593093001609739968"})
+    # 115 的 id 有 19 位數，不能先轉成浮點數
+    assert (ev["id"], ev["file_id"], ev["parent_id"]) == (3006728302924193796, 3006728302924193797, 2593093001609739968)

@@ -20,7 +20,7 @@ import logging
 import secrets
 import threading
 import time
-from typing import Dict, Iterator, List, Optional
+from typing import Dict, Iterator, List, Optional, Tuple
 
 import httpx
 
@@ -260,11 +260,11 @@ class P115OpenClient:
     def user_info(self) -> dict:
         return self._call("GET", "/open/user/info").get("data") or {}
 
-    def dir_path(self, cid: int) -> str:
-        from .p115 import path_from_ancestors
+    def dir_ancestors(self, cid: int) -> List[Tuple[int, str]]:
+        from .p115 import ancestor_chain
 
         body = self._call("GET", "/open/ufile/files", params={"cid": cid, "limit": 1, "show_dir": 1, "cur": 1})
-        return path_from_ancestors(body.get("path"), cid)
+        return ancestor_chain(body.get("path"), cid)
 
     def iter_changed_files(self, cid: int, since: float) -> Iterator[dict]:
         offset = 0

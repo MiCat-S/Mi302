@@ -353,7 +353,7 @@ dialog .card-b{max-height:70vh;overflow:auto}
           <p class="hint">strm 內的伺服器位址：<code id="base"></code></p>
           <details class="more"><summary>增量和全量有什麼不同？</summary><div class="in hint stack">
             <p><b>增量</b>：讀 115 的生活事件（操作紀錄），處理上次同步之後的上傳、移動、改名、刪除；移動和改名時，本機的 strm 連同刮好的 nfo、海報一起搬。再依修改時間補抓沒有產生事件的上傳（例如離線下載）。速度快，適合常常跑。</p>
-            <p><b>全量</b>：重新比對整個目錄，查漏補缺，預設每週自動跑一次。</p>
+            <p><b>全量</b>：用 115 的「導出目錄樹」重新比對整個目錄，查漏補缺，預設每週自動跑一次。</p>
             <p>任務第一次增量同步、或太久沒同步超出 115 保留的事件範圍時，會自動改跑全量。</p></div></details>
         </div>
       </div>

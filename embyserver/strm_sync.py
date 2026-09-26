@@ -1,7 +1,12 @@
 """從 115 目錄產生 strm（以及下載 nfo／圖片／字幕）。
 
 兩種同步方式：
-- 全量：逐層列出 115 目錄，比對所有檔案；可以刪除 115 上已不存在的 strm。
+- 全量：比對任務目錄裡所有檔案；可以刪除 115 上已不存在的 strm。
+  1. 用 115 的「導出目錄樹」一次拿到所有資料夾的路徑（只有名稱）；
+  2. 一次列出任務目錄底下所有檔案（有 pickcode、大小、所在資料夾 id，每頁 1150 個）；
+  3. 用資料夾裡的檔名對出「資料夾 id → 路徑」，對不上的少數資料夾再個別查詢。
+  不必逐層列出每個資料夾，資料夾多時快很多。導出失敗（例如只用開放平台登入、115 正在跑
+  別的導出任務）時改回逐層列目錄。
   同時記下每個 115 檔案、資料夾對應到哪個本機路徑（資料表 p115_index），給增量同步用。
 - 增量：
   1. 讀 115 生活事件（網盤的操作紀錄）：上傳、接收、複製、移動、改名、刪除。
@@ -24,7 +29,7 @@ import threading
 import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Callable, Dict, List, Optional, Tuple
+from typing import Callable, Dict, Iterable, List, Optional, Set, Tuple
 from urllib.parse import quote
 
 import httpx
@@ -158,6 +163,12 @@ class _TaskIndex:
     def delete(self, file_id: int) -> None:
         self.db.execute("DELETE FROM p115_index WHERE task=? AND file_id=?", (self.key, file_id))
 
+    def dirs(self) -> Dict[int, str]:
+        return {
+            r["file_id"]: r["path"]
+            for r in self.db.query("SELECT file_id, path FROM p115_index WHERE task=? AND is_dir=1", (self.key,))
+        }
+
     def _tree(self, path: str) -> List:
         return self.db.query(
             "SELECT file_id, path FROM p115_index WHERE task=? AND (path=? OR substr(path, 1, ?)=?)",
@@ -184,6 +195,74 @@ class _TaskIndex:
                 ((self.key, fid, int(is_dir), path) for fid, path, is_dir in rows),
             )
             self.db.conn.commit()
+
+
+def match_tree_dirs(
+    tree: Iterable[Tuple[str, ...]], files: List[dict], root_cid: int, hints: Optional[Dict[int, str]] = None
+) -> Tuple[Dict[int, str], List[int]]:
+    """把「資料夾 id → 相對路徑」對出來：目錄樹只有路徑，檔案清單只有所在資料夾的 id。
+
+    一個資料夾 id 裡的每個檔名，在目錄樹裡出現在哪些資料夾，取交集就是它的路徑。
+    檔名很普通（例如 01.mkv、movie.nfo）對到好幾個時，先用上次同步記下的 id，再用「已經被別的
+    資料夾確定的路徑」排除。回傳 (對照表, 對不上的資料夾 id)；任務目錄本身是 ""。
+    """
+    parents: Dict[str, Set[str]] = {}
+    for parts in tree:
+        if parts:
+            parents.setdefault(parts[-1], set()).add("/".join(parts[:-1]))
+    names: Dict[int, Set[str]] = {}
+    for f in files:
+        if f["parent_id"] != root_cid:
+            names.setdefault(f["parent_id"], set()).add(f["name"])
+    candidates: Dict[int, Set[str]] = {}
+    for cid, group in names.items():
+        found: Optional[Set[str]] = None
+        # 少見的檔名先比，通常一兩個就能確定；目錄樹裡沒有的檔名（導出之後才上傳的）不算
+        for name in sorted(group, key=lambda n: len(parents.get(n, ()))):
+            where = parents.get(name)
+            if not where:
+                continue
+            found = set(where) if found is None else found & where
+            if len(found) <= 1:
+                break
+        candidates[cid] = found or set()
+    result: Dict[int, str] = {root_cid: ""}
+    for cid, cands in candidates.items():
+        if hints and hints.get(cid) in cands:
+            result[cid] = hints[cid]
+    while True:
+        # 扣掉已經確定的路徑只剩一個，而且沒有別的資料夾也剩這一個，才算對上
+        taken = set(result.values())
+        proposals: Dict[str, List[int]] = {}
+        for cid, cands in candidates.items():
+            if cid not in result:
+                left = cands - taken
+                if len(left) == 1:
+                    proposals.setdefault(next(iter(left)), []).append(cid)
+        unique = {rel: cids[0] for rel, cids in proposals.items() if len(cids) == 1}
+        if not unique:
+            break
+        for rel, cid in unique.items():
+            result[cid] = rel
+    # 同一個路徑對到兩個資料夾（例如導出之後才複製的資料夾）：分不出誰對，都另外查
+    owners: Dict[str, List[int]] = {}
+    for cid, rel in result.items():
+        owners.setdefault(rel, []).append(cid)
+    for cids in owners.values():
+        if len(cids) > 1:
+            for cid in cids:
+                if cid != root_cid:
+                    del result[cid]
+    return result, [cid for cid in candidates if cid not in result]
+
+
+def tree_folders(tree: Iterable[Tuple[str, ...]]) -> Set[str]:
+    """目錄樹裡底下還有東西的資料夾（相對路徑）。"""
+    folders: Set[str] = set()
+    for parts in tree:
+        for k in range(1, len(parts)):
+            folders.add("/".join(parts[:k]))
+    return folders
 
 
 class _Ctx:
@@ -409,7 +488,8 @@ class StrmSync:
         produced: set[str] = set()
         rows: List[Tuple[int, str, bool]] = []
         newest = 0
-        for rel, info in self.p115.walk(cid, delay=self.cfg.request_delay, dirs=True):
+        entries, complete = self._full_entries(task, cid)
+        for rel, info in entries:
             if info["is_dir"]:
                 rows.append((info["id"], rel, True))
                 continue
@@ -419,12 +499,116 @@ class StrmSync:
                 produced.add(str(target))
                 rows.append((info["id"], target.relative_to(local).as_posix(), False))
         if self.cfg.delete_stale:
-            self._remove_stale(local, produced)
+            if complete:
+                self._remove_stale(local, produced)
+            else:
+                # 有檔案不知道放哪，當成不存在會誤刪
+                self.result.notes.append(f"{remote}：有資料夾查不到路徑，這次不刪除本機多出來的 strm")
         _TaskIndex(self.p115.db, _task_key(task)).replace_all(rows)
         self._save_state(
             task, since=newest or int(time.time()), full_at=int(time.time()), indexed=True,
             life_id=life[0], life_time=life[1],
         )
+
+    def _full_entries(self, task: StrmTask, cid: int) -> Tuple[Iterable[Tuple[str, dict]], bool]:
+        """全量同步要處理的 (相對路徑, 資訊)，以及是否每個檔案都知道位置。
+
+        有 cookie 時用導出目錄樹；失敗就改回逐層列目錄。
+        """
+        if self.p115.cookies:
+            try:
+                tree = self.p115.export_tree(cid, task.remote)
+            except P115Error as exc:
+                log.warning("115 導出目錄樹失敗，改成逐層列目錄：%s", exc)
+                self.result.notes.append(f"{task.remote}：導出目錄樹失敗（{exc}），改成逐層列目錄")
+            else:
+                entries = self._tree_entries(task, cid, tree)
+                if entries is not None:
+                    return entries
+        return self.p115.walk(cid, delay=self.cfg.request_delay, dirs=True), True
+
+    def _tree_entries(
+        self, task: StrmTask, cid: int, tree: List[Tuple[str, ...]]
+    ) -> Optional[Tuple[List[Tuple[str, dict]], bool]]:
+        files = list(self.p115.iter_changed_files(cid, 0))
+        # 列出的影片比目錄樹少很多，代表清單不完整；照這份清單會漏檔、誤刪，改回逐層列目錄
+        in_tree = sum(1 for parts in tree if Path(parts[-1]).suffix.lower() in VIDEO_EXTS)
+        listed = sum(1 for f in files if Path(f["name"]).suffix.lower() in VIDEO_EXTS)
+        if listed < in_tree * 0.9:
+            log.warning("115 列出的影片（%s）比目錄樹（%s）少很多，改成逐層列目錄", listed, in_tree)
+            self.result.notes.append(f"{task.remote}：115 列出的影片比目錄樹少，改成逐層列目錄")
+            return None
+        hints = _TaskIndex(self.p115.db, _task_key(task)).dirs()
+        dirs, unmatched = match_tree_dirs(tree, files, cid, hints)
+        queries = self._resolve_tree_dirs(task, dirs, unmatched, tree_folders(tree), hints)
+        missing = {f["parent_id"] for f in files} - dirs.keys()
+        log.info(
+            "全量同步 115:%s：目錄樹 %s 項、檔案 %s 個、資料夾 %s 個（另外查了 %s 次路徑，%s 個資料夾查不到）",
+            task.remote, len(tree), len(files), len(dirs) - 1, queries, len(missing),
+        )
+        entries: List[Tuple[str, dict]] = [
+            (rel, {"is_dir": True, "id": d}) for d, rel in sorted(dirs.items(), key=lambda kv: kv[1]) if rel
+        ]
+        for f in files:
+            parent = dirs.get(f["parent_id"])
+            if parent is not None:
+                entries.append((posixpath.join(parent, f["name"]) if parent else f["name"], {**f, "is_dir": False}))
+        return entries, not missing
+
+    def _resolve_tree_dirs(
+        self, task: StrmTask, dirs: Dict[int, str], unmatched: List[int], folders: Set[str], hints: Dict[int, str]
+    ) -> int:
+        """補齊 dirs：用檔名對不上的資料夾，以及只有子資料夾、沒有檔案的資料夾（例如只放各季的劇集資料夾）。
+
+        後者不影響產生 strm，但增量同步遇到它改名、搬移、刪除時，要靠記下的 id 把本機整個資料夾（連同刮削
+        資料）一起搬。每查一個資料夾，115 會一起給它所有上層資料夾的 id，所以一次能補好幾層。回傳查了幾次。
+        """
+        root = _remote_root(task)
+        by_path = {rel: d for d, rel in dirs.items()}
+        asked: Set[int] = set()
+
+        def ask(d: int) -> None:
+            if d in asked:
+                return
+            asked.add(d)
+            path = ""
+            for aid, name in self._remote_ancestors(d) or []:
+                path = f"{path}/{name}"
+                rel = _rel(root, path)
+                if not rel:
+                    continue  # 任務目錄本身或更上層
+                wrong = by_path.get(rel)
+                if wrong is not None and wrong != aid:
+                    dirs.pop(wrong, None)  # 115 說這個路徑是別的資料夾：先前用檔名對錯了
+                    queue.append(wrong)
+                if aid in dirs:
+                    by_path.pop(dirs[aid], None)
+                dirs[aid] = rel
+                by_path[rel] = aid
+
+        def drain() -> None:
+            while queue:
+                d = queue.pop()
+                if d not in dirs:  # 可能已經在查別的資料夾時順便查到了
+                    ask(d)
+
+        queue = list(unmatched)
+        drain()
+        # 只有子資料夾的資料夾：先用上次記下的 id，其餘從它底下已知的資料夾往上查
+        for d, rel in hints.items():
+            if rel in folders and rel not in by_path and d not in dirs:
+                dirs[d] = rel
+                by_path[rel] = d
+        below: Dict[str, int] = {}
+        for rel, d in by_path.items():
+            while "/" in rel:
+                rel = rel.rsplit("/", 1)[0]
+                below.setdefault(rel, d)
+        for rel in sorted(folders, key=lambda r: -r.count("/")):
+            if rel not in by_path and rel in below:
+                ask(below[rel])
+        drain()
+        return len(asked)
 
     def _run_incremental(self, task: StrmTask, state: dict, events: Optional[List[dict]]) -> None:
         ctx = _Ctx(task, self.p115.db)
@@ -461,13 +645,24 @@ class StrmSync:
 
     def _remote_dir(self, cid: int) -> Optional[str]:
         if cid not in self._dirs:
-            if self.cfg.request_delay:
-                time.sleep(self.cfg.request_delay)
-            try:
-                self._dirs[cid] = self.p115.dir_path(cid)
-            except P115NotFound:
-                self._dirs[cid] = None
-        return self._dirs[cid]
+            self._remote_ancestors(cid)
+        return self._dirs.get(cid)
+
+    def _remote_ancestors(self, cid: int) -> Optional[List[Tuple[int, str]]]:
+        """向 115 查資料夾由根往下的每一層 (id, 名稱)；順便記下每一層的路徑。已不存在時回傳 None。"""
+        if self.cfg.request_delay:
+            time.sleep(self.cfg.request_delay)
+        try:
+            chain = self.p115.dir_ancestors(cid)
+        except P115NotFound:
+            self._dirs[cid] = None
+            return None
+        path = ""
+        for aid, name in chain:
+            path = f"{path}/{name}"
+            self._dirs[aid] = path
+        self._dirs.setdefault(cid, path or "/")
+        return chain
 
     def _wanted(self, name: str) -> bool:
         suffix = Path(name).suffix.lower()
