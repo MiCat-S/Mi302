@@ -418,7 +418,7 @@ dialog .card-b{max-height:70vh;overflow:auto}
       <div class="card">
         <div class="card-h"><div class="t"><svg class="i"><use href="#i-tv"/></svg><h2>補全缺集</h2></div><button class="btn" onclick="fillAll()">全部補全</button></div>
         <div class="card-b stack">
-          <p class="hint">替劇的每一季向 MoviePilot 建訂閱。MoviePilot 會拿 TMDB 的集數對照 Mi302 裡已有的集，只下載缺的：已經齊全的會被拒絕、不留訂閱；還在更新的劇會跟著追新集。要先把 Mi302 加成 MoviePilot 的媒體伺服器（見下方），並填上面的 MoviePilot 帳號密碼。</p>
+          <p class="hint">先向 MoviePilot 查 TMDB 上每一季已經播出的集，對照 Mi302 裡已有的集號；真的缺集的季才建訂閱，並請 MoviePilot 馬上搜尋。已播出的都有就不建訂閱。要先把 Mi302 加成 MoviePilot 的媒體伺服器（見下方），並填上面的 MoviePilot 帳號密碼。</p>
           <div id="fill"></div>
           <div class="logbar"><input id="seriesQ" type="search" placeholder="搜尋劇名" oninput="clearTimeout(seriesQT); seriesQT = setTimeout(loadSeries, 300)">
             <label class="switch" style="padding:0"><input type="checkbox" id="seriesGaps" onchange="loadSeries()"><span class="track"></span><span class="lbl">只看集號有空洞的</span></label></div>
@@ -1121,7 +1121,7 @@ function fillHtml(f) {
   let h = '<div class="row wrap" style="margin-bottom:8px">';
   if (f.running) h += `<span class="pill accent"><span class="spin"></span>補全中</span><span class="hint">${f.done} / ${f.total}${f.current ? '　' + esc(f.current) : ''}</span>`;
   else h += `<span class="pill ${f.errors.length ? 'warn' : 'ok'}">${f.errors.length ? '有問題' : '完成'}</span><span class="hint">上次補全（${f.source === 'sync' ? '全量同步後自動' : '手動'}）・${ago(f.finished)}</span>`;
-  h += `</div><div class="chips">${chip(f.created, '建了訂閱', true)}${chip(f.complete, '已經齊全')}${chip(f.existing, '之前訂閱過')}${chip(f.skipped, '沒 tmdbid')}${chip(f.failed, '失敗')}</div>`;
+  h += `</div><div class="chips">${chip(f.created, '建訂閱並搜尋', true)}${chip(f.missing || 0, '缺的集數')}${chip(f.complete, '已經齊全')}${chip(f.existing, '之前訂閱過')}${chip(f.skipped, '沒 tmdbid')}${chip(f.failed, '失敗')}</div>`;
   if (f.details.length) h += `<details class="more" style="margin-top:10px"><summary>每一季的結果（${f.details.length}）</summary><div class="in hint" style="white-space:pre-wrap;word-break:break-all">${esc(f.details.join('\n'))}</div></details>`;
   if (f.errors.length) h += `<div class="notice bad" style="margin-top:10px">${f.errors.slice(0, 5).map(esc).join('<br>')}</div>`;
   return h;
