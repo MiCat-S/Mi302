@@ -12,7 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import FileResponse
 
 from ..auth import AuthContext, now_iso, require_admin, require_user
-from ..dto import item_dto, query_result, user_data_dto
+from ..dto import episode_fallback_image, item_dto, query_result, user_data_dto
 from ..scanner import image_ext
 from .common import q, q_bool, q_int, q_list, state
 
@@ -559,9 +559,12 @@ def item_image(item_id: str, image_type: str, request: Request, index: int = 0):
     if not row or not col:
         raise HTTPException(status_code=404, detail="Image not found")
     path = row[col]
-    if not path and row["series_id"] and image_type.lower() != "primary":
+    if not path and row["series_id"]:
         series = st.db.get_item(row["series_id"])
-        path = series[col] if series else None
+        if image_type.lower() != "primary":
+            path = series[col] if series else None
+        elif row["type"] == "Episode":
+            path = episode_fallback_image(series)  # 沒有劇照的集，和 ImageTags 給的是同一張
     if not path:
         raise HTTPException(status_code=404, detail="Image not found")
     return FileResponse(path, headers={"Cache-Control": "public, max-age=31536000"})

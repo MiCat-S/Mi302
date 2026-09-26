@@ -24,6 +24,13 @@ def image_tag(path: Optional[str]) -> Optional[str]:
     return hashlib.md5(f"{path}:{mtime}".encode()).hexdigest()
 
 
+def episode_fallback_image(series) -> Optional[str]:
+    """單集沒有劇照時用的圖：劇的橫幅（thumb/landscape），沒有就用背景圖，兩者都是 16:9。"""
+    if not series:
+        return None
+    return series["thumb_image"] or series["backdrop_image"]
+
+
 def media_source_id(item: sqlite3.Row) -> str:
     return hashlib.md5(f"ms:{item['id']}:{item['path']}".encode()).hexdigest()
 
@@ -182,6 +189,12 @@ def item_dto(
             if ttag:
                 dto["ParentThumbItemId"] = str(series["id"])
                 dto["ParentThumbImageTag"] = ttag
+            if t == "Episode" and not tags.get("Primary"):
+                # TMDB 沒有這集的劇照：用劇的橫幅圖頂上（/Images/Primary 也回同一張），播放器才不會一片空白
+                ftag = image_tag(episode_fallback_image(series))
+                if ftag:
+                    tags["Primary"] = ftag
+                    dto["PrimaryImageAspectRatio"] = 16 / 9
             ltag = image_tag(series["logo_image"])
             if ltag:
                 dto["ParentLogoItemId"] = str(series["id"])

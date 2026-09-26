@@ -8,7 +8,11 @@ MoviePilot 的 POST /api/v1/media/scrape/local 會依路徑辨識影片、到 TM
 - 電影：strm 檔本身（MoviePilot 會寫 nfo 和同資料夾的海報）。
 - 劇集：整部劇還沒有 tvshow.nfo 時送劇集資料夾（一次處理劇、季、集）；
   已經刮削過的劇只送新的那幾集。
-已經有 nfo 的項目不送，避免覆蓋 115 上帶下來或之前刮好的資料。
+已經有 nfo 的項目不送，避免覆蓋 115 上帶下來或之前刮好的資料；手動刮削時，有 nfo 卻沒有劇照的集也會再送。
+
+加快速度：同時送好幾項（MoviePilot 的刮削 API 是同步的，一項要等 TMDB 搜尋、取資料、下載圖片）；
+已經刮削過的劇，送單集時直接帶上 tmdbid，MoviePilot 不必再用檔名搜尋 TMDB。
+MoviePilot 說完成之後再看一次有沒有真的寫出 nfo、劇照：認不出集數時它也會回報完成。
 
 補全缺集：替媒體庫裡的劇、每一季向 MoviePilot 建一條訂閱（POST /api/v1/subscribe/）。
 MoviePilot 會拿 TMDB 的集數對照媒體伺服器（也就是 Mi302）裡已有的集，只下載缺的；
@@ -22,6 +26,7 @@ import logging
 import os
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Callable, Dict, Iterable, List, Optional, Set, Tuple
@@ -37,6 +42,10 @@ log = logging.getLogger(__name__)
 SCRAPE_API = "/api/v1/media/scrape/local"
 LOGIN_API = "/api/v1/login/access-token"
 SUBSCRIBE_API = "/api/v1/subscribe/"
+MAX_CONCURRENCY = 8
+IMAGE_EXTS = (".jpg", ".jpeg", ".png", ".webp")
+# 送過卻沒有劇照的集（TMDB 沒有這集的圖），這段時間內手動刮削不再重送
+NO_IMAGE_RETRY_SECONDS = 30 * 86400
 VIDEO_EXTS = {
     ".strm", ".mkv", ".mp4", ".m4v", ".avi", ".ts", ".m2ts", ".mov", ".wmv", ".flv",
     ".webm", ".rmvb", ".mpg", ".mpeg", ".iso", ".3gp",
@@ -56,11 +65,30 @@ class ScrapeResult:
     total: int = 0
     done: int = 0
     failed: int = 0
+    no_image: int = 0  # 寫了 nfo 但沒有劇照：TMDB 沒有這集的圖，或 MoviePilot 下載圖片失敗
     current: str = ""
     errors: List[str] = field(default_factory=list)
 
     def as_dict(self) -> dict:
         return asdict(self)
+
+
+def episode_image(path: Path) -> Optional[Path]:
+    """單集的劇照：MoviePilot 寫成和影片同名的圖片（X.jpg），也認 X-thumb.jpg。"""
+    for stem in (path.stem, path.stem + "-thumb"):
+        for ext in IMAGE_EXTS:
+            f = path.with_name(stem + ext)
+            if f.exists():
+                return f
+    return None
+
+
+def series_tmdbid(series_dir: Path) -> Optional[str]:
+    """劇集資料夾 tvshow.nfo 裡的 tmdbid。"""
+    from .scanner import parse_nfo
+
+    tmdb = str((parse_nfo(series_dir / "tvshow.nfo").get("provider_ids") or {}).get("Tmdb") or "")
+    return tmdb if tmdb.isdigit() else None
 
 
 @dataclass
@@ -93,10 +121,14 @@ class MoviePilot:
         config: Config,
         on_done: Optional[Callable[[List[str]], None]] = None,
         transport: Optional[httpx.BaseTransport] = None,
+        db: Optional[Database] = None,
     ):
         self.cfg = cfg
         self.config = config
         self.on_done = on_done
+        self.db = db
+        self._no_image: Dict[str, float] = {}  # 沒有資料庫時（測試）記在記憶體
+        self.verify_wait = 0.5  # MoviePilot 回報完成後等檔案出現（網路磁碟可能慢一點）
         self.result = ScrapeResult()
         self.fill_result = FillResult()
         self._lock = threading.Lock()
@@ -124,12 +156,12 @@ class MoviePilot:
             raise MoviePilotError("MoviePilot 登入後沒有回傳 token")
         return token
 
-    def _post(self, path: str, body: dict, timeout: Optional[float] = None) -> dict:
+    def _post(self, path: str, body: dict, timeout: Optional[float] = None, query: Optional[dict] = None) -> dict:
         if not self.cfg.url:
             raise MoviePilotError("還沒設定 MoviePilot 網址")
         with self._client(timeout or self.cfg.timeout) as client:
             for attempt in range(2):
-                headers, params = {}, {}
+                headers, params = {}, dict(query or {})
                 if self._jwt:
                     headers["Authorization"] = f"Bearer {self._jwt}"
                 elif self.cfg.api_token:
@@ -202,12 +234,66 @@ class MoviePilot:
         }
         if not is_dir:
             item["extension"] = path.suffix.lstrip(".").lower()
-        body = self._post(SCRAPE_API, item)
+        query = {}
+        tmdbid = None if is_dir else self._episode_tmdbid(path)
+        if tmdbid:
+            # 已經刮削過的劇：直接說是哪一部，MoviePilot 不必用檔名搜尋 TMDB，也不會認錯（V3 才有這些參數，舊版會忽略）
+            query = {"media_source": "themoviedb", "media_id": tmdbid, "type_name": "电视剧"}
+        body = self._post(SCRAPE_API, item, query=query)
         ok = bool(body.get("success"))
         message = body.get("message") or ("完成" if ok else "失敗")
         if not ok and "不存在" in message:
             message += f"（MoviePilot 找不到 {mp_path}，請檢查路徑對應）"
         return ok, message
+
+    def _series_dir(self, path: Path) -> Optional[Path]:
+        """劇集媒體庫裡一集所屬的劇集資料夾；不是劇集時回傳 None。"""
+        ltype, root = self._library_of(path)
+        if ltype != "tvshows" or root is None:
+            return None
+        parts = path.relative_to(root).parts
+        return root / parts[0] if len(parts) >= 2 else None
+
+    def _episode_tmdbid(self, path: Path) -> Optional[str]:
+        series = self._series_dir(path)
+        return series_tmdbid(series) if series else None
+
+    def check_output(self, path: Path, is_dir: bool) -> Tuple[str, str]:
+        """MoviePilot 回報完成之後，看它有沒有真的寫出 nfo 和劇照。
+
+        回傳 (ok / no_nfo / no_image, 說明)。認不出集數時 MoviePilot 什麼都不寫，還是回報完成。
+        """
+        want = path / "tvshow.nfo" if is_dir else path.with_suffix(".nfo")
+        for attempt in range(3):
+            if want.exists():
+                break
+            if attempt < 2:
+                time.sleep(self.verify_wait)
+        else:
+            if is_dir:
+                return "no_nfo", "MoviePilot 說完成，但沒有寫出 tvshow.nfo（可能認不出這部劇）"
+            return "no_nfo", "MoviePilot 說完成，但沒有寫出 nfo（多半是認不出集數，檔名要有 S01E01 這類集號）"
+        if not is_dir and self._series_dir(path) and not episode_image(path):
+            return "no_image", "有 nfo 但沒有劇照"
+        return "ok", ""
+
+    # ---------------- 沒有劇照的集 ----------------
+
+    def _mark_no_image(self, path: Path) -> None:
+        now = time.time()
+        if self.db is None:
+            self._no_image[str(path)] = now
+            return
+        self.db.execute(
+            "INSERT INTO mp_no_image(path, at) VALUES(?, ?) ON CONFLICT(path) DO UPDATE SET at=excluded.at",
+            (str(path), int(now)),
+        )
+
+    def _recently_no_image(self) -> Set[str]:
+        since = time.time() - NO_IMAGE_RETRY_SECONDS
+        if self.db is None:
+            return {p for p, at in self._no_image.items() if at >= since}
+        return {r["path"] for r in self.db.query("SELECT path FROM mp_no_image WHERE at>=?", (int(since),))}
 
     # ---------------- 決定要送哪些路徑 ----------------
 
@@ -220,10 +306,14 @@ class MoviePilot:
                     best = (lib.type, r)
         return best
 
-    def plan(self, paths: Iterable[str]) -> List[Tuple[Path, bool]]:
-        """把影片（strm）路徑轉成要送去刮削的清單 [(路徑, 是否資料夾)]，略過已經有 nfo 的。"""
+    def plan(self, paths: Iterable[str], with_images: bool = False) -> List[Tuple[Path, bool]]:
+        """把影片（strm）路徑轉成要送去刮削的清單 [(路徑, 是否資料夾)]，略過已經有 nfo 的。
+
+        with_images：已經有 nfo 卻沒有劇照的集也送（手動刮削用）；最近送過確定沒有劇照的不送。
+        """
         out: List[Tuple[Path, bool]] = []
         seen = set()
+        no_image = self._recently_no_image() if with_images else set()
 
         def add(p: Path, is_dir: bool):
             if p not in seen:
@@ -232,10 +322,13 @@ class MoviePilot:
 
         for raw in paths:
             p = Path(raw)
-            if p.suffix.lower() not in VIDEO_EXTS or p.with_suffix(".nfo").exists():
+            if p.suffix.lower() not in VIDEO_EXTS:
                 continue
+            has_nfo = p.with_suffix(".nfo").exists()
             ltype, root = self._library_of(p)
             if ltype == "tvshows" and root is not None:
+                if has_nfo and not (with_images and str(p) not in no_image and not episode_image(p)):
+                    continue
                 parts = p.relative_to(root).parts
                 if len(parts) >= 2:
                     series = root / parts[0]
@@ -247,7 +340,7 @@ class MoviePilot:
                 add(p, False)
             else:
                 # 單片資料夾裡的 movie.nfo 也算已刮削
-                if root is not None and p.parent != root and (p.parent / "movie.nfo").exists():
+                if has_nfo or (root is not None and p.parent != root and (p.parent / "movie.nfo").exists()):
                     continue
                 add(p, False)
         return out
@@ -266,41 +359,68 @@ class MoviePilot:
 
     # ---------------- 執行 ----------------
 
-    def scrape(self, paths: Iterable[str], source: str) -> ScrapeResult:
+    @property
+    def concurrency(self) -> int:
+        return max(1, min(int(self.cfg.concurrency or 1), MAX_CONCURRENCY))
+
+    def scrape(self, paths: Iterable[str], source: str, with_images: bool = False) -> ScrapeResult:
         if not self._lock.acquire(blocking=False):
             log.info("MoviePilot 刮削已在進行，略過")
             return self.result
-        self.result = ScrapeResult(source=source, started=time.time(), running=True)
-        scraped: List[str] = []
-        try:
-            items = self.plan(paths)
-            self.result.total = len(items)
-            log.info("送 %s 個項目給 MoviePilot 刮削", len(items))
-            for path, is_dir in items:
-                self.result.current = str(path)
-                try:
-                    ok, message = self.scrape_one(path, is_dir)
-                except MoviePilotError as exc:
-                    # 連線或認證錯誤，後面的也不會成功
-                    self.result.failed += self.result.total - self.result.done - self.result.failed
-                    self.result.errors.append(str(exc))
-                    log.error("MoviePilot 刮削中止：%s", exc)
-                    break
-                if ok:
-                    self.result.done += 1
-                    scraped.append(str(path))
+        r = self.result = ScrapeResult(source=source, started=time.time(), running=True)
+        scraped: Dict[int, str] = {}
+        abort = threading.Event()
+        count = threading.Lock()
+
+        def one(index: int, path: Path, is_dir: bool) -> None:
+            if abort.is_set():
+                return
+            r.current = str(path)
+            try:
+                ok, message = self.scrape_one(path, is_dir)
+                kind, note = self.check_output(path, is_dir) if ok else ("failed", message)
+            except MoviePilotError as exc:
+                # 連線或認證錯誤，後面的也不會成功；同時在跑的幾項只記一次
+                with count:
+                    if not abort.is_set():
+                        abort.set()
+                        r.errors.append(str(exc))
+                        log.error("MoviePilot 刮削中止：%s", exc)
+                return
+            except Exception as exc:  # 單一項目的意外錯誤不影響其他項目
+                log.exception("刮削 %s 時發生錯誤", path)
+                kind, note = "failed", f"{type(exc).__name__}: {exc}"
+            with count:
+                if kind in ("ok", "no_image"):
+                    r.done += 1
+                    scraped[index] = str(path)
+                    if kind == "no_image":
+                        r.no_image += 1
+                        self._mark_no_image(path)
+                        log.info("MoviePilot 刮削 %s：%s", path.name, note)
                 else:
-                    self.result.failed += 1
-                    self.result.errors.append(f"{path.name}：{message}")
-                    log.warning("MoviePilot 刮削失敗 %s：%s", path, message)
+                    r.failed += 1
+                    r.errors.append(f"{path.name}：{note}")
+                    log.warning("MoviePilot 刮削失敗 %s：%s", path, note)
+
+        try:
+            items = self.plan(paths, with_images)
+            r.total = len(items)
+            log.info("送 %s 個項目給 MoviePilot 刮削（同時 %s 項）", len(items), self.concurrency)
+            with ThreadPoolExecutor(max_workers=self.concurrency) as pool:
+                for future in [pool.submit(one, i, p, d) for i, (p, d) in enumerate(items)]:
+                    future.result()
+            if abort.is_set():
+                r.failed = r.total - r.done  # 中止後沒做的都算失敗
         finally:
-            self.result.running = False
-            self.result.current = ""
-            self.result.finished = time.time()
+            r.running = False
+            r.current = ""
+            r.finished = time.time()
             self._lock.release()
-        if scraped and self.on_done:
-            self.on_done(scraped)  # 只重新掃描刮削過的地方
-        return self.result
+        done = [scraped[i] for i in sorted(scraped)]
+        if done and self.on_done:
+            self.on_done(done)  # 只重新掃描刮削過的地方
+        return r
 
     def scrape_in_background(self, paths: Optional[List[str]], source: str) -> bool:
         """paths 為 None 時送媒體庫裡所有還沒有 nfo 的影片。"""
@@ -308,7 +428,8 @@ class MoviePilot:
             return False
 
         def job():
-            self.scrape(self.missing() if paths is None else paths, source)
+            # 手動刮削整個媒體庫時，有 nfo 卻沒有劇照的集也再送一次
+            self.scrape(self.missing() if paths is None else paths, source, with_images=paths is None)
 
         threading.Thread(target=job, daemon=True).start()
         return True

@@ -31,6 +31,20 @@ def touch(path: Path, text: str = "x") -> str:
     return str(path)
 
 
+def writes(request: httpx.Request, base: Path, mp_root: str = "", image: bool = False) -> None:
+    """像 MoviePilot 一樣把 nfo（和劇照）寫到送來的路徑旁邊。"""
+    body = json.loads(request.content)
+    if not body.get("path"):
+        return
+    p = Path(str(base) + body["path"][len(mp_root):]) if mp_root else Path(body["path"])
+    if body["type"] == "dir":
+        touch(p / "tvshow.nfo", "<tvshow/>")
+    else:
+        touch(p.with_suffix(".nfo"), "<episodedetails/>")
+        if image:
+            touch(p.with_suffix(".jpg"), "img")
+
+
 def test_plan_skips_scraped_and_groups_new_series(tmp_path: Path):
     cfg = make_config(tmp_path)
     mp = MoviePilot(cfg.moviepilot, cfg)
@@ -61,6 +75,7 @@ def test_scrape_sends_mapped_paths_with_api_token(tmp_path: Path):
 
     def handler(request: httpx.Request) -> httpx.Response:
         sent.append(request)
+        writes(request, tmp_path, "/mp")
         return httpx.Response(200, json={"success": True, "message": "ok"})
 
     cfg = make_config(tmp_path, path_mappings=[{"from": str(tmp_path), "to": "/mp"}])
@@ -72,15 +87,17 @@ def test_scrape_sends_mapped_paths_with_api_token(tmp_path: Path):
     # 還沒刮削過的劇送整個劇集資料夾；刮好的路徑交給掃描器只掃那些地方
     assert (r.total, r.done, r.failed) == (2, 2, 0) and done == [[movie, str(tmp_path / "tv" / "Show")]]
 
-    first = json.loads(sent[0].content)
-    assert sent[0].url.path == "/api/v1/media/scrape/local"
-    assert sent[0].headers["x-api-key"] == "tok" and sent[0].url.params["token"] == "tok"
-    assert first == {
+    # 同時送好幾項，順序不一定
+    by_type = {json.loads(q.content)["type"]: q for q in sent}
+    first = by_type["file"]
+    assert first.url.path == "/api/v1/media/scrape/local"
+    assert first.headers["x-api-key"] == "tok" and first.url.params["token"] == "tok"
+    assert "media_id" not in first.url.params  # 電影不知道 tmdbid，讓 MoviePilot 自己辨識
+    assert json.loads(first.content) == {
         "storage": "local", "type": "file", "path": "/mp/movies/A (2020)/A (2020).strm",
         "name": "A (2020).strm", "basename": "A (2020)", "extension": "strm",
     }
-    second = json.loads(sent[1].content)
-    assert second["type"] == "dir" and second["path"] == "/mp/tv/Show/"
+    assert json.loads(by_type["dir"].content)["path"] == "/mp/tv/Show/"
 
 
 def test_scrape_falls_back_to_login_for_old_moviepilot(tmp_path: Path):
@@ -92,6 +109,7 @@ def test_scrape_falls_back_to_login_for_old_moviepilot(tmp_path: Path):
             assert b"username=cat" in request.content
             return httpx.Response(200, json={"access_token": "jwt", "token_type": "bearer"})
         if request.headers.get("authorization") == "Bearer jwt":
+            writes(request, tmp_path)
             return httpx.Response(200, json={"success": True})
         return httpx.Response(401, json={"detail": "Not authenticated"})
 
@@ -182,3 +200,128 @@ def test_missing_path_hints_path_mapping(tmp_path: Path):
     movie = touch(tmp_path / "movies" / "A.strm")
     ok, message = mp.scrape_one(Path(movie), False)
     assert not ok and "路徑對應" in message and movie in message
+
+
+def test_scrape_runs_items_concurrently(tmp_path: Path):
+    import threading
+    import time
+
+    lock, state = threading.Lock(), {"now": 0, "max": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        with lock:
+            state["now"] += 1
+            state["max"] = max(state["max"], state["now"])
+        time.sleep(0.05)
+        writes(request, tmp_path)
+        with lock:
+            state["now"] -= 1
+        return httpx.Response(200, json={"success": True})
+
+    cfg = make_config(tmp_path, concurrency=3)
+    done = []
+    mp = MoviePilot(cfg.moviepilot, cfg, on_done=done.append, transport=httpx.MockTransport(handler))
+    movies = [touch(tmp_path / "movies" / f"M{i} (2020)" / f"M{i} (2020).strm") for i in range(6)]
+    r = mp.scrape(movies, "manual")
+    assert (r.total, r.done, r.failed) == (6, 6, 0)
+    assert 2 <= state["max"] <= 3
+    assert done == [movies]  # 交給掃描器的順序和送出的一樣
+
+
+def test_episode_of_scraped_series_sends_tmdbid(tmp_path: Path):
+    sent = []
+
+    def handler(request):
+        sent.append(request)
+        writes(request, tmp_path, image=True)
+        return httpx.Response(200, json={"success": True})
+
+    touch(tmp_path / "tv" / "Show" / "tvshow.nfo", '<tvshow><uniqueid type="tmdb">4321</uniqueid></tvshow>')
+    ep = touch(tmp_path / "tv" / "Show" / "Season 1" / "Show.S01E02.strm")
+    cfg = make_config(tmp_path)
+    mp = MoviePilot(cfg.moviepilot, cfg, transport=httpx.MockTransport(handler))
+    assert mp.scrape([ep], "sync").done == 1
+    params = sent[0].url.params
+    assert (params["media_source"], params["media_id"], params["type_name"]) == ("themoviedb", "4321", "电视剧")
+    assert params["token"] == "tok"  # API 令牌照樣帶著
+
+
+def test_checks_what_moviepilot_actually_wrote(tmp_path: Path):
+    wrote = {"image": False, "nothing": False}
+
+    def handler(request):
+        if not wrote["nothing"]:
+            writes(request, tmp_path, image=wrote["image"])
+        return httpx.Response(200, json={"success": True, "message": "刮削完成"})
+
+    touch(tmp_path / "tv" / "Show" / "tvshow.nfo", '<tvshow><uniqueid type="tmdb">1</uniqueid></tvshow>')
+    ep1 = touch(tmp_path / "tv" / "Show" / "S01E01.strm")
+    ep2 = touch(tmp_path / "tv" / "Show" / "S01E02.strm")
+    cfg = make_config(tmp_path)
+    mp = MoviePilot(cfg.moviepilot, cfg, transport=httpx.MockTransport(handler))
+    mp.verify_wait = 0
+
+    # 認不出集數時 MoviePilot 什麼都不寫，卻回報完成：算失敗並說明
+    wrote["nothing"] = True
+    r = mp.scrape([ep1], "sync")
+    assert (r.done, r.failed) == (0, 1) and "認不出集數" in r.errors[0]
+
+    # 寫了 nfo 沒有劇照：算成功，另外計數，記下來不再重送
+    wrote["nothing"] = False
+    r = mp.scrape([ep1], "sync")
+    assert (r.done, r.failed, r.no_image) == (1, 0, 1)
+
+    # 手動刮削：有 nfo 沒劇照的集也送，但剛確定沒有劇照的不送；有劇照的不送
+    touch(tmp_path / "tv" / "Show" / "S01E02.nfo")
+    assert mp.plan([ep1, ep2]) == []
+    assert mp.plan([ep1, ep2], with_images=True) == [(Path(ep2), False)]
+    wrote["image"] = True
+    r = mp.scrape([ep1, ep2], "manual", with_images=True)
+    assert (r.total, r.done, r.no_image) == (1, 1, 0)
+    assert mp.plan([ep1, ep2], with_images=True) == []
+
+
+def test_no_image_marks_persist_in_database(tmp_path: Path):
+    from embyserver.db import Database
+
+    touch(tmp_path / "tv" / "Show" / "tvshow.nfo")
+    ep = touch(tmp_path / "tv" / "Show" / "S01E01.strm")
+    touch(tmp_path / "tv" / "Show" / "S01E01.nfo")
+    cfg = make_config(tmp_path)
+    db = Database(":memory:")
+    mp = MoviePilot(cfg.moviepilot, cfg, db=db)
+    assert mp.plan([ep], with_images=True) == [(Path(ep), False)]
+    mp._mark_no_image(Path(ep))
+    assert MoviePilot(cfg.moviepilot, cfg, db=db).plan([ep], with_images=True) == []
+
+
+def test_concurrency_setting_is_clamped_and_saved(tmp_path: Path):
+    from embyserver import config_file, settings
+
+    cfg = make_config(tmp_path)
+    assert cfg.moviepilot.concurrency == 3
+    settings.apply_settings(cfg, {"moviepilot": {"concurrency": 20}})
+    assert cfg.moviepilot.concurrency == 8
+    settings.apply_settings(cfg, {"moviepilot": {"concurrency": 0}})
+    assert cfg.moviepilot.concurrency == 1
+    assert "concurrency: 1" in config_file.render(cfg)
+
+
+def test_episode_without_still_uses_series_banner(tmp_path: Path):
+    show = tmp_path / "tv" / "Show (2020)"
+    touch(show / "tvshow.nfo", "<tvshow><title>Show</title></tvshow>")
+    touch(show / "landscape.jpg", "banner")
+    touch(show / "S01E01.strm", "http://x/a.mkv")
+    touch(show / "S01E02.strm", "http://x/b.mkv")
+    touch(show / "S01E02.jpg", "still")
+    app = create_app(make_config(tmp_path), scan_on_start=False)
+    app.state.scanner.scan_all()
+    c = TestClient(app)
+    token = c.post("/Users/AuthenticateByName", json={"Username": "admin", "Pw": "pw"}).json()["AccessToken"]
+    h = {"X-Emby-Token": token}
+    series_id = c.get("/Items", params={"IncludeItemTypes": "Series", "Recursive": "true"}, headers=h).json()["Items"][0]["Id"]
+    eps = {e["IndexNumber"]: e for e in c.get(f"/Shows/{series_id}/Episodes", headers=h).json()["Items"]}
+    assert eps[1]["ImageTags"]["Primary"] == eps[1]["ParentThumbImageTag"]  # 沒有劇照：用劇的橫幅圖
+    assert eps[2]["ImageTags"]["Primary"] != eps[1]["ImageTags"]["Primary"]  # 有劇照的用自己的
+    assert c.get(f"/Items/{eps[1]['Id']}/Images/Primary").content == b"banner"
+    assert c.get(f"/Items/{eps[2]['Id']}/Images/Primary").content == b"still"

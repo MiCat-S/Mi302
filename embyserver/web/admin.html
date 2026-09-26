@@ -393,6 +393,7 @@ dialog .card-b{max-height:70vh;overflow:auto}
           <div class="fields">
             <label class="field"><span>MoviePilot 網址</span><input type="text" data-key="moviepilot.url" placeholder="例如 http://192.168.1.10:3000"></label>
             <label class="field"><span>API 令牌</span><input type="text" data-key="moviepilot.api_token"><small>MoviePilot 的「設定 → 系統 → API 令牌」</small></label>
+            <label class="field"><span>同時刮削幾項</span><input type="number" min="1" max="8" data-key="moviepilot.concurrency"><small>1–8，預設 3；太多可能被 TMDB 限速</small></label>
           </div>
           <label class="field"><span>路徑對應</span><textarea id="mpMap" rows="2" placeholder="/media => /mnt/media"></textarea>
             <small>一行一條：Mi302 的路徑 =&gt; MoviePilot 的路徑。兩邊看到的路徑一樣（例如裝在同一台機器）就不用填。不一樣的例子：Mi302 在 Parallels 虛擬機裡看到 /media/psf/Vo，MoviePilot 裝在 Mac 上看到 /Volumes/Vo，就填 /media/psf/Vo =&gt; /Volumes/Vo；Docker 則看各自的掛載路徑。</small></label>
@@ -411,7 +412,7 @@ dialog .card-b{max-height:70vh;overflow:auto}
         <div class="card-h"><div class="t"><svg class="i"><use href="#i-film"/></svg><h2>刮削</h2></div><button class="btn" onclick="scrapeMP()">刮削缺少資料的項目</button></div>
         <div class="card-b stack">
           <div class="js-mp"></div>
-          <p class="hint">把媒體庫裡還沒有 nfo 的影片送去 MoviePilot。已經有 nfo 的不會重送；劇集沒有 tvshow.nfo 時整部劇一起刮削。</p>
+          <p class="hint">把媒體庫裡還沒有 nfo 的影片、以及有 nfo 卻沒有劇照的集送去 MoviePilot。劇集沒有 tvshow.nfo 時整部劇一起刮削；已經刮削過的劇會帶上 tmdbid，MoviePilot 不必再搜尋。</p>
         </div>
       </div>
       <div class="card">
@@ -1050,7 +1051,8 @@ function mpHtml(s) {
   } else {
     h += `<div class="row wrap" style="margin-bottom:12px"><span class="pill ${r.failed ? 'warn' : 'ok'}">${r.failed ? '部分失敗' : '完成'}</span>
       <span class="hint">上次刮削（${r.source === 'sync' ? '同步後自動' : '手動'}）・${ago(r.finished)}</span></div>
-      <div class="chips">${chip(r.total, '送出')}${chip(r.done, '成功', true)}${chip(r.failed, '失敗')}</div>`;
+      <div class="chips">${chip(r.total, '送出')}${chip(r.done, '成功', true)}${chip(r.failed, '失敗')}${r.no_image ? chip(r.no_image, '沒有劇照') : ''}</div>`;
+    if (r.no_image) h += `<p class="hint" style="margin-top:10px">${r.no_image} 集有 nfo 但沒有劇照：多半是 TMDB 沒有這幾集的圖，播放器會改用劇的橫幅圖；30 天內按「刮削缺少資料的項目」不再重送。若是 MoviePilot 日誌有「图片下载失败」，要在 MoviePilot 設定 TMDB 圖片代理。</p>`;
   }
   if (r.errors.length) h += `<div class="notice bad" style="margin-top:10px">${r.errors.slice(0, 3).map(esc).join('<br>')}</div>`;
   return h;

@@ -68,7 +68,7 @@ def create_app(config: Config, db_path: Optional[str] = None, scan_on_start: boo
         db, config.p115.cookies, config.p115.app, config.p115.timeout, open_app_id=config.p115.open_app_id
     )
     app.state.redirector = Redirector(config.redirect, app.state.p115)
-    app.state.moviepilot = MoviePilot(config.moviepilot, config, on_done=scanner.scan_paths)
+    app.state.moviepilot = MoviePilot(config.moviepilot, config, on_done=scanner.scan_paths, db=db)
 
     def after_sync(result) -> None:
         # 先只掃有變動的地方，新片馬上出現；再把新產生的 strm 交給 MoviePilot 刮削，刮好的會再掃一次

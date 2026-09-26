@@ -60,6 +60,7 @@ moviepilot:
   scrape_after_sync: true           # 同步產生新的 strm 後自動送去刮削
   fill_after_full_sync: false       # 全量同步後把所有有 tmdbid 的劇送給 MoviePilot 訂閱，補齊缺集
   timeout: 300                      # 每一項刮削最多等幾秒
+  concurrency: 3                    # 同時送幾項給 MoviePilot 刮削（1–8），太多可能被 TMDB 限速
   # 兩邊看到的路徑不同時：Mi302 的路徑（from）→ MoviePilot 的路徑（to）
   path_mappings: []
 

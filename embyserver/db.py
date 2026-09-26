@@ -91,6 +91,12 @@ CREATE TABLE IF NOT EXISTS p115_index (
     path TEXT NOT NULL,
     PRIMARY KEY (task, file_id)
 );
+
+-- 送去 MoviePilot 刮削後有 nfo 卻沒有劇照的集（多半是 TMDB 沒有這集的圖），一段時間內不再重送
+CREATE TABLE IF NOT EXISTS mp_no_image (
+    path TEXT PRIMARY KEY,
+    at INTEGER NOT NULL
+);
 """
 
 

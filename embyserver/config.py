@@ -94,6 +94,7 @@ class MoviePilotConfig:
     scrape_after_sync: bool = True  # 同步產生新 strm 後自動送去刮削
     fill_after_full_sync: bool = False  # 全量同步後把所有有 tmdbid 的劇送給 MoviePilot 訂閱，補齊缺集
     timeout: float = 300  # MoviePilot 刮削是同步完成才回應，一部片可能要幾十秒
+    concurrency: int = 3  # 同時送幾項給 MoviePilot 刮削（1–8）；太多可能被 TMDB 限速
 
 
 @dataclass

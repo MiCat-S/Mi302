@@ -106,6 +106,7 @@ def render(config: Config) -> str:
         _kv("  scrape_after_sync", mp.scrape_after_sync, "同步產生新的 strm 後自動送去刮削"),
         _kv("  fill_after_full_sync", mp.fill_after_full_sync, "全量同步後把所有有 tmdbid 的劇送給 MoviePilot 訂閱，補齊缺集"),
         _kv("  timeout", mp.timeout, "每一項刮削最多等幾秒"),
+        _kv("  concurrency", mp.concurrency, "同時送幾項給 MoviePilot 刮削（1–8），太多可能被 TMDB 限速"),
         "  # 兩邊看到的路徑不同時：Mi302 的路徑（from）→ MoviePilot 的路徑（to）",
         "  path_mappings:" + _rules(mp.path_mappings, "    "),
         "",
