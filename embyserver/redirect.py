@@ -18,6 +18,14 @@ from .scanner import read_strm
 log = logging.getLogger(__name__)
 
 
+def _points_here(target: str, host: str) -> bool:
+    """strm 的網址是不是指回這台伺服器（自己產生的 /d/{pickcode} 短連結，或主機名相同）。"""
+    if not target.startswith(("http://", "https://")):
+        return True
+    netloc = urlparse(target).netloc.lower()
+    return bool(host) and netloc in (host.lower(), host.lower().split(":", 1)[0])
+
+
 def apply_path_rules(value: str, rules) -> str:
     """前綴替換。可作用於本機路徑，也可作用於網址的 path 部分。"""
     if not value or not rules:
@@ -81,8 +89,10 @@ class Redirector:
         if pickcode and self.p115 and self.p115.logged_in:
             try:
                 return self.p115.download_url(pickcode, ua)
-            except P115Error:
-                log.warning("115 取直鏈失敗，改用 strm 原網址：%s", target, exc_info=True)
+            except P115Error as exc:
+                if _points_here(target, headers.get("host", "")):
+                    raise  # strm 指回本機：轉回去只會再向 115 失敗一次，直接告訴播放器
+                log.warning("115 取直鏈失敗，改用 strm 原網址 %s：%s", target, exc)
         if not target.startswith(("http://", "https://")):
             return None
         if not self.config.resolve_redirects:

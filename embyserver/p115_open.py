@@ -216,10 +216,13 @@ class P115OpenClient:
             QRCODE_STATUS, params={"uid": uid, "time": time_, "sign": sign}, headers={"User-Agent": OPEN_UA}
         )
         try:
-            code = (resp.json().get("data") or {}).get("status")
+            body = resp.json()
         except ValueError:
             return {"status": "waiting"}
+        code = (body.get("data") or {}).get("status")
         if code in (None, 0):
+            if body.get("message") == "key invalid":
+                return {"status": "expired"}  # 二維碼過期；不回報的話網頁會一直「等待掃描」
             return {"status": "waiting"}
         if code == 1:
             return {"status": "scanned"}
@@ -319,7 +322,9 @@ class P115OpenClient:
             # cid 失效時 115 會靜默回傳根目錄
             path = body.get("path") or []
             if cid != 0 and path and str(path[-1].get("cid", cid)) != str(cid):
-                raise P115OpenError(f"115 目錄不存在：{cid}")
+                from .p115 import P115NotFound  # 和 cookie 通道丟同一種錯，同步才知道是「已刪掉」而不是失敗
+
+                raise P115NotFound(f"115 目錄不存在：{cid}")
             for info in items:
                 is_dir = str(info.get("fc", info.get("file_category", "1"))) == "0"
                 out.append(

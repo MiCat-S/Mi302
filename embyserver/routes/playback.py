@@ -17,6 +17,7 @@ from .. import logs
 from ..auth import AuthContext, now_iso, require_user
 from ..dto import media_source_dto
 from ..mediainfo import MediaInfoStore
+from ..p115 import P115Error
 from .common import q, q_int, state
 from .items import _set_user_data
 
@@ -63,7 +64,11 @@ def _stream(item_id: str, name: str, request: Request):
 
     if row["is_strm"]:
         headers = {k.lower(): v for k, v in request.headers.items()}
-        url = st.redirector.final_url(row, headers)
+        try:
+            url = st.redirector.final_url(row, headers)
+        except P115Error as exc:
+            log.warning("播放 %s 失敗：%s", Path(row["path"]).name, exc)
+            raise HTTPException(status_code=502, detail=str(exc))
         if url:
             log.info(
                 "播放 %s：302 到 %s（%s）",

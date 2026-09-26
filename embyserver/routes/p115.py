@@ -98,7 +98,7 @@ async def p115_set_cookies(request: Request, ctx: AuthContext = Depends(require_
         body = json.loads(await request.body() or b"{}")
     except ValueError:
         body = {}
-    cookies = (body.get("cookies") or "").strip()
+    cookies = (body.get("cookies") or "").strip() if isinstance(body, dict) else ""
     if not cookies:
         raise HTTPException(status_code=400, detail="cookies 不可為空")
     svc = state(request).p115
@@ -107,7 +107,10 @@ async def p115_set_cookies(request: Request, ctx: AuthContext = Depends(require_
         svc.set_cookies(cookies)
         return svc.user_info()  # 會連 115
 
-    return {"logged_in": True, "user": await run_in_threadpool(apply)}
+    try:
+        return {"logged_in": True, "user": await run_in_threadpool(apply)}
+    except P115Error as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
 
 
 @router.post("/p115/logout")
@@ -167,10 +170,13 @@ async def p115_strm_tasks(request: Request, ctx: AuthContext = Depends(require_a
         body = json.loads(await request.body() or b"[]")
     except ValueError:
         raise HTTPException(status_code=400, detail="格式錯誤")
+    if not isinstance(body, list):
+        # 送錯格式就當成「沒有任務」會把全部任務和對照表刪掉
+        raise HTTPException(status_code=400, detail="要送任務清單（JSON 陣列）")
     st = state(request)
 
     def apply():
-        settings.save(st.db, st.config, {"p115": {"strm": {"tasks": body if isinstance(body, list) else []}}})
+        settings.save(st.db, st.config, {"p115": {"strm": {"tasks": body}}})
         st.strm_sync.prune_index()
         return _tasks_view(st)
 

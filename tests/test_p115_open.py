@@ -126,3 +126,21 @@ def test_service_prefers_open_and_falls_back_to_cookie(monkeypatch):
     svc.set_cookies("")
     with pytest.raises(P115Error):
         svc._fetch_download_url(PC, "")
+
+
+def test_expired_qrcode_is_reported():
+    def fake(request):
+        if request.url.path == "/get/status/":
+            return httpx.Response(200, json={"state": 0, "message": "key invalid", "data": {}})
+        return httpx.Response(404)
+
+    client = P115OpenClient(Database(":memory:"), "app1", transport=httpx.MockTransport(fake))
+    assert client.qrcode_status("u1", "1", "s") == {"status": "expired"}
+
+
+def test_missing_dir_is_not_found_error():
+    from embyserver.p115 import P115NotFound
+
+    client, fake = authorized_client()
+    with pytest.raises(P115NotFound):
+        client.list_dir(555)  # 115 對不存在的 cid 靜默回根目錄

@@ -153,13 +153,13 @@ class Breaker:
             "message": self.message() if tripped else "",
         }
 
-    def inspect(self, status: Optional[int] = None, data: Optional[dict] = None) -> None:
-        """看 115 的回應是不是限流或登入失效，是就熔斷。"""
+    def inspect(self, status: Optional[int] = None, data: Optional[dict] = None) -> bool:
+        """看 115 的回應是不是限流或登入失效，是就熔斷並回傳 True。"""
         if status in (405, 429):
             self.trip(f"HTTP {status}")
-            return
+            return True
         if not isinstance(data, dict):
-            return
+            return False
         try:
             errno = int(data.get("errno") or data.get("errNo") or data.get("code") or 0) or None
         except (TypeError, ValueError):
@@ -168,8 +168,11 @@ class Breaker:
         brief = f"{errno or ''} {text}".strip() or str(data)[:120]
         if errno in LOGIN_ERRNOS or any(w in text for w in LOGIN_WORDS):
             self.trip(brief, login=True)
-        elif errno in THROTTLE_ERRNOS or any(w in text for w in THROTTLE_WORDS):
+            return True
+        if errno in THROTTLE_ERRNOS or any(w in text for w in THROTTLE_WORDS):
             self.trip(brief)
+            return True
+        return False
 
 
 def extract_pickcode(url: str) -> Optional[str]:
@@ -217,7 +220,10 @@ class P115Service:
         self._account_cache: Optional[Tuple[dict, float]] = None
         self.export_poll = EXPORT_POLL_SECONDS
         if initial_cookies and not self.cookies:
-            self.set_cookies(initial_cookies, source="config")
+            try:
+                self.set_cookies(initial_cookies, source="config")
+            except P115Error as exc:
+                log.warning("設定檔裡的 115 cookie 不能用：%s", exc)
 
     # ---------------- cookie ----------------
 
@@ -226,8 +232,12 @@ class P115Service:
         return self.db.get_meta(COOKIE_META_KEY) or ""
 
     def set_cookies(self, cookies: str, source: str = "cookie") -> None:
-        self.db.set_meta(COOKIE_META_KEY, cookies.strip())
-        login = {"method": source, "at": int(time.time())} if cookies.strip() else {}
+        cookies = cookies.strip()
+        if not cookies.isascii() or "\n" in cookies or "\r" in cookies:
+            # HTTP 標頭只能是 ASCII；貼上時多了中文、省略號或換行，之後每個請求都會在送出前炸掉
+            raise P115Error("cookie 裡有中文、省略號或換行，請從瀏覽器重新複製一次")
+        self.db.set_meta(COOKIE_META_KEY, cookies)
+        login = {"method": source, "at": int(time.time())} if cookies else {}
         if source == "qrcode":
             login["app"] = self.app
         self.db.set_meta(LOGIN_META_KEY, json.dumps(login))
@@ -269,10 +279,6 @@ class P115Service:
 
     def list_dir(self, cid: int) -> List[dict]:
         return self._dispatch("列目錄", lambda: self.open.list_dir(cid), lambda: self._cookie_list_dir(cid))
-
-    def dir_path(self, cid: int) -> str:
-        """目錄 id 轉成完整路徑，例如 /影視/電影；根目錄是 /。"""
-        return "/" + "/".join(name for _, name in self.dir_ancestors(cid))
 
     def dir_ancestors(self, cid: int) -> List[Tuple[int, str]]:
         """由根往下到這個目錄本身，每一層的 (id, 名稱)，不含根目錄；只要一次請求。"""
@@ -500,29 +506,27 @@ class P115Service:
             self.breaker.inspect(status=resp.status_code)
             raise P115Throttled(f"115 限流（HTTP {resp.status_code}），背景同步暫停 {BREAKER_COOLDOWN // 60} 分鐘")
         data = _json(resp)
-        if data.get("state") is False or data.get("state") == 0:
-            self.breaker.inspect(data=data)
+        if not data.get("state", True) and self.breaker.inspect(data=data):
+            # 限流或登入失效：丟 P115Throttled，同步才不會改成逐層列目錄、越打越多
+            raise P115Throttled(self.breaker.message())
         return data
 
     def _webapi_get(self, path: str, params: dict) -> dict:
         if not self.cookies:
             raise P115Error("尚未登入 115")
-        resp = self._client.get(
-            f"{WEBAPI}{path}", params=params, headers={"Cookie": self.cookies, "User-Agent": BROWSER_UA}
-        )
-        data = self._api_json(resp)
-        if not data.get("state", True) and "data" not in data:
-            raise P115Error(f"115 webapi 錯誤：{data.get('error') or data.get('errNo') or data}")
-        return data
+        resp = self._client.get(f"{WEBAPI}{path}", params=params, headers=self._cookie_headers())
+        return self._webapi_body(resp)
 
     def _webapi_post(self, path: str, data: dict) -> dict:
         if not self.cookies:
             raise P115Error("尚未登入 115")
-        resp = self._client.post(
-            f"{WEBAPI}{path}", data=data, headers={"Cookie": self.cookies, "User-Agent": BROWSER_UA}
-        )
+        resp = self._client.post(f"{WEBAPI}{path}", data=data, headers=self._cookie_headers())
+        return self._webapi_body(resp)
+
+    def _webapi_body(self, resp: httpx.Response) -> dict:
+        """state 為假就是錯誤，就算旁邊帶著空的 data 也一樣（當成空清單會把本機 strm 全刪掉）。"""
         body = self._api_json(resp)
-        if body.get("state") is False:
+        if not body.get("state", True):
             raise P115Error(f"115 webapi 錯誤：{body.get('error') or body.get('errNo') or body}")
         return body
 
@@ -559,14 +563,14 @@ class P115Service:
                     {
                         "name": info.get("n") or "",
                         "is_dir": is_dir,
-                        "id": int(info["cid"] if is_dir else info["fid"]),
+                        "id": _int(info["cid"] if is_dir else info["fid"]),
                         "pickcode": info.get("pc") or "",
-                        "size": int(info.get("s") or 0),
-                        "mtime": int(info.get("te") or info.get("t") or 0),
+                        "size": _int(info.get("s")),
+                        "mtime": _int(info.get("te") or info.get("tp")),
                     }
                 )
             offset += len(items)
-            if not items or offset >= int(data.get("count") or 0):
+            if not items or offset >= _int(data.get("count")):
                 break
         return out
 
@@ -639,10 +643,12 @@ class P115Service:
             raise P115Error(f"115 沒有接受導出目錄樹：{data.get('error') or data}")
         deadline = time.time() + timeout
         while True:
-            status = self._webapi_get("/files/export_dir", {"export_id": export_id})
-            if not status.get("state", True):
-                # 任務失敗或被取消：不能一直等到超時
-                raise P115Error(f"115 導出目錄樹失敗：{status.get('error') or status.get('errNo') or status}")
+            try:
+                status = self._webapi_get("/files/export_dir", {"export_id": export_id})
+            except P115Throttled:
+                raise
+            except P115Error as exc:
+                raise P115Error(f"115 導出目錄樹失敗：{exc}") from exc  # 任務失敗或被取消：不能一直等到超時
             result = status.get("data")
             if isinstance(result, dict) and result.get("pick_code"):
                 break
@@ -665,7 +671,7 @@ class P115Service:
             raise
 
     def file_headers(self, url: str, user_agent: str = PLAIN_UA) -> dict:
-        """自己下載 115 檔案時的標頭：直鏈綁定 UA；cookie 只給 115 自己的網域。"""
+        """自己下載 115 檔案時的標頭：直鏈綁定 UA；cookie 只給主機名稱帶 115 的網域（115.com、115cdn.net）。"""
         headers = {"User-Agent": user_agent}
         if self.cookies and "115" in (urlsplit(url).hostname or ""):
             headers["Cookie"] = self.cookies
@@ -685,7 +691,12 @@ class P115Service:
                 resp = self._client.get(url, headers=self.file_headers(url, ua), follow_redirects=True)
                 if resp.status_code == 200:
                     return resp.content
+                if resp.status_code in (405, 429):
+                    self.breaker.inspect(status=resp.status_code)
+                    raise P115Throttled(self.breaker.message())
                 reason = f"HTTP {resp.status_code} {_snippet(resp)}".rstrip()
+            except P115Throttled:
+                raise  # 被限流了，再試只會更糟
             except P115Error as exc:
                 reason = str(exc)
             reasons.append(reason)
@@ -705,10 +716,7 @@ class P115Service:
     def enable_life(self) -> None:
         """打開 115 生活的「最近記錄」；關閉時 115 不會記錄操作事件。失敗不影響同步。"""
         try:
-            self._client.post(
-                LIFE_OPTION_API, data={"locus": 1, "open_life": 1},
-                headers={"Cookie": self.cookies, "User-Agent": BROWSER_UA},
-            )
+            self._client.post(LIFE_OPTION_API, data={"locus": 1, "open_life": 1}, headers=self._cookie_headers())
         except P115Error as exc:
             log.warning("無法開啟 115 生活的最近記錄：%s", exc)
 
@@ -769,13 +777,16 @@ class P115Service:
             cached = self._cached(key)
             if cached:
                 return cached
-            url = self._fetch_download_url(pickcode, user_agent)
-            expires = _expire_ts(url)
-            with self._cache_lock:
-                now = time.time()
-                self._cache = {k: v for k, v in self._cache.items() if v[1] > now}
-                self._cache[key] = (url, expires)
-                self._key_locks.pop(key, None)
+            try:
+                url = self._fetch_download_url(pickcode, user_agent)
+                expires = _expire_ts(url)
+                with self._cache_lock:
+                    now = time.time()
+                    self._cache = {k: v for k, v in self._cache.items() if v[1] > now}
+                    self._cache[key] = (url, expires)
+            finally:
+                with self._cache_lock:
+                    self._key_locks.pop(key, None)
             log.info("從 115 取得直鏈：%s %s", pickcode, unquote(urlsplit(url).path.rpartition("/")[-1]))
             return url
 
@@ -916,11 +927,6 @@ def ancestor_chain(ancestors, cid: int) -> List[Tuple[int, str]]:
         raise P115NotFound(f"115 目錄不存在：{cid}")
     chain = [(_int(a.get("cid", a.get("file_id", 0))), str(a.get("name") or a.get("file_name") or "")) for a in ancestors]
     return [(i, n) for i, n in chain if i and n]
-
-
-def path_from_ancestors(ancestors, cid: int) -> str:
-    """115 列目錄回應裡的 path 轉成路徑字串，例如 /影視/電影。"""
-    return "/" + "/".join(n for _, n in ancestor_chain(ancestors, cid))
 
 
 def _decode_tree(content: bytes) -> str:

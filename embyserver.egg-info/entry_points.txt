@@ -1,0 +1,2 @@
+[console_scripts]
+embyserver = embyserver.__main__:main

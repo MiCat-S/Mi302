@@ -1,0 +1,15 @@
+Metadata-Version: 2.4
+Name: embyserver
+Version: 0.1.0
+Summary: Emby 相容的影片管理伺服器，strm 播放以 302 重導向到真實網址
+Requires-Python: >=3.10
+Requires-Dist: fastapi>=0.110
+Requires-Dist: uvicorn[standard]>=0.29
+Requires-Dist: httpx>=0.27
+Requires-Dist: PyYAML>=6.0
+Requires-Dist: p115cipher>=0.0.5
+Requires-Dist: pycryptodome>=3.20
+Requires-Dist: pypinyin>=0.50
+Requires-Dist: zhconv>=1.4
+Provides-Extra: test
+Requires-Dist: pytest; extra == "test"

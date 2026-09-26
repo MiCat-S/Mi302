@@ -103,3 +103,105 @@ def test_status_api_reports_breaker(tmp_path: Path):
     app.state.p115.breaker.trip("errno 770004")
     s = c.get("/p115/status", headers={"X-Emby-Token": token}).json()
     assert s["breaker"]["tripped"] and "限流" in s["breaker"]["message"]
+
+
+def test_error_reply_with_empty_data_is_not_an_empty_listing(tmp_path: Path):
+    """115 回錯誤時常常帶著 data: []，不能當成「資料夾是空的」，否則 delete_stale 會把本機 strm 全刪掉。"""
+    fake = Fake115()
+    sync = make(tmp_path, fake, delete_stale=True)
+    assert sync.run(FULL).strm_created == 2
+    strm = tmp_path / "media" / "電影" / "Old Movie (2001).strm"
+    fake.export_ok = False  # 導出目錄樹不行，改成逐層列目錄
+    real = fake.handler
+
+    def expired(request):
+        if request.url.path == "/files" and request.url.params.get("cur") == "1":
+            return httpx.Response(200, json={"state": False, "errNo": 990001, "error": "登录超时，请重新登录", "data": []})
+        return real(request)
+
+    sync.p115._client._transport = httpx.MockTransport(expired)
+    r = sync.run(FULL)
+    assert r.errors and "登入失效" in r.errors[0] and r.removed == 0
+    assert strm.exists() and sync.p115.breaker.login_bad
+
+    # 一般錯誤（不是限流、不是登入）帶著 data: [] 也一樣是錯誤
+    sync.p115.breaker.reset()
+
+    def broken(request):
+        if request.url.path == "/files" and request.url.params.get("cur") == "1":
+            return httpx.Response(200, json={"state": False, "errNo": 20004, "error": "参数错误", "data": []})
+        return real(request)
+
+    sync.p115._client._transport = httpx.MockTransport(broken)
+    r = sync.run(FULL)
+    assert r.errors and r.removed == 0 and strm.exists()
+
+
+def test_json_throttle_does_not_fall_back_to_walk(tmp_path: Path):
+    """限流不只 HTTP 405：JSON 裡的 errno 770004 也要停下，不能改成逐層列目錄。"""
+    fake = Fake115()
+    sync = make(tmp_path, fake)
+    real = fake.handler
+
+    def capped(request):
+        if request.url.path == "/files/export_dir" and request.method == "POST":
+            return httpx.Response(200, json={"state": False, "errno": 770004, "error": "访问上限"})
+        return real(request)
+
+    sync.p115._client._transport = httpx.MockTransport(capped)
+    r = sync.run(FULL)
+    assert sync.p115.breaker.tripped and r.errors and "限流" in r.errors[0]
+    assert not [c for c in fake.calls if c[0] == "/files" and c[1].get("cur") == "1"]
+
+
+def test_throttled_tree_download_stops_retrying(tmp_path: Path):
+    fake = Fake115()
+    sync = make(tmp_path, fake)
+    real = fake.handler
+    cdn = []
+
+    def throttled(request):
+        if request.url.host == "cdn.115.test":
+            cdn.append(1)
+            return httpx.Response(405)
+        return real(request)
+
+    sync.p115._client._transport = httpx.MockTransport(throttled)
+    r = sync.run(FULL)
+    assert len(cdn) == 1 and r.errors and "限流" in r.errors[0]
+    assert not [c for c in fake.calls if c[0] == "/files" and c[1].get("cur") == "1"]
+
+
+def test_non_ascii_cookie_is_rejected():
+    svc = service(lambda r: httpx.Response(200, json={"state": True}))
+    with pytest.raises(P115Error, match="重新複製"):
+        svc.set_cookies("UID=1; CID=中文")
+    with pytest.raises(P115Error):
+        svc.set_cookies("UID=1\nCID=2")
+    assert svc.cookies == "UID=1"
+
+
+def test_failed_link_fetch_releases_its_lock():
+    svc = service(lambda r: httpx.Response(405))
+    with pytest.raises(P115Error):
+        svc.download_url("a" * 17, "UA")
+    assert svc._key_locks == {}
+
+
+def test_self_pointing_strm_fails_fast_when_115_fails(tmp_path: Path):
+    """自己產生的 strm 指回本機；115 取不到直鏈時不能再轉回自己（會再向 115 失敗一次），要直接回錯。"""
+    from embyserver.config import RedirectConfig
+    from embyserver.redirect import Redirector
+
+    svc = service(lambda r: httpx.Response(200, json={"state": False, "errno": 20004, "error": "参数错误"}))
+    rd = Redirector(RedirectConfig(), svc)
+    own = tmp_path / "own.strm"
+    own.write_text(f"http://mi302.local:8096/d/{'a' * 17}.mkv")
+    item = {"id": 1, "is_strm": 1, "path": str(own), "container": "mkv"}
+    with pytest.raises(P115Error):
+        rd.final_url(item, {"host": "mi302.local:8096", "user-agent": "Infuse"})
+    # 別台工具的 strm（例如 P115StrmHelper）：115 失敗時仍改用原網址
+    other = tmp_path / "other.strm"
+    other.write_text(f"http://nas.local:3000/api/v1/plugin/p115strmhelper/redirect_url?pickcode={'a' * 17}")
+    item["path"] = str(other)
+    assert rd.final_url(item, {"host": "mi302.local:8096", "user-agent": "Infuse"}).startswith("http://nas.local:3000/")
