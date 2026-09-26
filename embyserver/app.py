@@ -18,6 +18,7 @@ from .config import Config
 from .db import Database
 from .moviepilot import MoviePilot, library_series
 from .p115 import P115Service
+from .prober import MediaProber
 from .redirect import Redirector
 from .routes import items, p115, playback, system, web
 from . import logs, settings
@@ -69,8 +70,13 @@ def create_app(config: Config, db_path: Optional[str] = None, scan_on_start: boo
     )
     app.state.redirector = Redirector(config.redirect, app.state.p115)
     app.state.moviepilot = MoviePilot(config.moviepilot, config, on_done=scanner.scan_paths, db=db)
+    app.state.prober = MediaProber(config.mediainfo, config, app.state.p115, db)
 
     def after_sync(result) -> None:
+        # 新 strm 的媒體資訊在背景探測，和掃描、刮削同時進行（互不相干）
+        mi = config.mediainfo
+        if result.new_files and mi.enabled and mi.after_sync and app.state.prober.available():
+            app.state.prober.run_in_background(result.new_files, "sync")
         # 先只掃有變動的地方，新片馬上出現；再把新產生的 strm 交給 MoviePilot 刮削，刮好的會再掃一次
         if config.p115.strm.scan_after_sync and result.changed:
             scanner.scan_paths(result.changed)

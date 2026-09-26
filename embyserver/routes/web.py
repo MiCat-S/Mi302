@@ -301,6 +301,33 @@ def moviepilot_scrape(request: Request, ctx: AuthContext = Depends(require_admin
     return {"started": started, "result": mp.result.as_dict()}
 
 
+@router.get("/web/api/mediainfo/status")
+def mediainfo_status(request: Request, ctx: AuthContext = Depends(require_admin)):
+    """媒體資訊：有幾支影片已經有、ffprobe 在不在、115 熔斷、上次探測的結果。"""
+    st = state(request)
+    videos = "i.type IN ('Movie','Episode')"
+    return {
+        "enabled": st.config.mediainfo.enabled,
+        "ffprobe": st.prober.available(),
+        "total": st.db.one(f"SELECT COUNT(*) AS c FROM items i WHERE {videos}")["c"],
+        "have": st.db.one(f"SELECT COUNT(*) AS c FROM items i JOIN media_info m ON m.path=i.path WHERE {videos}")["c"],
+        "breaker": st.p115.breaker.status(),
+        "result": st.prober.result.as_dict(),
+    }
+
+
+@router.post("/web/api/mediainfo/probe")
+def mediainfo_probe(request: Request, ctx: AuthContext = Depends(require_admin)):
+    """探測媒體庫裡所有還沒有媒體資訊的影片（在背景跑）。"""
+    st = state(request)
+    if not st.config.mediainfo.enabled:
+        raise HTTPException(status_code=400, detail="請先開啟「媒體資訊探測」並儲存")
+    if not st.prober.available():
+        raise HTTPException(status_code=400, detail="找不到 ffprobe，請先安裝 ffmpeg")
+    started = st.prober.run_in_background(None, "manual")
+    return {"started": started, "result": st.prober.result.as_dict()}
+
+
 @router.get("/web/api/series")
 def list_series(request: Request, ctx: AuthContext = Depends(require_admin)):
     """媒體庫裡的劇和每一季的集數、集號空洞；q 搜尋劇名，gaps=1 只列有空洞的，offset、limit 分頁。"""

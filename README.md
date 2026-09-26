@@ -411,7 +411,17 @@ Mi302 讀影片旁邊的 `X-mediainfo.json`（影片是 `X.strm` 時），格式
 - 同步時 strm 改名、搬移、刪除，`X-mediainfo.json` 跟著一起搬、一起刪。
 - 神醫設定了「媒體資訊根目錄」（json 集中放在另一個資料夾）的話，要把檔案搬到 strm 旁邊才讀得到。
 
-ffprobe → Emby 欄位的對照改寫自 emby-mediainfo（MIT 授權，版權聲明保留在 `embyserver/mediainfo.py`）。
+### 用 ffprobe 探測
+
+沒有現成 json 的影片，可以讓 Mi302 自己探測：在「媒體庫」頁的「媒體資訊」卡片打開「開啟探測」並儲存，再按「提取缺少的媒體資訊」；勾選「同步產生新的 strm 後自動探測」時，新同步的影片會在背景自動探測。
+
+- 每一項向 115 取一次直鏈，ffprobe 讀檔頭（通常幾 MB），結果寫成 `X-mediainfo.json` 放在 strm 旁邊，Emby＋神醫那邊也能共用。媒體資料夾唯讀時只存在 Mi302 的資料庫。
+- 需要 ffmpeg：Docker 映像已內建；直接用 Python 的，安裝腳本會試著裝，沒裝成就自己 `apt install ffmpeg` 或 `brew install ffmpeg`。沒有 ffprobe 時仍會讀現成的 json。
+- 115 的限制：同時最多 3 條連線（「同時探測幾項」最多 3，預設 2），取直鏈至少間隔 0.5 秒（預設 1 秒）。取直鏈和 ffprobe 用同一個一般瀏覽器 UA，並重用連線，少觸發 CDN 限流。
+- 115 限流或登入失效時熔斷：探測和同步都先停，45 分鐘後自動再試（登入失效要重新登入）；播放不受影響。「115 網盤」頁會顯示原因。
+- 失敗的會列出原因（網址會抹掉）；下次按「提取缺少的媒體資訊」會再試。
+
+ffprobe → Emby 欄位的對照、限速與熔斷的做法改寫自 emby-mediainfo（MIT 授權，版權聲明保留在 `embyserver/mediainfo.py`）。
 
 ## 掃描
 

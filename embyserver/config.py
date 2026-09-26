@@ -98,6 +98,18 @@ class MoviePilotConfig:
 
 
 @dataclass
+class MediaInfoConfig:
+    """用 ffprobe 探測 strm 指向的影片，產生 X-mediainfo.json（解析度、HDR、音軌、字幕軌、章節）。"""
+
+    enabled: bool = False  # 預設關：每一項要向 115 取一次直鏈、讀幾 MB 檔頭
+    after_sync: bool = True  # 同步產生新的 strm 後自動探測
+    concurrency: int = 2  # 同時探測幾項（1–3）；115 同時最多 3 條連線
+    interval: float = 1.0  # 每次向 115 取直鏈至少間隔幾秒（0.5–60）
+    timeout: int = 300  # 每一項最多等幾秒
+    ffprobe: str = "ffprobe"  # ffprobe 的路徑
+
+
+@dataclass
 class ServerConfig:
     name: str = "Emby Server"
     host: str = "0.0.0.0"
@@ -116,6 +128,7 @@ class Config:
     api_keys: List[str] = field(default_factory=list)
     p115: P115Config = field(default_factory=P115Config)
     moviepilot: MoviePilotConfig = field(default_factory=MoviePilotConfig)
+    mediainfo: MediaInfoConfig = field(default_factory=MediaInfoConfig)
     # 設定檔的位置與讀取時的修改時間；網頁儲存時寫回這個檔案，檔案被手動改過時重新讀取
     path: Optional[str] = field(default=None, repr=False, compare=False)
     file_mtime: float = field(default=0.0, repr=False, compare=False)
@@ -148,6 +161,7 @@ def _build(raw: dict) -> Config:
         api_keys=list(raw.get("api_keys") or []),
         p115=_build_p115(raw.get("p115") or {}),
         moviepilot=_build_moviepilot(raw.get("moviepilot") or {}),
+        mediainfo=MediaInfoConfig(**(raw.get("mediainfo") or {})),
     )
 
 

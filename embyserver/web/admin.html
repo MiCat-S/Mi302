@@ -309,6 +309,21 @@ dialog .card-b{max-height:70vh;overflow:auto}
       <div id="libs"></div>
       <button class="btn" onclick="addLib()"><svg class="i"><use href="#i-plus"/></svg>新增媒體庫</button>
       <div class="savebar hidden" id="libBar"><span class="hint grow">媒體庫有未儲存的變更</span><button class="btn" onclick="loadLibs()">取消</button><button class="btn primary" onclick="saveLibs()">儲存並掃描</button></div>
+
+      <div class="card" id="miCard" style="margin-top:16px">
+        <div class="card-h"><div class="t"><svg class="i"><use href="#i-film"/></svg><h2>媒體資訊</h2></div><button class="btn" id="miBtn" onclick="probeMI()">提取缺少的媒體資訊</button></div>
+        <div class="card-b stack">
+          <p class="hint">解析度、HDR、音軌、字幕軌和章節，播放器靠它標出 4K、HDR，播放前讓人選音軌和字幕。影片旁邊有 X-mediainfo.json（神醫助手、emby-mediainfo 產生的都行）就直接讀；開啟探測後，Mi302 用 ffprobe 讀 115 上的影片檔頭產生，每一項要取一次直鏈、讀幾 MB。</p>
+          <div id="miStat"><p class="hint">讀取中…</p></div>
+          <div class="fields">
+            <label class="field"><span>同時探測幾項</span><input type="number" min="1" max="3" data-key="mediainfo.concurrency"><small>1–3，115 同時最多 3 條連線</small></label>
+            <label class="field"><span>取直鏈間隔（秒）</span><input type="number" step="0.1" min="0.5" data-key="mediainfo.interval"><small>至少 0.5，太快會被 115 限流</small></label>
+          </div>
+          <label class="switch"><input type="checkbox" data-key="mediainfo.enabled"><span class="track"></span><span class="lbl">開啟探測<small>關閉時仍會讀現成的 X-mediainfo.json</small></span></label>
+          <label class="switch"><input type="checkbox" data-key="mediainfo.after_sync"><span class="track"></span><span class="lbl">同步產生新的 strm 後自動探測</span></label>
+        </div>
+        <div class="card-f"><button class="btn primary" onclick="saveFields($('miCard')).then(pollMI)">儲存</button></div>
+      </div>
     </section>
 
     <!-- 115 -->
@@ -714,7 +729,7 @@ function renderSteps() {
 
 // ---- 媒體庫 ----
 let libs = [], libsShape = null;
-function loadLibs() { libs = structuredClone(cfg.libraries); dirtyLibs(false); renderLibs(); refreshScan(); }
+function loadLibs() { libs = structuredClone(cfg.libraries); dirtyLibs(false); renderLibs(); refreshScan(); pollMI(); }
 function dirtyLibs(on) { $('libBar').classList.toggle('hidden', !on); }
 // 掃描狀態裡數量以外的部分；沒變就只改數字，不必整張卡重畫（封面會閃）
 function libShape(status) { return JSON.stringify((status?.libraries || []).map(({count, ...rest}) => rest)); }
@@ -811,6 +826,43 @@ async function refreshScan() {
   if (S.scan.scanning) scanTimer = setTimeout(refreshScan, 2000);
 }
 function scanNow() { scanReq({}, '全部媒體庫'); }
+
+// ---- 媒體資訊 ----
+let miTimer = null;
+async function pollMI() {
+  clearTimeout(miTimer);
+  if (document.hidden && S.mi?.result.running) { miTimer = setTimeout(pollMI, 2000); return; }
+  let s;
+  try { s = await api('/web/api/mediainfo/status'); } catch (e) { return; }
+  S.mi = s;
+  setHtml($('miStat'), miHtml(s));
+  $('miBtn').disabled = !s.ffprobe || !s.enabled || s.result.running;
+  $('miBtn').title = !s.ffprobe ? '找不到 ffprobe' : !s.enabled ? '先開啟探測並儲存' : '';
+  if (s.result.running) miTimer = setTimeout(pollMI, 2000);
+}
+function miHtml(s) {
+  const r = s.result;
+  let h = `<div class="row wrap"><span class="pill ${s.total && s.have >= s.total ? 'ok' : ''}">${s.have} / ${s.total} 支影片有媒體資訊</span></div>`;
+  if (!s.ffprobe) h += '<p class="notice warn" style="margin-top:10px">找不到 ffprobe，只能讀現成的 X-mediainfo.json。Docker 版更新映像即可；直接用 Python 的請安裝 ffmpeg（例如 apt install ffmpeg、brew install ffmpeg），或重新執行安裝腳本。</p>';
+  if (s.breaker?.tripped) h += `<p class="notice warn" style="margin-top:10px">${esc(s.breaker.message)}</p>`;
+  if (!r.started) return h;
+  if (r.running) {
+    const n = r.done + r.failed + r.skipped, pct = r.total ? n / r.total * 100 : 0;
+    h += `<div class="row" style="margin:12px 0 8px"><span class="pill accent"><span class="spin"></span>探測中</span><span class="hint">${n} / ${r.total}${r.current ? '　' + esc(r.current) : ''}</span></div>
+      <div class="meter"><div style="width:${pct.toFixed(1)}%"></div></div>`;
+  } else {
+    h += `<div class="row wrap" style="margin:12px 0"><span class="pill ${r.errors.length ? 'warn' : 'ok'}">${r.errors.length ? '有問題' : '完成'}</span>
+      <span class="hint">上次探測（${r.source === 'sync' ? '同步後自動' : '手動'}）・${ago(r.finished)}</span></div>
+      <div class="chips">${chip(r.total, '要探測')}${chip(r.done, '成功', true)}${chip(r.failed, '失敗')}${chip(r.skipped, '略過')}</div>`;
+  }
+  if (r.errors.length) h += `<div class="notice bad" style="margin-top:10px">${r.errors.slice(0, 5).map(esc).join('<br>')}${r.errors.length > 5 ? '<br>…還有 ' + (r.errors.length - 5) + ' 個' : ''}</div>`;
+  return h;
+}
+async function probeMI() {
+  let r;
+  try { r = await api('/web/api/mediainfo/probe', {method: 'POST'}); } catch (e) { toast(e.message, 'bad'); return; }
+  toast(r.started ? '開始探測缺少媒體資訊的影片' : '已經在探測中'); pollMI();
+}
 function scanHtml(s) {
   if (!s.scanning) return '';
   // 分母是上次掃描後的項目數；第一次掃描沒有分母，顯示來回滑動的忙碌條

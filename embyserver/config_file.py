@@ -38,6 +38,7 @@ def _rules(rules: List[PathRule], indent: str) -> str:
 
 def render(config: Config) -> str:
     s, p, st, mp, rd = config.server, config.p115, config.p115.strm, config.moviepilot, config.redirect
+    mi = config.mediainfo
     lines = [
         "# Mi302 設定檔",
         "#",
@@ -109,6 +110,15 @@ def render(config: Config) -> str:
         _kv("  concurrency", mp.concurrency, "同時送幾項給 MoviePilot 刮削（1–8），太多可能被 TMDB 限速"),
         "  # 兩邊看到的路徑不同時：Mi302 的路徑（from）→ MoviePilot 的路徑（to）",
         "  path_mappings:" + _rules(mp.path_mappings, "    "),
+        "",
+        "# 媒體資訊：用 ffprobe 探測 strm 指向的影片，寫出 X-mediainfo.json（需要安裝 ffmpeg）",
+        "mediainfo:",
+        _kv("  enabled", mi.enabled, "開啟探測；關閉時仍會讀現成的 X-mediainfo.json"),
+        _kv("  after_sync", mi.after_sync, "同步產生新的 strm 後自動探測"),
+        _kv("  concurrency", mi.concurrency, "同時探測幾項（1–3），115 同時最多 3 條連線"),
+        _kv("  interval", mi.interval, "每次向 115 取直鏈至少間隔幾秒（0.5–60）"),
+        _kv("  timeout", mi.timeout, "每一項最多等幾秒"),
+        _kv("  ffprobe", mi.ffprobe, "ffprobe 的路徑"),
         "",
         "# 給其他工具產生的 strm（例如 alist 網址或本機路徑）",
         "redirect:",

@@ -37,6 +37,7 @@ STRM_FIELDS = (
 MOVIEPILOT_FIELDS = (
     "url", "api_token", "username", "password", "scrape_after_sync", "fill_after_full_sync", "timeout", "concurrency",
 )
+MEDIAINFO_FIELDS = ("enabled", "after_sync", "concurrency", "interval", "timeout", "ffprobe")
 REDIRECT_FIELDS = ("resolve_redirects", "resolve_timeout", "cache_ttl", "require_auth", "default_container")
 P115_FIELDS = ("app", "open_app_id")
 
@@ -60,6 +61,7 @@ def export_settings(config: Config) -> Dict[str, Any]:
             **{k: getattr(config.moviepilot, k) for k in MOVIEPILOT_FIELDS},
             "path_mappings": [{"from": r.source, "to": r.target} for r in config.moviepilot.path_mappings],
         },
+        "mediainfo": {k: getattr(config.mediainfo, k) for k in MEDIAINFO_FIELDS},
         "redirect": {
             **{k: getattr(config.redirect, k) for k in REDIRECT_FIELDS},
             "path_rules": [{"from": r.source, "to": r.target} for r in config.redirect.path_rules],
@@ -135,6 +137,12 @@ def apply_settings(config: Config, raw: dict) -> None:
         raise SettingsError("MoviePilot 網址要以 http:// 或 https:// 開頭")
     if "path_mappings" in mp:
         config.moviepilot.path_mappings[:] = _rules(mp["path_mappings"])
+    mi = config.mediainfo
+    _set_fields(mi, MEDIAINFO_FIELDS, raw.get("mediainfo") or {})
+    mi.concurrency = max(1, min(mi.concurrency, 3))  # 115 同時最多 3 條連線
+    mi.interval = max(0.5, min(mi.interval, 60.0))  # 最多每秒 2 次，115 的 WAF 很敏感
+    mi.timeout = max(10, min(mi.timeout, 3600))
+    mi.ffprobe = mi.ffprobe or "ffprobe"
 
 
 def _tasks(raw) -> List[StrmTask]:

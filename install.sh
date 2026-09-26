@@ -392,6 +392,12 @@ ensure_venv() {
 	fi
 }
 
+ensure_ffprobe() { # 媒體資訊探測要用 ffprobe；裝不起來不影響其他功能
+	has ffprobe && return
+	info "安裝 ffmpeg（媒體資訊探測用）"
+	pkg_install ffmpeg >/dev/null 2>&1 || warn "沒裝成 ffmpeg，媒體資訊只能讀現成的 X-mediainfo.json；需要時自己安裝 ffmpeg"
+}
+
 pick_mirror() {
 	[ -n "$MIRROR" ] && return
 	has curl || return 0
@@ -770,6 +776,7 @@ install_python() {
 
 	ensure_python
 	ensure_venv
+	ensure_ffprobe
 	pick_mirror
 	pip_install
 	prepare_conf
@@ -851,6 +858,7 @@ cmd_update() {
 	else
 		ensure_python
 		ensure_venv
+		ensure_ffprobe
 		pick_mirror
 		pip_install
 		prepare_conf
