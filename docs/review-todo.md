@@ -11,7 +11,9 @@
 - 動到 `embyserver/web/admin.html` 時，把 `<script>` 抽出來跑 `node --check`。
 - 不要加回任何 Docker 相關檔案或說明（已經整個移除；install.sh 裡的 docker 字樣只是拒絕舊參數和搬遷舊安裝用的）。
 - 使用者用 MoviePilot V3（看 V3 分支的原始碼），播放器是 SenPlayer。
-- 安裝依賴：`pip install -r requirements.txt pytest`（需要 Python 3.10 以上）。
+- 安裝依賴：雲端工作階段由 `.claude/hooks/session-start.sh` 自動裝進 `.venv`（用 uv 照 uv.lock），並設好 PATH、PYTHONPATH，直接 `pytest -q` 就能跑。
+  手動裝：`uv sync --extra test --no-install-project`，或在 venv 裡 `pip install -r requirements.txt pytest`（需要 Python 3.10 以上）。
+  雲端容器的系統 pip（Debian 版）建不起 zhconv，不要用它；venv 裡的 pip 沒問題，所以使用者用 install.sh 不受影響。
 
 ## 已完成
 
