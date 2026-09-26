@@ -16,6 +16,7 @@ from urllib.parse import unquote
 from .config import Config, LibraryConfig
 from .db import Database
 from .mediainfo import MediaInfoStore
+from .textutil import search_text, sort_key
 
 log = logging.getLogger(__name__)
 
@@ -320,6 +321,11 @@ class Scanner:
             if key in fields and not isinstance(fields[key], str):
                 fields[key] = json.dumps(fields[key], ensure_ascii=False)
         fields["seen_scan"] = 1
+        if fields.get("type") in ("Movie", "Series"):
+            # 中文片名按拼音排序，按字母跳轉才有效（集的排序名是季集號，不動）
+            fields["sort_name"] = sort_key(fields.get("sort_name") or fields.get("name"))
+        if fields.get("name"):
+            fields["search_text"] = search_text(fields.get("name"), fields.get("original_title"))
         if fields.get("type") != "CollectionFolder":
             self.touched += 1
         row = self.db.one("SELECT id FROM items WHERE path=?", (path,))

@@ -3,7 +3,7 @@ name = "embyserver"
 version = "0.1.0"
 description = "Emby 相容的影片管理伺服器，strm 播放以 302 重導向到真實網址"
 requires-python = ">=3.10"
-dependencies = ["fastapi>=0.110", "uvicorn[standard]>=0.29", "httpx>=0.27", "PyYAML>=6.0", "p115cipher>=0.0.5", "pycryptodome>=3.20"]
+dependencies = ["fastapi>=0.110", "uvicorn[standard]>=0.29", "httpx>=0.27", "PyYAML>=6.0", "p115cipher>=0.0.5", "pycryptodome>=3.20", "pypinyin>=0.50", "zhconv>=1.4"]
 
 [project.optional-dependencies]
 test = ["pytest"]

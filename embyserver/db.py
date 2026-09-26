@@ -124,7 +124,18 @@ class Database:
             self.conn.execute("PRAGMA synchronous=NORMAL")
             self.conn.execute("PRAGMA busy_timeout=5000")
             self.conn.executescript(SCHEMA)
+            self._ensure_columns()
             self.conn.commit()
+
+    # 舊資料庫缺的欄位：CREATE TABLE IF NOT EXISTS 不會幫已存在的表加欄位
+    COLUMNS = {"items": {"search_text": "TEXT"}}
+
+    def _ensure_columns(self) -> None:
+        for table, cols in self.COLUMNS.items():
+            have = {r[1] for r in self.conn.execute(f"PRAGMA table_info({table})")}
+            for name, kind in cols.items():
+                if name not in have:
+                    self.conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {kind}")
 
     def execute(self, sql: str, params: Iterable[Any] = ()) -> sqlite3.Cursor:
         with self.lock:

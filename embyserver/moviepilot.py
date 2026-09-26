@@ -37,6 +37,7 @@ import httpx
 
 from .config import Config, MoviePilotConfig
 from .db import Database
+from .textutil import cjk_count, pinyin_full, simplified
 from .http_util import GuardedClient
 
 log = logging.getLogger(__name__)
@@ -616,15 +617,17 @@ def library_series(
         "WHERE type='Episode' AND series_id IS NOT NULL AND parent_index_number IS NOT NULL AND index_number IS NOT NULL"
     ):
         episodes.setdefault(r["series_id"], {}).setdefault(int(r["s"]), set()).add(int(r["e"]))
-    needle = query.strip().lower()
+    needle = simplified(query.strip()).lower()
+    needle_py = pinyin_full(query) if cjk_count(query) >= 2 else ""
     out: List[dict] = []
     for r in db.query(
-        "SELECT i.id, i.name, i.year, i.original_title, i.provider_ids, l.name AS library FROM items i "
+        "SELECT i.id, i.name, i.year, i.original_title, i.provider_ids, i.search_text, l.name AS library FROM items i "
         "LEFT JOIN items l ON l.id=i.library_id WHERE i.type='Series' ORDER BY i.sort_name"
     ):
         name = r["name"] or ""
-        if needle and needle not in f"{name} {r['original_title'] or ''} {r['year'] or ''}".lower():
-            continue
+        hay = f"{name} {r['original_title'] or ''} {r['year'] or ''} {r['search_text'] or ''}".lower()
+        if needle and needle not in hay and not (needle_py and needle_py in hay):
+            continue  # 片名、原名、年份、拼音、首字母都認
         providers = json.loads(r["provider_ids"]) if r["provider_ids"] else {}
         tmdbid = str(providers.get("Tmdb") or "")
         seasons = []
