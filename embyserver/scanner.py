@@ -254,8 +254,11 @@ class Scanner:
         self._lock = threading.Lock()
         self._full_waiting = False
         self.scanning = False
-        self.current = ""  # 正在掃描什麼，給網頁顯示
-        self.touched = 0
+        self.current = ""  # 正在掃描什麼範圍，給網頁顯示
+        self.item = ""  # 正在處理哪部片
+        self.touched = 0  # 這次已處理的項目數
+        # 進度條的分母：上次掃描後資料庫裡這個範圍的項目數（不必先遍歷一次檔案系統）；第一次是 0
+        self.expected = 0
         # 透過 API 上傳的圖片（例如 MoviePilot 封面插件做的媒體庫封面），重新掃描時不會被蓋掉
         self.images_dir = config.data_path / "images"
         self._custom: Optional[Dict[Tuple[int, str], str]] = None
@@ -337,11 +340,17 @@ class Scanner:
     def _begin(self, what: str) -> None:
         self.scanning = True
         self.current = what
+        self.item = ""
         self.touched = 0
+        self.expected = 0
 
     def _end(self) -> None:
         self.scanning = False
         self.current = ""
+        self.item = ""
+
+    def _count(self, where: str = "1=1", params: Tuple = ()) -> int:
+        return self.db.one(f"SELECT COUNT(*) AS c FROM items WHERE type<>'CollectionFolder' AND {where}", params)["c"]
 
     def _delete_unseen(self, where: str = "1=1", params: Tuple = ()) -> int:
         removed = self.db.execute(f"DELETE FROM items WHERE seen_scan=0 AND {where}", params).rowcount
@@ -368,6 +377,7 @@ class Scanner:
             self._full_waiting = False
             self._begin("全部媒體庫")
             try:
+                self.expected = self._count()
                 self.db.execute("UPDATE items SET seen_scan=0")
                 for lib in self.config.libraries:
                     self._scan_library(lib)
@@ -383,6 +393,9 @@ class Scanner:
         with self._lock:
             self._begin("、".join(sorted(wanted)) or "媒體庫")
             try:
+                lib_ids = [self._library_item(lib) for lib in self.config.libraries if lib.name in wanted]
+                if lib_ids:
+                    self.expected = self._count(f"library_id IN ({','.join('?' * len(lib_ids))})", tuple(lib_ids))
                 for lib in self.config.libraries:
                     if lib.name not in wanted:
                         continue
@@ -423,6 +436,7 @@ class Scanner:
         with self._lock:
             self._begin(units[0][2].name if len(units) == 1 else f"{len(units)} 個位置")
             try:
+                self.expected = sum(self._count(*_scope_sql(scope)) for _, _, scope, _ in units)
                 removed = 0
                 for lib, root, scope, kind in units:
                     lib_id = self._library_item(lib)
@@ -563,6 +577,7 @@ class Scanner:
             dname, dyear = clean_title(path.parent.name)
             if dyear or not year:
                 name, year = dname, dyear or year
+        self.item = name
         nfo = parse_nfo(path.with_suffix(".nfo"))
         if not nfo and single:
             nfo = parse_nfo(path.parent / "movie.nfo")
@@ -630,6 +645,7 @@ class Scanner:
 
     def _add_series(self, lib_id: int, folder: Path) -> None:
         name, year = clean_title(folder.name)
+        self.item = name
         nfo = parse_nfo(folder / "tvshow.nfo")
         nfo.pop("parent_index_number", None)
         nfo.pop("index_number", None)

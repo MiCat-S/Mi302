@@ -117,3 +117,16 @@ def test_browse_local(tmp_path: Path):
     assert r["dirs"] == ["movies"] and r["parent"] == str(tmp_path)
     assert c.get("/web/api/browse", params={"path": str(tmp_path / "nope")}, headers=h).status_code == 400
     assert c.get("/web/api/browse", params={"path": "/"}).status_code == 401
+
+
+def test_scan_status_reports_progress(tmp_path: Path):
+    movie = tmp_path / "movies" / "A (2020)"
+    movie.mkdir(parents=True)
+    (movie / "A (2020).strm").write_text("http://x/a.mkv")
+    raw = {"users": [{"name": "admin", "password": "pw", "admin": True}],
+           "libraries": [{"name": "電影", "type": "movies", "paths": [str(tmp_path / "movies")]}]}
+    c = make_client(tmp_path, raw)
+    c.app.state.scanner.scan_all()
+    c.app.state.scanner.scan_all()
+    s = c.get("/web/api/scan", headers=admin_headers(c)).json()
+    assert s["scanning"] is False and s["progress"] == {"done": 1, "total": 1, "item": ""}

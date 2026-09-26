@@ -146,7 +146,11 @@ def scan_status(request: Request, ctx: AuthContext = Depends(require_admin)):
         }
         for lib in st.config.libraries
     ]
-    return {"scanning": st.scanner.scanning, "current": st.scanner.current, "libraries": libs}
+    return {
+        "scanning": st.scanner.scanning, "current": st.scanner.current, "libraries": libs,
+        # 進度：total 是上次掃描後的項目數，第一次掃描是 0（網頁顯示忙碌條）
+        "progress": {"done": st.scanner.touched, "total": st.scanner.expected, "item": st.scanner.item},
+    }
 
 
 @router.post("/web/api/scan")

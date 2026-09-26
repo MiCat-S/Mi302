@@ -119,3 +119,15 @@ def test_unmounted_library_keeps_items_and_watch_history(tmp_path: Path):
     (tmp_path / "offline").rename(movies)
     scanner.scan_all()
     assert ids(db, "Movie")["英雄"] == movie
+
+
+def test_scan_progress_uses_last_count_as_total(tmp_path: Path):
+    tv, movies, config, db, scanner = setup(tmp_path)
+    assert (scanner.touched, scanner.expected) == (8, 0)  # 第一次掃描不知道總數
+    scanner.scan_all()
+    assert (scanner.touched, scanner.expected) == (8, 8)  # 之後用上次的項目數當分母
+    scanner.scan_libraries(["電影"])
+    assert scanner.expected == 2
+    scanner.scan_paths([str(tv / "国产剧" / "庆余年 (2019)")])
+    assert scanner.expected == 3  # 劇、季、集
+    assert scanner.item == "" and not scanner.scanning
