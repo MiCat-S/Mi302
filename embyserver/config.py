@@ -130,6 +130,7 @@ class ServerConfig:
     chinese_people: bool = True  # 演職人員顯示中文名（經 MoviePilot 查 TMDB 別名，沒有再問 Wikidata）
     chinese_genres: bool = True  # 類型顯示中文（Action → 动作），繁體換成簡體
     intro_skip: bool = True  # 從播放行為學片頭片尾，給播放器「跳過片頭」用（不碰 115）
+    allow_download: bool = True  # 播放器的「下載」（/Items/{id}/Download）；關掉後播放器不顯示下載，直接打網址回 403
 
 
 @dataclass

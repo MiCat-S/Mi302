@@ -93,7 +93,7 @@ def users_public(request: Request):
     st = state(request)
     if not st.config.server.public_users:
         return []
-    return [user_dto(u, st.server_id) for u in st.auth.list_users()]
+    return [user_dto(u, st.server_id, st.config.server.allow_download) for u in st.auth.list_users()]
 
 
 @router.post("/users/authenticatebyname")
@@ -131,7 +131,7 @@ async def authenticate_by_name(request: Request):
     if not user:
         raise HTTPException(status_code=401, detail="Invalid username or password entered.")
     return {
-        "User": user_dto(user, st.server_id),
+        "User": user_dto(user, st.server_id, st.config.server.allow_download),
         "SessionInfo": _session_info(request, user, info),
         "AccessToken": token,
         "ServerId": st.server_id,
@@ -161,7 +161,7 @@ def _session_info(request: Request, user: dict, info: dict) -> dict:
 @router.get("/users")
 def users_list(request: Request, ctx: AuthContext = Depends(require_admin)):
     st = state(request)
-    return [user_dto(u, st.server_id) for u in st.auth.list_users()]
+    return [user_dto(u, st.server_id, st.config.server.allow_download) for u in st.auth.list_users()]
 
 
 @router.get("/users/{user_id}")
@@ -172,7 +172,7 @@ def user_get(user_id: str, request: Request, ctx: AuthContext = Depends(require_
     user = st.auth.get_user(user_id)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
-    return user_dto(user, st.server_id)
+    return user_dto(user, st.server_id, st.config.server.allow_download)
 
 
 @router.post("/sessions/logout")

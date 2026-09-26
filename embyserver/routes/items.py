@@ -56,6 +56,7 @@ def _dto(request: Request, ctx: AuthContext, row, full: bool = False) -> dict:
         with_people=full or "people" in fields,
         intro=st.intro,
         with_chapters="chapters" in fields,
+        can_download=st.config.server.allow_download,
     )
 
 

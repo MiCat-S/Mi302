@@ -231,6 +231,25 @@ def test_progress_and_played(client):
     assert r.json()["IsFavorite"] is True
 
 
+def test_download_switch(client, tmp_path):
+    token, uid = login(client)
+    h = {"X-Emby-Token": token}
+    iid = client.get("/Items", params={"Recursive": "true", "SearchTerm": "全面"}, headers=h).json()["Items"][0]["Id"]
+    assert client.get(f"/Items/{iid}", headers=h).json()["CanDownload"] is True
+    assert client.get(f"/Users/{uid}", headers=h).json()["Policy"]["EnableContentDownloading"] is True
+
+    client.app.state.config.path = str(tmp_path / "config.yaml")  # 網頁儲存設定會寫進設定檔
+    assert client.put("/web/api/settings", json={"server": {"allow_download": False}}, headers=h).status_code == 200
+    assert "allow_download: false" in (tmp_path / "config.yaml").read_text(encoding="utf-8")
+    # 播放器不顯示下載；直接打網址也拒絕；播放不受影響
+    assert client.get(f"/Items/{iid}", headers=h).json()["CanDownload"] is False
+    assert client.get(f"/Users/{uid}", headers=h).json()["Policy"]["EnableContentDownloading"] is False
+    login_body = client.post("/Users/AuthenticateByName", json={"Username": "cat", "Pw": "secret"}).json()
+    assert login_body["User"]["Policy"]["EnableContentDownloading"] is False
+    assert client.get(f"/Items/{iid}/Download", params={"api_key": token}, follow_redirects=False).status_code == 403
+    assert client.get(f"/Videos/{iid}/stream", params={"api_key": token}, follow_redirects=False).status_code == 302
+
+
 def test_form_login(client):
     r = client.post("/Users/AuthenticateByName", data={"Username": "cat", "Pw": "secret"})
     assert r.status_code == 200 and r.json()["AccessToken"]

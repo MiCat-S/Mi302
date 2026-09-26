@@ -138,6 +138,7 @@ def item_dto(
     with_people: bool = False,
     intro=None,
     with_chapters: bool = False,
+    can_download: bool = True,
 ) -> Dict[str, Any]:
     t = item["type"]
     dto: Dict[str, Any] = {
@@ -151,7 +152,7 @@ def item_dto(
         "IsFolder": t in FOLDER_TYPES,
         "LocationType": "FileSystem",
         "CanDelete": False,
-        "CanDownload": t in VIDEO_TYPES,
+        "CanDownload": can_download and t in VIDEO_TYPES,
         "SupportsSync": False,
     }
     if item["collection_type"]:
@@ -262,7 +263,7 @@ def item_dto(
     return {k: v for k, v in dto.items() if v is not None}
 
 
-def user_dto(user: dict, server_id: str) -> Dict[str, Any]:
+def user_dto(user: dict, server_id: str, can_download: bool = True) -> Dict[str, Any]:
     is_admin = bool(user["is_admin"])
     return {
         "Name": user["name"],
@@ -303,7 +304,7 @@ def user_dto(user: dict, server_id: str) -> Dict[str, Any]:
             "EnableVideoPlaybackTranscoding": False,
             "EnablePlaybackRemuxing": False,
             "EnableContentDeletion": False,
-            "EnableContentDownloading": True,
+            "EnableContentDownloading": can_download,
             "EnableSubtitleDownloading": False,
             "EnableSubtitleManagement": False,
             "EnableSyncTranscoding": False,

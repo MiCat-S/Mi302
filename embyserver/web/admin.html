@@ -518,6 +518,7 @@ dialog .card-b{max-height:70vh;overflow:auto}
         <div class="card-b stack">
           <label class="field"><span>伺服器名稱</span><input type="text" data-key="server.name"><small>播放器裡顯示的名稱</small></label>
           <label class="switch"><input type="checkbox" data-key="server.public_users"><span class="track"></span><span class="lbl">播放器登入畫面列出使用者名稱</span></label>
+          <label class="switch"><input type="checkbox" data-key="server.allow_download"><span class="track"></span><span class="lbl">允許播放器下載影片<small>要登入才能下載；關掉後播放器不顯示下載，直接打下載網址也會被拒絕</small></span></label>
           <p class="hint">埠號目前是 <b id="port"></b>。要改埠號：改設定檔的 <code>server.port</code>，然後重新啟動。</p>
         </div>
       </div>

@@ -457,7 +457,7 @@ ffprobe → Emby 欄位的對照、限速與熔斷的做法改寫自 emby-mediai
 - 使用者：`Users`、`Users/AuthenticateByName`、`Users/Public`、`Users/{id}`、`Sessions/Logout`
 - 媒體庫：`Users/{id}/Views`、`Library/MediaFolders`、`Library/VirtualFolders`、`Library/VirtualFolders/Query`、`Library/SelectableMediaFolders`、`Library/Refresh`、`Library/Media/Updated`
 - 項目：`Users/{id}/Items`、`Items`（ParentId、Recursive、IncludeItemTypes、SortBy、SearchTerm、Filters、分頁）、`Users/{id}/Items/{itemId}`、`Items/Latest`、`Items/Resume`、`Shows/{id}/Seasons`、`Shows/{id}/Episodes`、`Shows/NextUp`、`Genres`、`Items/Counts`、`Items/{id}/Refresh`
-- 播放：`Items/{id}/PlaybackInfo`、`Videos/{id}/*`、`Items/{id}/Download`、`Sessions/Playing[/Progress|/Stopped]`
+- 播放：`Items/{id}/PlaybackInfo`、`Videos/{id}/*`、`Items/{id}/Download`（要登入；進階設定可以關掉下載）、`Sessions/Playing[/Progress|/Stopped]`
 - 使用者資料：`PlayedItems`、`FavoriteItems`
 - 圖片：`Items/{id}/Images/{type}`（讀取、上傳、刪除）
 

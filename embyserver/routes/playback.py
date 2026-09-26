@@ -97,7 +97,9 @@ def video_stream(item_id: str, name: str, request: Request):
 @router.api_route("/items/{item_id}/download", methods=["GET", "HEAD"])
 @router.api_route("/items/{item_id}/file", methods=["GET", "HEAD"])
 def item_download(item_id: str, request: Request, ctx: AuthContext = Depends(require_user)):
-    # 串流網址維持不帶 token 也能播（很多播放器不帶）；下載是另一回事，要登入
+    # 下載要登入，也可以整個關掉（server.allow_download）
+    if not state(request).config.server.allow_download:
+        raise HTTPException(status_code=403, detail="下載功能已關閉")
     return _stream(item_id, "stream", request)
 
 
