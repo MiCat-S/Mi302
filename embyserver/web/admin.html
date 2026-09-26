@@ -875,6 +875,8 @@ function renderAccount() {
   const space = a?.space?.total ? Math.round(a.space.used / a.space.total * 100) + '%' : '–';
   $('stSpace').textContent = s.logged_in ? space : '未登入';
   $('qrBtn').innerHTML = icon('qr') + (s.logged_in ? '重新掃碼登入' : '掃碼登入');
+  // 115 限流或登入失效：背景同步暫停，播放照常
+  const brk = s.breaker?.tripped ? `<p class="notice ${s.breaker.login_bad ? 'bad' : 'warn'}" style="margin-bottom:12px">${esc(s.breaker.message)}${s.breaker.login_bad ? '' : '。播放不受影響。'}</p>` : '';
   $('qrBtn').className = 'btn ' + (s.logged_in ? '' : 'primary');
   $('logoutBtn').classList.toggle('hidden', !s.logged_in);
   if (!s.logged_in) {
@@ -905,8 +907,8 @@ function renderAccount() {
     }
     dev += '</div></details>';
   }
-  $('acct').innerHTML = h + kv + dev;
-  $('ovAcct').innerHTML = (a ? accountHead(a) : '') + (c && !c.valid ? '<p class="notice bad" style="margin-top:12px">115 登入已失效，請重新掃碼。</p>' : '');
+  $('acct').innerHTML = brk + h + kv + dev;
+  $('ovAcct').innerHTML = brk + (a ? accountHead(a) : '') + (c && !c.valid ? '<p class="notice bad" style="margin-top:12px">115 登入已失效，請重新掃碼。</p>' : '');
 }
 function pollQr(t, statusUrl, img, label, holder, box) {
   const poll = async () => {

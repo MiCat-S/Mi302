@@ -38,6 +38,8 @@ def p115_status(request: Request, ctx: AuthContext = Depends(require_admin)):
         # 舊欄位：cookie 有效時的帳號
         "user": {"user_id": cookie.get("user_id"), "user_name": cookie.get("user_name")} if cookie.get("valid") else None,
         "open": {**svc.open.status(), **(account.get("open") or {})},
+        # 115 限流或登入失效時背景同步暫停；網頁顯示原因和恢復時間
+        "breaker": svc.breaker.status(),
     }
 
 

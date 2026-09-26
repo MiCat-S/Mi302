@@ -76,6 +76,93 @@ class LifeEventGap(P115Error):
     """上次讀到的生活事件已經不在 115 給的範圍內，中間可能有漏掉的事件。"""
 
 
+class P115Throttled(P115Error):
+    """115 限流或登入失效：背景工作（同步、探測）先停下，免得越打越久。"""
+
+
+# 熔斷：115 的 WAF 很敏感，被限流後還繼續打只會封更久。判定規則參考 xiao-vvv/emby-mediainfo（MIT）。
+BREAKER_COOLDOWN = 45 * 60
+THROTTLE_ERRNOS = {770004}
+THROTTLE_WORDS = ("访问上限", "访问被阻断", "操作太频繁", "请求过于频繁", "登录异常", "Too Many Requests")
+LOGIN_ERRNOS = {99, 990001}
+LOGIN_WORDS = ("请重新登录", "请重新登陆", "登录失效", "登陆失效", "登录已过期", "登录超时", "登陆超时")
+
+
+class Breaker:
+    """115 被限流時停下背景工作 45 分鐘，期滿自動再試；登入失效要等換 cookie 才恢復。
+
+    只擋同步、探測這類背景工作；播放時取直鏈照常，不因為背景工作被限流就讓人看不了片。
+    """
+
+    def __init__(self, cooldown: float = BREAKER_COOLDOWN):
+        self.cooldown = cooldown
+        self.tripped_at: Optional[float] = None
+        self.reason = ""
+        self.login_bad = False
+        self._lock = threading.Lock()
+
+    def trip(self, reason: str, login: bool = False) -> None:
+        with self._lock:
+            if self.tripped_at is None or login and not self.login_bad:
+                log.error("115 熔斷%s：%s", "（登入失效）" if login else "", reason)
+            self.tripped_at = time.time()
+            self.reason = reason[:200]
+            self.login_bad = self.login_bad or login
+
+    def reset(self) -> None:
+        with self._lock:
+            self.tripped_at, self.reason, self.login_bad = None, "", False
+
+    @property
+    def tripped(self) -> bool:
+        with self._lock:
+            if self.tripped_at is None:
+                return False
+            if self.login_bad:
+                return True
+            if time.time() - self.tripped_at > self.cooldown:
+                log.warning("115 熔斷冷卻期滿，恢復背景工作：%s", self.reason)
+                self.tripped_at, self.reason = None, ""
+                return False
+            return True
+
+    def check(self) -> None:
+        if self.tripped:
+            raise P115Throttled(self.message())
+
+    def message(self) -> str:
+        if self.login_bad:
+            return f"115 登入失效，請重新掃碼登入（{self.reason}）"
+        left = max(0, int((self.tripped_at or time.time()) + self.cooldown - time.time()) // 60)
+        return f"115 限流，背景同步暫停中，約 {left} 分鐘後再試（{self.reason}）"
+
+    def status(self) -> dict:
+        tripped = self.tripped
+        return {
+            "tripped": tripped, "reason": self.reason, "login_bad": self.login_bad,
+            "until": int(self.tripped_at + self.cooldown) if tripped and self.tripped_at and not self.login_bad else None,
+            "message": self.message() if tripped else "",
+        }
+
+    def inspect(self, status: Optional[int] = None, data: Optional[dict] = None) -> None:
+        """看 115 的回應是不是限流或登入失效，是就熔斷。"""
+        if status in (405, 429):
+            self.trip(f"HTTP {status}")
+            return
+        if not isinstance(data, dict):
+            return
+        try:
+            errno = int(data.get("errno") or data.get("errNo") or data.get("code") or 0) or None
+        except (TypeError, ValueError):
+            errno = None
+        text = str(data.get("error") or data.get("error_msg") or data.get("message") or data.get("msg") or "")
+        brief = f"{errno or ''} {text}".strip() or str(data)[:120]
+        if errno in LOGIN_ERRNOS or any(w in text for w in LOGIN_WORDS):
+            self.trip(brief, login=True)
+        elif errno in THROTTLE_ERRNOS or any(w in text for w in THROTTLE_WORDS):
+            self.trip(brief)
+
+
 def extract_pickcode(url: str) -> Optional[str]:
     """從 strm 內容取出 pickcode。
 
@@ -111,6 +198,7 @@ class P115Service:
         open_app_id: str = "",
     ):
         self.db = db
+        self.breaker = Breaker()
         self.open = P115OpenClient(db, open_app_id, timeout, transport=transport)
         self.app = app
         self._client = GuardedClient(P115Error, timeout=timeout, follow_redirects=False, transport=transport)
@@ -135,6 +223,7 @@ class P115Service:
             login["app"] = self.app
         self.db.set_meta(LOGIN_META_KEY, json.dumps(login))
         self._account_cache = None
+        self.breaker.reset()  # 換了 cookie，登入失效的熔斷也跟著解除
         with self._cache_lock:
             self._cache.clear()
 
@@ -396,13 +485,23 @@ class P115Service:
 
     # ---------------- 目錄 ----------------
 
+    def _api_json(self, resp: httpx.Response) -> dict:
+        """115 API 的回應：被限流（405/429、errno 770004…）或登入失效時先熔斷，再照常回報錯誤。"""
+        if resp.status_code in (405, 429):
+            self.breaker.inspect(status=resp.status_code)
+            raise P115Throttled(f"115 限流（HTTP {resp.status_code}），背景同步暫停 {BREAKER_COOLDOWN // 60} 分鐘")
+        data = _json(resp)
+        if data.get("state") is False or data.get("state") == 0:
+            self.breaker.inspect(data=data)
+        return data
+
     def _webapi_get(self, path: str, params: dict) -> dict:
         if not self.cookies:
             raise P115Error("尚未登入 115")
         resp = self._client.get(
             f"{WEBAPI}{path}", params=params, headers={"Cookie": self.cookies, "User-Agent": BROWSER_UA}
         )
-        data = _json(resp)
+        data = self._api_json(resp)
         if not data.get("state", True) and "data" not in data:
             raise P115Error(f"115 webapi 錯誤：{data.get('error') or data.get('errNo') or data}")
         return data
@@ -413,7 +512,7 @@ class P115Service:
         resp = self._client.post(
             f"{WEBAPI}{path}", data=data, headers={"Cookie": self.cookies, "User-Agent": BROWSER_UA}
         )
-        body = _json(resp)
+        body = self._api_json(resp)
         if body.get("state") is False:
             raise P115Error(f"115 webapi 錯誤：{body.get('error') or body.get('errNo') or body}")
         return body
@@ -687,7 +786,7 @@ class P115Service:
             data={"data": rsa_encrypt(payload).decode()},
             headers={"User-Agent": user_agent, "Cookie": self.cookies},
         )
-        data = _json(resp)
+        data = self._api_json(resp)  # 播放不被熔斷擋住，但取直鏈被限流時一樣要讓背景工作停下
         if not data.get("state"):
             raise P115Error(f"115 取直鏈失敗：{data.get('error') or data.get('msg') or data}")
         try:

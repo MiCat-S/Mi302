@@ -38,7 +38,7 @@ from .config import P115StrmConfig, StrmTask
 from .db import Database
 from .p115 import (
     LIFE_COPY_FOLDER, LIFE_DELETE, LIFE_NEW_FOLDER, LIFE_RECEIVE, LIFE_UPLOAD, PLAIN_UA,
-    LifeEventGap, P115Error, P115NotFound, P115Service,
+    LifeEventGap, P115Error, P115NotFound, P115Service, P115Throttled,
 )
 
 log = logging.getLogger(__name__)
@@ -387,6 +387,11 @@ class StrmSync:
         return r
 
     def _run(self, mode: str) -> None:
+        if self.p115.breaker.tripped:
+            # 115 限流或登入失效：再打只會封更久，等冷卻期過了再同步
+            self.result.notes.append(self.p115.breaker.message() + "，這次不同步")
+            log.warning("115 熔斷中，略過同步：%s", self.p115.breaker.reason)
+            return
         states = self._states()
         full: List[StrmTask] = []
         incremental: List[StrmTask] = []
@@ -418,10 +423,14 @@ class StrmSync:
                 self.result.errors.append(f"讀取 115 生活事件失敗：{exc}")
                 log.warning("讀取 115 生活事件失敗，這次只用修改時間補抓：%s", exc)
 
-        for task in full:
-            self._guard(task, lambda: self._run_full(task))
-        for task in incremental:
-            self._guard(task, lambda: self._run_incremental(task, states[_task_key(task)], events))
+        jobs = [(t, lambda t=t: self._run_full(t)) for t in full]
+        jobs += [(t, lambda t=t: self._run_incremental(t, states[_task_key(t)], events)) for t in incremental]
+        for i, (task, job) in enumerate(jobs):
+            if self.p115.breaker.tripped:
+                left = "、".join(t.remote for t, _ in jobs[i:])
+                self.result.notes.append(f"{self.p115.breaker.message()}，這些任務這次不同步：{left}")
+                break
+            self._guard(task, job)
 
     def _guard(self, task: StrmTask, job: Callable[[], None]) -> None:
         """一個任務出錯不影響其他任務，錯誤顯示在網頁上。"""
@@ -450,8 +459,8 @@ class StrmSync:
         def loop():
             last_inc = time.time()
             while not self._stop.wait(60):
-                if not (self.p115.logged_in and self.tasks):
-                    continue
+                if not (self.p115.logged_in and self.tasks) or self.p115.breaker.tripped:
+                    continue  # 115 熔斷中就等冷卻期過了再排
                 now = time.time()
                 if self._full_due(now):
                     last_inc = now
@@ -531,6 +540,8 @@ class StrmSync:
             try:
                 tree = self.p115.export_tree(cid, task.remote)
                 found = self._tree_entries(task, cid, tree)
+            except P115Throttled:
+                raise  # 被限流時改逐層列目錄只會打得更多
             except P115Error as exc:
                 log.warning("115 目錄樹比對失敗，改成逐層列目錄：%s", exc)
                 self.result.notes.append(f"{task.remote}：目錄樹比對失敗（{exc}），改成逐層列目錄")
@@ -675,6 +686,7 @@ class StrmSync:
 
     def _remote_ancestors(self, cid: int) -> Optional[List[Tuple[int, str]]]:
         """向 115 查資料夾由根往下的每一層 (id, 名稱)；順便記下每一層的路徑。已不存在時回傳 None。"""
+        self.p115.breaker.check()  # 逐一查路徑可能很多次，被限流了就別再打
         if self.cfg.request_delay:
             time.sleep(self.cfg.request_delay)
         try:

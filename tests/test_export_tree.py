@@ -207,7 +207,7 @@ def test_export_status_error_stops_polling(tmp_path: Path):
     def failing(request):
         if request.url.path == "/files/export_dir" and request.method == "GET":
             polls.append(1)
-            return httpx.Response(200, json={"state": False, "errNo": 990001, "error": "导出任务不存在", "data": []})
+            return httpx.Response(200, json={"state": False, "errNo": 20130827, "error": "导出任务不存在", "data": []})
         return real(request)
 
     sync.p115._client._transport = httpx.MockTransport(failing)
