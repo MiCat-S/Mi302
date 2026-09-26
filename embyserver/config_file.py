@@ -133,7 +133,7 @@ def render(config: Config) -> str:
         _kv("  resolve_redirects", rd.resolve_redirects, "先由伺服器跟著上游重導向走到底"),
         _kv("  resolve_timeout", rd.resolve_timeout),
         _kv("  cache_ttl", rd.cache_ttl),
-        _kv("  require_auth", rd.require_auth, "播放網址是否要求登入（很多播放器不帶 token）"),
+        _kv("  require_auth", rd.require_auth, "播放網址是否要求登入（和官方 Emby 一樣；某個播放器播不了時再關）"),
         _kv("  default_container", rd.default_container, "strm 看不出影片格式時的預設格式"),
         "  # 把 strm 內容開頭的 from 換成 to，再 302 給播放器",
         "  path_rules:" + _rules(rd.path_rules, "    "),

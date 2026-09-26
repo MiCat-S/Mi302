@@ -256,6 +256,7 @@ http://192.168.1.10:8096/d/abcdefghijklmnopq.mkv
 1. 播放器請求 strm 項目時，伺服器從 strm 取出 pickcode，以**播放器自己的 User-Agent** 向 115 取下載直鏈（115 的直鏈綁定 UA），然後 302 過去。直鏈依 (pickcode, UA) 快取到到期前 5 分鐘。
 2. 其他工具產生的 strm 也認得，例如 `…/d/{pickcode}`、`…?pickcode=xxx`，舊檔案不必重新產生。
 3. 115 取直鏈失敗時，會退回 strm 原網址。
+4. 播放網址和官方 Emby 一樣要求登入，token 放查詢參數（`api_key`）或 `X-Emby-Authorization` 標頭都可以。某個播放器播不了時，可以在進階設定關掉「播放網址要求登入」。
 
 ## 刮削：交給 MoviePilot
 

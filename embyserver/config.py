@@ -49,8 +49,9 @@ class RedirectConfig:
     resolve_redirects: bool = False
     resolve_timeout: float = 10.0
     cache_ttl: int = 90
-    # stream 請求常不帶 token，預設不要求認證
-    require_auth: bool = False
+    # 串流和官方 Emby 一樣要求登入（4.7 起不分內外網都擋沒登入的串流請求）。已確認 Emby 系列、Kodi 把 token 放查詢參數，
+    # Infuse 放 X-Emby-Authorization 標頭，兩種都認。某個播放器播不了時再關。
+    require_auth: bool = True
     default_container: str = "mkv"
 
 

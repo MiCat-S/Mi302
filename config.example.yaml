@@ -85,7 +85,7 @@ redirect:
   resolve_redirects: false          # 先由伺服器跟著上游重導向走到底
   resolve_timeout: 10.0
   cache_ttl: 90
-  require_auth: false               # 播放網址是否要求登入（很多播放器不帶 token）
+  require_auth: true                # 播放網址是否要求登入（和官方 Emby 一樣；某個播放器播不了時再關）
   default_container: mkv            # strm 看不出影片格式時的預設格式
   # 把 strm 內容開頭的 from 換成 to，再 302 給播放器
   path_rules: []

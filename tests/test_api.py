@@ -144,23 +144,28 @@ def test_strm_302(client):
     assert ms["SupportsDirectPlay"] and not ms["SupportsTranscoding"]
     assert ms["Container"] == "mkv"
 
-    # 播放器照 DirectStreamUrl 請求，不帶 token 也要 302
-    r = client.get(ms["DirectStreamUrl"].split("&api_key")[0], follow_redirects=False)
+    # 播放器照 DirectStreamUrl 請求（裡面帶 api_key）
+    assert "api_key=" in ms["DirectStreamUrl"]
+    r = client.get(ms["DirectStreamUrl"], follow_redirects=False)
     assert r.status_code == 302
     assert r.headers["location"] == "http://cdn.example.com/115/Inception.2010.mkv"
 
+    # 和官方 Emby 一樣要登入：不帶 token 401；token 放查詢參數，或放 MediaBrowser 標頭（Infuse 的做法）都可以
+    infuse = {"X-Emby-Authorization": f'MediaBrowser Client="Infuse-Direct", Device="iPhone", DeviceId="d", Version="8", Token="{token}"'}
     for path in (
         f"/emby/videos/{item_id}/original.mkv",
         f"/Videos/{item_id}/stream",
+        f"/Items/{item_id}/Download",
+        f"/Items/{item_id}/File",
     ):
-        r = client.get(path, follow_redirects=False)
-        assert r.status_code == 302, path
-
-    # 下載不是播放：要登入
-    for path in (f"/Items/{item_id}/Download", f"/Items/{item_id}/File"):
         assert client.get(path, follow_redirects=False).status_code == 401, path
-        r = client.get(path, params={"api_key": token}, follow_redirects=False)
-        assert r.status_code == 302, path
+        assert client.get(path, params={"api_key": token}, follow_redirects=False).status_code == 302, path
+        assert client.get(path, headers=infuse, follow_redirects=False).status_code == 302, path
+
+    # 關掉 redirect.require_auth：串流不登入也能播，下載還是要登入
+    client.app.state.config.redirect.require_auth = False
+    assert client.get(f"/Videos/{item_id}/stream", follow_redirects=False).status_code == 302
+    assert client.get(f"/Items/{item_id}/Download", follow_redirects=False).status_code == 401
 
 
 def test_strm_path_rule(client):
@@ -169,7 +174,7 @@ def test_strm_path_rule(client):
     item = client.get(
         "/Items", params={"Recursive": "true", "SearchTerm": "Rewrite"}, headers=h
     ).json()["Items"][0]
-    r = client.get(f"/Videos/{item['Id']}/stream.mp4", follow_redirects=False)
+    r = client.get(f"/Videos/{item['Id']}/stream.mp4", headers=h, follow_redirects=False)
     assert r.status_code == 302
     # Location 標頭中的非 ASCII 字元會被百分比編碼
     assert unquote(r.headers["location"]) == "http://alist.local:5244/d/cloud/電影/Rewrite.mp4"
@@ -181,7 +186,7 @@ def test_local_file_stream_with_range(client):
     item = client.get(
         "/Items", params={"Recursive": "true", "SearchTerm": "Local"}, headers=h
     ).json()["Items"][0]
-    r = client.get(f"/Videos/{item['Id']}/stream", headers={"Range": "bytes=0-9"})
+    r = client.get(f"/Videos/{item['Id']}/stream", headers={**h, "Range": "bytes=0-9"})
     assert r.status_code == 206
     assert r.content == b"0123456789"
 
@@ -203,7 +208,7 @@ def test_tv_shows(client):
     assert eps[0]["SeriesName"] == "Dark"
     assert eps[0]["SeriesPrimaryImageTag"]
 
-    r = client.get(f"/Videos/{eps[1]['Id']}/stream", follow_redirects=False)
+    r = client.get(f"/Videos/{eps[1]['Id']}/stream", headers=h, follow_redirects=False)
     assert r.headers["location"] == "http://cdn.example.com/dark/s1e2.mp4"
 
 
@@ -337,7 +342,7 @@ def test_resolve_redirect_chain(media: Path, tmp_path: Path):
             item = c.get(
                 "/Items", params={"Recursive": "true", "SearchTerm": "全面"}, headers={"X-Emby-Token": token}
             ).json()["Items"][0]
-            r = c.get(f"/Videos/{item['Id']}/stream", follow_redirects=False)
+            r = c.get(f"/Videos/{item['Id']}/stream", headers={"X-Emby-Token": token}, follow_redirects=False)
             assert r.headers["location"] == f"http://127.0.0.1:{port}/final/signed?sig=abc"
     finally:
         server.shutdown()

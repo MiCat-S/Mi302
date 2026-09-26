@@ -125,7 +125,7 @@ def test_strm_pickcode_redirects_via_115(client):
     assert ms["Path"].startswith("http://testserver/videos/")
     assert ms["IsRemote"] is True
 
-    r = client.get(f"/videos/{item['Id']}/stream.mkv", headers={"User-Agent": "Infuse/8"}, follow_redirects=False)
+    r = client.get(f"/videos/{item['Id']}/stream.mkv", headers={**h, "User-Agent": "Infuse/8"}, follow_redirects=False)
     assert r.status_code == 302
     assert r.headers["location"] == CDN
     assert client.seen == [(PICKCODE, "Infuse/8")]

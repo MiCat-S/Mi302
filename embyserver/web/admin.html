@@ -550,7 +550,7 @@ dialog .card-b{max-height:70vh;overflow:auto}
           <label class="field"><span>路徑替換</span><textarea id="rules" rows="3" placeholder="/mnt/115 => http://alist:5244/d/115"></textarea><small>一行一條，格式：原本開頭 =&gt; 替換成</small></label>
           <label class="field" style="max-width:280px"><span>看不出格式時預設的影片格式</span><input type="text" data-key="redirect.default_container"></label>
           <label class="switch"><input type="checkbox" data-key="redirect.resolve_redirects"><span class="track"></span><span class="lbl">由伺服器先跟著上游的重導向走到底<small>再把最終網址給播放器</small></span></label>
-          <label class="switch"><input type="checkbox" data-key="redirect.require_auth"><span class="track"></span><span class="lbl">播放網址要求登入<small>很多播放器不帶 token，建議不開</small></span></label>
+          <label class="switch"><input type="checkbox" data-key="redirect.require_auth"><span class="track"></span><span class="lbl">播放網址要求登入<small>和官方 Emby 一樣，建議開著；關掉的話，知道項目編號的人不用登入就能拿到 115 直鏈。某個播放器播不了時再關</small></span></label>
         </div>
       </div>
       <div class="card" id="zhCard">
