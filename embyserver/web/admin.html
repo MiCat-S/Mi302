@@ -446,8 +446,10 @@ dialog .card-b{max-height:70vh;overflow:auto}
         <div class="card-b stack">
           <p class="hint">先向 MoviePilot 查 TMDB 上每一季已經播出的集（沒有播出日期、又在媒體庫最後一集之後的不算），對照 Mi302 裡已有的集號；真的缺集的季才建訂閱，並請 MoviePilot 馬上搜尋。已播出的都有就不建訂閱。要先把 Mi302 加成 MoviePilot 的媒體伺服器（見下方），並填上面的 MoviePilot 帳號密碼。</p>
           <div id="fill"></div>
-          <div class="logbar"><input id="seriesQ" type="search" placeholder="搜尋劇名" oninput="clearTimeout(seriesQT); seriesQT = setTimeout(loadSeries, 300)">
-            <label class="switch" style="padding:0"><input type="checkbox" id="seriesGaps" onchange="loadSeries()"><span class="track"></span><span class="lbl">只看集號有空洞的</span></label></div>
+          <div class="logbar"><input id="seriesQ" type="search" placeholder="搜尋劇名" oninput="clearTimeout(seriesQT); seriesQT = setTimeout(() => loadSeries(1), 300)">
+            <select id="seriesYear" onchange="loadSeries(1)"><option value="">全部年份</option></select>
+            <select id="seriesLimit" onchange="loadSeries(1)"><option value="20">每頁 20 部</option><option value="50">每頁 50 部</option><option value="100">每頁 100 部</option><option value="200">每頁 200 部</option></select>
+            <label class="switch" style="padding:0"><input type="checkbox" id="seriesGaps" onchange="loadSeries(1)"><span class="track"></span><span class="lbl">只看集號有空洞的</span></label></div>
           <div id="series" class="list"><p class="hint">讀取中…</p></div>
           <p class="hint">「集號有空洞」只是提示（例如有第 2、4 集沒有第 3 集）；最後幾集沒下到、整季沒有的情況，MoviePilot 對照 TMDB 一樣會算出來。沒有 tmdbid 的劇要先刮削。</p>
           <label class="switch"><input type="checkbox" data-key="moviepilot.fill_after_full_sync" onchange="putSettings({moviepilot: {fill_after_full_sync: this.checked}}).then(() => toast('已儲存')).catch(e => { toast('儲存失敗：' + e.message, 'bad'); fillFields(); })"><span class="track"></span><span class="lbl">全量同步後自動補全<small>每次全量同步、刮削完之後，把所有有 tmdbid 的劇送一次</small></span></label>
@@ -1127,7 +1129,7 @@ async function pollSync(first) {
 function mpRulesText() { return (cfg.moviepilot.path_mappings || []).map(r => r.from + ' => ' + r.to).join('\n'); }
 function loadMP() {
   $('mpMap').value = mpRulesText();
-  loadKeys(); pollMP(); loadSeries();
+  loadKeys(); pollMP(); restoreSeriesLimit(); loadSeries(1);
 }
 async function saveMP(quiet) {
   const body = {moviepilot: {}};
@@ -1188,17 +1190,32 @@ function epRanges(nums) {
   for (const n of nums) { const last = runs[runs.length - 1]; if (last && n === last[1] + 1) last[1] = n; else runs.push([n, n]); }
   return runs.slice(0, 6).map(([a, b]) => a === b ? 'E' + ep2(a) : `E${ep2(a)}–E${ep2(b)}`).join('、') + (runs.length > 6 ? '…' : '');
 }
-const SERIES_PAGE = 20;
-async function loadSeries(more) {
-  // 一次 20 部；more = 接在後面再拿 20 部，搜尋或換篩選時從頭來
-  const box = $('series');
-  const offset = more ? box.querySelectorAll('.li').length : 0;
+let seriesPage = 1, seriesSeq = 0;
+function seriesLimit() { return parseInt($('seriesLimit').value, 10) || 20; }
+function restoreSeriesLimit() {
+  try { const v = localStorage.getItem('mi302.seriesLimit'); if (v && $('seriesLimit').querySelector(`option[value="${v}"]`)) $('seriesLimit').value = v; } catch (e) {}
+}
+function fillYears(years, current) {
+  // 下拉選單列媒體庫裡有的年份；沒變就不動，免得每次重畫
+  const sel = $('seriesYear'), want = [''].concat((years || []).map(String));
+  if (want.join(',') === Array.from(sel.options).map(o => o.value).join(',')) return;
+  sel.innerHTML = '<option value="">全部年份</option>' + want.slice(1).map(y => `<option value="${y}">${y}</option>`).join('');
+  sel.value = want.includes(current) ? current : '';
+}
+async function loadSeries(page) {
+  // page = 第幾頁；搜尋、換年份或篩選時回到第 1 頁。回應帶序號，慢的舊回應不會蓋掉新的
+  seriesPage = Math.max(1, page || seriesPage);
+  const box = $('series'), seq = ++seriesSeq, limit = seriesLimit(), year = $('seriesYear').value;
   let r;
-  try { r = await api(`/web/api/series?q=${encodeURIComponent($('seriesQ').value)}&gaps=${$('seriesGaps').checked ? 1 : 0}&offset=${offset}&limit=${SERIES_PAGE}`); }
-  catch (e) { box.innerHTML = `<p class="notice bad">${esc(e.message)}</p>`; return; }
-  if (!more) box.innerHTML = '';
-  box.querySelector('.js-more')?.remove();
-  if (!r.items.length && !offset) { box.innerHTML = `<p class="hint">${$('seriesQ').value || $('seriesGaps').checked ? '沒有符合的劇' : '媒體庫裡還沒有劇集'}</p>`; return; }
+  try { r = await api(`/web/api/series?q=${encodeURIComponent($('seriesQ').value)}&year=${year}&gaps=${$('seriesGaps').checked ? 1 : 0}&offset=${(seriesPage - 1) * limit}&limit=${limit}`); }
+  catch (e) { if (seq === seriesSeq) box.innerHTML = `<p class="notice bad">${esc(e.message)}</p>`; return; }
+  if (seq !== seriesSeq) return;
+  fillYears(r.years, year);
+  try { localStorage.setItem('mi302.seriesLimit', String(limit)); } catch (e) {}
+  const pages = Math.max(1, Math.ceil(r.total / limit));
+  if (seriesPage > pages) return loadSeries(pages);  // 換篩選後頁數變少
+  box.innerHTML = '';
+  if (!r.items.length) { box.innerHTML = `<p class="hint">${$('seriesQ').value || year || $('seriesGaps').checked ? '沒有符合的劇' : '媒體庫裡還沒有劇集'}</p>`; return; }
   for (const s of r.items) {
     const row = document.createElement('div'); row.className = 'li top';
     // 齊全的季合成一行；有空洞的季各一行，只列缺幾集和壓縮後的區間，完整清單放在 title
@@ -1212,8 +1229,9 @@ async function loadSeries(more) {
     row.querySelector('button').onclick = () => fillSeries([s.id], '「' + s.name + '」');
     box.appendChild(row);
   }
-  const shown = box.querySelectorAll('.li').length;
-  if (r.more) box.insertAdjacentHTML('beforeend', `<div class="js-more row" style="padding-top:12px"><span class="hint grow">顯示 ${shown} / ${r.total} 部，搜尋可以縮小範圍</span><button class="btn sm" onclick="loadSeries(true)">再顯示 ${Math.min(SERIES_PAGE, r.total - shown)} 部</button></div>`);
+  const nav = pages > 1
+    ? `<button class="btn sm"${seriesPage <= 1 ? ' disabled' : ''} onclick="loadSeries(${seriesPage - 1})">上一頁</button><button class="btn sm"${seriesPage >= pages ? ' disabled' : ''} onclick="loadSeries(${seriesPage + 1})">下一頁</button>` : '';
+  box.insertAdjacentHTML('beforeend', `<div class="row" style="padding-top:12px"><span class="hint grow">${pages > 1 ? `第 ${seriesPage} / ${pages} 頁，` : ''}共 ${r.total} 部</span>${nav}</div>`);
 }
 async function fillSeries(ids, label) {
   let r;

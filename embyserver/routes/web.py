@@ -391,13 +391,19 @@ def mediainfo_probe(request: Request, ctx: AuthContext = Depends(require_admin))
 
 @router.get("/web/api/series")
 def list_series(request: Request, ctx: AuthContext = Depends(require_admin)):
-    """媒體庫裡的劇和每一季的集數、集號空洞；q 搜尋劇名，gaps=1 只列有空洞的，offset、limit 分頁。"""
+    """媒體庫裡的劇和每一季的集數、集號空洞；q 搜尋劇名，year 只列那一年的，gaps=1 只列有空洞的，offset、limit 分頁。
+
+    years 是媒體庫裡所有劇的年份（不受篩選影響），給網頁的年份下拉選單用。
+    """
+    db = state(request).db
     offset = max(q_int(request, "offset", 0) or 0, 0)
-    limit = min(max(q_int(request, "limit", 20) or 20, 1), 200)
+    limit = min(max(q_int(request, "limit", 20) or 20, 1), 500)
     items, total = library_series(
-        state(request).db, q(request, "q") or "", q(request, "gaps") in ("1", "true"), limit=limit, offset=offset
+        db, q(request, "q") or "", q(request, "gaps") in ("1", "true"), limit=limit, offset=offset,
+        year=q_int(request, "year"),
     )
-    return {"items": items, "total": total, "offset": offset, "more": offset + len(items) < total}
+    years = [r["year"] for r in db.query("SELECT DISTINCT year FROM items WHERE type='Series' AND year IS NOT NULL ORDER BY year DESC")]
+    return {"items": items, "total": total, "offset": offset, "more": offset + len(items) < total, "years": years}
 
 
 @router.post("/web/api/moviepilot/fill")

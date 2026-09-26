@@ -605,11 +605,12 @@ def ep_ranges(nums: List[int], limit: int = 6) -> str:
 
 
 def library_series(
-    db: Database, query: str = "", gaps_only: bool = False, limit: int = 0, offset: int = 0
+    db: Database, query: str = "", gaps_only: bool = False, limit: int = 0, offset: int = 0,
+    year: Optional[int] = None,
 ) -> Tuple[List[dict], int]:
     """媒體庫裡的劇：名稱、年份、tmdbid、每一季有幾集、集號的空洞（有第 2、4 集沒有第 3 集）。
 
-    回傳 (清單, 符合條件的總數)；集號有空洞的排前面，limit、offset 分頁。特別篇（第 0 季）不算。
+    回傳 (清單, 符合條件的總數)；集號有空洞的排前面，year 只列那一年的，limit、offset 分頁。特別篇（第 0 季）不算。
     空洞只是提示：最後幾集沒下到、整季都沒有的情況這裡看不出來，交給 MoviePilot 對照 TMDB。
     """
     episodes: Dict[int, Dict[int, Set[int]]] = {}
@@ -629,6 +630,8 @@ def library_series(
         hay = f"{name} {r['original_title'] or ''} {r['year'] or ''} {r['search_text'] or ''}".lower()
         if needle and needle not in hay and not (needle_py and needle_py in hay):
             continue  # 片名、原名、年份、拼音、首字母都認
+        if year and r["year"] != year:
+            continue
         providers = json.loads(r["provider_ids"]) if r["provider_ids"] else {}
         tmdbid = str(providers.get("Tmdb") or "")
         seasons = []

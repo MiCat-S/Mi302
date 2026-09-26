@@ -39,6 +39,8 @@ def test_library_series_lists_gaps(tmp_path: Path):
     assert [s["name"] for s in library_series(db, query="b")[0]] == ["Show B"]
     assert [s["name"] for s in library_series(db, query="2020")[0]] == ["Show A"]  # 年份也搜得到
     assert [s["name"] for s in library_series(db, gaps_only=True)[0]] == ["Show A"]
+    assert [s["name"] for s in library_series(db, year=2020)[0]] == ["Show A"]  # 只看某一年的
+    assert library_series(db, year=2021) == ([], 0)
     assert library_series(db, limit=1) == ([a], 2)
     assert library_series(db, limit=1, offset=1) == ([b], 2)
 
@@ -161,6 +163,10 @@ def test_fill_endpoints(tmp_path: Path):
     assert (len(page["items"]), page["total"], page["more"]) == (1, 2, True)
     assert c.get("/web/api/series", params={"limit": 1, "offset": 1}, headers=h).json()["more"] is False
     assert c.get("/web/api/series", params={"gaps": "1"}, headers=h).json()["total"] == 1
+    r = c.get("/web/api/series", params={"year": 2020}, headers=h).json()
+    assert r["total"] == 1 and r["years"] == [2020]  # years 給下拉選單，不受篩選影響
+    assert c.get("/web/api/series", params={"year": 1999}, headers=h).json() | {"years": None} == {
+        "items": [], "total": 0, "offset": 0, "more": False, "years": None}
 
     calls = []
     app.state.moviepilot.fill_in_background = lambda shows, source: calls.append(([s["name"] for s in shows], source)) or True
