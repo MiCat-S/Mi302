@@ -28,6 +28,7 @@
 | f658b66 | 下載功能加開關 server.allow_download（預設開；關掉後 CanDownload、EnableContentDownloading 回 false，下載網址 403） |
 | 05e4ed1 | 播放網址預設要求登入（redirect.require_auth 預設 true）。查證過：Emby 官方文件標明串流要登入、4.7 起不分內外網都擋；Emby Web、Kodi 把 token 放查詢參數，Infuse 放 X-Emby-Authorization 標頭，兩種都認。「很多播放器不帶 token」是第一版沒依據的假設，已從程式和說明拿掉 |
 | 73cf045 | 片頭片尾範圍照查證資料改：片頭起點前 10 分鐘內、一次跳 15 秒–3 分鐘；片尾最後 5 分鐘，片尾區裡往前跳 60 秒以上也算；短的集用前後 25%（24 分鐘動畫＝前 6 分鐘、後 5 分鐘），不用判斷是不是動畫。依據：AniSkip 27 部動畫統計、TheIntroDB 影集統計、廣電《電視劇母版製作規範》、Emby／Intro Skipper／神醫助手的預設 |
+| 130349c | 補全缺集：年份篩選、每頁 20–200 部可選、上一頁／下一頁；搜尋或換篩選回到第 1 頁，回應帶序號不被舊回應蓋掉（管理網頁第 4 項）。用 Chromium 實際跑過 |
 
 ## 待辦
 
@@ -83,13 +84,12 @@
 1. **舊 Docker 安裝搬遷會弄丟埠號和媒體路徑。** `install.sh` 的 `load_env` 讀了 `MI302_PORT` 卻沒用，`MI302_MEDIA` 沒讀；改用 Python 後埠號變 8096，媒體庫和任務路徑還是容器裡的 `/media/...`，全部顯示資料夾不存在，而 `save_env` 又把這兩個值寫掉。沿用舊埠號；`MI302_MEDIA` 不是 `/media` 時改寫設定檔裡的 `/media` 前綴，至少要醒目提醒。README 搬遷那段不要說「原樣沿用」。
 2. **115 裝置類型下拉選單會把設定清空。** admin.html 進階設定的 `p115.app` 只有 7 個選項，設定值不在其中時，儲存會送空字串，之後掃碼登入失敗。未知的值補一個 option，或 `selectedIndex === -1` 時不送。
 3. **卡片上的開關會還原同頁沒存的輸入。** `putSettings` 之後 `fillFields()` 重填整頁，只應刷新這次送出的欄位。
-4. **補全缺集的劇集搜尋有競態。** `loadSeries` 沒有序號保護，慢的舊結果會蓋掉新的；offset 用畫面上的列數推算，換篩選後按「再顯示」會接到別的清單下面。
-5. **伺服器重啟中打開網頁一片空白。** `boot()` 沒有錯誤處理。
-6. **macOS 找不到 brew 裝的 ffprobe。** launchd plist 沒設 PATH，`/opt/homebrew/bin` 不在預設路徑裡。在 plist 加 PATH，或安裝時把 `command -v ffprobe` 寫進 `mediainfo.ffprobe`。
-7. **macOS 上 `mi302` 指令建不起來時 README 沒說怎麼辦。** `/usr/local/bin` 是 root 擁有時會失敗；可以改試 `/opt/homebrew/bin`、`~/.local/bin`，README 補替代方式。
-8. **日誌頁說「最近 3000 筆」，實際 `LOG_MAX = 1000`。**
-9. **低優先。** `startQr` 連點兩下會有兩個輪詢互相覆蓋；`loadUsers`、`logoutOpen`、`logout115`、`loadKeys`、`addKey` 沒有 try/catch；`qrcode_image` 用 innerHTML 沒 `esc`；非管理員登入網頁時已發的 token 沒登出；`install.sh -y` 遇到埠被占用直接結束、沒說明；舊版目錄 chown 後 git 擁有者不一致，更新時會誤報連不上 GitHub。
-10. **可讀性。** install.sh 的 `TZ`、`TZ_NAME`、`host_tz` 算了沒用，`set_conf` 重複呼叫，`current_port` 是多餘的別名；admin.html 的 `pollQr` 的 img 參數沒用、`.steps{counter-reset}` 沒用、AppID 有兩個輸入框、`syncWatch` 宣告在使用之後；README 的改密碼段落指向不存在的說明（手動安裝的指令是 `.venv/bin/python -m embyserver -c config.yaml --reset-password 帳號 新密碼`），「舊版 MoviePilot」摺疊標題和網頁上的文字對不上，sudo 說明不準（Linux 上每個子指令都會加 sudo），目錄裡「常見問題」的層級不對，選項表缺 `--branch`。
+4. **伺服器重啟中打開網頁一片空白。** `boot()` 沒有錯誤處理。
+5. **macOS 找不到 brew 裝的 ffprobe。** launchd plist 沒設 PATH，`/opt/homebrew/bin` 不在預設路徑裡。在 plist 加 PATH，或安裝時把 `command -v ffprobe` 寫進 `mediainfo.ffprobe`。
+6. **macOS 上 `mi302` 指令建不起來時 README 沒說怎麼辦。** `/usr/local/bin` 是 root 擁有時會失敗；可以改試 `/opt/homebrew/bin`、`~/.local/bin`，README 補替代方式。
+7. **日誌頁說「最近 3000 筆」，實際 `LOG_MAX = 1000`。**
+8. **低優先。** `startQr` 連點兩下會有兩個輪詢互相覆蓋；`loadUsers`、`logoutOpen`、`logout115`、`loadKeys`、`addKey` 沒有 try/catch；`qrcode_image` 用 innerHTML 沒 `esc`；非管理員登入網頁時已發的 token 沒登出；`install.sh -y` 遇到埠被占用直接結束、沒說明；舊版目錄 chown 後 git 擁有者不一致，更新時會誤報連不上 GitHub。
+9. **可讀性。** install.sh 的 `TZ`、`TZ_NAME`、`host_tz` 算了沒用，`set_conf` 重複呼叫，`current_port` 是多餘的別名；admin.html 的 `pollQr` 的 img 參數沒用、`.steps{counter-reset}` 沒用、AppID 有兩個輸入框、`syncWatch` 宣告在使用之後；README 的改密碼段落指向不存在的說明（手動安裝的指令是 `.venv/bin/python -m embyserver -c config.yaml --reset-password 帳號 新密碼`），「舊版 MoviePilot」摺疊標題和網頁上的文字對不上，sudo 說明不準（Linux 上每個子指令都會加 sudo），目錄裡「常見問題」的層級不對，選項表缺 `--branch`。
 
 ### 六、測試檔
 
@@ -97,7 +97,7 @@
 
 ## 建議順序
 
-1. 管理網頁第 1–5 項，和背景服務第 2 項一起做（MoviePilot 測試連線）。
+1. 管理網頁第 1–4 項，和背景服務第 2 項一起做（MoviePilot 測試連線）。
 2. 115 第 1 項。
 3. API 層第 1–3 項（阻塞 I/O、非物件 JSON、圖片路由）和其餘可讀性項目。
 
