@@ -1,0 +1,43 @@
+**[首頁 · 首页 · Home](Home)**
+
+**繁體中文**
+- [安裝](安裝)
+- [首次設定](首次設定)
+- [115 網盤與同步](115-網盤與同步)
+- [媒體庫與掃描](媒體庫與掃描)
+- [播放與外網連線](播放與外網連線)
+- [片頭片尾跳過](片頭片尾跳過)
+- [媒體資訊與探測](媒體資訊與探測)
+- [MoviePilot 整合](MoviePilot-整合)
+- [備份與還原](備份與還原)
+- [設定檔參考](設定檔參考)
+- [日誌與常見問題](日誌與常見問題)
+- [技術細節與開發](技術細節與開發)
+
+**简体中文**
+- [安装](安装)
+- [首次设置](首次设置)
+- [115 网盘与同步](115-网盘与同步)
+- [媒体库与扫描](媒体库与扫描)
+- [播放与外网访问](播放与外网访问)
+- [片头片尾跳过](片头片尾跳过)
+- [媒体信息与探测](媒体信息与探测)
+- [MoviePilot 集成](MoviePilot-集成)
+- [备份与还原](备份与还原)
+- [配置文件参考](配置文件参考)
+- [日志与常见问题](日志与常见问题)
+- [技术细节与开发](技术细节与开发)
+
+**English**
+- [Installation](Installation)
+- [First Setup](First-Setup)
+- [115 Cloud Sync](115-Cloud-Sync)
+- [Library and Scanning](Library-and-Scanning)
+- [Playback](Playback)
+- [Intro and Credits](Intro-and-Credits)
+- [Media Info](Media-Info)
+- [MoviePilot](MoviePilot)
+- [Backup and Restore](Backup-and-Restore)
+- [Configuration Reference](Configuration-Reference)
+- [Logs and FAQ](Logs-and-FAQ)
+- [Technical Details](Technical-Details)
