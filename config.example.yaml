@@ -16,6 +16,8 @@ server:
   public_users: true                # 播放器登入畫面是否列出使用者
   log_level: info                   # 日誌：info = 一般，debug = 詳細（另外記錄每個播放器請求）
   backup_keep: 7                    # 每天自動備份資料庫和設定檔到 data/backups，留最新幾份；0 = 不自動備份
+  chinese_people: true              # 演職人員顯示中文名（經 MoviePilot 查 TMDB 別名，沒有再問 Wikidata）
+  chinese_genres: true              # 類型顯示中文（Action → 动作），繁體換成簡體；關掉後重新掃描即還原
 
 # 第一次啟動時預先建立的帳號；之後新增帳號、改密碼請用網頁，不會寫回這裡
 users: []

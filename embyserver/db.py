@@ -102,6 +102,29 @@ CREATE TABLE IF NOT EXISTS media_info (
     at INTEGER
 );
 
+-- 演職人員（nfo 的演員、導演、編劇），每個項目一組；pid 是給播放器的人物 id（p{tmdbid} 或名稱雜湊）
+CREATE TABLE IF NOT EXISTS people (
+    item_id INTEGER NOT NULL,
+    ord INTEGER NOT NULL,
+    name TEXT NOT NULL,
+    role TEXT,
+    type TEXT NOT NULL,
+    tmdbid TEXT,
+    thumb TEXT,
+    pid TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_people_item ON people(item_id);
+CREATE INDEX IF NOT EXISTS idx_people_pid ON people(pid);
+CREATE INDEX IF NOT EXISTS idx_people_tmdb ON people(tmdbid);
+
+-- 演職人員的中文名（TMDB 人物 id → 中文名）；查過沒有的 zh 是 NULL，30 天後再查
+CREATE TABLE IF NOT EXISTS person_names (
+    tmdbid TEXT PRIMARY KEY,
+    zh TEXT,
+    source TEXT,
+    at INTEGER NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS mp_no_image (
     path TEXT PRIMARY KEY,
     at INTEGER NOT NULL

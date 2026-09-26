@@ -543,6 +543,14 @@ dialog .card-b{max-height:70vh;overflow:auto}
           <label class="switch"><input type="checkbox" data-key="redirect.require_auth"><span class="track"></span><span class="lbl">播放網址要求登入<small>很多播放器不帶 token，建議不開</small></span></label>
         </div>
       </div>
+      <div class="card" id="zhCard">
+        <div class="card-h"><div class="t"><svg class="i"><use href="#i-users"/></svg><h2>中文化</h2></div><button class="btn" id="zhBtn" onclick="resolvePeople()">現在查中文名</button></div>
+        <div class="card-b stack">
+          <div id="zhStat"><p class="hint">讀取中…</p></div>
+          <label class="switch"><input type="checkbox" data-key="server.chinese_people"><span class="track"></span><span class="lbl">演職人員顯示中文名<small>TMDB 的人名常是拼音或英文（Chen He）。先經 MoviePilot 查 TMDB 別名挑中文的，沒有再問 Wikidata；用原名、中文名都搜得到人。查過沒有的 30 天後再查。</small></span></label>
+          <label class="switch"><input type="checkbox" data-key="server.chinese_genres"><span class="track"></span><span class="lbl">類型顯示中文<small>Action → 动作、Sci-Fi &amp; Fantasy → 科幻奇幻，繁體換成簡體。關掉後重新掃描即還原。</small></span></label>
+        </div>
+      </div>
       <div class="card">
         <div class="card-h"><div class="t"><svg class="i"><use href="#i-download"/></svg><h2>備份</h2></div><button class="btn" id="bkBtn" onclick="backupNow()">立即備份</button></div>
         <div class="card-b stack">
@@ -668,7 +676,7 @@ async function login() {
 }
 async function logoutWeb() { try { await api('/Sessions/Logout', {method: 'POST'}); } catch (e) {} token = ''; localStorage.removeItem('mi302'); show('login'); }
 
-const PAGES = {overview: () => loadOverview(), libraries: () => loadLibs(), '115': () => load115(false), moviepilot: () => loadMP(), users: () => loadUsers(), logs: () => loadLogs(true), settings: () => loadBackups()};
+const PAGES = {overview: () => loadOverview(), libraries: () => loadLibs(), '115': () => load115(false), moviepilot: () => loadMP(), users: () => loadUsers(), logs: () => loadLogs(true), settings: () => { loadBackups(); pollPeople(); }};
 function route() {
   let tab = (location.hash || '#overview').slice(1);
   if (!PAGES[tab]) tab = 'overview';
@@ -1271,6 +1279,25 @@ async function setLogLevel(on) {
   toast(on ? '已開啟詳細模式，播放器的請求會記在日誌裡' : '已關閉詳細模式');
   if (on && logLevel.value !== 'DEBUG') { logLevel.value = 'DEBUG'; }
   loadLogs(true);
+}
+
+// ---- 中文化 ----
+let zhTimer = null;
+async function pollPeople() {
+  clearTimeout(zhTimer);
+  let s;
+  try { s = await api('/web/api/people/status'); } catch (e) { $('zhStat').innerHTML = `<p class="notice bad">${esc(e.message)}</p>`; return; }
+  let h = `<div class="chips">${chip(s.people, '演職人員')}${chip(s.resolved, '有中文名', true)}${chip(s.pending, '還沒查')}${chip(s.none, '查過沒有')}</div>`;
+  h += `<p class="hint" style="margin-top:8px">來源：MoviePilot ${s.from_moviepilot}、Wikidata ${s.from_wikidata}${s.moviepilot ? '' : '。還沒設定 MoviePilot，只能問 Wikidata（覆蓋較窄，國內連線也慢）'}${s.last_run ? '・上次查詢 ' + ago(s.last_run) : ''}${s.running ? '・<span class="pill accent"><span class="spin"></span>查詢中</span>' : ''}</p>`;
+  if (s.last_error) h += `<p class="notice warn" style="margin-top:8px">${esc(s.last_error)}</p>`;
+  setHtml($('zhStat'), h);
+  $('zhBtn').disabled = !s.chinese_people || s.running || !s.pending;
+  if (s.running) zhTimer = setTimeout(pollPeople, 3000);
+}
+async function resolvePeople() {
+  try { const r = await api('/web/api/people/resolve', {method: 'POST'}); toast(r.started ? '開始查中文名' : '已經在查了'); }
+  catch (e) { toast(e.message, 'bad'); }
+  pollPeople();
 }
 
 // ---- 備份 ----

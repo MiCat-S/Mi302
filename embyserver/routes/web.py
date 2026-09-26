@@ -301,6 +301,25 @@ def moviepilot_scrape(request: Request, ctx: AuthContext = Depends(require_admin
     return {"started": started, "result": mp.result.as_dict()}
 
 
+@router.get("/web/api/people/status")
+def people_status(request: Request, ctx: AuthContext = Depends(require_admin)):
+    """演職人員中文名：有幾位、查到幾位、來源、還有幾位沒查。"""
+    st = state(request)
+    return {
+        "chinese_people": st.config.server.chinese_people, "chinese_genres": st.config.server.chinese_genres,
+        **st.person_names.status(),
+    }
+
+
+@router.post("/web/api/people/resolve")
+def people_resolve(request: Request, ctx: AuthContext = Depends(require_admin)):
+    """現在就去查還沒查的中文名（在背景跑）。"""
+    st = state(request)
+    if not st.config.server.chinese_people:
+        raise HTTPException(status_code=400, detail="請先開啟「演職人員顯示中文名」並儲存")
+    return {"started": st.person_names.run_in_background()}
+
+
 @router.get("/web/api/backups")
 def list_backups(request: Request, ctx: AuthContext = Depends(require_admin)):
     bk = state(request).backup

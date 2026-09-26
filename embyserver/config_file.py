@@ -54,6 +54,8 @@ def render(config: Config) -> str:
         _kv("  public_users", s.public_users, "播放器登入畫面是否列出使用者"),
         _kv("  log_level", s.log_level, "日誌：info = 一般，debug = 詳細（另外記錄每個播放器請求）"),
         _kv("  backup_keep", s.backup_keep, "每天自動備份資料庫和設定檔到 data/backups，留最新幾份；0 = 不自動備份"),
+        _kv("  chinese_people", s.chinese_people, "演職人員顯示中文名（經 MoviePilot 查 TMDB 別名，沒有再問 Wikidata）"),
+        _kv("  chinese_genres", s.chinese_genres, "類型顯示中文（Action → 动作），繁體換成簡體；關掉後重新掃描即還原"),
         "",
         "# 第一次啟動時預先建立的帳號；之後新增帳號、改密碼請用網頁，不會寫回這裡",
     ]

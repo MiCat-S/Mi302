@@ -16,6 +16,7 @@ from urllib.parse import unquote
 from .config import Config, LibraryConfig
 from .db import Database
 from .mediainfo import MediaInfoStore
+from .people import PeopleStore, localize_genres, parse_people
 from .textutil import search_text, sort_key
 
 log = logging.getLogger(__name__)
@@ -222,6 +223,9 @@ def parse_nfo(path: Path) -> Dict:
     genres = [g.text.strip() for g in root.findall("genre") if g.text]
     if genres:
         data["genres"] = genres
+    people = parse_people(root)
+    if people:
+        data["people"] = people
     runtime = text("runtime")
     if runtime and runtime.isdigit():
         data["runtime_ticks"] = int(runtime) * 60 * 10_000_000
@@ -264,6 +268,7 @@ class Scanner:
         # 透過 API 上傳的圖片（例如 MoviePilot 封面插件做的媒體庫封面），重新掃描時不會被蓋掉
         self.images_dir = config.data_path / "images"
         self.media_info = MediaInfoStore(db)  # 影片旁邊的 X-mediainfo.json
+        self.people = PeopleStore(db, config)  # nfo 裡的演職人員
         self._custom: Optional[Dict[Tuple[int, str], str]] = None
         self._custom_lock = threading.Lock()
 
@@ -317,6 +322,9 @@ class Scanner:
     # ---- 寫入 ----
     def _upsert(self, path: str, fields: Dict) -> int:
         fields = dict(fields)
+        people = fields.pop("people", None)
+        if "genres" in fields and self.config.server.chinese_genres and isinstance(fields["genres"], list):
+            fields["genres"] = localize_genres(fields["genres"])
         for key in ("genres", "provider_ids"):
             if key in fields and not isinstance(fields[key], str):
                 fields[key] = json.dumps(fields[key], ensure_ascii=False)
@@ -336,13 +344,16 @@ class Scanner:
                     fields[col] = custom
             sets = ", ".join(f"{k}=?" for k in fields)
             self.db.execute(f"UPDATE items SET {sets} WHERE id=?", (*fields.values(), row["id"]))
-            return row["id"]
-        fields["path"] = path
-        fields.setdefault("date_created", _iso(datetime.now().timestamp()))
-        cols = ", ".join(fields)
-        marks = ", ".join("?" for _ in fields)
-        cur = self.db.execute(f"INSERT INTO items({cols}) VALUES({marks})", tuple(fields.values()))
-        return cur.lastrowid
+            item_id = row["id"]
+        else:
+            fields["path"] = path
+            fields.setdefault("date_created", _iso(datetime.now().timestamp()))
+            cols = ", ".join(fields)
+            marks = ", ".join("?" for _ in fields)
+            item_id = self.db.execute(f"INSERT INTO items({cols}) VALUES({marks})", tuple(fields.values())).lastrowid
+        if people is not None and fields.get("type") in ("Movie", "Series", "Episode"):
+            self.people.set(item_id, people)
+        return item_id
 
     # ---- 掃描範圍 ----
     def _begin(self, what: str) -> None:
@@ -369,6 +380,7 @@ class Scanner:
     def _after_delete(self) -> None:
         self.db.execute("DELETE FROM user_data WHERE item_id NOT IN (SELECT id FROM items)")
         self.media_info.prune()
+        self.people.prune()
         # 項目刪掉了，它上傳的圖片也刪掉，免得之後新項目用到同一個 id 時誤用
         custom = self._custom_images()
         if custom:

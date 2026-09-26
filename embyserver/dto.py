@@ -134,6 +134,8 @@ def item_dto(
     token: Optional[str] = None,
     with_media_sources: bool = False,
     resolve_remote=None,
+    people=None,
+    with_people: bool = False,
 ) -> Dict[str, Any]:
     t = item["type"]
     dto: Dict[str, Any] = {
@@ -230,6 +232,9 @@ def item_dto(
             dto["Status"] = "Continuing"
 
     dto["UserData"] = user_data_dto(db, user_id, item)
+
+    if with_people and people is not None and t in ("Movie", "Series", "Season", "Episode"):
+        dto["People"] = people.for_item(item)
 
     if with_media_sources and t in VIDEO_TYPES:
         remote = resolve_remote(item) if resolve_remote else None

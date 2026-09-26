@@ -9,7 +9,7 @@ import logging
 from typing import Any, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, RedirectResponse
 
 from ..auth import AuthContext, now_iso, require_admin, require_user
 from ..dto import episode_fallback_image, item_dto, query_result, user_data_dto
@@ -52,6 +52,8 @@ def _dto(request: Request, ctx: AuthContext, row, full: bool = False) -> dict:
         token=ctx.token,
         with_media_sources=full or "mediasources" in fields,
         resolve_remote=lambda it: st.redirector.display_target(it, str(request.base_url)),
+        people=st.people,
+        with_people=full or "people" in fields,
     )
 
 
@@ -223,6 +225,20 @@ def _query_items(request: Request, ctx: AuthContext, user_id: Optional[str] = No
     else:
         where.append("i.type<>'CollectionFolder'")
 
+    # 某個人參與的作品：PersonIds（人物 id）或 Person（名稱）
+    person_ids = q_list(request, "PersonIds") or ([st.people.by_name(q(request, "Person")) or "-"] if q(request, "Person") else [])
+    if person_ids:
+        item_ids = st.people.item_ids(person_ids) or [-1]
+        where.append(f"i.id IN ({','.join('?' for _ in item_ids)})")
+        params += item_ids
+    persons = []
+    if "person" in types:
+        # 搜尋時一併找人：搜到的人接在項目後面
+        types = [t for t in types if t != "person"]
+        if term := q(request, "SearchTerm"):
+            persons = [d for d in (st.people.person_dto(pid, st.server_id) for pid in st.people.search(term)) if d]
+        if not types:
+            return query_result(persons, len(persons))
     if types:
         where.append(f"lower(i.type) IN ({','.join('?' for _ in types)})")
         params += types
@@ -296,7 +312,7 @@ def _query_items(request: Request, ctx: AuthContext, user_id: Optional[str] = No
         sql += " LIMIT -1 OFFSET ?"
         all_params.append(start)
     rows = st.db.query(sql, all_params)
-    return query_result([_dto(request, ctx, r) for r in rows], total, start)
+    return query_result([_dto(request, ctx, r) for r in rows] + persons, total + len(persons), start)
 
 
 @router.get("/users/{user_id}/items")
@@ -351,12 +367,51 @@ def resume(user_id: str, request: Request, ctx: AuthContext = Depends(require_us
 @router.get("/users/{user_id}/items/{item_id}")
 def user_item(user_id: str, item_id: str, request: Request, ctx: AuthContext = Depends(require_user)):
     st = state(request)
+    if item_id[:1].lower() == "p":  # 人物（p{tmdbid} 或 pn{名稱雜湊}）
+        person = st.people.person_dto(item_id, st.server_id)
+        if not person:
+            raise HTTPException(status_code=404, detail="Person not found")
+        return person
     row = st.db.get_item(item_id)
     if not row:
         raise HTTPException(status_code=404, detail="Item not found")
     if row["type"] in ("Movie", "Episode") and row["is_strm"]:
         st.prober.enqueue(row["path"])  # 打開即探測：排進背景（已有媒體資訊的會直接略過），不等
     return _dto(request, ctx, row, full=True)
+
+
+@router.get("/persons")
+def persons(request: Request, ctx: AuthContext = Depends(require_user)):
+    """搜尋人物（原名、中文名都認）。"""
+    st = state(request)
+    term = q(request, "SearchTerm") or q(request, "NameStartsWith") or ""
+    limit = q_int(request, "Limit", 50) or 50
+    out = [d for d in (st.people.person_dto(pid, st.server_id) for pid in st.people.search(term, limit)) if d] if term else []
+    return query_result(out, len(out))
+
+
+@router.get("/persons/{name}")
+def person_by_name(name: str, request: Request, ctx: AuthContext = Depends(require_user)):
+    st = state(request)
+    pid = st.people.by_name(name)
+    person = st.people.person_dto(pid, st.server_id) if pid else None
+    if not person:
+        raise HTTPException(status_code=404, detail="Person not found")
+    return person
+
+
+@router.api_route("/persons/{name}/images/{image_type}", methods=["GET", "HEAD"])
+def person_image_by_name(name: str, image_type: str, request: Request):
+    st = state(request)
+    pid = st.people.by_name(name)
+    return _person_image(st, pid or "")
+
+
+def _person_image(st, pid: str):
+    person = st.people.person(pid) if pid else None
+    if not person or not person["thumb"] or not person["thumb"].startswith(("http://", "https://")):
+        raise HTTPException(status_code=404, detail="Image not found")
+    return RedirectResponse(url=person["thumb"], status_code=302)  # nfo 裡的 TMDB 頭像網址
 
 
 @router.get("/items/{item_id}")
@@ -563,6 +618,8 @@ IMAGE_COLUMNS = {
 @router.api_route("/items/{item_id}/images/{image_type}/{index}", methods=["GET", "HEAD"])
 def item_image(item_id: str, image_type: str, request: Request, index: int = 0):
     st = state(request)
+    if item_id[:1].lower() == "p":
+        return _person_image(st, item_id)
     row = st.db.get_item(item_id)
     col = IMAGE_COLUMNS.get(image_type.lower())
     if not row or not col:

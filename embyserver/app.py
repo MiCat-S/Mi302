@@ -19,6 +19,7 @@ from .config import Config
 from .db import Database
 from .moviepilot import MoviePilot, library_series
 from .p115 import P115Service
+from .people import PeopleStore, PersonNames
 from .prober import MediaProber
 from .redirect import Redirector
 from .routes import items, p115, playback, system, web
@@ -59,8 +60,10 @@ def create_app(config: Config, db_path: Optional[str] = None, scan_on_start: boo
             threading.Thread(target=scanner.scan_all, daemon=True).start()
             app.state.strm_sync.start_schedule()
             app.state.backup.start()
+            app.state.person_names.start()
         yield
         app.state.backup.stop()
+        app.state.person_names.stop()
 
     app = FastAPI(title="Emby 相容伺服器", lifespan=lifespan, docs_url="/api-docs", redoc_url=None)
     app.state.config = config
@@ -75,6 +78,8 @@ def create_app(config: Config, db_path: Optional[str] = None, scan_on_start: boo
     app.state.moviepilot = MoviePilot(config.moviepilot, config, on_done=scanner.scan_paths, db=db)
     app.state.prober = MediaProber(config.mediainfo, config, app.state.p115, db)
     app.state.backup = Backup(db, config)
+    app.state.people = PeopleStore(db, config)
+    app.state.person_names = PersonNames(db, config, app.state.moviepilot)
 
     def after_sync(result) -> None:
         # 新 strm 的媒體資訊在背景探測，和掃描、刮削同時進行（互不相干）

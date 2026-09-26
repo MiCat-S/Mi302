@@ -120,6 +120,8 @@ class ServerConfig:
     public_users: bool = True
     log_level: str = "info"  # info = 一般；debug = 詳細（另外記錄每個播放器請求）
     backup_keep: int = 7  # 每天自動備份資料庫和設定檔，留最新幾份；0 = 不自動備份
+    chinese_people: bool = True  # 演職人員顯示中文名（經 MoviePilot 查 TMDB 別名，沒有再問 Wikidata）
+    chinese_genres: bool = True  # 類型顯示中文（Action → 动作），繁體換成簡體
 
 
 @dataclass
