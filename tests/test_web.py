@@ -130,3 +130,25 @@ def test_scan_status_reports_progress(tmp_path: Path):
     c.app.state.scanner.scan_all()
     s = c.get("/web/api/scan", headers=admin_headers(c)).json()
     assert s["scanning"] is False and s["progress"] == {"done": 1, "total": 1, "item": ""}
+
+
+def test_api_key_cannot_open_admin_api(tmp_path: Path):
+    """API 金鑰是給 MoviePilot 呼叫 Emby API 的；設定（含 MoviePilot 密碼）、備份、帳號要用帳號登入。"""
+    c = make_client(tmp_path, {"users": [{"name": "admin", "password": "pw", "admin": True}]})
+    key = c.post("/web/api/apikeys", json={"name": "mp"}, headers=admin_headers(c)).json()["key"]
+    k = {"X-Emby-Token": key}
+    assert c.get("/web/api/settings", headers=k).status_code == 403
+    assert c.get("/web/api/backups", headers=k).status_code == 403
+    assert c.get("/p115/status", headers=k).status_code == 403
+    assert c.post("/Library/Refresh", headers=k).status_code == 204  # Emby API 照常可用
+
+
+def test_config_tolerates_unknown_keys_and_float_fields(tmp_path: Path):
+    from embyserver import settings
+    from embyserver.config import config_from_dict
+    from embyserver.db import Database
+
+    cfg = config_from_dict({"server": {"log_leve": "debug"}, "p115": {"strm": {"old_key": 1}}})  # 打錯字不能讓程式起不來
+    assert cfg.server.log_level == "info"
+    settings.save(Database(":memory:"), cfg, {"p115": {"strm": {"min_size_mb": "0.5"}}, "moviepilot": {"timeout": "12.5"}})
+    assert cfg.p115.strm.min_size_mb == 0.5 and cfg.moviepilot.timeout == 12.5  # 預設值是 0、300，型別看宣告

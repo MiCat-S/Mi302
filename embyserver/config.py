@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 from pathlib import Path
 from typing import List, Optional
 
@@ -29,10 +29,17 @@ class UserConfig:
 
 @dataclass
 class PathRule:
-    """strm 內容的前綴替換規則：命中 from 前綴時改寫為 to。"""
+    """strm 內容的前綴替換規則：命中 from 前綴時改寫為 to。設定檔和網頁上的鍵是 from／to。"""
 
     source: str
     target: str
+
+    @classmethod
+    def from_dict(cls, raw: dict) -> "PathRule":
+        return cls(source=raw["from"], target=raw["to"])
+
+    def to_dict(self) -> dict:
+        return {"from": self.source, "to": self.target}
 
 
 @dataclass
@@ -144,10 +151,21 @@ class Config:
         return Path(self.server.data_dir).expanduser().resolve()
 
 
+def _make(cls, raw, section: str, **extra):
+    """用設定檔的一段建 dataclass；不認得的鍵（打錯字、舊版留下的）警告後略過，不讓程式起不來。"""
+    raw = dict(raw or {})
+    names = {f.name for f in fields(cls)}
+    unknown = sorted(k for k in raw if k not in names)
+    for key in unknown:
+        log.warning("設定檔 %s 底下不認得 %s，已略過", section, key)
+        raw.pop(key)
+    return cls(**raw, **extra)
+
+
 def _build(raw: dict) -> Config:
     raw = raw or {}
-    server = ServerConfig(**(raw.get("server") or {}))
-    users = [UserConfig(**u) for u in raw.get("users") or []]
+    server = _make(ServerConfig, raw.get("server"), "server")
+    users = [_make(UserConfig, u, "users") for u in raw.get("users") or []]
     libraries = []
     for lib in raw.get("libraries") or []:
         paths = lib.get("paths") or ([lib["path"]] if lib.get("path") else [])
@@ -155,10 +173,8 @@ def _build(raw: dict) -> Config:
             LibraryConfig(name=lib["name"], type=lib.get("type", "movies"), paths=paths)
         )
     rraw = dict(raw.get("redirect") or {})
-    rules = [
-        PathRule(source=r["from"], target=r["to"]) for r in rraw.pop("path_rules", []) or []
-    ]
-    redirect = RedirectConfig(path_rules=rules, **rraw)
+    rules = [PathRule.from_dict(r) for r in rraw.pop("path_rules", []) or []]
+    redirect = _make(RedirectConfig, rraw, "redirect", path_rules=rules)
     return Config(
         server=server,
         users=users,
@@ -167,21 +183,22 @@ def _build(raw: dict) -> Config:
         api_keys=list(raw.get("api_keys") or []),
         p115=_build_p115(raw.get("p115") or {}),
         moviepilot=_build_moviepilot(raw.get("moviepilot") or {}),
-        mediainfo=MediaInfoConfig(**(raw.get("mediainfo") or {})),
+        mediainfo=_make(MediaInfoConfig, raw.get("mediainfo"), "mediainfo"),
     )
 
 
 def _build_moviepilot(raw: dict) -> MoviePilotConfig:
     raw = dict(raw)
-    rules = [PathRule(source=r["from"], target=r["to"]) for r in raw.pop("path_mappings", None) or []]
-    return MoviePilotConfig(path_mappings=rules, **raw)
+    rules = [PathRule.from_dict(r) for r in raw.pop("path_mappings", None) or []]
+    return _make(MoviePilotConfig, raw, "moviepilot", path_mappings=rules)
 
 
 def _build_p115(raw: dict) -> P115Config:
     raw = dict(raw)
     sraw = dict(raw.pop("strm", None) or {})
     tasks = [StrmTask(remote=t["remote"], local=t["local"]) for t in sraw.pop("tasks", None) or []]
-    return P115Config(strm=P115StrmConfig(tasks=tasks, **sraw), **raw)
+    strm = _make(P115StrmConfig, sraw, "p115.strm", tasks=tasks)
+    return _make(P115Config, raw, "p115", strm=strm)
 
 
 def load_config(path: Optional[str] = None) -> Config:

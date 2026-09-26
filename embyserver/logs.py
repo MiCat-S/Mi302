@@ -143,9 +143,7 @@ def setup(data_dir: Path, level: str = "info") -> Optional[Path]:
             handler.addFilter(REDACT)
             root.addHandler(handler)
             _file_path = path
-    attach()
-    for name in NOISY:
-        logging.getLogger(name).setLevel(logging.WARNING)
+    attach()  # 順便把 httpx 等吵的 logger 壓到 WARNING
     set_level(level)
     return _file_path
 

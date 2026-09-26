@@ -99,6 +99,7 @@ def extract_token(request: Request) -> Optional[str]:
 class AuthContext:
     user: Optional[dict]
     token: Optional[str]
+    via_api_key: bool = False  # 用 API 金鑰（而不是登入 token）進來的：給 MoviePilot 這類程式用，不能進管理網頁
 
     @property
     def user_id(self) -> Optional[str]:
@@ -242,7 +243,7 @@ class AuthService:
             return AuthContext(None, None)
         if self._is_api_key(token):
             admin = self.db.one("SELECT * FROM users WHERE is_admin=1 ORDER BY name LIMIT 1")
-            return AuthContext(dict(admin) if admin else None, token)
+            return AuthContext(dict(admin) if admin else None, token, via_api_key=True)
         row = self.db.one(
             "SELECT u.* FROM tokens t JOIN users u ON u.id=t.user_id WHERE t.token=?",
             (token,),
@@ -263,4 +264,7 @@ def require_admin(request: Request) -> AuthContext:
     ctx = require_user(request)
     if not ctx.user["is_admin"]:
         raise HTTPException(status_code=403, detail="Admin required")
+    if ctx.via_api_key and request.scope["path"].startswith(("/web/api", "/p115/")):
+        # 金鑰是給 MoviePilot 這類程式呼叫 Emby API 用的；設定、備份（含 115 登入）、帳號要用帳號登入才能碰
+        raise HTTPException(status_code=403, detail="API 金鑰不能用在管理網頁，請用管理員帳號登入")
     return ctx

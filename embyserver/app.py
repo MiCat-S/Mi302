@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import threading
 import time
 import uuid
@@ -33,6 +34,13 @@ access_log = logging.getLogger("embyserver.access")
 
 # Emby 客戶端可能加上這些前綴，路由一律以去掉前綴後的小寫路徑比對
 PATH_PREFIXES = ("/emby", "/mediabrowser")
+ASCII_UPPER_RE = re.compile(r"[A-Z]+")
+
+
+def _ascii_lower(path: str) -> str:
+    """只把英文字母轉小寫。路徑裡的人名（/Persons/Émilie）也在這裡，Python 的 lower() 會連 É 都改掉，
+    但 SQLite 的 lower() 只認英文，兩邊就對不上了。"""
+    return ASCII_UPPER_RE.sub(lambda m: m.group().lower(), path)
 
 
 def _quiet(path: str) -> bool:
@@ -63,6 +71,8 @@ def create_app(config: Config, db_path: Optional[str] = None, scan_on_start: boo
             app.state.backup.start()
             app.state.person_names.start()
         yield
+        app.state.strm_sync.stop()
+        app.state.prober.stop()
         app.state.backup.stop()
         app.state.person_names.stop()
 
@@ -120,7 +130,7 @@ def create_app(config: Config, db_path: Optional[str] = None, scan_on_start: boo
     @app.middleware("http")
     async def normalize_path(request: Request, call_next):
         path = request.scope["path"]
-        lower = path.lower()
+        lower = _ascii_lower(path)
         for prefix in PATH_PREFIXES:
             if lower == prefix or lower.startswith(prefix + "/"):
                 lower = lower[len(prefix):] or "/"
@@ -152,7 +162,8 @@ def create_app(config: Config, db_path: Optional[str] = None, scan_on_start: boo
     async def unexpected_error(request: Request, exc: Exception):
         # 沒預料到的錯誤也回傳原因，網頁上才看得出問題在哪，完整堆疊寫進日誌
         log.exception("處理 %s %s 時發生錯誤", request.method, request.url.path)
-        return PlainTextResponse(f"伺服器錯誤：{type(exc).__name__}: {exc}", status_code=500)
+        # 錯誤訊息可能帶著網址（含 MoviePilot 的 token），遮掉再回給客戶端
+        return PlainTextResponse(f"伺服器錯誤：{type(exc).__name__}: {logs.redact(str(exc))}", status_code=500)
 
     app.include_router(system.router)
     app.include_router(items.router)

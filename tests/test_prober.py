@@ -280,3 +280,39 @@ def test_open_while_throttled_drops_queue_for_an_hour(tmp_path: Path):
     app.state.p115.breaker.reset()
     assert prober.enqueue(str(movie))
     assert _wait(lambda: prober.on_demand_done == 1)
+
+
+def test_usage_while_probing_does_not_crash():
+    """網頁查狀態時探測執行緒正在改 deque，不能丟 RuntimeError。"""
+    import threading
+    from collections import deque
+
+    class Box:
+        pass
+
+    from embyserver.prober import MediaProber
+
+    p = MediaProber.__new__(MediaProber)
+    p._fetches = deque()
+    p.clock = lambda: 0.0
+    p.waiting_until = 0.0
+    p.pace = lambda: (1.0, 0)
+    p.p115 = Box()
+    p.p115.breaker = Box()
+    p.p115.breaker.slowdown = lambda: 1
+    stop = threading.Event()
+
+    def writer():
+        while not stop.is_set():
+            p._fetches.append(0.0)
+            if len(p._fetches) > 1000:
+                p._fetches.popleft()
+
+    t = threading.Thread(target=writer)
+    t.start()
+    try:
+        for _ in range(2000):
+            p.usage()
+    finally:
+        stop.set()
+        t.join()

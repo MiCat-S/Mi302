@@ -484,6 +484,10 @@ class StrmSync:
 
         threading.Thread(target=loop, daemon=True).start()
 
+    def stop(self) -> None:
+        """停掉定時同步的執行緒（程式關閉、測試結束時；正在跑的那一次會做完）。"""
+        self._stop.set()
+
     def _full_due(self, now: float) -> bool:
         if self.cfg.full_interval <= 0:
             return False

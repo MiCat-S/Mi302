@@ -202,3 +202,13 @@ def test_genres_localization_can_be_turned_off(tmp_path: Path):
     app, c, h = build(tmp_path, chinese_genres=False)
     series = c.get("/Items", params={"IncludeItemTypes": "Series", "Recursive": "true"}, headers=h).json()["Items"][0]
     assert series["Genres"] == ["Drama", "Sci-Fi & Fantasy", "劇情"]
+
+
+def test_person_page_with_accented_name(tmp_path: Path):
+    """路徑轉小寫只轉英文字母：É 保持原樣，SQLite 的 lower() 才對得上。"""
+    app, c, h = build(tmp_path)
+    show = tmp_path / "tv" / "庆余年 (2019)"
+    (show / "tvshow.nfo").write_text(
+        TVSHOW.replace("Chen Daoming", "Émilie Dequenne"), encoding="utf-8")
+    app.state.scanner.scan_all()
+    assert c.get("/Persons/Émilie Dequenne", headers=h).status_code == 200

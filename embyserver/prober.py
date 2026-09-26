@@ -96,6 +96,7 @@ class MediaProber:
         self._failed: dict = {}
         self._qlock = threading.Lock()
         self._worker: Optional[threading.Thread] = None
+        self._stop = threading.Event()
         self.on_demand_done = 0
         self.on_demand_failed = 0
         self._which: Tuple[float, str, Optional[str]] = (0.0, "", None)  # (查的時間, 設定的路徑, 找到的路徑)
@@ -157,7 +158,7 @@ class MediaProber:
         """這一小時已經向 115 取了幾次直鏈。"""
         now = self.clock()
         interval, limit = self.pace()
-        used = sum(1 for t in self._fetches if now - t < 3600)
+        used = sum(1 for t in list(self._fetches) if now - t < 3600)  # 先複製：探測執行緒同時在改這個 deque
         waiting = self.waiting_until if self.waiting_until > time.time() else 0
         return {"used": used, "limit": limit, "interval": interval, "slowdown": self.p115.breaker.slowdown(),
                 "waiting_until": int(waiting) or None}
@@ -285,6 +286,12 @@ class MediaProber:
                     error(f"{path.name}：{exc}")
                 log.warning("探測 %s 失敗：%s", path, exc)
                 return
+            except Exception as exc:  # 沒預料到的錯誤只算這一項失敗，不能讓整批探測的執行緒死掉
+                with count:
+                    r.failed += 1
+                    error(f"{path.name}：{type(exc).__name__}: {exc}")
+                log.exception("探測 %s 時發生未預期的錯誤", path)
+                return
             with count:
                 r.done += 1
 
@@ -332,11 +339,24 @@ class MediaProber:
     def queue_size(self) -> int:
         return len(self._queue)
 
+    def stop(self) -> None:
+        """程式關閉時：不再處理排隊的項目。"""
+        self._stop.set()
+        with self._qlock:
+            self._queue.clear()
+            self._queued.clear()
+
     def _drain(self) -> None:
-        while True:
+        try:
+            self._drain_queue()
+        finally:
+            with self._qlock:
+                self._worker = None  # 不管怎麼結束，下次 enqueue 都能再開一條
+
+    def _drain_queue(self) -> None:
+        while not self._stop.is_set():
             with self._qlock:
                 if not self._queue:
-                    self._worker = None
                     return
                 path = self._queue[0]
             try:
@@ -363,6 +383,10 @@ class MediaProber:
                 self._failed[path] = time.time()
                 self.on_demand_failed += 1
                 log.warning("打開即探測 %s 失敗：%s", Path(path).name, exc)
+            except Exception:  # 沒預料到的錯誤：記下來、跳過這一項，佇列繼續
+                self._failed[path] = time.time()
+                self.on_demand_failed += 1
+                log.exception("打開即探測 %s 時發生未預期的錯誤", Path(path).name)
             with self._qlock:
                 if self._queue and self._queue[0] == path:
                     self._queue.popleft()

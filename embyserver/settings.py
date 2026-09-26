@@ -17,7 +17,7 @@ import os
 import threading
 from dataclasses import fields
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, get_type_hints
 
 from . import config_file, logs
 from .config import Config, LibraryConfig, PathRule, StrmTask, read_file
@@ -62,27 +62,27 @@ def export_settings(config: Config) -> Dict[str, Any]:
         },
         "moviepilot": {
             **{k: getattr(config.moviepilot, k) for k in MOVIEPILOT_FIELDS},
-            "path_mappings": [{"from": r.source, "to": r.target} for r in config.moviepilot.path_mappings],
+            "path_mappings": [r.to_dict() for r in config.moviepilot.path_mappings],
         },
         "mediainfo": {k: getattr(config.mediainfo, k) for k in MEDIAINFO_FIELDS},
         "redirect": {
             **{k: getattr(config.redirect, k) for k in REDIRECT_FIELDS},
-            "path_rules": [{"from": r.source, "to": r.target} for r in config.redirect.path_rules],
+            "path_rules": [r.to_dict() for r in config.redirect.path_rules],
         },
     }
 
 
 def _coerce(obj, name: str, value):
-    """依 dataclass 欄位原本的型別轉換網頁送來的值。"""
-    current = getattr(obj, name)
+    """依 dataclass 欄位宣告的型別轉換網頁送來的值（看宣告而不是目前的值：float 欄位預設 0 時目前的值是 int）。"""
+    kind = get_type_hints(type(obj)).get(name, str)
     try:
-        if isinstance(current, bool):
+        if kind is bool:
             if isinstance(value, str):
                 return value.strip().lower() in ("1", "true", "yes", "on")
             return bool(value)
-        if isinstance(current, int) and not isinstance(current, bool):
+        if kind is int:
             return int(float(value or 0))
-        if isinstance(current, float):
+        if kind is float:
             return float(value or 0)
         return str(value if value is not None else "").strip()
     except (TypeError, ValueError):
@@ -175,7 +175,7 @@ def _rules(raw) -> List[PathRule]:
     for r in raw or []:
         src, dst = str(r.get("from") or "").strip(), str(r.get("to") or "").strip()
         if src and dst:
-            rules.append(PathRule(source=src, target=dst))
+            rules.append(PathRule.from_dict({"from": src, "to": dst}))
     return rules
 
 
