@@ -16,6 +16,7 @@ from starlette.concurrency import run_in_threadpool
 from .. import logs
 from ..auth import AuthContext, now_iso, require_user
 from ..dto import media_source_dto
+from ..mediainfo import MediaInfoStore
 from .common import q, q_int, state
 from .items import _set_user_data
 
@@ -36,7 +37,8 @@ def playback_info(item_id: str, request: Request, ctx: AuthContext = Depends(req
     if not row or row["type"] not in ("Movie", "Episode"):
         raise HTTPException(status_code=404, detail="Item not found")
     remote = st.redirector.display_target(row, str(request.base_url))
-    ms = media_source_dto(row, remote, ctx.token)
+    # 有媒體資訊（X-mediainfo.json）時一起回傳，播放器不必自己探測就知道解析度、音軌、字幕軌
+    ms = media_source_dto(row, remote, ctx.token, MediaInfoStore(st.db).get(row["path"]))
     ms_id = q(request, "MediaSourceId")
     if ms_id and ms_id != ms["Id"]:
         log.debug("PlaybackInfo MediaSourceId 不符：%s", ms_id)

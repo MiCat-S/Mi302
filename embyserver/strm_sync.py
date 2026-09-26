@@ -36,6 +36,7 @@ import httpx
 
 from .config import P115StrmConfig, StrmTask
 from .db import Database
+from .mediainfo import SIDECAR_SUFFIX as MEDIAINFO_SUFFIX
 from .p115 import (
     LIFE_COPY_FOLDER, LIFE_DELETE, LIFE_NEW_FOLDER, LIFE_RECEIVE, LIFE_UPLOAD, PLAIN_UA,
     LifeEventGap, P115Error, P115NotFound, P115Service, P115Throttled,
@@ -123,8 +124,13 @@ def _belongs(name: str, stem: str) -> bool:
     return name.startswith(stem + ".") or name.startswith(stem + "-")
 
 
+def _is_metadata(f: Path) -> bool:
+    """跟著影片的附屬檔：nfo、圖片、字幕，以及媒體資訊 X-mediainfo.json（不從 115 下載，只在本機跟著搬、跟著刪）。"""
+    return f.suffix.lower() in METADATA_EXTS or f.name.lower().endswith(MEDIAINFO_SUFFIX)
+
+
 def _sidecars(folder: Path, stem: str) -> List[Path]:
-    """跟著某支影片的中繼資料：X.nfo、X-poster.jpg、X.zh.srt 這類同名檔案。
+    """跟著某支影片的中繼資料：X.nfo、X-poster.jpg、X.zh.srt、X-mediainfo.json 這類同名檔案。
 
     同資料夾裡有 X-2.strm 時，X-2.nfo 屬於 X-2 而不是 X。
     """
@@ -134,7 +140,7 @@ def _sidecars(folder: Path, stem: str) -> List[Path]:
     longer = [f.stem for f in files if f.suffix.lower() == ".strm" and f.stem != stem and f.stem.startswith(stem)]
     return [
         f for f in files
-        if f.suffix.lower() in METADATA_EXTS and _belongs(f.name, stem) and not any(_belongs(f.name, o) for o in longer)
+        if _is_metadata(f) and _belongs(f.name, stem) and not any(_belongs(f.name, o) for o in longer)
     ]
 
 
@@ -847,7 +853,7 @@ class StrmSync:
         if is_dir:
             if path.is_dir():
                 for f in sorted(path.rglob("*"), key=lambda p: len(p.parts), reverse=True):
-                    if f.is_file() and (f.suffix.lower() == ".strm" or f.suffix.lower() in METADATA_EXTS):
+                    if f.is_file() and (f.suffix.lower() == ".strm" or _is_metadata(f)):
                         f.unlink(missing_ok=True)
                         self.result.removed += 1
                     elif f.is_dir():
@@ -880,7 +886,7 @@ class StrmSync:
                 if self.cfg.delete_stale and not _has_video(folder):
                     self.result.changed.append(str(folder))
                     for f in sorted(folder.rglob("*"), key=lambda p: len(p.parts), reverse=True):
-                        if f.is_file() and f.suffix.lower() in METADATA_EXTS:
+                        if f.is_file() and _is_metadata(f):
                             f.unlink(missing_ok=True)
                             self.result.removed += 1
                         elif f.is_dir():
@@ -963,7 +969,7 @@ class StrmSync:
                 continue
             for name in filenames:
                 f = folder / name
-                if f.suffix.lower() in METADATA_EXTS and str(f) not in produced:
+                if _is_metadata(f) and str(f) not in produced:
                     f.unlink(missing_ok=True)
                     self.result.removed += 1
                     self.result.changed.append(str(f))

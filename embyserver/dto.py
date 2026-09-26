@@ -9,6 +9,7 @@ import sqlite3
 from typing import Any, Dict, List, Optional
 
 from .db import Database
+from .mediainfo import MediaInfoStore, default_audio_index, primary_video
 
 VIDEO_TYPES = {"Movie", "Episode"}
 FOLDER_TYPES = {"CollectionFolder", "Series", "Season", "Folder"}
@@ -71,15 +72,21 @@ def _child_count(db: Database, item: sqlite3.Row) -> int:
     return db.one("SELECT COUNT(*) AS c FROM items WHERE parent_id=? AND id<>?", (item["id"], item["id"]))["c"]
 
 
-def media_source_dto(item: sqlite3.Row, remote_url: Optional[str], token: Optional[str]) -> Dict[str, Any]:
-    """組 MediaSourceInfo。strm 以 Http + IsRemote 呈現，與 Emby 解析 strm 後的樣子一致。"""
+def media_source_dto(
+    item: sqlite3.Row, remote_url: Optional[str], token: Optional[str], info: Optional[dict] = None
+) -> Dict[str, Any]:
+    """組 MediaSourceInfo。strm 以 Http + IsRemote 呈現，與 Emby 解析 strm 後的樣子一致。
+
+    info 是媒體資訊（X-mediainfo.json）：有的話補上媒體流、碼率、大小、片長，播放器才看得到解析度、
+    HDR、音軌和字幕軌。播放方式（Path、DirectStreamUrl、不轉碼）維持 302 直連不變。
+    """
     msid = media_source_id(item)
     container = item["container"] or "mkv"
     is_remote = bool(remote_url and remote_url.startswith(("http://", "https://")))
     stream_url = f"/videos/{item['id']}/stream.{container}?Static=true&MediaSourceId={msid}"
     if token:
         stream_url += f"&api_key={token}"
-    return {
+    ms = {
         "Protocol": "Http" if is_remote else "File",
         "Id": msid,
         "Path": remote_url if is_remote else item["path"],
@@ -105,6 +112,18 @@ def media_source_dto(item: sqlite3.Row, remote_url: Optional[str], token: Option
         "AddApiKeyToDirectStreamUrl": False,
         "ReadAtNativeFramerate": False,
     }
+    if info:
+        src = info["source"]
+        ms["MediaStreams"] = src.get("MediaStreams") or []
+        if src.get("Container"):
+            ms["Container"] = src["Container"]
+        for key in ("Bitrate", "Size", "RunTimeTicks"):
+            if not ms.get(key) and src.get(key):
+                ms[key] = src[key]
+        audio = default_audio_index(info)
+        if audio is not None:
+            ms["DefaultAudioStreamIndex"] = audio
+    return ms
 
 
 def item_dto(
@@ -214,8 +233,18 @@ def item_dto(
 
     if with_media_sources and t in VIDEO_TYPES:
         remote = resolve_remote(item) if resolve_remote else None
-        dto["MediaSources"] = [media_source_dto(item, remote, token)]
-        dto["MediaStreams"] = []
+        info = MediaInfoStore(db).get(item["path"])
+        ms = media_source_dto(item, remote, token, info)
+        dto["MediaSources"] = [ms]
+        dto["MediaStreams"] = ms["MediaStreams"]
+        if info:
+            video = primary_video(info)
+            if video:
+                dto["Width"], dto["Height"] = video.get("Width"), video.get("Height")
+            dto["HasSubtitles"] = any(s.get("Type") == "Subtitle" for s in ms["MediaStreams"])
+            dto["Chapters"] = info.get("chapters") or []
+            if not dto.get("RunTimeTicks") and ms.get("RunTimeTicks"):
+                dto["RunTimeTicks"] = ms["RunTimeTicks"]
     return {k: v for k, v in dto.items() if v is not None}
 
 

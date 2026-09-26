@@ -93,6 +93,15 @@ CREATE TABLE IF NOT EXISTS p115_index (
 );
 
 -- 送去 MoviePilot 刮削後有 nfo 卻沒有劇照的集（多半是 TMDB 沒有這集的圖），一段時間內不再重送
+-- 每支影片的媒體資訊（解析度、HDR、音軌、字幕軌、章節），來自旁邊的 X-mediainfo.json 或 ffprobe 探測
+CREATE TABLE IF NOT EXISTS media_info (
+    path TEXT PRIMARY KEY,
+    data TEXT NOT NULL,
+    mtime REAL NOT NULL DEFAULT 0,
+    source TEXT,
+    at INTEGER
+);
+
 CREATE TABLE IF NOT EXISTS mp_no_image (
     path TEXT PRIMARY KEY,
     at INTEGER NOT NULL

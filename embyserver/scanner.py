@@ -15,6 +15,7 @@ from urllib.parse import unquote
 
 from .config import Config, LibraryConfig
 from .db import Database
+from .mediainfo import MediaInfoStore
 
 log = logging.getLogger(__name__)
 
@@ -261,6 +262,7 @@ class Scanner:
         self.expected = 0
         # 透過 API 上傳的圖片（例如 MoviePilot 封面插件做的媒體庫封面），重新掃描時不會被蓋掉
         self.images_dir = config.data_path / "images"
+        self.media_info = MediaInfoStore(db)  # 影片旁邊的 X-mediainfo.json
         self._custom: Optional[Dict[Tuple[int, str], str]] = None
         self._custom_lock = threading.Lock()
 
@@ -360,6 +362,7 @@ class Scanner:
 
     def _after_delete(self) -> None:
         self.db.execute("DELETE FROM user_data WHERE item_id NOT IN (SELECT id FROM items)")
+        self.media_info.prune()
         # 項目刪掉了，它上傳的圖片也刪掉，免得之後新項目用到同一個 id 時誤用
         custom = self._custom_images()
         if custom:
@@ -615,7 +618,15 @@ class Scanner:
             fields["sort_name"] = nfo["name"].lower()
         fields.pop("parent_index_number", None)
         fields.pop("index_number", None)
+        self._runtime_from_media_info(path, fields)
         self._upsert(str(path), fields)
+
+    def _runtime_from_media_info(self, path: Path, fields: Dict) -> None:
+        """讀影片旁邊的 X-mediainfo.json（神醫格式）；nfo 沒有片長時用它的。"""
+        info = self.media_info.sync_sidecar(path)
+        ticks = info["source"].get("RunTimeTicks") if info else None
+        if ticks and not fields.get("runtime_ticks"):
+            fields["runtime_ticks"] = int(ticks)
 
     def _container_for(self, path: Path) -> str:
         if path.suffix.lower() != ".strm":
@@ -711,6 +722,7 @@ class Scanner:
             ep_nfo.pop("sort_name", None)
             efields.update(ep_nfo)
             efields["parent_index_number"] = season_no
+            self._runtime_from_media_info(path, efields)
             self._upsert(str(path), efields)
             latest = max(latest or st.st_mtime, st.st_mtime)
         if latest:
