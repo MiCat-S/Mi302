@@ -221,10 +221,13 @@ class PersonNames:
         self.pause = 0.5  # 問 MoviePilot 的間隔（每秒最多 2 次，它要轉問 TMDB）
 
     def pending(self, limit: int = 500) -> List[str]:
-        """還沒查過、或查過沒有而且超過 30 天的 TMDB 人物 id。"""
+        """還沒查過、或查過沒有而且超過 30 天的 TMDB 人物 id。
+
+        只挑全是數字的：nfo 裡偶爾是 IMDb 的 nm0000123，MoviePilot 和 Wikidata 都查不了。
+        """
         rows = self.db.query(
             "SELECT DISTINCT p.tmdbid FROM people p LEFT JOIN person_names n ON n.tmdbid=p.tmdbid "
-            "WHERE p.tmdbid IS NOT NULL AND (p.type<>'Actor' OR p.ord<?) "
+            "WHERE p.tmdbid GLOB '[0-9]*' AND p.tmdbid NOT GLOB '*[^0-9]*' AND (p.type<>'Actor' OR p.ord<?) "
             "AND (n.tmdbid IS NULL OR (n.zh IS NULL AND n.at<?)) LIMIT ?",
             (TOP_ACTORS + 10, int(time.time() - RECHECK_SECONDS), limit),
         )
@@ -252,6 +255,8 @@ class PersonNames:
         try:
             body = self.moviepilot._request("GET", f"/api/v1/tmdb/person/{tmdbid}", timeout=20)
         except MoviePilotError as exc:
+            if exc.status in (400, 422):  # MoviePilot 不認得這個 id，不是它掛了：記成查過沒有，不然每次都卡在這個人
+                return True, None
             self.last_error = f"MoviePilot：{exc}"
             return False, None
         data = body.get("data") if isinstance(body, dict) and isinstance(body.get("data"), dict) else body
@@ -261,7 +266,10 @@ class PersonNames:
 
     def _from_wikidata(self, ids: List[str]) -> Optional[Dict[str, str]]:
         """批次查；連不上回傳 None（這次當作沒問到）。"""
-        values = " ".join(f'"{i}"' for i in ids if i.isdigit())
+        ids = [i for i in ids if i.isdigit()]
+        if not ids:  # VALUES 空的 SPARQL 會回 400
+            return {}
+        values = " ".join(f'"{i}"' for i in ids)
         langs = ", ".join(f'"{lang}"' for lang in WIKIDATA_LANGS)
         query = (
             "SELECT ?tmdb ?lang ?label WHERE { VALUES ?tmdb { %s } ?p wdt:P4985 ?tmdb . ?p rdfs:label ?label . "

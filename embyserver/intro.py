@@ -67,13 +67,14 @@ class IntroLearner:
                 return
             elapsed_ticks = int((now - s["at"]) * TICK)
             delta = pos - s["pos"]
-            # 往前跳：位置前進得比實際時間多很多（3 倍以上再加 15 秒，倍速播放不算），從開頭 8 分鐘內跳出去
-            if delta >= MIN_JUMP_TICKS and delta > elapsed_ticks * 3 + MIN_JUMP_TICKS and s["pos"] < MAX_INTRO_TICKS:
-                if pos <= MAX_INTRO_TICKS + MIN_JUMP_TICKS:
+            # 往前跳：位置前進得比實際時間多很多（3 倍以上再加 15 秒，倍速播放不算）
+            if delta >= MIN_JUMP_TICKS and delta > elapsed_ticks * 3 + MIN_JUMP_TICKS:
+                if s["pos"] < MAX_INTRO_TICKS and pos <= MAX_INTRO_TICKS + MIN_JUMP_TICKS:  # 從開頭 8 分鐘內跳出去
                     self._save(item["id"], user_id, "intro", s["pos"], pos)
                     log.info("學到片頭：%s 第 %s 集 %.0f–%.0f 秒", item["name"], item["index_number"], s["pos"] / TICK, pos / TICK)
                 elif runtime and s["pos"] >= runtime * CREDITS_ZONE and pos >= runtime - MIN_CREDITS_TICKS:
                     self._save(item["id"], user_id, "credits", s["pos"], runtime)  # 從片尾直接跳到結尾
+                    log.info("學到片尾：%s 第 %s 集 %.0f 秒起", item["name"], item["index_number"], s["pos"] / TICK)
             s["pos"], s["at"] = pos, now
             if stopped:
                 self._credits(user_id, item, pos, runtime)

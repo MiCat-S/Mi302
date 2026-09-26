@@ -30,6 +30,7 @@ NAME_RE = re.compile(r"^mi302-(\d{8}-\d{6})\.(db|yaml)$")
 LAST_META_KEY = "backup_last"
 DAY = 86400
 DEFAULT_KEEP = 7
+REQUIRED_TABLES = {"meta", "users"}
 
 
 class Backup:
@@ -80,19 +81,11 @@ class Backup:
             target = self.dir / f"mi302-{stamp}.db"
             tmp = target.with_name(target.name + ".part")
             tmp.unlink(missing_ok=True)
-            dst = sqlite3.connect(str(tmp))
             try:
-                if self.db.path == ":memory:":
-                    with self.db.lock:
-                        self.db.conn.backup(dst)
-                else:
-                    src = sqlite3.connect(f"file:{self.db.path}?mode=ro", uri=True)
-                    try:
-                        src.backup(dst)
-                    finally:
-                        src.close()
-            finally:
-                dst.close()
+                self._copy_db(tmp)
+            except BaseException:
+                tmp.unlink(missing_ok=True)
+                raise
             os.replace(tmp, target)
             if self.config.path and Path(self.config.path).is_file():
                 shutil.copy2(self.config.path, self.dir / f"mi302-{stamp}.yaml")
@@ -100,6 +93,26 @@ class Backup:
             self._prune()
             log.info("已備份資料庫：%s（%s KB）", target.name, target.stat().st_size // 1024)
             return target.name
+
+    def _copy_db(self, tmp: Path) -> None:
+        dst = sqlite3.connect(str(tmp))
+        try:
+            if self.db.path == ":memory:":
+                with self.db.lock:
+                    self.db.conn.backup(dst)
+            else:
+                # 路徑要跳脫成 URI：資料夾名稱有 # 或 ?（例如 NAS 的 Disk#2）時，直接拼字串會開到另一個空資料庫
+                src = sqlite3.connect(Path(self.db.path).resolve().as_uri() + "?mode=ro", uri=True)
+                try:
+                    src.backup(dst)
+                finally:
+                    src.close()
+            tables = {r[0] for r in dst.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        finally:
+            dst.close()
+        missing = REQUIRED_TABLES - tables
+        if missing:  # 空的備份不能拿去取代舊的好備份
+            raise RuntimeError(f"備份出來的資料庫缺少 {'、'.join(sorted(missing))} 表，沒有保存")
 
     def _prune(self) -> None:
         """只留最新幾次；關閉自動備份時手動備份也留 7 份。"""

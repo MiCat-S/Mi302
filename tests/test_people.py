@@ -101,8 +101,9 @@ def test_pick_chinese_and_genres():
 class FakeSources:
     """假的 MoviePilot 人物介面和 Wikidata。"""
 
-    def __init__(self, mp: dict, wd: dict, mp_down=False, wd_down=False):
+    def __init__(self, mp: dict, wd: dict, mp_down=False, wd_down=False, mp_reject=()):
         self.mp, self.wd, self.mp_down, self.wd_down = mp, wd, mp_down, wd_down
+        self.mp_reject = set(mp_reject)
         self.mp_calls, self.wd_queries = [], []
 
     def __call__(self, request: httpx.Request) -> httpx.Response:
@@ -122,6 +123,8 @@ class FakeSources:
                 return httpx.Response(502, text="bad gateway")
             pid = request.url.path.rsplit("/", 1)[1]
             self.mp_calls.append(pid)
+            if not pid.isdigit() or pid in self.mp_reject:  # MoviePilot V3 的 person_id: int
+                return httpx.Response(422, json={"detail": [{"type": "int_parsing", "loc": ["path", "person_id"]}]})
             data = self.mp.get(pid)
             return httpx.Response(200, json={"success": True, "data": data} if data else {"success": False, "message": "无"})
         return httpx.Response(404)
@@ -186,6 +189,22 @@ def test_sources_down_are_retried_later(tmp_path: Path):
     app2, c2, h2, pn2 = names_for(tmp_path / "b", fake2, mp=False)
     assert pn2.run() == 5 and fake2.mp_calls == []
     assert app2.state.db.one("SELECT zh, source FROM person_names WHERE tmdbid='1001'")["source"] == "wikidata"
+
+
+def test_ids_moviepilot_cannot_look_up_do_not_block_the_batch(tmp_path: Path):
+    fake = FakeSources(mp={"1397018": {"name": "Chen Daoming", "also_known_as": ["陈道明"]}}, wd={}, mp_reject={"1001"})
+    app, c, h, pn = names_for(tmp_path, fake)
+    db = app.state.db
+    item_id = db.one("SELECT item_id FROM people LIMIT 1")["item_id"]
+    db.execute("INSERT INTO people(item_id, ord, name, role, type, tmdbid, pid) VALUES(?,?,?,?,?,?,?)",
+               (item_id, 9, "Imdb Person", "", "Director", "nm0000123", "pn-imdb"))
+    assert "nm0000123" not in pn.pending()  # IMDb 的 id 不查
+    assert pn.run() == 5 and pn.last_error == ""
+    assert sorted(fake.mp_calls) == ["1001", "1002", "1397017", "1397018", "2001"]  # 被拒的那位之後照樣問
+    assert db.one("SELECT source FROM person_names WHERE tmdbid='1001'")["source"] == "none"
+    assert db.one("SELECT zh FROM person_names WHERE tmdbid='1397018'")["zh"] == "陈道明"
+    assert pn.pending() == []  # 下次不會再卡在同一個人
+    assert pn._from_wikidata(["nm0000123"]) == {} and len(fake.wd_queries) == 1  # 沒有數字 id 就不問 Wikidata
 
 
 def test_people_status_and_resolve_endpoints(tmp_path: Path):

@@ -121,3 +121,19 @@ def test_disabled_learns_and_serves_nothing(tmp_path: Path):
     p.progress(e1, 100)
     assert markers(c, p.h, e1) == {} and app.state.db.one("SELECT COUNT(*) AS c FROM intro_obs")["c"] == 0
     assert c.get(f"/Episode/{e1}/IntroTimestamps", headers=p.h).status_code == 404
+
+
+def test_learns_credits_from_a_jump_to_the_end(tmp_path: Path):
+    app, c = build(tmp_path)
+    p = Player(app, c)
+    e1, e2, _ = episodes(c, p.h)
+    p.progress(e1, 1814, after=0)
+    p.progress(e1, 1824)  # 30:24
+    p.progress(e1, 2395)  # 10 秒內跳到 39:55：跳過片尾
+    assert markers(c, p.h, e1) == {"CreditsStart": 1824}
+    assert markers(c, p.h, e2) == {"CreditsStart": 1824}  # 同一季套用
+    # 片中往後跳（還沒到片尾區）不算
+    p.progress(e2, 600, after=0)
+    p.progress(e2, 610)
+    p.progress(e2, 2395)
+    assert markers(c, p.h, e2) == {"CreditsStart": 1824}

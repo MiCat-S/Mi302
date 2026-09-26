@@ -4,6 +4,7 @@ import sqlite3
 import time
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
 from embyserver.app import create_app
@@ -11,10 +12,10 @@ from embyserver.backup import DAY, LAST_META_KEY
 from embyserver.config import load_config
 
 
-def make(tmp_path: Path, keep: int = 7):
+def make(tmp_path: Path, keep: int = 7, data: str = "data"):
     conf = tmp_path / "config.yaml"
     conf.write_text(
-        f"server:\n  data_dir: {tmp_path / 'data'}\n  backup_keep: {keep}\n"
+        f"server:\n  data_dir: '{tmp_path / data}'\n  backup_keep: {keep}\n"
         "users:\n  - name: admin\n    password: pw\n    admin: true\n  - name: kid\n    password: pw\n",
         encoding="utf-8",
     )
@@ -69,3 +70,24 @@ def test_backup_endpoints(tmp_path: Path):
     assert c.get(f"/web/api/backups/{name}", headers=kid).status_code == 403
     assert c.get("/web/api/backups/..%2Fconfig.yaml", headers=admin).status_code == 404
     assert c.get("/web/api/backups/mi302-20990101-000000.db", headers=admin).status_code == 404
+
+
+def test_data_dir_with_hash_or_question_mark(tmp_path: Path):
+    app, bk = make(tmp_path, data="Disk#2/mi?302/data")
+    db = sqlite3.connect(bk.dir / bk.run())
+    assert {r[0] for r in db.execute("SELECT name FROM users")} == {"admin", "kid"}
+    db.close()
+    assert sorted(f.name for f in tmp_path.iterdir()) == ["Disk#2", "config.yaml"]  # 沒有在旁邊開出空資料庫
+
+
+def test_empty_backup_is_not_kept(tmp_path: Path):
+    app, bk = make(tmp_path)
+    good = bk.run()
+    empty = tmp_path / "empty.db"
+    sqlite3.connect(empty).close()
+    app.state.db.path = str(empty)  # 模擬開到另一個空資料庫
+    time.sleep(1.1)  # 檔名精確到秒
+    with pytest.raises(RuntimeError, match="缺少"):
+        bk.run()
+    assert [i["name"] for i in bk.items() if i["kind"] == "db"] == [good]
+    assert not list(bk.dir.glob("*.part"))

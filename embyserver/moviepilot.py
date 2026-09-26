@@ -54,7 +54,9 @@ NO_IMAGE_RETRY_SECONDS = 30 * 86400
 
 
 class MoviePilotError(Exception):
-    pass
+    def __init__(self, message: str, status: Optional[int] = None):
+        super().__init__(message)
+        self.status = status  # MoviePilot 回的 HTTP 狀態碼；不是 HTTP 錯誤時是 None
 
 
 @dataclass
@@ -185,13 +187,13 @@ class MoviePilot:
                     hint = "API 令牌不正確" if self.cfg.api_token else "請填 API 令牌"
                     if self.cfg.api_token and not self.cfg.username:
                         hint += "；若 MoviePilot 版本較舊，請改填 MoviePilot 的帳號密碼"
-                    raise MoviePilotError(f"MoviePilot 拒絕存取（HTTP {resp.status_code}）：{hint}")
+                    raise MoviePilotError(f"MoviePilot 拒絕存取（HTTP {resp.status_code}）：{hint}", resp.status_code)
                 if resp.status_code == 404:
-                    raise MoviePilotError(f"MoviePilot 沒有這個 API（{path}），請確認網址或升級 MoviePilot")
+                    raise MoviePilotError(f"MoviePilot 沒有這個 API（{path}），請確認網址或升級 MoviePilot", 404)
                 if resp.status_code >= 400:
                     if resp.text.lstrip().startswith("<"):
-                        raise MoviePilotError(f"MoviePilot 回應 HTTP {resp.status_code}，內容是網頁不是 API，請確認網址")
-                    raise MoviePilotError(f"MoviePilot 回應 HTTP {resp.status_code}：{resp.text[:200]}")
+                        raise MoviePilotError(f"MoviePilot 回應 HTTP {resp.status_code}，內容是網頁不是 API，請確認網址", resp.status_code)
+                    raise MoviePilotError(f"MoviePilot 回應 HTTP {resp.status_code}：{resp.text[:200]}", resp.status_code)
                 try:
                     return resp.json()
                 except ValueError:
