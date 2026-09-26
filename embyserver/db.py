@@ -125,6 +125,17 @@ CREATE TABLE IF NOT EXISTS person_names (
     at INTEGER NOT NULL
 );
 
+-- 片頭片尾：從播放行為學到的紀錄（每個使用者對每一集各留一筆），給播放器「跳過片頭」用
+CREATE TABLE IF NOT EXISTS intro_obs (
+    item_id INTEGER NOT NULL,
+    user_id TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    start_ticks INTEGER NOT NULL,
+    end_ticks INTEGER NOT NULL,
+    at INTEGER NOT NULL,
+    PRIMARY KEY (item_id, user_id, kind)
+);
+
 CREATE TABLE IF NOT EXISTS mp_no_image (
     path TEXT PRIMARY KEY,
     at INTEGER NOT NULL

@@ -122,6 +122,7 @@ class ServerConfig:
     backup_keep: int = 7  # 每天自動備份資料庫和設定檔，留最新幾份；0 = 不自動備份
     chinese_people: bool = True  # 演職人員顯示中文名（經 MoviePilot 查 TMDB 別名，沒有再問 Wikidata）
     chinese_genres: bool = True  # 類型顯示中文（Action → 动作），繁體換成簡體
+    intro_skip: bool = True  # 從播放行為學片頭片尾，給播放器「跳過片頭」用（不碰 115）
 
 
 @dataclass

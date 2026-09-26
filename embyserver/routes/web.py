@@ -301,6 +301,20 @@ def moviepilot_scrape(request: Request, ctx: AuthContext = Depends(require_admin
     return {"started": started, "result": mp.result.as_dict()}
 
 
+@router.get("/web/api/intro/status")
+def intro_status(request: Request, ctx: AuthContext = Depends(require_admin)):
+    """片頭片尾：學到幾季、最近學到的。"""
+    return state(request).intro.status()
+
+
+@router.post("/web/api/intro/clear")
+async def intro_clear(request: Request, ctx: AuthContext = Depends(require_admin)):
+    """清掉學到的片頭片尾（{"season_id": id} 只清一季，沒有就全清）。"""
+    body = await _body(request)
+    sid = body.get("season_id")
+    return {"removed": state(request).intro.clear(int(sid) if str(sid or "").isdigit() else None)}
+
+
 @router.get("/web/api/people/status")
 def people_status(request: Request, ctx: AuthContext = Depends(require_admin)):
     """演職人員中文名：有幾位、查到幾位、來源、還有幾位沒查。"""

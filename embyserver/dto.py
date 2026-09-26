@@ -136,6 +136,8 @@ def item_dto(
     resolve_remote=None,
     people=None,
     with_people: bool = False,
+    intro=None,
+    with_chapters: bool = False,
 ) -> Dict[str, Any]:
     t = item["type"]
     dto: Dict[str, Any] = {
@@ -236,9 +238,10 @@ def item_dto(
     if with_people and people is not None and t in ("Movie", "Series", "Season", "Episode"):
         dto["People"] = people.for_item(item)
 
+    want_media = (with_media_sources or with_chapters) and t in VIDEO_TYPES
+    info = MediaInfoStore(db).get(item["path"]) if want_media else None
     if with_media_sources and t in VIDEO_TYPES:
         remote = resolve_remote(item) if resolve_remote else None
-        info = MediaInfoStore(db).get(item["path"])
         ms = media_source_dto(item, remote, token, info)
         dto["MediaSources"] = [ms]
         dto["MediaStreams"] = ms["MediaStreams"]
@@ -247,9 +250,15 @@ def item_dto(
             if video:
                 dto["Width"], dto["Height"] = video.get("Width"), video.get("Height")
             dto["HasSubtitles"] = any(s.get("Type") == "Subtitle" for s in ms["MediaStreams"])
-            dto["Chapters"] = info.get("chapters") or []
             if not dto.get("RunTimeTicks") and ms.get("RunTimeTicks"):
                 dto["RunTimeTicks"] = ms["RunTimeTicks"]
+    if want_media:
+        # 媒體資訊裡的章節，加上學到的片頭片尾標記（Emby 的 MarkerType）
+        chapters = list((info or {}).get("chapters") or [])
+        if intro is not None:
+            chapters += intro.chapters_for(item)
+        if chapters or with_media_sources:
+            dto["Chapters"] = chapters
     return {k: v for k, v in dto.items() if v is not None}
 
 

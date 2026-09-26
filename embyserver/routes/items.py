@@ -54,6 +54,8 @@ def _dto(request: Request, ctx: AuthContext, row, full: bool = False) -> dict:
         resolve_remote=lambda it: st.redirector.display_target(it, str(request.base_url)),
         people=st.people,
         with_people=full or "people" in fields,
+        intro=st.intro,
+        with_chapters="chapters" in fields,
     )
 
 

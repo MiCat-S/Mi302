@@ -124,6 +124,7 @@ def _report(request: Request, ctx: AuthContext, body: dict, stopped: bool) -> Re
     pos = int(pos or 0)
     fields = {"last_played": now_iso(), "position_ticks": pos}
     runtime: Optional[int] = row["runtime_ticks"] or lb.get("runtimeticks")
+    st.intro.report(ctx.user_id, row, pos, stopped)  # 從播放行為學片頭片尾
     finished = bool(stopped and runtime and pos >= runtime * 0.9)
     if finished:
         fields.update(played=1, position_ticks=0)
@@ -152,6 +153,38 @@ async def playing_progress(request: Request, ctx: AuthContext = Depends(require_
 async def playing_stopped(request: Request, ctx: AuthContext = Depends(require_user)):
     body = await _json_body(request)
     return await run_in_threadpool(_report, request, ctx, body, stopped=True)
+
+
+# ---------------- 片頭片尾（Jellyfin Intro Skipper 外掛、Jellyfin 10.10 媒體片段的格式） ----------------
+
+
+def _episode(request: Request, item_id: str):
+    row = state(request).db.get_item(item_id)
+    if not row or row["type"] != "Episode":
+        raise HTTPException(status_code=404, detail="Episode not found")
+    return row
+
+
+@router.get("/episode/{item_id}/introtimestamps")
+@router.get("/episode/{item_id}/introtimestamps/v1")
+def intro_timestamps(item_id: str, request: Request, ctx: AuthContext = Depends(require_user)):
+    row = _episode(request, item_id)
+    intro = state(request).intro.skipper_for(row)["Introduction"]
+    if not intro["Valid"]:
+        raise HTTPException(status_code=404, detail="No intro")  # 外掛沒有片頭時也是 404
+    return intro
+
+
+@router.get("/episode/{item_id}/timestamps")
+def episode_timestamps(item_id: str, request: Request, ctx: AuthContext = Depends(require_user)):
+    return state(request).intro.skipper_for(_episode(request, item_id))
+
+
+@router.get("/mediasegments/{item_id}")
+def media_segments(item_id: str, request: Request, ctx: AuthContext = Depends(require_user)):
+    row = state(request).db.get_item(item_id)
+    items = state(request).intro.segments_for(row) if row else []
+    return {"Items": items, "TotalRecordCount": len(items), "StartIndex": 0}
 
 
 @router.post("/sessions/playing/ping")

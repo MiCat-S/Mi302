@@ -17,6 +17,7 @@ from .auth import AuthService
 from .backup import Backup
 from .config import Config
 from .db import Database
+from .intro import IntroLearner
 from .moviepilot import MoviePilot, library_series
 from .p115 import P115Service
 from .people import PeopleStore, PersonNames
@@ -79,6 +80,7 @@ def create_app(config: Config, db_path: Optional[str] = None, scan_on_start: boo
     app.state.prober = MediaProber(config.mediainfo, config, app.state.p115, db)
     app.state.backup = Backup(db, config)
     app.state.people = PeopleStore(db, config)
+    app.state.intro = IntroLearner(db, config)
     app.state.person_names = PersonNames(db, config, app.state.moviepilot)
 
     def after_sync(result) -> None:

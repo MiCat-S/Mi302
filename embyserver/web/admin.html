@@ -326,6 +326,15 @@ dialog .card-b{max-height:70vh;overflow:auto}
         </div>
         <div class="card-f"><button class="btn primary" onclick="saveFields($('miCard')).then(pollMI)">儲存</button></div>
       </div>
+
+      <div class="card" id="introCard" style="margin-top:16px">
+        <div class="card-h"><div class="t"><svg class="i"><use href="#i-play"/></svg><h2>片頭片尾</h2></div><button class="btn ghost" onclick="clearIntro()">清除全部</button></div>
+        <div class="card-b stack">
+          <p class="hint">從播放行為學：有人在開頭跳過一段、在片尾切下一集，就記成這一季的片頭片尾，播放器（Emby 系列、SenPlayer 等認 Emby 章節標記的，以及認 Jellyfin Intro Skipper 的）會顯示「跳過片頭」。不碰 115、不讀影片。同一季其他集自動套用，多人多集取中位數。</p>
+          <div id="introStat"><p class="hint">讀取中…</p></div>
+          <label class="switch"><input type="checkbox" data-key="server.intro_skip" onchange="putSettings({server: {intro_skip: this.checked}}).then(() => { toast('已儲存'); pollIntro(); }).catch(e => { toast('儲存失敗：' + e.message, 'bad'); fillFields(); })"><span class="track"></span><span class="lbl">學片頭片尾並給播放器</span></label>
+        </div>
+      </div>
     </section>
 
     <!-- 115 -->
@@ -749,7 +758,7 @@ function renderSteps() {
 
 // ---- 媒體庫 ----
 let libs = [], libsShape = null;
-function loadLibs() { libs = structuredClone(cfg.libraries); dirtyLibs(false); renderLibs(); refreshScan(); pollMI(); }
+function loadLibs() { libs = structuredClone(cfg.libraries); dirtyLibs(false); renderLibs(); refreshScan(); pollMI(); pollIntro(); }
 function dirtyLibs(on) { $('libBar').classList.toggle('hidden', !on); }
 // 掃描狀態裡數量以外的部分；沒變就只改數字，不必整張卡重畫（封面會閃）
 function libShape(status) { return JSON.stringify((status?.libraries || []).map(({count, ...rest}) => rest)); }
@@ -846,6 +855,26 @@ async function refreshScan() {
   if (S.scan.scanning) scanTimer = setTimeout(refreshScan, 2000);
 }
 function scanNow() { scanReq({}, '全部媒體庫'); }
+
+// ---- 片頭片尾 ----
+async function pollIntro() {
+  let s;
+  try { s = await api('/web/api/intro/status'); } catch (e) { $('introStat').innerHTML = `<p class="notice bad">${esc(e.message)}</p>`; return; }
+  const sec = n => n >= 60 ? `${Math.floor(n / 60)} 分 ${n % 60} 秒` : `${n} 秒`;
+  let h = `<div class="chips">${chip(s.seasons, '學到的季', true)}${chip(s.episodes, '有紀錄的集')}</div>`;
+  if (s.recent.length) {
+    h += '<div class="list" style="margin-top:12px">' + s.recent.map(r => `<div class="li"><div class="main"><b>${esc(r.series || '?')}</b> <span class="hint">第 ${r.season} 季</span>
+      <div class="sub">${r.intro ? `片頭 ${sec(r.intro[0])} → ${sec(r.intro[1])}` : '還沒學到片頭'}${r.credits_tail != null ? `・片尾在結尾前 ${sec(r.credits_tail)}` : ''}・${r.episodes} 集有紀錄・${ago(r.last_at)}</div></div></div>`).join('') + '</div>';
+  } else if (s.enabled) {
+    h += '<p class="hint" style="margin-top:8px">還沒學到任何片頭。用播放器看劇時，在開頭手動跳過片頭、片尾切下一集，就會記下來。</p>';
+  }
+  setHtml($('introStat'), h);
+}
+async function clearIntro() {
+  if (!await ask({title: '清掉所有學到的片頭片尾？', text: '之後看劇時會重新學。', ok: '清除', danger: true})) return;
+  try { const r = await api('/web/api/intro/clear', {method: 'POST', body: '{}'}); toast('已清除 ' + r.removed + ' 筆'); } catch (e) { toast(e.message, 'bad'); }
+  pollIntro();
+}
 
 // ---- 媒體資訊 ----
 let miTimer = null;
