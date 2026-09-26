@@ -418,7 +418,7 @@ dialog .card-b{max-height:70vh;overflow:auto}
       <div class="card">
         <div class="card-h"><div class="t"><svg class="i"><use href="#i-tv"/></svg><h2>補全缺集</h2></div><button class="btn" onclick="fillAll()">全部補全</button></div>
         <div class="card-b stack">
-          <p class="hint">先向 MoviePilot 查 TMDB 上每一季已經播出的集，對照 Mi302 裡已有的集號；真的缺集的季才建訂閱，並請 MoviePilot 馬上搜尋。已播出的都有就不建訂閱。要先把 Mi302 加成 MoviePilot 的媒體伺服器（見下方），並填上面的 MoviePilot 帳號密碼。</p>
+          <p class="hint">先向 MoviePilot 查 TMDB 上每一季已經播出的集（沒有播出日期、又在媒體庫最後一集之後的不算），對照 Mi302 裡已有的集號；真的缺集的季才建訂閱，並請 MoviePilot 馬上搜尋。已播出的都有就不建訂閱。要先把 Mi302 加成 MoviePilot 的媒體伺服器（見下方），並填上面的 MoviePilot 帳號密碼。</p>
           <div id="fill"></div>
           <div class="logbar"><input id="seriesQ" type="search" placeholder="搜尋劇名" oninput="clearTimeout(seriesQT); seriesQT = setTimeout(loadSeries, 300)">
             <label class="switch" style="padding:0"><input type="checkbox" id="seriesGaps" onchange="loadSeries()"><span class="track"></span><span class="lbl">只看集號有空洞的</span></label></div>

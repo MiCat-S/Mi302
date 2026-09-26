@@ -14,7 +14,7 @@ MoviePilot 的 POST /api/v1/media/scrape/local 會依路徑辨識影片、到 TM
 已經刮削過的劇，送單集時直接帶上 tmdbid，MoviePilot 不必再用檔名搜尋 TMDB。
 MoviePilot 說完成之後再看一次有沒有真的寫出 nfo、劇照：認不出集數時它也會回報完成。
 
-補全缺集：先向 MoviePilot 查 TMDB 上每一季已播出的集（GET /api/v1/tmdb/{tmdbid}/{季}），
+補全缺集：先向 MoviePilot 查 TMDB 上每一季的集和播出日期（GET /api/v1/tmdb/{tmdbid}/{季}），
 對照媒體庫裡的集號，只替真的缺集的季建訂閱（POST /api/v1/subscribe/），再請它立刻搜尋
 （POST /api/v1/subscribe/search/{訂閱 id}）。MoviePilot V3 建訂閱時不檢查媒體庫、不保證馬上搜尋，
 所以這兩步 Mi302 自己做。建訂閱和搜尋的 API 只接受帳號登入，不接受 API 令牌。
@@ -452,22 +452,19 @@ class MoviePilot:
         """建訂閱的 API 只接受帳號登入。"""
         return self.enabled and bool(self.cfg.username and self.cfg.password)
 
-    def aired_episodes(self, tmdbid: int, season: int) -> Optional[Set[int]]:
-        """TMDB 上這一季已經播出的集號（透過 MoviePilot 查）；查不到時回傳 None，交給 MoviePilot 判斷。"""
+    def tmdb_episodes(self, tmdbid: int, season: int) -> Optional[Dict[int, str]]:
+        """TMDB 上這一季的集號 → 播出日期（沒填是空字串），透過 MoviePilot 查；查不到時回傳 None。"""
         try:
             body = self._request("GET", TMDB_EPISODES_API.format(tmdbid=tmdbid, season=season), timeout=30)
         except MoviePilotError as exc:
             log.warning("向 MoviePilot 查 TMDB %s 第 %s 季的集數失敗：%s", tmdbid, season, exc)
             return None
         items = body.get("data") if isinstance(body, dict) else body  # V3 包在 data 裡，V2 直接是清單
-        items = [e for e in items or [] if isinstance(e, dict) and str(e.get("episode_number") or "").isdigit()]
-        if not items:
-            return None
-        today = date.today().isoformat()
-        dated = [e for e in items if e.get("air_date")]
-        if not dated:  # TMDB 沒填播出日期的劇（常見於國產劇），當成都播了
-            return {int(e["episode_number"]) for e in items}
-        return {int(e["episode_number"]) for e in dated if str(e["air_date"])[:10] <= today}
+        episodes = {
+            int(e["episode_number"]): str(e.get("air_date") or "")[:10]
+            for e in items or [] if isinstance(e, dict) and str(e.get("episode_number") or "").isdigit()
+        }
+        return episodes or None
 
     def subscribe(self, name: str, year: Optional[int], tmdbid: int, season: int) -> Tuple[str, str, Optional[int]]:
         """替一季劇向 MoviePilot 建訂閱。
@@ -547,14 +544,23 @@ class MoviePilot:
     def _fill_season(self, r: FillResult, show: dict, info: dict, label: str) -> None:
         """一季：查 TMDB 已播出的集 → 缺集才建訂閱 → 請 MoviePilot 馬上搜尋。"""
         tmdbid, season = int(show["tmdbid"]), int(info["season"])
-        aired = self.aired_episodes(tmdbid, season)
+        episodes = self.tmdb_episodes(tmdbid, season)
         missing: List[int] = []
-        if aired is not None:
-            have = set(range(info["first"], info["last"] + 1)) - set(info.get("gaps") or []) if info.get("count") else set()
+        unsure = ""
+        if episodes is not None:
+            last = info["last"] if info.get("count") else 0
+            have = set(range(info["first"], last + 1)) - set(info.get("gaps") or []) if info.get("count") else set()
+            today = date.today().isoformat()
+            # 有播出日期的看日期。沒有日期的常是還沒播的佔位集，只有集號不超過媒體庫裡最後一集的才確定播過
+            # （都有第 10 集了，第 3 集一定播過）；比最後一集後面又沒有日期的不確定，不算缺，只在結果裡說明
+            aired = {e for e, d in episodes.items() if (d <= today if d else e <= last)}
+            undated = sorted(e for e, d in episodes.items() if not d and e > last)
+            if undated:
+                unsure = f"另有 {len(undated)} 集（{ep_ranges(undated)}）TMDB 沒有播出日期，不確定播了沒，沒算進去"
             missing = sorted(aired - have)
             if not missing:
                 r.complete += 1
-                r.details.append(f"{label}：TMDB 已播出的 {len(aired)} 集都有，不建訂閱")
+                r.details.append(f"{label}：TMDB 已播出的 {len(aired)} 集都有，不建訂閱" + (f"；{unsure}" if unsure else ""))
                 return
             r.missing += len(missing)
         lack = f"缺 {len(missing)} 集（{ep_ranges(missing)}）" if missing else "查不到 TMDB 集數，交給 MoviePilot 判斷"
@@ -572,6 +578,8 @@ class MoviePilot:
             except MoviePilotError as exc:
                 note += f"；沒有安排到搜尋（{exc}），MoviePilot 會在定時搜尋時處理"
                 log.warning("請 MoviePilot 搜尋訂閱 %s 失敗：%s", sid, exc)
+        if unsure:
+            note += f"；{unsure}"
         r.details.append(f"{label}：{lack}；{note}")
         log.info("補全缺集 %s：%s；%s", label, lack, note)
 

@@ -132,11 +132,11 @@ def test_fill_existing_subscription_is_searched_again(tmp_path: Path):
 
 def test_fill_works_with_moviepilot_v2(tmp_path: Path):
     # V2：TMDB 集數直接是清單、搜尋只接受 GET、媒體庫齊全時拒絕建訂閱
-    fake = FakeMP({(4321, 1): [(e, "") for e in range(1, 5)]}, existing={2}, v2=True)
+    fake = FakeMP({(4321, 1): [(e, "") for e in range(1, 5)]}, existing={2}, v2=True)  # 沒日期但都在最後一集之前
     cfg = make_config(tmp_path, username="cat", password="pw")
     mp = MoviePilot(cfg.moviepilot, cfg, transport=httpx.MockTransport(fake))
     r = mp.fill([SHOW_A], "manual")
-    # 沒有播出日期時當成都播了；第 2 季查不到 TMDB 集數，交給 MoviePilot 判斷
+    # 沒有日期、但在媒體庫最後一集之前的算播過；第 2 季查不到 TMDB 集數，交給 MoviePilot 判斷
     assert (r.created, r.complete, r.failed) == (1, 1, 0) and not r.errors
     assert [q.method for q in fake.sent if q.url.path == "/api/v1/subscribe/search/7"] == ["POST", "GET"]
     assert r.details[1] == "Show A S02：查不到 TMDB 集數，交給 MoviePilot 判斷；媒体库中已存在"
@@ -192,3 +192,21 @@ def test_full_sync_can_trigger_fill(tmp_path: Path):
     from embyserver import config_file, settings
     assert "fill_after_full_sync: true" in config_file.render(app.state.config)
     assert settings.export_settings(app.state.config)["moviepilot"]["fill_after_full_sync"] is True
+
+
+def test_undated_episodes_after_the_last_one_are_not_counted(tmp_path: Path):
+    # TMDB 的佔位集：沒有播出日期、在媒體庫最後一集之後，不確定播了沒，不能叫 MoviePilot 去搜
+    fake = FakeMP({
+        (4321, 1): [(1, "2020-01-01"), (2, "2020-01-02"), (3, ""), (4, "2020-01-04"), (5, ""), (6, "")],
+        (4321, 2): [(1, "2021-01-01"), (2, ""), (3, "")],
+    })
+    cfg = make_config(tmp_path, username="cat", password="pw")
+    mp = MoviePilot(cfg.moviepilot, cfg, transport=httpx.MockTransport(fake))
+    r = mp.fill([SHOW_A], "manual")
+    assert (r.created, r.complete, r.missing) == (1, 1, 1)
+    assert r.details == [
+        # 第 3 集沒日期，但媒體庫已經有第 4 集，一定播過
+        "Show A S01：缺 1 集（E03）；新增订阅成功；已安排搜索，很快开始；"
+        "另有 2 集（E05–E06）TMDB 沒有播出日期，不確定播了沒，沒算進去",
+        "Show A S02：TMDB 已播出的 1 集都有，不建訂閱；另有 2 集（E02–E03）TMDB 沒有播出日期，不確定播了沒，沒算進去",
+    ]
