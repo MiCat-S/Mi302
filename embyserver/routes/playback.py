@@ -96,7 +96,8 @@ def video_stream(item_id: str, name: str, request: Request):
 
 @router.api_route("/items/{item_id}/download", methods=["GET", "HEAD"])
 @router.api_route("/items/{item_id}/file", methods=["GET", "HEAD"])
-def item_download(item_id: str, request: Request):
+def item_download(item_id: str, request: Request, ctx: AuthContext = Depends(require_user)):
+    # 串流網址維持不帶 token 也能播（很多播放器不帶）；下載是另一回事，要登入
     return _stream(item_id, "stream", request)
 
 
@@ -126,7 +127,13 @@ def _report(request: Request, ctx: AuthContext, body: dict, stopped: bool) -> Re
     pos = lb.get("positionticks")
     if pos is None:
         pos = q_int(request, "PositionTicks")
-    pos = int(pos or 0)
+    try:
+        pos = int(pos)
+    except (TypeError, ValueError):
+        # 沒帶位置（舊版 API 的開始播放一定不帶）：不知道播到哪，只記最後播放時間，不能把續播點清成 0，
+        # 也不拿去學片頭（會把「從 0 跳到續播點」當成跳過片頭）
+        _set_user_data(request, ctx, item_id, last_played=now_iso())
+        return Response(status_code=204)
     fields = {"last_played": now_iso(), "position_ticks": pos}
     runtime: Optional[int] = row["runtime_ticks"] or lb.get("runtimeticks")
     st.intro.report(ctx.user_id, row, pos, stopped)  # 從播放行為學片頭片尾

@@ -152,9 +152,14 @@ def test_strm_302(client):
     for path in (
         f"/emby/videos/{item_id}/original.mkv",
         f"/Videos/{item_id}/stream",
-        f"/Items/{item_id}/Download",
     ):
         r = client.get(path, follow_redirects=False)
+        assert r.status_code == 302, path
+
+    # 下載不是播放：要登入
+    for path in (f"/Items/{item_id}/Download", f"/Items/{item_id}/File"):
+        assert client.get(path, follow_redirects=False).status_code == 401, path
+        r = client.get(path, params={"api_key": token}, follow_redirects=False)
         assert r.status_code == 302, path
 
 
@@ -224,6 +229,55 @@ def test_progress_and_played(client):
 
     r = client.post(f"/Users/{uid}/FavoriteItems/{iid}", headers=h)
     assert r.json()["IsFavorite"] is True
+
+
+def test_form_login(client):
+    r = client.post("/Users/AuthenticateByName", data={"Username": "cat", "Pw": "secret"})
+    assert r.status_code == 200 and r.json()["AccessToken"]
+    r = client.post("/Users/AuthenticateByName", data={"Username": "cat", "Pw": "wrong"})
+    assert r.status_code == 401
+
+
+def test_start_without_position_keeps_resume_point(client):
+    token, uid = login(client)
+    h = {"X-Emby-Token": token}
+    iid = client.get("/Items", params={"Recursive": "true", "SearchTerm": "全面"}, headers=h).json()["Items"][0]["Id"]
+    client.post("/Sessions/Playing/Progress", json={"ItemId": iid, "PositionTicks": 600_000_000}, headers=h)
+    before = client.get(f"/Users/{uid}/Items/{iid}", headers=h).json()["UserData"]["LastPlayedDate"]
+    assert client.post(f"/Users/{uid}/PlayingItems/{iid}", headers=h).status_code == 204  # 舊版 API 不帶位置
+    assert client.post("/Sessions/Playing", json={"ItemId": iid}, headers=h).status_code == 204
+    data = client.get(f"/Users/{uid}/Items/{iid}", headers=h).json()["UserData"]
+    assert data["PlaybackPositionTicks"] == 600_000_000
+    assert data["LastPlayedDate"] >= before
+    # 帶了位置照常更新
+    client.post(f"/Users/{uid}/PlayingItems/{iid}/Progress", params={"PositionTicks": 700_000_000}, headers=h)
+    assert client.get(f"/Users/{uid}/Items/{iid}", headers=h).json()["UserData"]["PlaybackPositionTicks"] == 700_000_000
+
+
+def test_other_users_data(client):
+    admin_token, admin_id = login(client)
+    kid_id = client.app.state.auth.create_user("kid", "pw", False)["id"]
+    kid_token = client.post("/Users/AuthenticateByName", json={"Username": "kid", "Pw": "pw"}).json()["AccessToken"]
+    admin, kid = {"X-Emby-Token": admin_token}, {"X-Emby-Token": kid_token}
+    params = {"Recursive": "true", "SearchTerm": "全面"}
+    iid = client.get("/Items", params=params, headers=kid).json()["Items"][0]["Id"]
+    client.post(f"/Users/{kid_id}/PlayedItems/{iid}", headers=kid)
+
+    # 非管理員：只能查自己
+    assert client.get(f"/Users/{admin_id}", headers=kid).status_code == 403
+    assert client.get(f"/Users/{kid_id}", headers=kid).json()["Name"] == "kid"
+    assert client.get("/Items", params={**params, "UserId": admin_id}, headers=kid).status_code == 403
+    assert client.get(f"/Users/{admin_id}/Items", params=params, headers=kid).status_code == 403
+    assert client.get("/Items", params={**params, "UserId": kid_id}, headers=kid).status_code == 200
+
+    # 管理員代查：用那個人的播放紀錄
+    assert client.get(f"/Users/{kid_id}", headers=admin).json()["Name"] == "kid"
+    played = lambda r: r.json()["Items"][0]["UserData"]["Played"]  # noqa: E731
+    assert played(client.get("/Items", params=params, headers=admin)) is False
+    assert played(client.get("/Items", params={**params, "UserId": kid_id}, headers=admin)) is True
+    assert played(client.get(f"/Users/{kid_id}/Items", params=params, headers=admin)) is True
+    assert client.get("/Items", params={**params, "IsPlayed": "true", "UserId": kid_id}, headers=admin).json()["TotalRecordCount"] == 1
+    assert client.get("/Items", params={**params, "UserId": "nobody"}, headers=admin).status_code == 404
 
 
 def test_resolve_redirect_chain(media: Path, tmp_path: Path):

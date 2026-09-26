@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import platform
+from urllib.parse import parse_qsl
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, WebSocket, WebSocketDisconnect
 from starlette.concurrency import run_in_threadpool
@@ -108,8 +109,8 @@ async def authenticate_by_name(request: Request):
             except ValueError:
                 body = {}
         else:
-            form = await request.form()
-            body = dict(form)
+            # 表單（application/x-www-form-urlencoded）自己解析：request.form() 要另裝 python-multipart
+            body = dict(parse_qsl(raw.decode("utf-8", "replace"), keep_blank_values=True))
     lb = {k.lower(): v for k, v in body.items()}
     username = lb.get("username") or q(request, "username") or ""
     password = lb.get("pw")
@@ -166,6 +167,8 @@ def users_list(request: Request, ctx: AuthContext = Depends(require_admin)):
 @router.get("/users/{user_id}")
 def user_get(user_id: str, request: Request, ctx: AuthContext = Depends(require_user)):
     st = state(request)
+    if user_id.lower() != ctx.user_id.lower() and not ctx.user["is_admin"]:
+        raise HTTPException(status_code=403, detail="Forbidden")
     user = st.auth.get_user(user_id)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")

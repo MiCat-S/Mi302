@@ -65,11 +65,16 @@ def _libraries(request: Request) -> List[Any]:
     )
 
 
-def _user_id_from(request: Request, ctx: AuthContext, user_id: Optional[str]) -> None:
-    if user_id and user_id.lower() != (ctx.user_id or "").lower():
-        # 目前只允許使用自己的資料；管理員可以代查
-        if not ctx.user["is_admin"]:
-            raise HTTPException(status_code=403, detail="Forbidden")
+def _as_user(request: Request, ctx: AuthContext, user_id: Optional[str]) -> AuthContext:
+    """路徑或 UserId 指定的使用者。只能查自己；管理員可以代查別人，播放紀錄、收藏用那個人的。"""
+    if not user_id or user_id.lower() == ctx.user_id.lower():
+        return ctx
+    if not ctx.user["is_admin"]:
+        raise HTTPException(status_code=403, detail="Forbidden")
+    user = state(request).auth.get_user(user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    return AuthContext(user, ctx.token, via_api_key=ctx.via_api_key)
 
 
 # ---------------- 媒體庫 ----------------
@@ -189,7 +194,7 @@ async def library_media_updated(request: Request, ctx: AuthContext = Depends(req
 # ---------------- 項目查詢 ----------------
 
 
-def _query_items(request: Request, ctx: AuthContext, user_id: Optional[str] = None) -> dict:
+def _query_items(request: Request, ctx: AuthContext) -> dict:
     st = state(request)
     where: List[str] = []
     params: List[Any] = []
@@ -319,13 +324,12 @@ def _query_items(request: Request, ctx: AuthContext, user_id: Optional[str] = No
 
 @router.get("/users/{user_id}/items")
 def user_items(user_id: str, request: Request, ctx: AuthContext = Depends(require_user)):
-    _user_id_from(request, ctx, user_id)
-    return _query_items(request, ctx, user_id)
+    return _query_items(request, _as_user(request, ctx, user_id))
 
 
 @router.get("/items")
 def items(request: Request, ctx: AuthContext = Depends(require_user)):
-    return _query_items(request, ctx, q(request, "UserId"))
+    return _query_items(request, _as_user(request, ctx, q(request, "UserId")))
 
 
 @router.get("/users/{user_id}/items/latest")
