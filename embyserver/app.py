@@ -74,9 +74,11 @@ def create_app(config: Config, db_path: Optional[str] = None, scan_on_start: boo
 
     def after_sync(result) -> None:
         # 新 strm 的媒體資訊在背景探測，和掃描、刮削同時進行（互不相干）
+        # 115 上換掉的檔案（pickcode 變了）舊媒體資訊已作廢，和新檔一起重新探測
         mi = config.mediainfo
-        if result.new_files and mi.enabled and mi.after_sync and app.state.prober.available():
-            app.state.prober.run_in_background(result.new_files, "sync")
+        todo = result.new_files + result.replaced
+        if todo and mi.enabled and mi.after_sync and app.state.prober.available():
+            app.state.prober.run_in_background(todo, "sync")
         # 先只掃有變動的地方，新片馬上出現；再把新產生的 strm 交給 MoviePilot 刮削，刮好的會再掃一次
         if config.p115.strm.scan_after_sync and result.changed:
             scanner.scan_paths(result.changed)

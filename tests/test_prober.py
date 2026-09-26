@@ -150,3 +150,30 @@ def test_endpoints_and_after_sync(tmp_path: Path):
     mi.after_sync = False
     app.state.strm_sync.on_done(SyncResult(new_files=["/x/new2.strm"]))
     assert len(calls) == 1
+
+
+def test_replaced_file_invalidates_media_info(tmp_path: Path):
+    from embyserver.mediainfo import build_sidecar, write_sidecar
+    from embyserver.strm_sync import FULL
+
+    from test_incremental import Fake115
+    from test_incremental import make as make_sync
+
+    fake = Fake115()
+    sync = make_sync(tmp_path, fake)
+    sync.run(FULL)
+    movie = tmp_path / "media" / "電影" / "Old Movie (2001).strm"
+    write_sidecar(movie, build_sidecar(PROBE, str(movie)))
+    sync.p115.db.execute("INSERT INTO media_info(path, data, mtime) VALUES(?, '{}', 1)", (str(movie),))
+
+    # 只改伺服器網址：strm 重寫了，但還是同一個檔案，媒體資訊照用
+    sync.cfg.base_url = "http://nas:8096"
+    r = sync.run(FULL)
+    assert r.strm_created == 2 and r.replaced == [] and sidecar_path(movie).exists()
+
+    # 115 上的檔案被換掉（pickcode 變了）：舊的媒體資訊作廢，列入重新探測
+    fake.file(1)["pc"] = "z" * 17
+    r = sync.run(FULL)
+    assert r.replaced == [str(movie)] and not sidecar_path(movie).exists()
+    assert sync.p115.db.one("SELECT 1 FROM media_info WHERE path=?", (str(movie),)) is None
+    assert r.as_dict()["replaced"] == 1

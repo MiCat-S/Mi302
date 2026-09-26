@@ -37,9 +37,10 @@ import httpx
 from .config import P115StrmConfig, StrmTask
 from .db import Database
 from .mediainfo import SIDECAR_SUFFIX as MEDIAINFO_SUFFIX
+from .mediainfo import sidecar_path as mediainfo_sidecar
 from .p115 import (
     LIFE_COPY_FOLDER, LIFE_DELETE, LIFE_NEW_FOLDER, LIFE_RECEIVE, LIFE_UPLOAD, PLAIN_UA,
-    LifeEventGap, P115Error, P115NotFound, P115Service, P115Throttled,
+    LifeEventGap, P115Error, P115NotFound, P115Service, P115Throttled, extract_pickcode,
 )
 
 log = logging.getLogger(__name__)
@@ -76,6 +77,8 @@ class SyncResult:
     errors: List[str] = field(default_factory=list)
     # 這次新產生的 strm（本機路徑），同步後交給 MoviePilot 刮削
     new_files: List[str] = field(default_factory=list)
+    # 115 上的檔案被換掉（pickcode 變了）的 strm：舊的媒體資訊已作廢，要重新探測
+    replaced: List[str] = field(default_factory=list)
     # 增量同步時改跑全量的任務，以及原因
     fell_back_to_full: List[str] = field(default_factory=list)
     notes: List[str] = field(default_factory=list)
@@ -85,6 +88,7 @@ class SyncResult:
     def as_dict(self) -> dict:
         d = asdict(self)
         d["new_files"] = len(self.new_files)
+        d["replaced"] = len(self.replaced)
         d["changed"] = len(self.changed)
         return d
 
@@ -907,18 +911,35 @@ class StrmSync:
             return
         content = strm_content(self.cfg, info["pickcode"].lower(), info["name"], self.base_url)
         existed = target.is_file()
+        old = ""
         try:
-            if existed and target.read_text(encoding="utf-8").strip() == content:
+            old = target.read_text(encoding="utf-8").strip() if existed else ""
+            if existed and old == content:
                 self.result.strm_unchanged += 1
                 return
         except OSError:
             pass
+        if existed and extract_pickcode(old) != info["pickcode"].lower():
+            self._forget_media_info(target)
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(content, encoding="utf-8")
         self.result.strm_created += 1
         self.result.changed.append(str(target))
         if not existed:
             self.result.new_files.append(str(target))
+
+    def _forget_media_info(self, target: Path) -> None:
+        """115 上的檔案被換掉了（pickcode 變了）：舊的媒體資訊是另一個檔案的，刪掉等重新探測。
+
+        只改伺服器網址、檔名附註而重寫 strm 時 pickcode 不變，媒體資訊照用。
+        """
+        sidecar = mediainfo_sidecar(target)
+        had = sidecar.exists()
+        sidecar.unlink(missing_ok=True)
+        self.p115.db.execute("DELETE FROM media_info WHERE path=?", (str(target),))
+        self.result.replaced.append(str(target))
+        if had:
+            log.info("115 上的檔案換了，舊的媒體資訊作廢：%s", target.name)
 
     def _download(self, target: Path, info: dict) -> None:
         if target.is_file() and target.stat().st_size == info["size"]:
