@@ -9,27 +9,34 @@ MoviePilot 的 POST /api/v1/media/scrape/local 會依路徑辨識影片、到 TM
 - 劇集：整部劇還沒有 tvshow.nfo 時送劇集資料夾（一次處理劇、季、集）；
   已經刮削過的劇只送新的那幾集。
 已經有 nfo 的項目不送，避免覆蓋 115 上帶下來或之前刮好的資料。
+
+補全缺集：替媒體庫裡的劇、每一季向 MoviePilot 建一條訂閱（POST /api/v1/subscribe/）。
+MoviePilot 會拿 TMDB 的集數對照媒體伺服器（也就是 Mi302）裡已有的集，只下載缺的；
+已經齊全的直接拒絕，不會留下訂閱。建訂閱的 API 只接受帳號登入，不接受 API 令牌。
 """
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import threading
 import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Callable, Iterable, List, Optional, Tuple
+from typing import Callable, Dict, Iterable, List, Optional, Set, Tuple
 
 import httpx
 
 from .config import Config, MoviePilotConfig
+from .db import Database
 from .http_util import GuardedClient
 
 log = logging.getLogger(__name__)
 
 SCRAPE_API = "/api/v1/media/scrape/local"
 LOGIN_API = "/api/v1/login/access-token"
+SUBSCRIBE_API = "/api/v1/subscribe/"
 VIDEO_EXTS = {
     ".strm", ".mkv", ".mp4", ".m4v", ".avi", ".ts", ".m2ts", ".mov", ".wmv", ".flv",
     ".webm", ".rmvb", ".mpg", ".mpeg", ".iso", ".3gp",
@@ -56,6 +63,29 @@ class ScrapeResult:
         return asdict(self)
 
 
+@dataclass
+class FillResult:
+    """補全缺集：替劇的每一季向 MoviePilot 建訂閱的結果。"""
+
+    source: str = ""  # sync / manual
+    started: float = 0.0
+    finished: float = 0.0
+    running: bool = False
+    total: int = 0  # 送出的季數
+    done: int = 0
+    created: int = 0  # 建了訂閱（有缺集）
+    complete: int = 0  # MoviePilot 說媒體庫已經齊全
+    existing: int = 0  # 之前就訂閱過
+    skipped: int = 0  # 沒有 tmdbid 的劇，以劇計
+    failed: int = 0
+    current: str = ""
+    details: List[str] = field(default_factory=list)  # 每一季的結果
+    errors: List[str] = field(default_factory=list)
+
+    def as_dict(self) -> dict:
+        return asdict(self)
+
+
 class MoviePilot:
     def __init__(
         self,
@@ -68,7 +98,9 @@ class MoviePilot:
         self.config = config
         self.on_done = on_done
         self.result = ScrapeResult()
+        self.fill_result = FillResult()
         self._lock = threading.Lock()
+        self._fill_lock = threading.Lock()
         self._transport = transport
         self._jwt: Optional[str] = None
 
@@ -115,8 +147,10 @@ class MoviePilot:
                         hint += "；若 MoviePilot 版本較舊，請改填 MoviePilot 的帳號密碼"
                     raise MoviePilotError(f"MoviePilot 拒絕存取（HTTP {resp.status_code}）：{hint}")
                 if resp.status_code == 404:
-                    raise MoviePilotError("MoviePilot 沒有刮削 API，請確認網址或升級 MoviePilot")
+                    raise MoviePilotError(f"MoviePilot 沒有這個 API（{path}），請確認網址或升級 MoviePilot")
                 if resp.status_code >= 400:
+                    if resp.text.lstrip().startswith("<"):
+                        raise MoviePilotError(f"MoviePilot 回應 HTTP {resp.status_code}，內容是網頁不是 API，請確認網址")
                     raise MoviePilotError(f"MoviePilot 回應 HTTP {resp.status_code}：{resp.text[:200]}")
                 try:
                     return resp.json()
@@ -278,3 +312,122 @@ class MoviePilot:
 
         threading.Thread(target=job, daemon=True).start()
         return True
+
+    # ---------------- 補全缺集 ----------------
+
+    @property
+    def can_subscribe(self) -> bool:
+        """建訂閱的 API 只接受帳號登入。"""
+        return self.enabled and bool(self.cfg.username and self.cfg.password)
+
+    def subscribe(self, name: str, year: Optional[int], tmdbid: int, season: int) -> Tuple[str, str]:
+        """替一季劇向 MoviePilot 建訂閱。
+
+        回傳 (結果, MoviePilot 的訊息)：created = 建了訂閱、complete = 媒體庫已經齊全、
+        existing = 之前就訂閱過、failed = 其他失敗。
+        """
+        body = {"name": name, "year": str(year) if year else None, "type": "电视剧", "tmdbid": tmdbid, "season": season}
+        res = self._post(SUBSCRIBE_API, body, timeout=60)
+        message = str(res.get("message") or "")
+        if res.get("success"):
+            return "created", message or "已建立訂閱"
+        if "订阅已存在" in message or "訂閱已存在" in message:
+            return "existing", message
+        if "已存在" in message:  # 媒体库中已存在
+            return "complete", message
+        return "failed", message or "MoviePilot 沒有說明原因"
+
+    def fill(self, series: List[dict], source: str) -> FillResult:
+        """替這些劇（library_series 的格式）的每一季建訂閱，一季一季來。"""
+        if not self._fill_lock.acquire(blocking=False):
+            log.info("補全缺集已在進行，略過")
+            return self.fill_result
+        self.fill_result = r = FillResult(source=source, started=time.time(), running=True)
+        try:
+            if not self.can_subscribe:
+                raise MoviePilotError("建訂閱的 API 只接受帳號登入，請在 MoviePilot 連線設定填帳號密碼")
+            jobs: List[Tuple[dict, int]] = []
+            for show in series:
+                if not show.get("tmdbid"):
+                    r.skipped += 1
+                    r.details.append(f"{show['name']}：沒有 tmdbid，略過（先刮削）")
+                    continue
+                jobs += [(show, x["season"]) for x in show.get("seasons") or []]
+            r.total = len(jobs)
+            log.info("補全缺集：替 %s 季向 MoviePilot 建訂閱", len(jobs))
+            for show, season in jobs:
+                label = f"{show['name']} S{season:02d}"
+                r.current = label
+                try:
+                    outcome, message = self.subscribe(show["name"], show.get("year"), int(show["tmdbid"]), season)
+                except MoviePilotError as exc:
+                    # 連線或認證錯誤，後面的也不會成功
+                    r.failed += r.total - r.done
+                    r.errors.append(str(exc))
+                    log.error("補全缺集中止：%s", exc)
+                    break
+                r.done += 1
+                setattr(r, outcome, getattr(r, outcome) + 1)
+                r.details.append(f"{label}：{message}")
+                if outcome == "failed":
+                    r.errors.append(f"{label}：{message}")
+                    log.warning("MoviePilot 不接受訂閱 %s：%s", label, message)
+                else:
+                    log.info("補全缺集 %s：%s", label, message)
+        except MoviePilotError as exc:
+            r.errors.append(str(exc))
+        finally:
+            r.running = False
+            r.current = ""
+            r.finished = time.time()
+            self._fill_lock.release()
+        return r
+
+    def fill_in_background(self, series: List[dict], source: str) -> bool:
+        if self._fill_lock.locked():
+            return False
+        threading.Thread(target=self.fill, args=(series, source), daemon=True).start()
+        return True
+
+
+def library_series(db: Database, query: str = "", gaps_only: bool = False, limit: int = 0) -> Tuple[List[dict], int]:
+    """媒體庫裡的劇：名稱、年份、tmdbid、每一季有幾集、集號的空洞（有第 2、4 集沒有第 3 集）。
+
+    回傳 (清單, 符合條件的總數)；集號有空洞的排前面。特別篇（第 0 季）不算。
+    空洞只是提示：最後幾集沒下到、整季都沒有的情況這裡看不出來，交給 MoviePilot 對照 TMDB。
+    """
+    episodes: Dict[int, Dict[int, Set[int]]] = {}
+    for r in db.query(
+        "SELECT series_id, parent_index_number AS s, index_number AS e FROM items "
+        "WHERE type='Episode' AND series_id IS NOT NULL AND parent_index_number IS NOT NULL AND index_number IS NOT NULL"
+    ):
+        episodes.setdefault(r["series_id"], {}).setdefault(int(r["s"]), set()).add(int(r["e"]))
+    needle = query.strip().lower()
+    out: List[dict] = []
+    for r in db.query(
+        "SELECT i.id, i.name, i.year, i.original_title, i.provider_ids, l.name AS library FROM items i "
+        "LEFT JOIN items l ON l.id=i.library_id WHERE i.type='Series' ORDER BY i.sort_name"
+    ):
+        name = r["name"] or ""
+        if needle and needle not in f"{name} {r['original_title'] or ''} {r['year'] or ''}".lower():
+            continue
+        providers = json.loads(r["provider_ids"]) if r["provider_ids"] else {}
+        tmdbid = str(providers.get("Tmdb") or "")
+        seasons = []
+        for season, eps in sorted(episodes.get(r["id"], {}).items()):
+            if season == 0:
+                continue
+            gaps = sorted(set(range(min(eps), max(eps) + 1)) - eps)
+            seasons.append({"season": season, "count": len(eps), "gaps": gaps})
+        gap_count = sum(len(x["gaps"]) for x in seasons)
+        if gaps_only and not gap_count:
+            continue
+        out.append({
+            "id": r["id"], "name": name, "year": r["year"], "library": r["library"],
+            "tmdbid": int(tmdbid) if tmdbid.isdigit() else None, "seasons": seasons, "gaps": gap_count,
+        })
+    out.sort(key=lambda x: (-x["gaps"], x["name"].lower()))
+    total = len(out)
+    if limit and len(out) > limit:
+        out = out[:limit]
+    return out, total

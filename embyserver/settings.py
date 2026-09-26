@@ -34,7 +34,7 @@ STRM_FIELDS = (
     "base_url", "include_name", "download_metadata", "delete_stale",
     "min_size_mb", "interval", "full_interval", "request_delay", "scan_after_sync",
 )
-MOVIEPILOT_FIELDS = ("url", "api_token", "username", "password", "scrape_after_sync", "timeout")
+MOVIEPILOT_FIELDS = ("url", "api_token", "username", "password", "scrape_after_sync", "fill_after_full_sync", "timeout")
 REDIRECT_FIELDS = ("resolve_redirects", "resolve_timeout", "cache_ttl", "require_auth", "default_container")
 P115_FIELDS = ("app", "open_app_id")
 

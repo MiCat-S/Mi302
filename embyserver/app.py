@@ -16,13 +16,13 @@ from fastapi.responses import PlainTextResponse
 from .auth import AuthService
 from .config import Config
 from .db import Database
-from .moviepilot import MoviePilot
+from .moviepilot import MoviePilot, library_series
 from .p115 import P115Service
 from .redirect import Redirector
 from .routes import items, p115, playback, system, web
 from . import logs, settings
 from .scanner import Scanner
-from .strm_sync import StrmSync
+from .strm_sync import FULL, StrmSync
 
 log = logging.getLogger(__name__)
 access_log = logging.getLogger("embyserver.access")
@@ -77,6 +77,11 @@ def create_app(config: Config, db_path: Optional[str] = None, scan_on_start: boo
         mp = app.state.moviepilot
         if result.new_files and mp.enabled and config.moviepilot.scrape_after_sync:
             mp.scrape(result.new_files, "sync")
+        if result.mode == FULL and config.moviepilot.fill_after_full_sync and mp.can_subscribe:
+            # 刮削完才有 tmdbid；替所有的劇建訂閱，MoviePilot 會拒絕已經齊全的
+            shows = [s for s in library_series(db)[0] if s["tmdbid"]]
+            if shows:
+                mp.fill_in_background(shows, "sync")
 
     app.state.strm_sync = StrmSync(
         app.state.p115,

@@ -55,9 +55,10 @@ p115:
 moviepilot:
   url: ''                           # MoviePilot 網址，例如 http://192.168.1.10:3000
   api_token: ''                     # MoviePilot 的「設定 → 系統 → API 令牌」
-  username: ''                      # 舊版 MoviePilot 的刮削 API 不接受令牌時，改填帳號密碼
+  username: ''                      # MoviePilot 帳號密碼：補全缺集（建訂閱）需要；舊版刮削 API 不接受令牌時也需要
   password: ''
   scrape_after_sync: true           # 同步產生新的 strm 後自動送去刮削
+  fill_after_full_sync: false       # 全量同步後把所有有 tmdbid 的劇送給 MoviePilot 訂閱，補齊缺集
   timeout: 300                      # 每一項刮削最多等幾秒
   # 兩邊看到的路徑不同時：Mi302 的路徑（from）→ MoviePilot 的路徑（to）
   path_mappings: []

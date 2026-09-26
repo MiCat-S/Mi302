@@ -388,8 +388,8 @@ dialog .card-b{max-height:70vh;overflow:auto}
           <label class="field"><span>路徑對應</span><textarea id="mpMap" rows="2" placeholder="/media => /mnt/media"></textarea>
             <small>一行一條：Mi302 的路徑 =&gt; MoviePilot 的路徑。兩邊看到的路徑一樣（例如裝在同一台機器）就不用填。不一樣的例子：Mi302 在 Parallels 虛擬機裡看到 /media/psf/Vo，MoviePilot 裝在 Mac 上看到 /Volumes/Vo，就填 /media/psf/Vo =&gt; /Volumes/Vo；Docker 則看各自的掛載路徑。</small></label>
           <label class="switch"><input type="checkbox" data-key="moviepilot.scrape_after_sync"><span class="track"></span><span class="lbl">同步產生新的 strm 後自動送去刮削</span></label>
-          <details class="more"><summary>舊版 MoviePilot：改用帳號密碼</summary><div class="in stack">
-            <p class="hint">舊版的刮削 API 不接受 API 令牌，測試連線出現「拒絕存取」時再填。</p>
+          <details class="more"><summary>MoviePilot 帳號密碼（補全缺集需要；舊版刮削 API 也需要）</summary><div class="in stack">
+            <p class="hint">「補全缺集」建訂閱的 API 只接受帳號登入。舊版的刮削 API 不接受 API 令牌，測試連線出現「拒絕存取」時也要填。</p>
             <div class="fields">
               <label class="field"><span>MoviePilot 帳號</span><input type="text" data-key="moviepilot.username" autocomplete="off"></label>
               <label class="field"><span>MoviePilot 密碼</span><input type="password" data-key="moviepilot.password" autocomplete="new-password"></label>
@@ -403,6 +403,18 @@ dialog .card-b{max-height:70vh;overflow:auto}
         <div class="card-b stack">
           <div class="js-mp"></div>
           <p class="hint">把媒體庫裡還沒有 nfo 的影片送去 MoviePilot。已經有 nfo 的不會重送；劇集沒有 tvshow.nfo 時整部劇一起刮削。</p>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-h"><div class="t"><svg class="i"><use href="#i-tv"/></svg><h2>補全缺集</h2></div><button class="btn" onclick="fillAll()">全部補全</button></div>
+        <div class="card-b stack">
+          <p class="hint">替劇的每一季向 MoviePilot 建訂閱。MoviePilot 會拿 TMDB 的集數對照 Mi302 裡已有的集，只下載缺的：已經齊全的會被拒絕、不留訂閱；還在更新的劇會跟著追新集。要先把 Mi302 加成 MoviePilot 的媒體伺服器（見下方），並填上面的 MoviePilot 帳號密碼。</p>
+          <div id="fill"></div>
+          <div class="logbar"><input id="seriesQ" type="search" placeholder="搜尋劇名" oninput="clearTimeout(seriesQT); seriesQT = setTimeout(loadSeries, 300)">
+            <label class="switch" style="padding:0"><input type="checkbox" id="seriesGaps" onchange="loadSeries()"><span class="track"></span><span class="lbl">只看集號有空洞的</span></label></div>
+          <div id="series" class="list"><p class="hint">讀取中…</p></div>
+          <p class="hint">「集號有空洞」只是提示（例如有第 2、4 集沒有第 3 集）；最後幾集沒下到、整季沒有的情況，MoviePilot 對照 TMDB 一樣會算出來。沒有 tmdbid 的劇要先刮削。</p>
+          <label class="switch"><input type="checkbox" data-key="moviepilot.fill_after_full_sync" onchange="putSettings({moviepilot: {fill_after_full_sync: this.checked}}).then(() => toast('已儲存')).catch(e => { toast('儲存失敗：' + e.message, 'bad'); fillFields(); })"><span class="track"></span><span class="lbl">全量同步後自動補全<small>每次全量同步、刮削完之後，把所有有 tmdbid 的劇送一次</small></span></label>
         </div>
       </div>
       <div class="card">
@@ -990,7 +1002,7 @@ async function pollSync(first) {
 function mpRulesText() { return (cfg.moviepilot.path_mappings || []).map(r => r.from + ' => ' + r.to).join('\n'); }
 function loadMP() {
   $('mpMap').value = mpRulesText();
-  loadKeys(); pollMP();
+  loadKeys(); pollMP(); loadSeries();
 }
 async function saveMP(quiet) {
   const body = {moviepilot: {}};
@@ -1030,14 +1042,55 @@ function mpHtml(s) {
 let mpTimer = null;
 async function pollMP() {
   clearTimeout(mpTimer);
-  if (document.hidden && S.mp?.result.running) { mpTimer = setTimeout(pollMP, 2000); return; }
+  if (document.hidden && (S.mp?.result.running || S.mp?.fill?.running)) { mpTimer = setTimeout(pollMP, 2000); return; }
   let s;
   try { s = await api('/web/api/moviepilot/status'); } catch (e) { return; }
   S.mp = s;
   const html = mpHtml(s);
   for (const el of document.querySelectorAll('.js-mp')) setHtml(el, html);
   if (!$('mpPill').innerHTML || !s.enabled) $('mpPill').innerHTML = s.enabled ? '<span class="pill">已設定</span>' : '<span class="pill">未設定</span>';
-  if (s.result.running) mpTimer = setTimeout(pollMP, 2000);
+  setHtml($('fill'), fillHtml(s.fill || {}));
+  if (s.result.running || s.fill?.running) mpTimer = setTimeout(pollMP, 2000);
+}
+
+// ---- 補全缺集 ----
+let seriesQT = null;
+const ep2 = n => String(n).padStart(2, '0');
+async function loadSeries() {
+  const box = $('series');
+  let r;
+  try { r = await api(`/web/api/series?q=${encodeURIComponent($('seriesQ').value)}&gaps=${$('seriesGaps').checked ? 1 : 0}`); }
+  catch (e) { box.innerHTML = `<p class="notice bad">${esc(e.message)}</p>`; return; }
+  box.innerHTML = r.items.length ? '' : `<p class="hint">${r.total || $('seriesQ').value || $('seriesGaps').checked ? '沒有符合的劇' : '媒體庫裡還沒有劇集'}</p>`;
+  for (const s of r.items) {
+    const row = document.createElement('div'); row.className = 'li';
+    const seasons = s.seasons.map(x => `S${ep2(x.season)} ${x.count} 集` +
+      (x.gaps.length ? ` <span class="pill warn">缺 ${x.gaps.map(e => 'E' + ep2(e)).join('、')}</span>` : '')).join('　') || '沒有集';
+    row.innerHTML = `<div class="main"><b>${esc(s.name)}</b>${s.year ? ` <span class="hint">${s.year}</span>` : ''}${s.library ? ` <span class="pill">${esc(s.library)}</span>` : ''}${s.tmdbid ? '' : ' <span class="pill">沒有 tmdbid，要先刮削</span>'}
+      <div class="sub">${seasons}</div></div><button class="btn sm"${s.tmdbid ? '' : ' disabled'}>補全</button>`;
+    row.querySelector('button').onclick = () => fillSeries([s.id], '「' + s.name + '」');
+    box.appendChild(row);
+  }
+  if (r.truncated) box.insertAdjacentHTML('beforeend', `<p class="hint" style="padding-top:10px">只列出前 ${r.items.length} 部（共 ${r.total} 部），搜尋可以縮小範圍。</p>`);
+}
+async function fillSeries(ids, label) {
+  let r;
+  try { r = await api('/web/api/moviepilot/fill', {method: 'POST', body: JSON.stringify({series: ids})}); }
+  catch (e) { toast(e.message, 'bad'); return; }
+  toast(r.started ? '已送給 MoviePilot：' + label : '已經在補全中，等它做完'); pollMP();
+}
+async function fillAll() {
+  if (await ask({title: '把所有有 tmdbid 的劇都送給 MoviePilot？', text: '每一季各建一條訂閱；已經齊全的 MoviePilot 會拒絕，不會留下。', ok: '全部補全'})) fillSeries([], '全部劇集');
+}
+function fillHtml(f) {
+  if (!f.started) return '';
+  let h = '<div class="row wrap" style="margin-bottom:8px">';
+  if (f.running) h += `<span class="pill accent"><span class="spin"></span>補全中</span><span class="hint">${f.done} / ${f.total}${f.current ? '　' + esc(f.current) : ''}</span>`;
+  else h += `<span class="pill ${f.errors.length ? 'warn' : 'ok'}">${f.errors.length ? '有問題' : '完成'}</span><span class="hint">上次補全（${f.source === 'sync' ? '全量同步後自動' : '手動'}）・${ago(f.finished)}</span>`;
+  h += `</div><div class="chips">${chip(f.created, '建了訂閱', true)}${chip(f.complete, '已經齊全')}${chip(f.existing, '之前訂閱過')}${chip(f.skipped, '沒 tmdbid')}${chip(f.failed, '失敗')}</div>`;
+  if (f.details.length) h += `<details class="more" style="margin-top:10px"><summary>每一季的結果（${f.details.length}）</summary><div class="in hint" style="white-space:pre-wrap;word-break:break-all">${esc(f.details.join('\n'))}</div></details>`;
+  if (f.errors.length) h += `<div class="notice bad" style="margin-top:10px">${f.errors.slice(0, 5).map(esc).join('<br>')}</div>`;
+  return h;
 }
 async function loadKeys() {
   const list = await api('/web/api/apikeys');

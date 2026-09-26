@@ -92,6 +92,7 @@ class MoviePilotConfig:
     # Mi302 看到的路徑 → MoviePilot 看到的路徑（兩邊容器掛載點不同時才需要）
     path_mappings: List[PathRule] = field(default_factory=list)
     scrape_after_sync: bool = True  # 同步產生新 strm 後自動送去刮削
+    fill_after_full_sync: bool = False  # 全量同步後把所有有 tmdbid 的劇送給 MoviePilot 訂閱，補齊缺集
     timeout: float = 300  # MoviePilot 刮削是同步完成才回應，一部片可能要幾十秒
 
 

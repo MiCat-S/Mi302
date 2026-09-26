@@ -16,6 +16,7 @@ from starlette.concurrency import run_in_threadpool
 from .. import logs, settings
 from ..auth import AuthContext, client_info, require_admin
 from ..dto import image_tag
+from ..moviepilot import library_series
 from ..p115 import P115Error
 from ..p115_open import P115OpenError
 from ..settings import SettingsError
@@ -280,7 +281,10 @@ def moviepilot_test(request: Request, ctx: AuthContext = Depends(require_admin))
 @router.get("/web/api/moviepilot/status")
 def moviepilot_status(request: Request, ctx: AuthContext = Depends(require_admin)):
     mp = state(request).moviepilot
-    return {"enabled": mp.enabled, "result": mp.result.as_dict()}
+    return {
+        "enabled": mp.enabled, "can_subscribe": mp.can_subscribe,
+        "result": mp.result.as_dict(), "fill": mp.fill_result.as_dict(),
+    }
 
 
 @router.post("/web/api/moviepilot/scrape")
@@ -291,6 +295,35 @@ def moviepilot_scrape(request: Request, ctx: AuthContext = Depends(require_admin
         raise HTTPException(status_code=400, detail="請先填好 MoviePilot 網址與 API 令牌並儲存")
     started = mp.scrape_in_background(None, "manual")
     return {"started": started, "result": mp.result.as_dict()}
+
+
+@router.get("/web/api/series")
+def list_series(request: Request, ctx: AuthContext = Depends(require_admin)):
+    """媒體庫裡的劇和每一季的集數、集號空洞；q 搜尋劇名，gaps=1 只列有空洞的。"""
+    items, total = library_series(
+        state(request).db, q(request, "q") or "", q(request, "gaps") in ("1", "true"), limit=200
+    )
+    return {"items": items, "total": total, "truncated": total > len(items)}
+
+
+@router.post("/web/api/moviepilot/fill")
+async def moviepilot_fill(request: Request, ctx: AuthContext = Depends(require_admin)):
+    """補全缺集：{"series": [id, ...]} 只送這些劇；空的就送所有有 tmdbid 的劇。"""
+    st = state(request)
+    mp = st.moviepilot
+    body = await _body(request)
+    if not mp.enabled:
+        raise HTTPException(status_code=400, detail="請先填好 MoviePilot 網址與 API 令牌並儲存")
+    if not mp.can_subscribe:
+        raise HTTPException(status_code=400, detail="建訂閱的 API 只接受帳號登入，請在「MoviePilot 帳號密碼」填好再儲存")
+    ids = body.get("series")
+    wanted = {int(i) for i in ids if str(i).isdigit()} if isinstance(ids, list) and ids else None
+    all_shows = (await run_in_threadpool(library_series, st.db))[0]
+    shows = [s for s in all_shows if (s["id"] in wanted if wanted is not None else bool(s["tmdbid"]))]
+    if not shows:
+        raise HTTPException(status_code=400, detail="沒有可以送的劇：要先刮削過、有 tmdbid")
+    started = mp.fill_in_background(shows, "manual")
+    return {"started": started, "result": mp.fill_result.as_dict()}
 
 
 # ---------------- 日誌 ----------------
