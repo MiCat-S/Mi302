@@ -7,7 +7,7 @@
 ## 接手須知
 
 - 直接在 main 上提交，提交訊息用繁體中文，結尾加 `Co-Authored-By` 那一行；做完就推送，不用等使用者說。
-- 每一批修改都要有回歸測試；目前 `pytest -q` 是 171 個全過。
+- 每一批修改都要有回歸測試；目前 `pytest -q` 是 174 個全過。
 - 動到 `embyserver/web/admin.html` 時，把 `<script>` 抽出來跑 `node --check`。
 - 不要加回任何 Docker 相關檔案或說明（已經整個移除；install.sh 裡的 docker 字樣只是拒絕舊參數和搬遷舊安裝用的）。
 - 使用者用 MoviePilot V3（看 V3 分支的原始碼），播放器是 SenPlayer。
@@ -25,6 +25,9 @@
 | 18764a8 | 雲端工作階段啟動時用 `.claude/hooks/session-start.sh` 自動安裝依賴 |
 | 6f8fe17 | 背景服務：從片尾直接跳到結尾學得到片尾；備份路徑跳脫（資料夾名稱有 # 或 ? 時不再開到空資料庫），空備份不保存；中文名只查數字 id，MoviePilot 對單一 id 回 400／422 記成查過沒有，不再整批卡住；MoviePilotError 帶 HTTP 狀態碼 |
 | 3e0cbca | API 層第二批：/Items/{id}/Download、/File 要登入；表單登入不再 500；播放回報沒帶位置時不清續播點、不拿去學片頭；/Items?UserId=、/Users/{id}/Items 非管理員查別人 403、管理員代查用那個人的播放紀錄；/Users/{id} 非管理員讀別人 403 |
+| f658b66 | 下載功能加開關 server.allow_download（預設開；關掉後 CanDownload、EnableContentDownloading 回 false，下載網址 403） |
+| 05e4ed1 | 播放網址預設要求登入（redirect.require_auth 預設 true）。查證過：Emby 官方文件標明串流要登入、4.7 起不分內外網都擋；Emby Web、Kodi 把 token 放查詢參數，Infuse 放 X-Emby-Authorization 標頭，兩種都認。「很多播放器不帶 token」是第一版沒依據的假設，已從程式和說明拿掉 |
+| 73cf045 | 片頭片尾範圍照查證資料改：片頭起點前 10 分鐘內、一次跳 15 秒–3 分鐘；片尾最後 5 分鐘，片尾區裡往前跳 60 秒以上也算；短的集用前後 25%（24 分鐘動畫＝前 6 分鐘、後 5 分鐘），不用判斷是不是動畫。依據：AniSkip 27 部動畫統計、TheIntroDB 影集統計、廣電《電視劇母版製作規範》、Emby／Intro Skipper／神醫助手的預設 |
 
 ## 待辦
 
