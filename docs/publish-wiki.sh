@@ -9,8 +9,13 @@ REV="$(git rev-parse --short HEAD)"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
-if ! git clone -q "$REMOTE" "$TMP/wiki" 2>/dev/null; then
-	echo "Wiki 還沒建立：先到 https://github.com/MiCat-S/Mi302/wiki 按「Create the first page」隨便存一頁，再執行一次。" >&2
+if ! err="$(git clone -q "$REMOTE" "$TMP/wiki" 2>&1)"; then
+	if [[ "$err" == *"not found"* ]]; then
+		echo "Wiki 還沒建立：用倉庫擁有者的帳號登入 GitHub，打開 https://github.com/MiCat-S/Mi302/wiki ，" >&2
+		echo "按綠色的「Create the first page」，內容不用改，直接按「Save page」，再執行一次。" >&2
+	else
+		echo "無法取得 wiki：$err" >&2
+	fi
 	exit 1
 fi
 
