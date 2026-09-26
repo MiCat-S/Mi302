@@ -32,13 +32,10 @@ Mi302 部署腳本
   uninstall        移除開機自動啟動與 mi302 指令，保留程式、設定和資料
 
 選項：
-  --python         直接用 Python 執行（systemd／launchd 開機自動啟動）
-  --docker         用 Docker Compose 執行
   --dir 資料夾      安裝位置（Linux 預設 /opt/mi302，macOS 預設 ~/Mi302；
                    在程式資料夾裡執行本腳本時，就裝在那個資料夾）
   --port 埠號       網頁與播放器用的埠號（預設 8096）
-  --media 資料夾    Docker：掛進容器的媒體資料夾，容器裡看到的是 /media
-  --user 使用者     Python：用哪個 Linux 使用者執行，要能讀寫媒體資料夾
+  --user 使用者     用哪個 Linux 使用者執行，要能讀寫媒體資料夾
                    （預設是執行 sudo 的使用者）
   --mirror         pip 用清華鏡像（國內網路；連不上 PyPI 時會自動改用）
   --branch 分支     預設 main
@@ -46,9 +43,8 @@ Mi302 部署腳本
 
 例子：
   sudo bash install.sh                                   # 互動式安裝
-  sudo bash install.sh --python --user cat -y            # 直接用 Python，以 cat 身分執行
-  sudo bash install.sh --docker --media /volume1/media -y
-  curl -fsSL https://raw.githubusercontent.com/MiCat-S/Mi302/main/install.sh | sudo bash -s -- --docker
+  sudo bash install.sh --user cat --port 8097 -y         # 以 cat 身分執行，埠號 8097
+  curl -fsSL https://raw.githubusercontent.com/MiCat-S/Mi302/main/install.sh | sudo bash -s -- -y
 EOF
 }
 
@@ -88,21 +84,20 @@ confirm() { # confirm 問題 預設(y/n)
 
 ORIG_ARGS=("$@")
 CMD=install
-MODE="" DIR="" PORT="" MEDIA="" RUN_USER="" MIRROR="" BRANCH="" YES=0
+MODE="" DIR="" PORT="" RUN_USER="" MIRROR="" BRANCH="" YES=0
 EXTRA=()
 
 parse_args() {
 	while [ $# -gt 0 ]; do
 		case $1 in
 		install | update | uninstall | status | logs | start | stop | restart | reset-password) CMD=$1 ;;
-		--python) MODE=python ;;
-		--docker) MODE=docker ;;
-		--dir | --port | --media | --user | --branch)
+		--python) MODE=python ;; # 舊版的選項，現在只有這一種方式
+		--docker | --media | --media=*) die "這個版本不再提供 Docker（媒體資料夾直接在網頁上選），拿掉 $1 重新執行" ;;
+		--dir | --port | --user | --branch)
 			[ $# -ge 2 ] || die "$1 後面要接值"
 			case $1 in
 			--dir) DIR=$2 ;;
 			--port) PORT=$2 ;;
-			--media) MEDIA=$2 ;;
 			--user) RUN_USER=$2 ;;
 			--branch) BRANCH=$2 ;;
 			esac
@@ -110,7 +105,6 @@ parse_args() {
 			;;
 		--dir=*) DIR=${1#*=} ;;
 		--port=*) PORT=${1#*=} ;;
-		--media=*) MEDIA=${1#*=} ;;
 		--user=*) RUN_USER=${1#*=} ;;
 		--branch=*) BRANCH=${1#*=} ;;
 		--mirror) MIRROR=$PIP_MIRROR_CN ;;
@@ -156,7 +150,7 @@ need_privilege() {
 	Darwin)
 		[ "$(id -u)" != 0 ] || die "macOS 請不要用 sudo，直接以自己的帳號執行"
 		;;
-	*) die "不支援的系統：$OS。Windows 請用 Docker Desktop，或照 README 手動用 Python 執行" ;;
+	*) die "不支援的系統：$OS。Windows 請照 README 手動用 Python 執行" ;;
 	esac
 }
 
@@ -212,14 +206,14 @@ default_dir() {
 	fi
 }
 
-# ---------- 部署設定（存在 <安裝位置>/.env，Docker Compose 也讀這個檔） ----------
+# ---------- 部署設定（存在 <安裝位置>/.env） ----------
 
 load_env() {
 	local file="$DIR/.env" k v
 	[ -f "$file" ] || return 0
 	while IFS='=' read -r k v || [ -n "$k" ]; do
 		case $k in
-		MI302_MODE | MI302_PORT | MI302_MEDIA | MI302_USER | MI302_CONF | MI302_BRANCH | TZ | PIP_MIRROR)
+		MI302_MODE | MI302_PORT | MI302_USER | MI302_CONF | MI302_BRANCH | TZ | PIP_MIRROR)
 			v=${v%$'\r'}
 			v=${v#\"}
 			v=${v%\"}
@@ -232,19 +226,10 @@ load_env() {
 save_env() {
 	local file="$DIR/.env"
 	{
-		if [ "$MODE" = docker ]; then
-			echo "# Mi302 部署設定，install.sh 產生，Docker Compose 也讀這個檔；改完執行 mi302 restart"
-		else
-			echo "# Mi302 部署設定，install.sh 產生；埠號在 config.yaml 的 server.port，改完執行 mi302 restart"
-		fi
+		echo "# Mi302 部署設定，install.sh 產生；埠號在 config.yaml 的 server.port，改完執行 mi302 restart"
 		echo "MI302_MODE=\"$MODE\""
-		if [ "$MODE" = docker ]; then
-			echo "MI302_PORT=\"$PORT\""
-			echo "MI302_MEDIA=\"$MEDIA\""
-		else
-			echo "MI302_USER=\"$RUN_USER\""
-			echo "MI302_CONF=\"$CONF\""
-		fi
+		echo "MI302_USER=\"$RUN_USER\""
+		echo "MI302_CONF=\"$CONF\""
 		[ "$BRANCH" = main ] || echo "MI302_BRANCH=\"$BRANCH\""
 		echo "TZ=\"$TZ_NAME\""
 		echo "PIP_MIRROR=\"$MIRROR\""
@@ -268,19 +253,6 @@ git_in_dir() { # 以資料夾擁有者的身分跑 git，免得 root 在別人�
 	as_user "$(owner_of "$DIR")" git -c safe.directory="$DIR" -C "$DIR" "$@"
 }
 
-# 舊版 README 教人直接改 docker-compose.yml：把改過的媒體資料夾、埠號搬進 .env
-adopt_compose_edits() {
-	local f="$DIR/docker-compose.yml" m p
-	[ -f "$f" ] || return 0
-	m=$(sed -n 's/^[[:space:]]*-[[:space:]]*"\{0,1\}\([^":#]*\):\/media.*/\1/p' "$f" | head -n1)
-	p=$(sed -n 's/^[[:space:]]*-[[:space:]]*"\{0,1\}\([0-9]*\):8096.*/\1/p' "$f" | head -n1)
-	if [ -n "$m" ] && [ "$m" != /path/to/media ] && [ "${m#\$}" = "$m" ] && [ -z "${SAVED_MI302_MEDIA-}" ]; then
-		SAVED_MI302_MEDIA=$m
-		info "沿用 docker-compose.yml 裡的媒體資料夾：$m"
-	fi
-	if [ -n "$p" ] && [ -z "${SAVED_MI302_PORT-}" ]; then SAVED_MI302_PORT=$p; fi
-}
-
 fetch_code() {
 	if [ -f "$DIR/embyserver/__main__.py" ]; then
 		if [ ! -d "$DIR/.git" ]; then
@@ -301,7 +273,6 @@ fetch_code() {
 		if ! git_in_dir diff --quiet HEAD --; then
 			local patch
 			patch="$DIR/local-changes-$(date +%Y%m%d-%H%M%S).patch"
-			adopt_compose_edits
 			git_in_dir diff HEAD -- >"$patch"
 			chown "$(owner_of "$DIR")" "$patch" 2>/dev/null || true
 			warn "程式資料夾裡有自己改過的檔案，已備份成 $patch，然後還原成最新版"
@@ -369,7 +340,7 @@ ensure_python() {
 		pkg_install python3 || true
 	fi
 	PY=$(find_python) ||
-		die "系統的 Python 太舊（需要 3.10 以上），升級系統或改用 Docker：bash install.sh --docker"
+		die "系統的 Python 太舊（需要 3.10 以上），請先安裝新版 Python（例如 python3.12）再執行"
 }
 
 ensure_venv() {
@@ -520,14 +491,7 @@ bg_running() { [ -f "$CONF/mi302.pid" ] && kill -0 "$(cat "$CONF/mi302.pid")" 2>
 
 svc() { # svc start|stop|restart|status
 	local action=$1
-	if [ "$MODE" = docker ]; then
-		case $action in
-		start) compose up -d ;;
-		stop) compose stop ;;
-		restart) compose up -d --force-recreate ;;
-		status) compose ps ;;
-		esac
-	elif [ "$OS" = Darwin ]; then
+	if [ "$OS" = Darwin ]; then
 		local target
 		target="gui/$(id -u)"
 		case $action in
@@ -584,42 +548,6 @@ svc() { # svc start|stop|restart|status
 		status) if bg_running; then echo "在背景執行（pid $(cat "$CONF/mi302.pid")）"; else echo "沒有在執行"; fi ;;
 		esac
 	fi
-}
-
-# ---------- Docker ----------
-
-COMPOSE=()
-find_compose() {
-	if docker compose version >/dev/null 2>&1; then
-		COMPOSE=(docker compose)
-	elif has docker-compose; then
-		COMPOSE=(docker-compose)
-	else
-		return 1
-	fi
-}
-
-compose() {
-	[ ${#COMPOSE[@]} -gt 0 ] || find_compose || die "找不到 Docker Compose"
-	(cd "$DIR" && "${COMPOSE[@]}" -p "$SERVICE" "$@")
-}
-
-ensure_docker() {
-	if ! has docker; then
-		[ "$OS" = Linux ] || die "請先安裝 Docker Desktop：https://www.docker.com/products/docker-desktop/"
-		confirm "沒有 Docker，要用官方腳本（get.docker.com）自動安裝嗎？" y ||
-			die "請先安裝 Docker：https://docs.docker.com/engine/install/"
-		has curl || pkg_install curl >/dev/null
-		curl -fsSL https://get.docker.com | sh || die "Docker 安裝失敗，請照 https://docs.docker.com/engine/install/ 手動安裝"
-	fi
-	if ! docker info >/dev/null 2>&1; then
-		if has_systemd; then systemctl enable --now docker >/dev/null 2>&1 || true; fi
-		docker info >/dev/null 2>&1 || die "Docker 沒有在執行，先啟動 Docker 再試"
-	fi
-	find_compose || {
-		pkg_install docker-compose-plugin >/dev/null 2>&1 || true
-		find_compose
-	} || die "找不到 Docker Compose，請安裝 docker-compose-plugin"
 }
 
 # ---------- 共用 ----------
@@ -683,8 +611,13 @@ resolve() {
 	case $DIR in /*) ;; *) DIR="$(pwd)/$DIR" ;; esac
 	load_env
 	[ -n "$MODE" ] || MODE=${SAVED_MI302_MODE-}
+	if [ "$MODE" = docker ]; then
+		# 舊的 Docker 安裝：這個版本不再提供 Docker，改成直接用 Python，config/ 裡的設定和資料照用
+		[ "$CMD" = install ] || die "這個版本不再提供 Docker。先 docker compose down，再執行 bash install.sh 改成直接用 Python（設定和資料會沿用）"
+		warn "偵測到舊的 Docker 安裝，改成直接用 Python 執行；請先確認容器已經停掉（docker compose down）"
+		MODE=python
+	fi
 	[ -n "$RUN_USER" ] || RUN_USER=${SAVED_MI302_USER-}
-	[ -n "$MEDIA" ] || MEDIA=${SAVED_MI302_MEDIA-}
 	[ -n "$MIRROR" ] || MIRROR=${SAVED_PIP_MIRROR-}
 	[ -n "$BRANCH" ] || BRANCH=${SAVED_MI302_BRANCH:-main}
 	TZ_NAME=${SAVED_TZ:-$(host_tz)}
@@ -694,12 +627,9 @@ resolve() {
 	fi
 }
 
-# 設定檔和資料的資料夾：Docker 固定是 <安裝位置>/config；
-# 直接用 Python 時，以前手動執行、設定檔和資料放在程式資料夾的就沿用
+# 設定檔和資料的資料夾：<安裝位置>/config；以前手動執行、設定檔和資料放在程式資料夾的就沿用
 set_conf() {
-	if [ "$MODE" = docker ]; then
-		CONF=$DIR/config
-	elif [ -n "${SAVED_MI302_CONF-}" ]; then
+	if [ -n "${SAVED_MI302_CONF-}" ]; then
 		CONF=$SAVED_MI302_CONF
 	elif [ ! -d "$DIR/config" ] && { [ -f "$DIR/config.yaml" ] || [ -d "$DIR/data" ]; }; then
 		CONF=$DIR
@@ -713,9 +643,7 @@ port_busy() { has curl && curl --noproxy "*" -s -m 2 -o /dev/null "http://127.0.
 # 這個埠號已經被別的程式（例如之前手動執行的 Mi302）佔用時先提醒，不然服務會啟動失敗
 check_port_free() {
 	local running=0
-	if [ "$MODE" = docker ]; then
-		[ -n "$(docker ps -q -f name='^mi302$' 2>/dev/null)" ] && running=1
-	elif [ "$OS" = Darwin ]; then
+	if [ "$OS" = Darwin ]; then
 		launchctl print "gui/$(id -u)/$LAUNCHD_LABEL" >/dev/null 2>&1 && running=1
 	else
 		bg_running && running=1
@@ -730,30 +658,13 @@ check_port_free() {
 # ---------- 指令 ----------
 
 cmd_install() {
-	if [ -z "$MODE" ]; then
-		echo
-		echo "${C_B}Mi302 安裝${C_0}（安裝位置 $DIR）"
-		echo "  1) 直接用 Python 執行（建議：不用裝 Docker，媒體路徑和主機上一樣）"
-		echo "  2) 用 Docker 執行"
-		local choice
-		ask choice "選擇安裝方式" 1
-		case $choice in 2 | docker) MODE=docker ;; *) MODE=python ;; esac
-	fi
-	[ "$MODE" = python ] || [ "$MODE" = docker ] || die "不認得的安裝方式：$MODE"
+	MODE=python
+	echo
+	echo "${C_B}Mi302 安裝${C_0}（安裝位置 $DIR）"
 	set_conf
-	[ "$MODE" = docker ] && ensure_docker
-
 	fetch_code
-	# 舊的 docker-compose.yml 裡改過的媒體資料夾、埠號（fetch_code 會讀出來）
-	[ -n "$MEDIA" ] || MEDIA=${SAVED_MI302_MEDIA-}
-	if [ "$MODE" = docker ] && [ -z "$PORT" ]; then PORT=${SAVED_MI302_PORT-}; fi
-
 	install_wrapper
-	if [ "$MODE" = docker ]; then
-		install_docker
-	else
-		install_python
-	fi
+	install_python
 	save_env
 	finish
 }
@@ -800,25 +711,9 @@ install_python() {
 		info "設定開機自動啟動（systemd）"
 		systemctl restart "$SERVICE"
 	else
-		warn "這台機器沒有 systemd（例如容器、WSL），改成在背景執行，重新開機後要自己執行：$(manage_cmd) start"
+		warn "這台機器沒有 systemd（例如 WSL），改成在背景執行，重新開機後要自己執行：$(manage_cmd) start"
 		svc restart
 	fi
-}
-
-install_docker() {
-	if [ -z "$MEDIA" ]; then
-		ask MEDIA "媒體資料夾（影片和 115 產生的 strm 放這裡，容器裡看到的是 /media）" ""
-	fi
-	[ -n "$MEDIA" ] || die "要指定媒體資料夾：--media /你的/媒體/資料夾"
-	case $MEDIA in /*) ;; *) die "媒體資料夾要用完整路徑（/ 開頭）：$MEDIA" ;; esac
-	[ -d "$MEDIA" ] || warn "媒體資料夾 $MEDIA 現在不存在，Docker 會建立一個空的"
-	[ -n "$PORT" ] || ask PORT "埠號" 8096
-	check_port_free
-	mkdir -p "$DIR/config"
-	save_env
-	info "建立並啟動容器（第一次要下載映像檔，會花幾分鐘）"
-	compose up -d --build --remove-orphans ||
-		die "容器啟動失敗；國內網路拉不到 python 映像檔時，請先設定 Docker 的映像加速"
 }
 
 finish() {
@@ -841,43 +736,30 @@ finish() {
 
   管理指令： $(manage_cmd) status | logs | restart | update | reset-password 帳號 密碼 | uninstall
 EOF
-	if [ "$MODE" = docker ]; then
-		echo "  媒體資料夾：$MEDIA（網頁上選資料夾時在 /media 底下）"
-	fi
 	echo
 }
 
 cmd_update() {
 	fetch_code
-	if [ "$MODE" = docker ]; then
-		ensure_docker
-		PORT=${PORT:-${SAVED_MI302_PORT:-8096}}
-		save_env
-		info "重新建立容器"
-		compose up -d --build --remove-orphans
-	else
-		ensure_python
-		ensure_venv
-		ensure_ffprobe
-		pick_mirror
-		pip_install
-		prepare_conf
-		[ -n "$PORT" ] && [ "$PORT" != "$(config_port)" ] && set_config_port "$PORT"
-		PORT=$(config_port)
-		[ "$OS" = Darwin ] && write_launchd
-		has_systemd && [ -f "$UNIT_FILE" ] && write_systemd
-		info "重新啟動"
-		svc restart
-		save_env
-	fi
+	ensure_python
+	ensure_venv
+	ensure_ffprobe
+	pick_mirror
+	pip_install
+	prepare_conf
+	[ -n "$PORT" ] && [ "$PORT" != "$(config_port)" ] && set_config_port "$PORT"
+	PORT=$(config_port)
+	[ "$OS" = Darwin ] && write_launchd
+	has_systemd && [ -f "$UNIT_FILE" ] && write_systemd
+	info "重新啟動"
+	svc restart
+	save_env
 	finish
 }
 
 cmd_uninstall() {
 	confirm "移除 Mi302 的開機自動啟動和 mi302 指令？程式、設定和資料會留著" y || exit 0
-	if [ "$MODE" = docker ]; then
-		compose down --remove-orphans || true
-	elif [ "$OS" = Darwin ]; then
+	if [ "$OS" = Darwin ]; then
 		svc stop
 		rm -f "$PLIST"
 	else
@@ -892,9 +774,7 @@ cmd_uninstall() {
 	info "已移除。要連資料一起刪掉：rm -rf $DIR"
 }
 
-current_port() {
-	if [ "$MODE" = docker ]; then echo "${SAVED_MI302_PORT:-8096}"; else config_port; fi
-}
+current_port() { config_port; }
 
 main() {
 	parse_args "$@"
@@ -924,11 +804,7 @@ main() {
 		;;
 	reset-password)
 		[ ${#EXTRA[@]} -eq 2 ] || die "用法：reset-password 帳號 新密碼"
-		if [ "$MODE" = docker ]; then
-			compose exec -T "$SERVICE" python -m embyserver -c /config/config.yaml --reset-password "${EXTRA[@]}"
-		else
-			conf_python -m embyserver -c config.yaml --reset-password "${EXTRA[@]}"
-		fi
+		conf_python -m embyserver -c config.yaml --reset-password "${EXTRA[@]}"
 		;;
 	esac
 }

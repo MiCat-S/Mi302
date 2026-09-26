@@ -242,7 +242,7 @@ def browse_local(request: Request, ctx: AuthContext = Depends(require_admin)):
     """列出伺服器上某個資料夾的子資料夾，讓網頁用點選的方式挑媒體庫路徑。"""
     raw = q(request, "path") or ""
     if not raw:
-        # 預設從 /media 開始（Docker 預設掛載點），沒有就從根目錄
+        # 有 /media 就從它開始（媒體資料夾常放這裡），沒有就從根目錄
         raw = "/media" if Path("/media").is_dir() else _roots()[0]
     path = Path(raw).expanduser()
     if not path.is_dir():

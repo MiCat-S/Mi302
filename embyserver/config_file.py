@@ -49,7 +49,7 @@ def render(config: Config) -> str:
         "server:",
         _kv("  name", s.name, "播放器裡顯示的伺服器名稱"),
         _kv("  host", s.host, "監聽位址"),
-        _kv("  port", s.port, "播放器連線用的埠號（Docker 版改 .env 的 MI302_PORT）"),
+        _kv("  port", s.port, "播放器連線用的埠號"),
         _kv("  data_dir", s.data_dir, "資料庫存放位置"),
         _kv("  public_users", s.public_users, "播放器登入畫面是否列出使用者"),
         _kv("  log_level", s.log_level, "日誌：info = 一般，debug = 詳細（另外記錄每個播放器請求）"),
@@ -65,7 +65,7 @@ def render(config: Config) -> str:
             lines += [f"  - name: {_v(u.name)}", f"    password: {_v(u.password)}", f"    admin: {_v(u.admin)}"]
     else:
         lines.append("users: []")
-    lines += ["", "# 媒體庫。type：movies = 電影，tvshows = 劇集。Docker 用戶寫容器內的路徑（例如 /media/movies）"]
+    lines += ["", "# 媒體庫。type：movies = 電影，tvshows = 劇集"]
     if config.libraries:
         lines.append("libraries:")
         for lib in config.libraries:
@@ -153,7 +153,7 @@ def write(config: Config, path: str) -> float:
     try:
         os.replace(tmp, target)
     except OSError:
-        # Docker 單獨掛載一個檔案時不能替換，只能直接覆寫內容
+        # 設定檔是掛載進來的單一檔案時不能替換，只能直接覆寫內容
         target.write_text(tmp.read_text(encoding="utf-8"), encoding="utf-8")
         tmp.unlink(missing_ok=True)
     return target.stat().st_mtime

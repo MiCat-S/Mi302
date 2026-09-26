@@ -12,15 +12,14 @@ Mi302 是一個 API 與 Emby 相容的影片伺服器，主要給放在 115 網�
 
 ## 安裝
 
-三種方式選一種：
+兩種方式選一種：
 
 | 方式 | 適合 | 開機自動啟動 |
 | --- | --- | --- |
 | [一鍵安裝腳本](#一鍵安裝腳本建議)（建議） | Linux、macOS | 自動設定 |
-| [手動用 Python](#手動用-python) | 想自己控制每一步 | 自己設定 |
-| [手動用 Docker Compose](#手動用-docker-compose) | NAS，或已經在用 Docker | Docker 負責 |
+| [手動用 Python](#手動用-python) | 想自己控制每一步，或 Windows | 自己設定 |
 
-系統需求：Linux 或 macOS（Windows 請用 Docker Desktop，或手動用 Python）。直接用 Python 需要 Python 3.10 以上，一鍵安裝腳本會自動安裝；用 Docker 需要 Docker 和 Docker Compose。
+需要 Python 3.10 以上，一鍵安裝腳本會自動安裝。
 
 ### 一鍵安裝腳本（建議）
 
@@ -32,12 +31,10 @@ curl -fsSL https://raw.githubusercontent.com/MiCat-S/Mi302/main/install.sh | sud
 
 腳本會先問完問題，再自動安裝：
 
-1. **安裝方式**：`1` 直接用 Python（建議，媒體路徑和主機上一樣，和 MoviePilot 對路徑最簡單），`2` 用 Docker。
-2. **用哪個使用者執行**（直接用 Python）：預設是你自己（執行 sudo 的帳號）。這個帳號要能讀寫媒體資料夾，115 同步產生的 strm 也是用它的身分寫入。
-3. **媒體資料夾**（Docker）：主機上放影片和 strm 的資料夾，容器裡看到的是 `/media`。
-4. **埠號**：預設 8096。
+1. **用哪個使用者執行**：預設是你自己（執行 sudo 的帳號）。這個帳號要能讀寫媒體資料夾，115 同步產生的 strm 也是用它的身分寫入。
+2. **埠號**：預設 8096。
 
-接著它會下載程式、安裝 Python 和相依套件（或建立 Docker 容器）、設定開機自動啟動、啟動 Mi302 並確認網頁有回應，最後印出管理網頁的網址。打開網址，照[第一次設定](#第一次設定)做。
+接著它會下載程式、安裝 Python、ffmpeg 和相依套件、設定開機自動啟動、啟動 Mi302 並確認網頁有回應，最後印出管理網頁的網址。打開網址，照[第一次設定](#第一次設定)做。
 
 裝好的檔案（Linux 在 `/opt/mi302`，macOS 在 `~/Mi302`）：
 
@@ -47,26 +44,21 @@ curl -fsSL https://raw.githubusercontent.com/MiCat-S/Mi302/main/install.sh | sud
     config.yaml         設定檔（網頁上的設定也寫在這裡）
     data/               資料庫、115 登入狀態、上傳的封面
       logs/mi302.log    日誌
-  .env                  安裝時選的方式和選項
-  .venv/                Python 虛擬環境（直接用 Python 時）
+  .env                  安裝時選的選項
+  .venv/                Python 虛擬環境
   embyserver/ …         程式
 ```
 
 不想一題一題回答，可以把選項一次給完，`-y` 表示其他都用預設值：
 
 ```bash
-# 直接用 Python，以 cat 這個帳號執行
-curl -fsSL https://raw.githubusercontent.com/MiCat-S/Mi302/main/install.sh | sudo bash -s -- --python --user cat -y
-
-# 用 Docker，媒體資料夾是 /volume1/media
-curl -fsSL https://raw.githubusercontent.com/MiCat-S/Mi302/main/install.sh | sudo bash -s -- --docker --media /volume1/media -y
+# 以 cat 這個帳號執行，埠號 8097
+curl -fsSL https://raw.githubusercontent.com/MiCat-S/Mi302/main/install.sh | sudo bash -s -- --user cat --port 8097 -y
 ```
 
 | 選項 | 說明 |
 | --- | --- |
-| `--python`、`--docker` | 安裝方式 |
-| `--user 帳號` | 直接用 Python 時，用哪個 Linux 帳號執行 |
-| `--media 資料夾` | Docker：掛進容器的媒體資料夾 |
+| `--user 帳號` | 用哪個 Linux 帳號執行 |
 | `--port 埠號` | 網頁和播放器用的埠號 |
 | `--dir 資料夾` | 安裝位置 |
 | `--mirror` | pip 改用清華鏡像（連不上 PyPI 時會自動改用） |
@@ -74,9 +66,10 @@ curl -fsSL https://raw.githubusercontent.com/MiCat-S/Mi302/main/install.sh | sud
 
 其他情況：
 
-- **已經自己 `git clone` 下來跑過**：在那個資料夾裡執行 `sudo bash install.sh`，會直接裝在原地，原本的 `config.yaml` 和 `data/` 照用。記得先把手動開的 Mi302 關掉，不然埠號會被佔用（腳本會提醒）。以前照舊版說明改過 `docker-compose.yml` 的，腳本會把改過的地方備份成 `local-changes-*.patch`，並把裡面的媒體資料夾和埠號搬到 `.env`。
+- **已經自己 `git clone` 下來跑過**：在那個資料夾裡執行 `sudo bash install.sh`，會直接裝在原地，原本的 `config.yaml` 和 `data/` 照用。記得先把手動開的 Mi302 關掉，不然埠號會被佔用（腳本會提醒）。程式資料夾裡自己改過的檔案，更新時會備份成 `local-changes-*.patch` 再還原成最新版。
+- **以前用 Docker 版的**：這個版本不再提供 Docker。先 `docker compose down`，把 `config/` 資料夾留著，在同一個資料夾執行 `sudo bash install.sh`，設定和資料會原樣沿用。
 - **macOS**：不要加 sudo，執行 `curl -fsSL https://raw.githubusercontent.com/MiCat-S/Mi302/main/install.sh | bash`。沒有 Python 3.10 以上時會用 Homebrew 安裝。Mi302 在你登入 macOS 後自動啟動（launchd）。
-- **沒有 systemd 的環境**（容器、WSL）：改成在背景執行，重新開機後要自己執行 `mi302 start`。
+- **沒有 systemd 的環境**（例如 WSL）：改成在背景執行，重新開機後要自己執行 `mi302 start`。
 
 #### 管理指令
 
@@ -93,7 +86,7 @@ curl -fsSL https://raw.githubusercontent.com/MiCat-S/Mi302/main/install.sh | sud
 
 要換選項（例如埠號、執行的帳號），重新執行安裝腳本並加上新選項，例如 `sudo bash /opt/mi302/install.sh --port 8097`；已經裝好的部分會沿用，等於順便更新。
 
-直接用 Python 時服務是 systemd 的 `mi302.service`，也可以用 `systemctl status mi302`、`journalctl -u mi302 -f` 查看。
+Linux 上服務是 systemd 的 `mi302.service`，也可以用 `systemctl status mi302`、`journalctl -u mi302 -f` 查看。
 
 ### 手動用 Python
 
@@ -133,39 +126,6 @@ RestartSec=5
 WantedBy=multi-user.target
 ```
 
-### 手動用 Docker Compose
-
-```bash
-git clone https://github.com/MiCat-S/Mi302.git
-cd Mi302
-cat > .env <<'CONF'
-MI302_PORT=8096
-MI302_MEDIA=/volume1/media
-TZ=Asia/Shanghai
-CONF
-docker compose up -d --build
-```
-
-然後開 `http://<主機>:8096/web`。
-
-- `MI302_MEDIA` 是主機上放影片和 strm 的資料夾，容器裡叫 `/media`。網頁上選媒體庫資料夾、115 同步任務的本機資料夾，都要選 `/media` 底下的。
-- 設定和資料在 `config/`（`config/config.yaml`、`config/data/`），重建容器不會遺失。
-- 看日誌：`docker compose logs -f`，或打開 `config/data/logs/mi302.log`。
-- 更新：`git pull && docker compose up -d --build`。
-- 改埠號：改 `.env` 的 `MI302_PORT`，再 `docker compose up -d`。
-- 忘記密碼：`docker compose exec mi302 python -m embyserver -c /config/config.yaml --reset-password admin 新密碼`。
-- 國內網路 pip 很慢時，在 `.env` 加一行 `PIP_MIRROR=https://pypi.tuna.tsinghua.edu.cn/simple`。
-- 要多掛幾個資料夾，建立 `docker-compose.override.yml`，不要直接改 `docker-compose.yml`，更新時才不會衝突：
-
-  ```yaml
-  services:
-    mi302:
-      volumes:
-        - /volume2/anime:/media/anime
-  ```
-
-- Docker 裡的 Mi302 看到的是 `/media/...`，和主機上的路徑不同。MoviePilot 要刮削時，記得填[路徑對應](#設定)。
-
 ### 從外網連線
 
 在前面加一層反向代理（例如 Nginx、Caddy）提供 HTTPS，並在網頁「進階設定」把 strm 的伺服器網址填成對外網址，再同步一次讓 strm 更新。
@@ -178,7 +138,6 @@ docker compose up -d --build
 - **strm 寫不進去、掃描不到影片**：執行 Mi302 的帳號沒有媒體資料夾的權限。直接用 Python 的可以用 `sudo -u 帳號 ls 資料夾` 測試，或重新安裝時用 `--user` 換成有權限的帳號。
 - **國內網路**：
   - pip：一鍵安裝腳本連不上 PyPI 時會自動改用清華鏡像，也可以加 `--mirror`。
-  - Docker：拉不到 `python:3.12-slim` 映像檔時，先在 Docker 設定映像加速（`registry-mirrors`）。
   - GitHub：`raw.githubusercontent.com` 連不上時，到 GitHub 網頁按「Code → Download ZIP」下載，解壓後在資料夾裡執行 `sudo bash install.sh`。之後 `mi302 update` 仍然需要連上 GitHub。
 - **忘記管理員密碼**：`mi302 reset-password admin 新密碼`；手動安裝的見上面各自的說明。
 
@@ -187,7 +146,7 @@ docker compose up -d --build
 不需要改任何設定檔，全部在網頁上完成。用瀏覽器開 `http://<主機>:8096/web`：
 
 1. **建立管理員**：第一次打開會請你設定帳號密碼。登入後的「概覽」頁有設定步驟清單，照著點「前往」就好。
-2. **媒體庫**：按「新增媒體庫」，取名（例如「電影」）、選類型，再按「加入資料夾」點選伺服器上的資料夾，最後按下方的「儲存並掃描」。Docker 版的媒體資料夾在 `/media` 底下。
+2. **媒體庫**：按「新增媒體庫」，取名（例如「電影」）、選類型，再按「加入資料夾」點選伺服器上的資料夾，最後按下方的「儲存並掃描」。
 3. **115 網盤**：
    - 按「掃碼登入」，用手機 115 App 掃描確認。
    - 在「同步任務」按「瀏覽」選 115 目錄和要放 strm 的本機資料夾，按「新增任務」。本機資料夾要在某個媒體庫裡，建議用子資料夾，例如 `/media/movies/115`。
@@ -199,7 +158,7 @@ docker compose up -d --build
 
 ### 設定檔
 
-網頁上的設定都存在設定檔 `config.yaml`（一鍵安裝和 Docker 版在 `config/config.yaml`），兩邊保持一致：
+網頁上的設定都存在設定檔 `config.yaml`（一鍵安裝的在 `config/config.yaml`），兩邊保持一致：
 
 - 第一次啟動時自動產生，每一項都附說明註解，不用自己建立。
 - 在網頁上儲存設定時自動寫回，覆寫前把舊檔留成 `config.yaml.bak`。檔案每次都依範本重新產生，自己加的註解不會保留。
@@ -310,7 +269,7 @@ Mi302 不自己刮削，只讀取資料夾裡已經有的 nfo 和海報。這些
 
 1. **兩邊要看得到同一批檔案**。兩邊看到的路徑一樣（例如都直接裝在同一台機器上）就不用填路徑對應；不一樣時在「路徑對應」填 `Mi302 的路徑 => MoviePilot 的路徑`：
    - Mi302 在 Parallels 虛擬機裡看到 `/media/psf/Vo`，MoviePilot 裝在 Mac 上看到 `/Volumes/Vo`：填 `/media/psf/Vo => /Volumes/Vo`。
-   - 兩個都用 Docker：把同一個主機資料夾掛進兩個容器，掛載路徑一樣就不用填；例如 Mi302 掛成 `/media`、MoviePilot 掛成 `/mnt/media`，就填 `/media => /mnt/media`。
+   - MoviePilot 用 Docker：看它容器裡的掛載路徑，例如主機的 `/volume1/media` 掛成 `/mnt/media`，就填 `/volume1/media => /mnt/media`。
 2. 在 MoviePilot 的「設定 → 系統」複製 **API 令牌**。
 3. 在 Mi302 網頁的「MoviePilot」分頁填 MoviePilot 網址（例如 `http://192.168.1.10:3000`）和 API 令牌，按「儲存」再按「測試連線」。
 4. 測試出現「拒絕存取」時，表示你的 MoviePilot 版本較舊、刮削 API 只接受登入，請展開「舊版 MoviePilot」填帳號密碼。
@@ -437,7 +396,7 @@ Mi302 讀影片旁邊的 `X-mediainfo.json`（影片是 `X.strm` 時），格式
 - **整庫探測**（預設關）：開了才能按「提取缺少的媒體資訊」一次補齊整個媒體庫；勾選「同步產生新的 strm 後自動探測」時，新同步的影片會在背景自動探測。
 
 - 每一項向 115 取一次直鏈，ffprobe 讀檔頭（通常幾 MB），結果寫成 `X-mediainfo.json` 放在 strm 旁邊，Emby＋神醫那邊也能共用。媒體資料夾唯讀時只存在 Mi302 的資料庫。
-- 需要 ffmpeg：Docker 映像已內建；直接用 Python 的，安裝腳本會試著裝，沒裝成就自己 `apt install ffmpeg` 或 `brew install ffmpeg`。沒有 ffprobe 時仍會讀現成的 json。
+- 需要 ffmpeg：安裝腳本會試著裝，沒裝成就自己 `apt install ffmpeg` 或 `brew install ffmpeg`。沒有 ffprobe 時仍會讀現成的 json。
 - 115 的限制：同時最多 3 條連線（「同時探測幾項」最多 3，預設 2），取直鏈至少間隔 0.5 秒（預設 1 秒），每小時最多 300 次（可改，0 = 不限）。首次整庫探測上萬支影片時會分幾天慢慢補齊，卡片上看得到這一小時用了幾次。取直鏈和 ffprobe 用同一個一般瀏覽器 UA，並重用連線，少觸發 CDN 限流。
 - 115 限流或登入失效時熔斷：探測和同步都先停，45 分鐘後自動再試，恢復後的一小時先放慢（間隔拉長、上限調低）；登入失效要重新登入。播放不受影響，「115 網盤」頁會顯示原因。
 - 115 上的檔案被換掉（pickcode 變了）時，同步會刪掉舊的 `X-mediainfo.json` 並重新探測；只改伺服器網址而重寫的 strm 不受影響。
@@ -467,7 +426,7 @@ ffprobe → Emby 欄位的對照、限速與熔斷的做法改寫自 emby-mediai
 
 網頁「日誌」分頁顯示最近 3000 筆紀錄（同步、刮削、掃描、播放、錯誤），可以按等級篩選、搜尋，打開「自動更新」時新紀錄會即時出現。
 
-- 完整紀錄寫在 `data/logs/mi302.log`（Docker 是 `config/data/logs/mi302.log`），滿 5 MB 換新檔，保留 5 份舊檔。日誌頁可以直接下載。
+- 完整紀錄寫在 `data/logs/mi302.log`（一鍵安裝的在 `config/data/logs/mi302.log`），滿 5 MB 換新檔，保留 5 份舊檔。日誌頁可以直接下載。
 - 播放器連不上或播不了時，打開日誌頁下方的「詳細模式」，會另外記錄每個播放器請求，找到原因後記得關掉。也可以在 `config.yaml` 設定 `server.log_level: debug`。
 - 網址裡的 `api_key`、`token`、密碼等憑證在寫入前一律遮成 `***`。
 

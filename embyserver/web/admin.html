@@ -413,7 +413,7 @@ dialog .card-b{max-height:70vh;overflow:auto}
             <label class="field"><span>同時刮削幾項</span><input type="number" min="1" max="8" data-key="moviepilot.concurrency"><small>1–8，預設 3；太多可能被 TMDB 限速</small></label>
           </div>
           <label class="field"><span>路徑對應</span><textarea id="mpMap" rows="2" placeholder="/media => /mnt/media"></textarea>
-            <small>一行一條：Mi302 的路徑 =&gt; MoviePilot 的路徑。兩邊看到的路徑一樣（例如裝在同一台機器）就不用填。不一樣的例子：Mi302 在 Parallels 虛擬機裡看到 /media/psf/Vo，MoviePilot 裝在 Mac 上看到 /Volumes/Vo，就填 /media/psf/Vo =&gt; /Volumes/Vo；Docker 則看各自的掛載路徑。</small></label>
+            <small>一行一條：Mi302 的路徑 =&gt; MoviePilot 的路徑。兩邊看到的路徑一樣（例如裝在同一台機器）就不用填。不一樣的例子：Mi302 在 Parallels 虛擬機裡看到 /media/psf/Vo，MoviePilot 裝在 Mac 上看到 /Volumes/Vo，就填 /media/psf/Vo =&gt; /Volumes/Vo。</small></label>
           <label class="switch"><input type="checkbox" data-key="moviepilot.scrape_after_sync"><span class="track"></span><span class="lbl">同步產生新的 strm 後自動送去刮削</span></label>
           <details class="more"><summary>MoviePilot 帳號密碼（補全缺集需要；舊版刮削 API 也需要）</summary><div class="in stack">
             <p class="hint">「補全缺集」建訂閱的 API 只接受帳號登入。舊版的刮削 API 不接受 API 令牌，測試連線出現「拒絕存取」時也要填。</p>
@@ -509,7 +509,7 @@ dialog .card-b{max-height:70vh;overflow:auto}
         <div class="card-b stack">
           <label class="field"><span>伺服器名稱</span><input type="text" data-key="server.name"><small>播放器裡顯示的名稱</small></label>
           <label class="switch"><input type="checkbox" data-key="server.public_users"><span class="track"></span><span class="lbl">播放器登入畫面列出使用者名稱</span></label>
-          <p class="hint">埠號目前是 <b id="port"></b>。要改埠號：Docker 版改 <code>.env</code> 的 <code>MI302_PORT</code>，其他改設定檔的 <code>server.port</code>，然後重新啟動。</p>
+          <p class="hint">埠號目前是 <b id="port"></b>。要改埠號：改設定檔的 <code>server.port</code>，然後重新啟動。</p>
         </div>
       </div>
       <div class="card">
@@ -863,7 +863,7 @@ async function pollMI() {
 function miHtml(s) {
   const r = s.result;
   let h = `<div class="row wrap"><span class="pill ${s.total && s.have >= s.total ? 'ok' : ''}">${s.have} / ${s.total} 支影片有媒體資訊</span></div>`;
-  if (!s.ffprobe) h += '<p class="notice warn" style="margin-top:10px">找不到 ffprobe，只能讀現成的 X-mediainfo.json。Docker 版更新映像即可；直接用 Python 的請安裝 ffmpeg（例如 apt install ffmpeg、brew install ffmpeg），或重新執行安裝腳本。</p>';
+  if (!s.ffprobe) h += '<p class="notice warn" style="margin-top:10px">找不到 ffprobe，只能讀現成的 X-mediainfo.json。請安裝 ffmpeg（例如 apt install ffmpeg、brew install ffmpeg），或重新執行安裝腳本。</p>';
   if (s.breaker?.tripped) h += `<p class="notice warn" style="margin-top:10px">${esc(s.breaker.message)}</p>`;
   const od = s.on_demand || {};
   if (od.enabled && s.ffprobe && (od.queue || od.done || od.failed)) h += `<p class="hint" style="margin-top:8px">打開即探測：排隊中 ${od.queue}，完成 ${od.done}${od.failed ? '，失敗 ' + od.failed : ''}</p>`;
