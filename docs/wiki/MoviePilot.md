@@ -130,7 +130,8 @@ The card lists every series in the library and how many episodes each season has
 
 - Seasons with gaps in the episode numbers (for example episodes 2 and 4 but not 3) get their own line with how many and which episodes are missing. Series with gaps are listed first.
 - Type into **Search series** (搜尋劇名) to search by title, original title, year, pinyin or pinyin initials. Tick **Only series with gaps** (只看集號有空洞的) to list only those.
-- 20 series are listed at a time; click **Show N more** (再顯示 N 部) for more.
+- The **All years** drop-down (全部年份) shows only series from one year; it lists only years that exist in your library.
+- Choose 20, 50, 100 or 200 series per page (每頁 20 部 and so on); the browser remembers your choice. Below the list you see the page number and the total, with **Previous** (上一頁) and **Next** (下一頁) buttons. Searching or changing the year or filter goes back to page 1.
 - The **Fill** button (補全) next to a series sends only that series. Series without a tmdbid are marked "no tmdbid, scrape first" (沒有 tmdbid，要先刮削) and the button is disabled.
 - **Fill all** (全部補全) at the top right of the card sends every series with a tmdbid, after asking for confirmation.
 - Specials (season 0) are neither listed nor sent.
