@@ -168,6 +168,28 @@ def looks_like_series(folder: Path) -> bool:
     return False
 
 
+def series_folder(root: Path, path: Path) -> Optional[Path]:
+    """劇集媒體庫裡，這個檔案（或資料夾）所屬的劇集資料夾；不在任何一部劇裡時回傳 None。
+
+    媒體庫底下可以有分類資料夾（电视剧/国产剧/庆余年 (2019)/…），所以由媒體庫往下找，
+    第一個像一部劇的資料夾就是（最多往下 MAX_CATEGORY_DEPTH 層分類）。
+    """
+    try:
+        parts = path.relative_to(root).parts
+    except ValueError:
+        return None
+    if path.suffix:
+        parts = parts[:-1]  # 檔案本身不算
+    cur = root
+    for depth, part in enumerate(parts):
+        cur = cur / part
+        if looks_like_series(cur):
+            return cur
+        if depth >= MAX_CATEGORY_DEPTH:
+            return None
+    return None
+
+
 def read_strm(path: Path) -> str:
     """回傳 strm 檔內第一行有效內容（網址或路徑）。"""
     try:

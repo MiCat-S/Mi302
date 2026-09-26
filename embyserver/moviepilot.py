@@ -38,6 +38,7 @@ import httpx
 from .config import Config, MoviePilotConfig
 from .db import Database
 from .filetypes import IMAGE_EXTS, LIBRARY_VIDEO_EXTS as VIDEO_EXTS
+from .scanner import series_folder
 from .textutil import cjk_count, pinyin_full, simplified
 from .http_util import GuardedClient
 
@@ -257,12 +258,15 @@ class MoviePilot:
         return ok, message
 
     def _series_dir(self, path: Path) -> Optional[Path]:
-        """劇集媒體庫裡一集所屬的劇集資料夾；不是劇集時回傳 None。"""
+        """劇集媒體庫裡一集所屬的劇集資料夾；不是劇集時回傳 None。
+
+        和掃描器用同一套判斷，媒體庫底下有分類資料夾（电视剧/国产剧/庆余年 (2019)）時，
+        送的是那一部劇，不會把整個分類當成一部劇送出去。
+        """
         ltype, root = self._library_of(path)
         if ltype != "tvshows" or root is None:
             return None
-        parts = path.relative_to(root).parts
-        return root / parts[0] if len(parts) >= 2 else None
+        return series_folder(root, path)
 
     def _episode_tmdbid(self, path: Path) -> Optional[str]:
         series = self._series_dir(path)
@@ -339,13 +343,12 @@ class MoviePilot:
             if ltype == "tvshows" and root is not None:
                 if has_nfo and not (with_images and str(p) not in no_image and not episode_image(p)):
                     continue
-                parts = p.relative_to(root).parts
-                if len(parts) >= 2:
-                    series = root / parts[0]
+                series = self._series_dir(p)
+                if series is not None:
                     if series in seen:
                         continue
                     if not (series / "tvshow.nfo").exists():
-                        add(series, True)
+                        add(series, True)  # 還沒刮削過的劇：整部劇送一次
                         continue
                 add(p, False)
             else:

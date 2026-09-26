@@ -325,3 +325,16 @@ def test_episode_without_still_uses_series_banner(tmp_path: Path):
     assert eps[2]["ImageTags"]["Primary"] != eps[1]["ImageTags"]["Primary"]  # 有劇照的用自己的
     assert c.get(f"/Items/{eps[1]['Id']}/Images/Primary").content == b"banner"
     assert c.get(f"/Items/{eps[2]['Id']}/Images/Primary").content == b"still"
+
+
+def test_plan_finds_series_inside_category_folders(tmp_path: Path):
+    """媒體庫路徑選「电视剧」、底下再分「国产剧」時，送的是那一部劇，不是整個分類。"""
+    cfg = make_config(tmp_path)
+    mp = MoviePilot(cfg.moviepilot, cfg)
+    show = tmp_path / "tv" / "国产剧" / "庆余年 (2019)"
+    ep1 = touch(show / "Season 1" / "庆余年.S01E01.strm")
+    ep2 = touch(show / "Season 1" / "庆余年.S01E02.strm")
+    assert mp.plan([ep1, ep2]) == [(show, True)]
+    touch(show / "tvshow.nfo", "<tvshow><uniqueid type='tmdb'>94840</uniqueid></tvshow>")
+    assert mp.plan([ep1]) == [(Path(ep1), False)]
+    assert mp._series_dir(Path(ep1)) == show and mp._episode_tmdbid(Path(ep1)) == "94840"
