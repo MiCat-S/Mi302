@@ -312,6 +312,7 @@ def mediainfo_status(request: Request, ctx: AuthContext = Depends(require_admin)
         "total": st.db.one(f"SELECT COUNT(*) AS c FROM items i WHERE {videos}")["c"],
         "have": st.db.one(f"SELECT COUNT(*) AS c FROM items i JOIN media_info m ON m.path=i.path WHERE {videos}")["c"],
         "breaker": st.p115.breaker.status(),
+        "usage": st.prober.usage(),
         "result": st.prober.result.as_dict(),
     }
 

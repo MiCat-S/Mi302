@@ -105,6 +105,7 @@ class MediaInfoConfig:
     after_sync: bool = True  # 同步產生新的 strm 後自動探測
     concurrency: int = 2  # 同時探測幾項（1–3）；115 同時最多 3 條連線
     interval: float = 1.0  # 每次向 115 取直鏈至少間隔幾秒（0.5–60）
+    hourly_limit: int = 300  # 每小時最多向 115 取幾次直鏈（0 = 不限），首次整庫探測時保護帳號
     timeout: int = 300  # 每一項最多等幾秒
     ffprobe: str = "ffprobe"  # ffprobe 的路徑
 

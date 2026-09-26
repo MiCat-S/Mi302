@@ -18,6 +18,7 @@ import shutil
 import subprocess
 import threading
 import time
+from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -81,7 +82,11 @@ class MediaProber:
         self._lock = threading.Lock()
         self._pace = threading.Lock()
         self._last = 0.0
+        self._fetches: deque = deque()  # 最近一小時向 115 取直鏈的時間（單調時鐘）
+        self.waiting_until = 0.0  # 到了每小時上限、要等到的時間（給網頁顯示）
         self.runner: Callable = subprocess.run  # 測試時換掉
+        self.clock: Callable[[], float] = time.monotonic
+        self.sleep: Callable[[float], None] = time.sleep
 
     # ---------------- 狀態 ----------------
 
@@ -124,14 +129,44 @@ class MediaProber:
 
     # ---------------- 探測一項 ----------------
 
+    def pace(self) -> Tuple[float, int]:
+        """目前的取直鏈間隔和每小時上限；熔斷剛恢復時放慢（間隔 ×4、上限 ÷4，之後 ×2、÷2）。"""
+        factor = self.p115.breaker.slowdown()
+        interval = max(0.5, float(self.cfg.interval or 0)) * factor
+        limit = int(self.cfg.hourly_limit or 0)
+        return interval, max(1, limit // factor) if limit else 0
+
+    def usage(self) -> dict:
+        """這一小時已經向 115 取了幾次直鏈。"""
+        now = self.clock()
+        interval, limit = self.pace()
+        used = sum(1 for t in self._fetches if now - t < 3600)
+        waiting = self.waiting_until if self.waiting_until > time.time() else 0
+        return {"used": used, "limit": limit, "interval": interval, "slowdown": self.p115.breaker.slowdown(),
+                "waiting_until": int(waiting) or None}
+
     def _wait_turn(self) -> None:
-        """向 115 取直鏈的全域間隔。"""
-        interval = max(0.5, float(self.cfg.interval or 0))
+        """向 115 取直鏈前排隊：全域間隔，加上每小時上限（到了就等最舊的那次滿一小時）。"""
         with self._pace:
-            wait = interval - (time.monotonic() - self._last)
-            if wait > 0:
-                time.sleep(min(wait, interval))
-            self._last = time.monotonic()
+            while True:
+                interval, limit = self.pace()
+                now = self.clock()
+                while self._fetches and now - self._fetches[0] >= 3600:
+                    self._fetches.popleft()
+                if limit and len(self._fetches) >= limit:
+                    wait = 3600 - (now - self._fetches[0])
+                    self.waiting_until = time.time() + wait
+                    log.info("已達每小時 %s 次的上限，%d 分鐘後再向 115 取直鏈", limit, wait // 60 + 1)
+                    self.sleep(min(wait, 60))  # 每分鐘醒來看一次，設定改了馬上生效
+                    continue
+                wait = interval - (now - self._last) if self._last else 0
+                if wait > 0:
+                    self.sleep(min(wait, interval))
+                    continue
+                break
+            self.waiting_until = 0.0
+            self._last = self.clock()
+            self._fetches.append(self._last)
 
     def _source(self, path: Path) -> Tuple[str, Optional[str], str]:
         """要給 ffprobe 讀的位置、UA，以及用來判斷容器格式的檔名。"""

@@ -117,6 +117,7 @@ def render(config: Config) -> str:
         _kv("  after_sync", mi.after_sync, "同步產生新的 strm 後自動探測"),
         _kv("  concurrency", mi.concurrency, "同時探測幾項（1–3），115 同時最多 3 條連線"),
         _kv("  interval", mi.interval, "每次向 115 取直鏈至少間隔幾秒（0.5–60）"),
+        _kv("  hourly_limit", mi.hourly_limit, "每小時最多向 115 取幾次直鏈（0 = 不限）"),
         _kv("  timeout", mi.timeout, "每一項最多等幾秒"),
         _kv("  ffprobe", mi.ffprobe, "ffprobe 的路徑"),
         "",

@@ -177,3 +177,48 @@ def test_replaced_file_invalidates_media_info(tmp_path: Path):
     assert r.replaced == [str(movie)] and not sidecar_path(movie).exists()
     assert sync.p115.db.one("SELECT 1 FROM media_info WHERE path=?", (str(movie),)) is None
     assert r.as_dict()["replaced"] == 1
+
+
+class FakeClock:
+    """sleep 直接把時間往前推，不真的等。"""
+
+    def __init__(self):
+        self.now = 1000.0
+        self.slept = []
+
+    def __call__(self):
+        return self.now
+
+    def sleep(self, seconds):
+        self.slept.append(seconds)
+        self.now += seconds
+
+
+def test_hourly_limit_waits_for_the_oldest_fetch(tmp_path: Path):
+    app, prober, links, cmds = make(tmp_path, hourly_limit=3, concurrency=1)
+    clock = FakeClock()
+    prober.clock, prober.sleep = clock, clock.sleep
+    times = []
+    real = app.state.p115._fetch_download_url
+    app.state.p115._fetch_download_url = lambda pc, ua: times.append(clock.now) or real(pc, ua)
+    for i in range(5):
+        strm(tmp_path, f"M{i}", f"http://mi302/d/{'abcdefghijklmnop' + str(i)}.mkv")
+    assert prober.run(None, "manual").done == 5
+    assert times[2] - times[0] >= 1.0  # 間隔照舊
+    assert times[3] - times[0] >= 3600 and times[4] - times[1] >= 3600  # 第 4 次要等第 1 次滿一小時
+    assert max(clock.slept) <= 60  # 每分鐘醒來看一次
+    assert prober.usage()["used"] == 3 and prober.usage()["limit"] == 3  # 第 3、4、5 次都在這一小時內
+
+
+def test_slowdown_after_breaker_recovers(tmp_path: Path):
+    app, prober, links, cmds = make(tmp_path, hourly_limit=300, interval=1.0)
+    breaker = app.state.p115.breaker
+    assert prober.pace() == (1.0, 300)
+    breaker.trip("HTTP 405")
+    breaker.tripped_at = time.time() - breaker.cooldown - 1
+    assert not breaker.tripped  # 冷卻期滿，記下恢復時間
+    assert prober.pace() == (4.0, 75) and prober.usage()["slowdown"] == 4
+    breaker.recovered_at = time.time() - 2000
+    assert prober.pace() == (2.0, 150)
+    breaker.recovered_at = time.time() - 4000
+    assert prober.pace() == (1.0, 300)

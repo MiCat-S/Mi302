@@ -37,7 +37,7 @@ STRM_FIELDS = (
 MOVIEPILOT_FIELDS = (
     "url", "api_token", "username", "password", "scrape_after_sync", "fill_after_full_sync", "timeout", "concurrency",
 )
-MEDIAINFO_FIELDS = ("enabled", "after_sync", "concurrency", "interval", "timeout", "ffprobe")
+MEDIAINFO_FIELDS = ("enabled", "after_sync", "concurrency", "interval", "hourly_limit", "timeout", "ffprobe")
 REDIRECT_FIELDS = ("resolve_redirects", "resolve_timeout", "cache_ttl", "require_auth", "default_container")
 P115_FIELDS = ("app", "open_app_id")
 
@@ -142,6 +142,7 @@ def apply_settings(config: Config, raw: dict) -> None:
     mi.concurrency = max(1, min(mi.concurrency, 3))  # 115 同時最多 3 條連線
     mi.interval = max(0.5, min(mi.interval, 60.0))  # 最多每秒 2 次，115 的 WAF 很敏感
     mi.timeout = max(10, min(mi.timeout, 3600))
+    mi.hourly_limit = max(0, min(mi.hourly_limit, 100000))
     mi.ffprobe = mi.ffprobe or "ffprobe"
 
 

@@ -97,6 +97,7 @@ class Breaker:
     def __init__(self, cooldown: float = BREAKER_COOLDOWN):
         self.cooldown = cooldown
         self.tripped_at: Optional[float] = None
+        self.recovered_at: Optional[float] = None  # 冷卻期滿的時間；之後一小時背景工作先放慢
         self.reason = ""
         self.login_bad = False
         self._lock = threading.Lock()
@@ -121,10 +122,18 @@ class Breaker:
             if self.login_bad:
                 return True
             if time.time() - self.tripped_at > self.cooldown:
-                log.warning("115 熔斷冷卻期滿，恢復背景工作：%s", self.reason)
+                log.warning("115 熔斷冷卻期滿，恢復背景工作（先放慢）：%s", self.reason)
                 self.tripped_at, self.reason = None, ""
+                self.recovered_at = time.time()
                 return False
             return True
+
+    def slowdown(self) -> int:
+        """熔斷剛恢復時背景工作放慢的倍數：30 分鐘內 4 倍、再 30 分鐘 2 倍，之後恢復正常。"""
+        if not self.recovered_at:
+            return 1
+        since = time.time() - self.recovered_at
+        return 4 if since < 1800 else 2 if since < 3600 else 1
 
     def check(self) -> None:
         if self.tripped:
