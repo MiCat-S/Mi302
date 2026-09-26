@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import RedirectResponse
+from starlette.concurrency import run_in_threadpool
 
 import httpx
 
@@ -46,7 +48,8 @@ async def p115_open_qrcode(request: Request, ctx: AuthContext = Depends(require_
     except ValueError:
         body = {}
     try:
-        return state(request).p115.open.qrcode_start(str(body.get("app_id") or ""))
+        # 會連 115，不能在事件迴圈裡等
+        return await run_in_threadpool(state(request).p115.open.qrcode_start, str(body.get("app_id") or ""))
     except (P115OpenError, httpx.HTTPError) as exc:
         raise HTTPException(status_code=502, detail=str(exc))
 
@@ -97,8 +100,12 @@ async def p115_set_cookies(request: Request, ctx: AuthContext = Depends(require_
     if not cookies:
         raise HTTPException(status_code=400, detail="cookies 不可為空")
     svc = state(request).p115
-    svc.set_cookies(cookies)
-    return {"logged_in": True, "user": svc.user_info()}
+
+    def apply():
+        svc.set_cookies(cookies)
+        return svc.user_info()  # 會連 115
+
+    return {"logged_in": True, "user": await run_in_threadpool(apply)}
 
 
 @router.post("/p115/logout")
@@ -108,10 +115,14 @@ def p115_logout(request: Request, ctx: AuthContext = Depends(require_admin)):
 
 
 def _tasks_view(st) -> list:
-    libs = [Path(p).expanduser().resolve() for lib in st.config.libraries for p in lib.paths]
+    # 只整理路徑字串，不碰檔案系統：媒體庫常在網路磁碟上，resolve() 會讓每次輪詢都等它
+    def norm(p: str) -> Path:
+        return Path(os.path.normpath(os.path.expanduser(str(p))))
+
+    libs = [norm(p) for lib in st.config.libraries for p in lib.paths]
 
     def in_library(local: str) -> bool:
-        path = Path(local).expanduser().resolve()
+        path = norm(local)
         return any(path == lib or lib in path.parents or path in lib.parents for lib in libs)
 
     return [
@@ -155,12 +166,16 @@ async def p115_strm_tasks(request: Request, ctx: AuthContext = Depends(require_a
     except ValueError:
         raise HTTPException(status_code=400, detail="格式錯誤")
     st = state(request)
-    try:
+
+    def apply():
         settings.save(st.db, st.config, {"p115": {"strm": {"tasks": body if isinstance(body, list) else []}}})
+        st.strm_sync.prune_index()
+        return _tasks_view(st)
+
+    try:
+        return {"tasks": await run_in_threadpool(apply)}  # 寫設定檔、動資料庫，不佔事件迴圈
     except SettingsError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
-    st.strm_sync.prune_index()
-    return {"tasks": _tasks_view(st)}
 
 
 def _redirect(request: Request, pickcode: str) -> Response:

@@ -13,7 +13,8 @@ import logging
 import re
 import threading
 import time
-from typing import Dict, Iterator, List, Optional, Tuple
+from concurrent.futures import ThreadPoolExecutor
+from typing import Callable, Dict, Iterator, List, Optional, Tuple
 from urllib.parse import parse_qs, parse_qsl, unquote, urlsplit
 
 import httpx
@@ -222,17 +223,23 @@ class P115Service:
     def account_info(self, refresh: bool = False) -> dict:
         """網頁顯示用的完整帳號狀態：帳號、VIP、空間、登入方式與裝置、開放平台授權。
 
-        查一次要打好幾個 115 API，預設快取一分鐘。
+        查一次要打好幾個 115 API，彼此無關的同時發出；預設快取一分鐘。
         """
         cached = self._account_cache
         if cached and not refresh and time.time() - cached[1] < ACCOUNT_CACHE_SECONDS:
             return cached[0]
+        jobs: Dict[str, Callable[[], Optional[dict]]] = {}
+        if self.cookies:
+            jobs["cookie"] = self._cookie_account
+        if self.open.authorized:
+            jobs["open"] = self._open_account
+        found = _parallel(jobs)
         info: dict = {
             "logged_in": self.logged_in,
             "checked_at": int(time.time()),
             "login": self.login_record if self.cookies else {},
-            "cookie": self._cookie_account() if self.cookies else None,
-            "open": self._open_account() if self.open.authorized else None,
+            "cookie": found.get("cookie"),
+            "open": found.get("open"),
         }
         # 帳號資料以 cookie 為主，沒有 cookie 時用開放平台的
         main = info["cookie"] if info["cookie"] and info["cookie"].get("valid") else info["open"]
@@ -244,6 +251,15 @@ class P115Service:
         return {"Cookie": self.cookies, "User-Agent": BROWSER_UA}
 
     def _cookie_account(self) -> dict:
+        # 帳號、空間、登入裝置是三個不相關的請求，同時查，網頁不必等三倍時間
+        found = _parallel({"profile": self._cookie_profile, "space": self._cookie_space, "devices": self._login_devices})
+        out = found["profile"]
+        if out.get("valid"):
+            out.update(found["space"])
+            out["devices"] = found["devices"]
+        return out
+
+    def _cookie_profile(self) -> dict:
         out: dict = {"valid": False}
         try:
             data = _json(self._client.get(ACCOUNT_API, headers=self._cookie_headers()))
@@ -268,14 +284,14 @@ class P115Service:
                 "level": vip.get("level_name") or vip.get("vip_name") or "",
             },
         )
+        return out
+
+    def _cookie_space(self) -> dict:
         try:
             space = self._webapi_get("/files/index_info", {"count_space_nums": 0})
-            out["space"] = parse_space((space.get("data") or {}).get("space_info"))
+            return {"space": parse_space((space.get("data") or {}).get("space_info"))}
         except P115Error as exc:
-            out["space"] = None
-            out["space_error"] = str(exc)
-        out["devices"] = self._login_devices()
-        return out
+            return {"space": None, "space_error": str(exc)}
 
     def _login_devices(self) -> Optional[List[dict]]:
         """目前登入這個帳號的裝置；格式不符預期時回傳 None，網頁就不顯示這一段。"""
@@ -671,6 +687,15 @@ def rsa_decrypt(cipher_data) -> bytes:
     key_l = rsa_gen_key(data[:16], 12)
     tmp = bytes(xor(data[16:], key_l))[::-1]
     return bytes(xor(tmp, RSA_KEY))
+
+
+def _parallel(jobs: Dict[str, Callable[[], object]]) -> Dict[str, object]:
+    """同時執行幾個互不相關的查詢（各自處理自己的錯誤），回傳 {名稱: 結果}。"""
+    if len(jobs) <= 1:
+        return {name: job() for name, job in jobs.items()}
+    with ThreadPoolExecutor(max_workers=len(jobs)) as pool:
+        futures = {name: pool.submit(job) for name, job in jobs.items()}
+        return {name: future.result() for name, future in futures.items()}
 
 
 def _int(value) -> int:

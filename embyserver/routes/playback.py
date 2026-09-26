@@ -11,6 +11,7 @@ from urllib.parse import urlsplit
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import FileResponse, RedirectResponse
+from starlette.concurrency import run_in_threadpool
 
 from .. import logs
 from ..auth import AuthContext, now_iso, require_user
@@ -132,17 +133,20 @@ def _report(request: Request, ctx: AuthContext, body: dict, stopped: bool) -> Re
 
 @router.post("/sessions/playing")
 async def playing_start(request: Request, ctx: AuthContext = Depends(require_user)):
-    return _report(request, ctx, await _json_body(request), stopped=False)
+    body = await _json_body(request)
+    return await run_in_threadpool(_report, request, ctx, body, stopped=False)
 
 
 @router.post("/sessions/playing/progress")
 async def playing_progress(request: Request, ctx: AuthContext = Depends(require_user)):
-    return _report(request, ctx, await _json_body(request), stopped=False)
+    body = await _json_body(request)
+    return await run_in_threadpool(_report, request, ctx, body, stopped=False)
 
 
 @router.post("/sessions/playing/stopped")
 async def playing_stopped(request: Request, ctx: AuthContext = Depends(require_user)):
-    return _report(request, ctx, await _json_body(request), stopped=True)
+    body = await _json_body(request)
+    return await run_in_threadpool(_report, request, ctx, body, stopped=True)
 
 
 @router.post("/sessions/playing/ping")

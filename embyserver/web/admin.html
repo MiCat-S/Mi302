@@ -545,7 +545,9 @@ async function api(path, opt = {}) {
   return r.status === 204 ? null : r.json();
 }
 function show(id) { for (const s of ['setup', 'login', 'main']) $(s).classList.toggle('hidden', s !== id); }
-function esc(s) { const d = document.createElement('div'); d.textContent = s ?? ''; return d.innerHTML; }
+const ESC = {'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'};
+function esc(s) { return String(s ?? '').replace(/[&<>"']/g, c => ESC[c]); }
+function setHtml(el, html) { if (el._html !== html) { el._html = html; el.innerHTML = html; } }  // 內容沒變就不重畫
 const icon = name => `<svg class="i"><use href="#i-${name}"/></svg>`;
 function toast(text, kind = '') {
   const t = document.createElement('div'); t.className = 'toast ' + kind; t.textContent = text;
@@ -669,13 +671,13 @@ async function loadOverview() {
   }).catch(() => {});
   const iv = cfg.p115.strm.interval, fi = cfg.p115.strm.full_interval;
   $('ovSched').textContent = '自動增量：' + (iv ? '每 ' + iv + ' 分鐘' : '關閉') + '　自動全量：' + (fi ? '每 ' + fi + ' 小時' : '關閉');
-  await Promise.allSettled([
-    refreshScan(), pollSync(true), pollMP(),
-    api('/p115/status').then(s => { S.p115 = s; renderAccount(); }).catch(e => { $('ovAcct').innerHTML = `<p class="notice bad">${esc(e.message)}</p>`; }),
-  ]);
-  renderSteps();
+  // 各區塊各自載入、各自顯示，不等最慢的（115 帳號要問 115）
+  const parts = [refreshScan(), pollSync(true), pollMP(),
+    api('/p115/status').then(s => { S.p115 = s; renderAccount(); }).catch(e => { $('ovAcct').innerHTML = `<p class="notice bad">${esc(e.message)}</p>`; })];
+  for (const p of parts) p.then(renderSteps, renderSteps);
 }
 function renderSteps() {
+  if (!S.sync) return;  // 還不知道有沒有同步任務就先不畫步驟卡，免得閃一下
   const steps = [
     ['建立媒體庫', cfg.libraries.length > 0, '#libraries'],
     ['登入 115', !!S.p115?.logged_in, '#115'],
@@ -689,12 +691,21 @@ function renderSteps() {
 }
 
 // ---- 媒體庫 ----
-let libs = [];
+let libs = [], libsShape = null;
 function loadLibs() { libs = structuredClone(cfg.libraries); dirtyLibs(false); renderLibs(); refreshScan(); }
 function dirtyLibs(on) { $('libBar').classList.toggle('hidden', !on); }
+// 掃描狀態裡數量以外的部分；沒變就只改數字，不必整張卡重畫（封面會閃）
+function libShape(status) { return JSON.stringify((status?.libraries || []).map(({count, ...rest}) => rest)); }
+function updateLibCounts() {
+  $('libs').querySelectorAll('.card').forEach((card, i) => {
+    const st = S.scan?.libraries.find(s => s.name === libs[i]?.name), pill = card.querySelector('.js-count');
+    if (st && pill) pill.textContent = st.count + ' 個項目';
+  });
+}
 function renderLibs() {
   const box = $('libs'); box.innerHTML = '';
   const status = S.scan;
+  libsShape = libShape(status);
   if (!libs.length) box.innerHTML = `<div class="card"><div class="card-b">${emptyState('還沒有媒體庫', '按「新增媒體庫」開始，例如「電影」選 /media/movies。')}</div></div>`;
   libs.forEach((l, i) => {
     const st = status?.libraries.find(s => s.name === l.name);
@@ -703,7 +714,7 @@ function renderLibs() {
     card.innerHTML = `<div class="card-h"><div class="row grow" style="min-width:220px">${icon(l.type === 'tvshows' ? 'tv' : 'film')}
         <input type="text" class="grow" value="${esc(l.name)}" placeholder="名稱，例如 電影">
         <select style="width:auto"><option value="movies">電影</option><option value="tvshows">劇集</option></select></div>
-        <div class="row">${st ? `<span class="pill accent">${st.count} 個項目</span>` : ''}
+        <div class="row">${st ? `<span class="pill accent js-count">${st.count} 個項目</span>` : ''}
           ${saved ? `<button class="btn sm js-scan" title="只掃描這個媒體庫">${icon('refresh')}掃描</button>` : ''}
           <button class="btn sm ghost icon danger js-del" title="刪除媒體庫">${icon('trash')}</button></div></div>
       <div class="card-b stack">
@@ -764,12 +775,18 @@ async function saveLibs() {
   try { await putSettings({libraries: libs}); toast('已儲存，正在重新掃描'); loadLibs(); }
   catch (e) { toast('儲存失敗：' + e.message, 'bad'); }
 }
+let scanTimer = null;
 async function refreshScan() {
+  clearTimeout(scanTimer);  // 好幾個地方會叫它，不能各開一條輪詢
+  if (document.hidden && S.scan) { scanTimer = setTimeout(refreshScan, 2000); return; }  // 沒在看就不問伺服器
   try { S.scan = await api('/web/api/scan'); } catch (e) { return; }
-  $('scanSt').innerHTML = S.scan.scanning ? `<span class="row"><span class="spin"></span>掃描中${S.scan.current ? '：' + esc(S.scan.current) : '…'}</span>` : '';
+  setHtml($('scanSt'), S.scan.scanning ? `<span class="row"><span class="spin"></span>掃描中${S.scan.current ? '：' + esc(S.scan.current) : '…'}</span>` : '');
   const el = document.activeElement, typing = el?.closest('#libs') && /^(INPUT|SELECT|TEXTAREA)$/.test(el.tagName);
-  if (!$('tab-libraries').classList.contains('hidden') && !typing) renderLibs();  // 正在改名稱時不重畫，免得輸入框跳掉
-  if (S.scan.scanning) setTimeout(refreshScan, 2000);
+  if (!$('tab-libraries').classList.contains('hidden') && !typing) {  // 正在改名稱時不重畫，免得輸入框跳掉
+    const same = libShape(S.scan) === libsShape && $('libs').querySelectorAll('.card').length === libs.length;
+    if (same) updateLibCounts(); else renderLibs();
+  }
+  if (S.scan.scanning) scanTimer = setTimeout(refreshScan, 2000);
 }
 function scanNow() { scanReq({}, '全部媒體庫'); }
 
@@ -955,12 +972,14 @@ function syncHtml(s) {
 let syncTimer = null, syncWatch = 0;  // 手動按下的那次同步，跑完時提示
 async function pollSync(first) {
   clearTimeout(syncTimer);
+  if (document.hidden && !first) { syncTimer = setTimeout(() => pollSync(false), 2000); return; }
   let s;
   try { s = await api('/p115/strm/status'); } catch (e) { return; }
   S.sync = s;
   if (first || !s.result.running) renderTasks(s.tasks);
   $('base').textContent = s.base_url;
-  for (const el of document.querySelectorAll('.js-sync')) el.innerHTML = syncHtml(s);
+  const html = syncHtml(s);
+  for (const el of document.querySelectorAll('.js-sync')) setHtml(el, html);
   const done = syncWatch && !s.result.running && s.result.started === syncWatch;
   if (done) { syncWatch = 0; toast(s.result.errors.length ? '同步完成，有 ' + s.result.errors.length + ' 個錯誤' : '同步完成', s.result.errors.length ? 'bad' : ''); }
   if (s.result.started !== syncWatch) syncWatch = 0;  // 已經換成別次同步
@@ -1011,10 +1030,12 @@ function mpHtml(s) {
 let mpTimer = null;
 async function pollMP() {
   clearTimeout(mpTimer);
+  if (document.hidden && S.mp?.result.running) { mpTimer = setTimeout(pollMP, 2000); return; }
   let s;
   try { s = await api('/web/api/moviepilot/status'); } catch (e) { return; }
   S.mp = s;
-  for (const el of document.querySelectorAll('.js-mp')) el.innerHTML = mpHtml(s);
+  const html = mpHtml(s);
+  for (const el of document.querySelectorAll('.js-mp')) setHtml(el, html);
   if (!$('mpPill').innerHTML || !s.enabled) $('mpPill').innerHTML = s.enabled ? '<span class="pill">已設定</span>' : '<span class="pill">未設定</span>';
   if (s.result.running) mpTimer = setTimeout(pollMP, 2000);
 }
@@ -1039,28 +1060,40 @@ const LOG_SRC = {'embyserver.strm_sync': '115 同步', 'embyserver.p115': '115',
   'embyserver.moviepilot': 'MoviePilot', 'embyserver.scanner': '掃描', 'embyserver.access': '請求',
   'embyserver.routes.playback': '播放', 'embyserver.redirect': '播放', 'embyserver.settings': '設定',
   'embyserver.auth': '登入', 'embyserver.routes.items': '媒體庫', 'embyserver.app': '伺服器', 'uvicorn.error': '伺服器', 'embyserver.logs': '日誌'};
-let logLast = 0, logRows = [], logTimer = null, logQT = null;
+let logLast = 0, logRows = [], logTimer = null, logQT = null, logSeq = 0;
+const LOG_MAX = 1000;
 function logTime(ts) {
   const d = new Date(ts * 1000), z = n => String(n).padStart(2, '0');
   return `${z(d.getMonth() + 1)}/${z(d.getDate())} ${z(d.getHours())}:${z(d.getMinutes())}:${z(d.getSeconds())}`;
 }
-function renderLogs() {
+function logRow(r) {
+  return `<div class="lg ${r.level}"><span class="t">${logTime(r.time)}</span><span class="lv">${LOG_LV[r.level] || r.level}</span>` +
+    `<span class="src">${esc(LOG_SRC[r.logger] || r.logger.replace(/^embyserver\.(routes\.)?/, ''))}</span><span class="m">${esc(r.message)}</span></div>`;
+}
+function renderLogs(fresh) {
   const box = $('logList');
+  if (!fresh || !box.querySelector('.lg')) {  // 整頁重畫
+    box.innerHTML = logRows.length ? logRows.map(logRow).join('') : emptyState('沒有符合的紀錄', $('logQ').value ? '換個關鍵字，或把等級改成「全部」。' : '');
+    return;
+  }
+  // 只把新紀錄插到最上面，舊的不動：每兩秒重畫一千行會卡
   const keep = box.scrollTop > 0 ? box.scrollHeight - box.scrollTop : null;  // 往下看舊紀錄時，新紀錄進來不要跳走
-  box.innerHTML = logRows.length ? logRows.map(r =>
-    `<div class="lg ${r.level}"><span class="t">${logTime(r.time)}</span><span class="lv">${LOG_LV[r.level] || r.level}</span>` +
-    `<span class="src">${esc(LOG_SRC[r.logger] || r.logger.replace(/^embyserver\.(routes\.)?/, ''))}</span><span class="m">${esc(r.message)}</span></div>`).join('')
-    : emptyState('沒有符合的紀錄', $('logQ').value ? '換個關鍵字，或把等級改成「全部」。' : '');
+  box.insertAdjacentHTML('afterbegin', fresh.map(logRow).join(''));
+  while (box.children.length > LOG_MAX) box.lastElementChild.remove();
   if (keep !== null) box.scrollTop = box.scrollHeight - keep;
 }
 async function loadLogs(reset) {
   clearTimeout(logTimer);
+  if (document.hidden && !reset) { logTimer = setTimeout(() => loadLogs(false), 2000); return; }
   if (reset) { logLast = 0; logRows = []; }
+  const seq = ++logSeq;
   let r;
-  try { r = await api(`/web/api/logs?after=${logLast}&level=${logLevel.value}&q=${encodeURIComponent(logQ.value)}&limit=1000`); }
+  try { r = await api(`/web/api/logs?after=${logLast}&level=${logLevel.value}&q=${encodeURIComponent(logQ.value)}&limit=${LOG_MAX}`); }
   catch (e) { $('logList').innerHTML = `<p class="notice bad" style="margin:18px">${esc(e.message)}</p>`; return; }
+  if (seq !== logSeq) return;  // 等回應期間換了條件（搜尋、等級），這份已經過時
   logLast = r.last;
-  if (reset || r.items.length) { logRows = r.items.reverse().concat(logRows).slice(0, 1000); renderLogs(); }
+  if (reset) { logRows = r.items.reverse(); renderLogs(); }
+  else if (r.items.length) { const fresh = r.items.reverse(); logRows = fresh.concat(logRows).slice(0, LOG_MAX); renderLogs(fresh); }
   $('logFile').textContent = r.file || '（無法寫入日誌檔，只保留在記憶體）';
   $('logDebug').checked = r.log_level === 'debug';
   const old = r.files.slice(1);

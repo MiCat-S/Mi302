@@ -11,6 +11,7 @@ from pathlib import Path
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse, RedirectResponse
+from starlette.concurrency import run_in_threadpool
 
 from .. import logs, settings
 from ..auth import AuthContext, client_info, require_admin
@@ -63,11 +64,15 @@ async def setup(request: Request):
     if not name or not password:
         raise HTTPException(status_code=400, detail="帳號和密碼都要填")
     st = state(request)
-    with _setup_lock:
-        if st.auth.list_users():
-            raise HTTPException(status_code=403, detail="已經設定過管理員")
-        user = st.auth.create_user(name, password, True)
-    return {"token": st.auth.issue_token(user, client_info(request))}
+
+    def create():
+        with _setup_lock:
+            if st.auth.list_users():
+                raise HTTPException(status_code=403, detail="已經設定過管理員")
+            user = st.auth.create_user(name, password, True)  # 算密碼雜湊要幾十毫秒
+        return st.auth.issue_token(user, client_info(request))
+
+    return {"token": await run_in_threadpool(create)}
 
 
 # ---------------- 設定 ----------------
@@ -102,11 +107,15 @@ async def put_settings(request: Request, ctx: AuthContext = Depends(require_admi
     body = await _body(request)
     st = state(request)
     before = settings.export_settings(st.config)["libraries"]
+
+    def apply():
+        settings.save(st.db, st.config, body)  # 寫設定檔
+        settings.after_change(st, before)
+
     try:
-        settings.save(st.db, st.config, body)
+        await run_in_threadpool(apply)
     except SettingsError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
-    settings.after_change(st, before)
     return _settings_view(request)
 
 
@@ -175,8 +184,9 @@ async def add_user(request: Request, ctx: AuthContext = Depends(require_admin)):
     if not str(body.get("password") or ""):
         raise HTTPException(status_code=400, detail="密碼不可空白")
     try:
-        user = state(request).auth.create_user(
-            str(body.get("name") or ""), str(body.get("password") or ""), bool(body.get("admin"))
+        user = await run_in_threadpool(  # 算密碼雜湊要幾十毫秒，不佔事件迴圈
+            state(request).auth.create_user,
+            str(body.get("name") or ""), str(body.get("password") or ""), bool(body.get("admin")),
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
@@ -189,7 +199,8 @@ async def edit_user(user_id: str, request: Request, ctx: AuthContext = Depends(r
     if "password" in body and not str(body["password"] or ""):
         raise HTTPException(status_code=400, detail="密碼不可空白")
     try:
-        user = state(request).auth.update_user(
+        user = await run_in_threadpool(
+            state(request).auth.update_user,
             user_id,
             password=str(body["password"]) if "password" in body else None,
             admin=bool(body["admin"]) if "admin" in body else None,

@@ -6,6 +6,7 @@ import json
 import platform
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, WebSocket, WebSocketDisconnect
+from starlette.concurrency import run_in_threadpool
 
 from ..auth import AuthContext, client_info, require_admin, require_user
 from ..dto import user_dto
@@ -116,12 +117,18 @@ async def authenticate_by_name(request: Request):
         password = lb.get("password")
     if password is None:
         password = q(request, "pw", "") or ""
-    user = st.auth.authenticate(username, password)
+    info = client_info(request)
+
+    def login():
+        # 驗證密碼要算幾十毫秒的雜湊，不能擋住事件迴圈，其他人的播放請求會跟著卡
+        found = st.auth.authenticate(username, password)
+        if not found:
+            return None, None
+        return st.auth.get_user(found["id"]), st.auth.issue_token(found, info)
+
+    user, token = await run_in_threadpool(login)
     if not user:
         raise HTTPException(status_code=401, detail="Invalid username or password entered.")
-    info = client_info(request)
-    token = st.auth.issue_token(user, info)
-    user = st.auth.get_user(user["id"])
     return {
         "User": user_dto(user, st.server_id),
         "SessionInfo": _session_info(request, user, info),

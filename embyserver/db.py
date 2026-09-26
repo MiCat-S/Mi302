@@ -104,6 +104,10 @@ class Database:
         self.lock = threading.RLock()
         with self.lock:
             self.conn.execute("PRAGMA journal_mode=WAL")
+            # WAL 加 NORMAL：資料庫不會壞，只是斷電可能少最後幾筆；每次 commit 不必 fsync，
+            # 掃描時成千上萬筆寫入才不會把網頁的請求卡在同一把鎖後面
+            self.conn.execute("PRAGMA synchronous=NORMAL")
+            self.conn.execute("PRAGMA busy_timeout=5000")
             self.conn.executescript(SCHEMA)
             self.conn.commit()
 
