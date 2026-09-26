@@ -36,6 +36,10 @@ BROWSER_UA = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/124.0 Safari/537.36 115Browser/27.0"
 )
+# 自己下載 115 上的檔案（目錄樹）時用的 UA：直鏈綁定 UA，115 的 CDN 對某些 UA 會回 403，失敗就換一個再試
+PLAIN_UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+DOWNLOAD_UAS = (BROWSER_UA, PLAIN_UA)
+EXPORT_FETCH_ATTEMPTS = 4
 LIST_PAGE_SIZE = 1150
 # 導出目錄樹：檔案先放在 115 根目錄，讀完就刪掉；115 同時只能跑一個導出任務
 EXPORT_TARGET = "U_1_0"
@@ -537,11 +541,7 @@ class P115Service:
                 raise P115Error(f"115 導出目錄樹超過 {int(timeout)} 秒還沒完成")
             time.sleep(self.export_poll)
         try:
-            url = self.download_url(str(result["pick_code"]), BROWSER_UA)
-            resp = self._client.get(url, headers={"User-Agent": BROWSER_UA}, follow_redirects=True)
-            if resp.status_code != 200:
-                raise P115Error(f"下載目錄樹失敗：HTTP {resp.status_code}")
-            content = resp.content
+            content = self._fetch_export_file(str(result["pick_code"]))
         finally:
             self._delete_export(result)
         nodes = parse_export_tree(content)
@@ -554,6 +554,32 @@ class P115Service:
             # 格式跟預期不同時，留下開頭幾行方便對照
             log.warning("115 導出目錄樹的開頭：%r", _decode_tree(content)[:300])
             raise
+
+    def _fetch_export_file(self, pick_code: str) -> bytes:
+        """下載剛導出的目錄樹檔。
+
+        直鏈綁定 User-Agent；檔案剛建立，CDN 可能還沒同步；某些 UA 沒帶 cookie 會被拒絕。
+        所以失敗時換 UA、帶上 cookie、稍等再試，並把 115 回了什麼記下來，方便對照。
+        """
+        reasons: List[str] = []
+        for attempt in range(EXPORT_FETCH_ATTEMPTS):
+            ua = DOWNLOAD_UAS[attempt % len(DOWNLOAD_UAS)]
+            try:
+                url = self.download_url(pick_code, ua)
+                headers = {"User-Agent": ua}
+                if self.cookies and "115" in (urlsplit(url).hostname or ""):
+                    headers["Cookie"] = self.cookies
+                resp = self._client.get(url, headers=headers, follow_redirects=True)
+                if resp.status_code == 200:
+                    return resp.content
+                reason = f"HTTP {resp.status_code} {_snippet(resp)}".rstrip()
+            except P115Error as exc:
+                reason = str(exc)
+            reasons.append(reason)
+            log.warning("下載目錄樹失敗（第 %s 次，UA %s…）：%s", attempt + 1, ua[:24], reason)
+            if attempt + 1 < EXPORT_FETCH_ATTEMPTS:
+                time.sleep(self.export_poll)
+        raise P115Error("下載目錄樹失敗：" + "；".join(dict.fromkeys(reasons)))
 
     def _delete_export(self, result: dict) -> None:
         try:
@@ -841,6 +867,15 @@ def tree_relative(nodes: List[Tuple[str, ...]], remote: str) -> List[Tuple[str, 
         raise P115Error(f"看不懂 115 導出的目錄樹：開頭是「{'/'.join(nodes[0])}」，不是 {remote}")
     k = len(prefix)
     return [n[k:] for n in nodes if len(n) > k and n[:k] == prefix]
+
+
+def _snippet(resp: httpx.Response) -> str:
+    """回應正文的摘要（去掉 HTML 標籤），錯誤訊息裡看得出 115 拒絕的原因。"""
+    try:
+        text = re.sub(r"<[^>]+>", " ", resp.text[:2000])
+    except Exception:
+        return ""
+    return " ".join(text.split())[:120]
 
 
 def _json(resp: httpx.Response) -> dict:

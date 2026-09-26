@@ -288,3 +288,40 @@ def test_unreadable_tree_falls_back_to_walk(tmp_path: Path):
     assert r.strm_created == 2 and not r.errors
     assert any("改成逐層列目錄" in n for n in r.notes)
     assert fake.deleted  # 看不懂也要把 115 根目錄的目錄樹檔案刪掉
+
+
+def test_tree_download_retries_with_another_ua(tmp_path: Path):
+    fake = Fake115()
+    sync = make(tmp_path, fake)
+    real = fake.handler
+    hits = []
+
+    def flaky(request):
+        if request.url.host == "cdn.115.test":
+            hits.append((request.headers.get("user-agent"), request.headers.get("cookie")))
+            if len(hits) == 1:
+                return httpx.Response(403, text="<html><body>403 Forbidden: sign error</body></html>")
+        return real(request)
+
+    sync.p115._client._transport = httpx.MockTransport(flaky)
+    r = sync.run(FULL)
+    assert not r.notes and r.strm_created == 2 and listings(fake) == []  # 第二次就成功，沒有改回逐層
+    assert len(hits) == 2 and hits[0][0] != hits[1][0] and hits[1][1] == "UID=1"  # 換了 UA、帶上 cookie
+
+
+def test_tree_download_failure_keeps_reason(tmp_path: Path):
+    fake = Fake115()
+    sync = make(tmp_path, fake)
+    real = fake.handler
+
+    def denied(request):
+        if request.url.host == "cdn.115.test":
+            return httpx.Response(403, text="<html><body>403 Forbidden: sign error</body></html>")
+        return real(request)
+
+    sync.p115._client._transport = httpx.MockTransport(denied)
+    r = sync.run(FULL)
+    assert r.strm_created == 2 and not r.errors and listings(fake)
+    note = next(n for n in r.notes if "改成逐層列目錄" in n)
+    assert "HTTP 403 403 Forbidden: sign error" in note  # 115 回的原因留在同步結果裡
+    assert fake.deleted  # 下載不成也要刪掉 115 根目錄的目錄樹檔案
