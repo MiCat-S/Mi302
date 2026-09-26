@@ -15,6 +15,7 @@ server:
   data_dir: ./data                  # 資料庫存放位置
   public_users: true                # 播放器登入畫面是否列出使用者
   log_level: info                   # 日誌：info = 一般，debug = 詳細（另外記錄每個播放器請求）
+  backup_keep: 7                    # 每天自動備份資料庫和設定檔到 data/backups，留最新幾份；0 = 不自動備份
 
 # 第一次啟動時預先建立的帳號；之後新增帳號、改密碼請用網頁，不會寫回這裡
 users: []

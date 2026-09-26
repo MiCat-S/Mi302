@@ -301,6 +301,29 @@ def moviepilot_scrape(request: Request, ctx: AuthContext = Depends(require_admin
     return {"started": started, "result": mp.result.as_dict()}
 
 
+@router.get("/web/api/backups")
+def list_backups(request: Request, ctx: AuthContext = Depends(require_admin)):
+    bk = state(request).backup
+    return {"keep": bk.keep, "dir": str(bk.dir), "last": int(bk.last()) or None, "items": bk.items()}
+
+
+@router.post("/web/api/backups")
+async def backup_now(request: Request, ctx: AuthContext = Depends(require_admin)):
+    try:
+        name = await run_in_threadpool(state(request).backup.run)
+    except Exception as exc:  # 磁碟滿、權限、sqlite 錯誤都直接告訴使用者
+        raise HTTPException(status_code=500, detail=f"備份失敗：{type(exc).__name__}: {exc}")
+    return {"name": name}
+
+
+@router.get("/web/api/backups/{name}")
+def download_backup(name: str, request: Request, ctx: AuthContext = Depends(require_admin)):
+    path = state(request).backup.path_of(name)
+    if not path:
+        raise HTTPException(status_code=404, detail="找不到這個備份")
+    return FileResponse(path, media_type="application/octet-stream", filename=name)
+
+
 @router.get("/web/api/mediainfo/status")
 def mediainfo_status(request: Request, ctx: AuthContext = Depends(require_admin)):
     """媒體資訊：有幾支影片已經有、ffprobe 在不在、115 熔斷、上次探測的結果。"""

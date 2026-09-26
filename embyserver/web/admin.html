@@ -543,6 +543,16 @@ dialog .card-b{max-height:70vh;overflow:auto}
           <label class="switch"><input type="checkbox" data-key="redirect.require_auth"><span class="track"></span><span class="lbl">播放網址要求登入<small>很多播放器不帶 token，建議不開</small></span></label>
         </div>
       </div>
+      <div class="card">
+        <div class="card-h"><div class="t"><svg class="i"><use href="#i-download"/></svg><h2>備份</h2></div><button class="btn" id="bkBtn" onclick="backupNow()">立即備份</button></div>
+        <div class="card-b stack">
+          <p class="hint">每天自動備份資料庫（使用者、觀看紀錄、115 登入狀態、同步索引、媒體資訊）和設定檔，放在 <code id="bkDir"></code>。備份含 115 登入資訊和密碼雜湊，下載後請妥善保管。</p>
+          <label class="field" style="max-width:280px"><span>保留幾份</span><input type="number" min="0" max="90" data-key="server.backup_keep"><small>0 = 不自動備份（手動備份仍留最新 7 份）</small></label>
+          <div id="bkList" class="list"><p class="hint">讀取中…</p></div>
+          <details class="more"><summary>怎麼還原</summary><div class="in hint stack">
+            <p>1. 停止 Mi302。2. 把要還原的 <code>.db</code> 複製成資料夾裡的 <code>library.db</code>，並刪掉 <code>library.db-wal</code>、<code>library.db-shm</code>。3. 需要的話把同時間的 <code>.yaml</code> 換成 <code>config.yaml</code>。4. 啟動 Mi302。</p></div></details>
+        </div>
+      </div>
       <div class="savebar"><span class="hint grow">儲存會寫進設定檔</span><button class="btn primary" onclick="saveFields($('tab-settings'), true)">儲存設定</button></div>
     </section>
   </main>
@@ -658,7 +668,7 @@ async function login() {
 }
 async function logoutWeb() { try { await api('/Sessions/Logout', {method: 'POST'}); } catch (e) {} token = ''; localStorage.removeItem('mi302'); show('login'); }
 
-const PAGES = {overview: () => loadOverview(), libraries: () => loadLibs(), '115': () => load115(false), moviepilot: () => loadMP(), users: () => loadUsers(), logs: () => loadLogs(true), settings: () => {}};
+const PAGES = {overview: () => loadOverview(), libraries: () => loadLibs(), '115': () => load115(false), moviepilot: () => loadMP(), users: () => loadUsers(), logs: () => loadLogs(true), settings: () => loadBackups()};
 function route() {
   let tab = (location.hash || '#overview').slice(1);
   if (!PAGES[tab]) tab = 'overview';
@@ -1261,6 +1271,39 @@ async function setLogLevel(on) {
   toast(on ? '已開啟詳細模式，播放器的請求會記在日誌裡' : '已關閉詳細模式');
   if (on && logLevel.value !== 'DEBUG') { logLevel.value = 'DEBUG'; }
   loadLogs(true);
+}
+
+// ---- 備份 ----
+async function loadBackups() {
+  let r;
+  try { r = await api('/web/api/backups'); } catch (e) { $('bkList').innerHTML = `<p class="notice bad">${esc(e.message)}</p>`; return; }
+  $('bkDir').textContent = r.dir;
+  const box = $('bkList'); box.innerHTML = '';
+  const dbs = r.items.filter(i => i.kind === 'db');
+  if (!dbs.length) { box.innerHTML = `<p class="hint">${r.keep ? '還沒有備份，第一份會在啟動後自動產生。' : '自動備份已關閉。'}</p>`; return; }
+  for (const b of dbs) {
+    const yaml = r.items.find(i => i.kind === 'yaml' && i.stamp === b.stamp);
+    const row = document.createElement('div'); row.className = 'li';
+    row.innerHTML = `<div class="main"><b>${esc(fmtTime(b.time))}</b><div class="sub">${esc(b.name)}・${fmtSize(b.size)}${yaml ? '・含設定檔' : ''}</div></div>
+      <button class="btn sm ghost icon" title="下載資料庫">${icon('download')}</button>${yaml ? `<button class="btn sm ghost" title="下載設定檔">yaml</button>` : ''}`;
+    const [dl, dy] = row.querySelectorAll('button');
+    dl.onclick = () => downloadBackup(b.name);
+    if (dy) dy.onclick = () => downloadBackup(yaml.name);
+    box.appendChild(row);
+  }
+}
+async function backupNow() {
+  $('bkBtn').disabled = true;
+  try { const r = await api('/web/api/backups', {method: 'POST'}); toast('已備份：' + r.name); loadBackups(); }
+  catch (e) { toast(e.message, 'bad'); }
+  finally { $('bkBtn').disabled = false; }
+}
+async function downloadBackup(name) {
+  const r = await fetch('/web/api/backups/' + encodeURIComponent(name), {headers: H()});
+  if (!r.ok) { toast('下載失敗：' + (await r.text() || r.status), 'bad'); return; }
+  const url = URL.createObjectURL(await r.blob());
+  const a = document.createElement('a'); a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 // ---- 資料夾選擇器 ----

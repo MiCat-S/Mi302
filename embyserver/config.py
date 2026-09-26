@@ -119,6 +119,7 @@ class ServerConfig:
     data_dir: str = "./data"
     public_users: bool = True
     log_level: str = "info"  # info = 一般；debug = 詳細（另外記錄每個播放器請求）
+    backup_keep: int = 7  # 每天自動備份資料庫和設定檔，留最新幾份；0 = 不自動備份
 
 
 @dataclass

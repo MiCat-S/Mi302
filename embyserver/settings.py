@@ -29,7 +29,7 @@ SETTINGS_META_KEY = "web_settings"
 TASKS_META_KEY = "p115_strm_tasks"
 
 # 網頁可修改的欄位；port、host、data_dir 牽涉啟動方式，不開放在網頁改
-SERVER_FIELDS = ("name", "public_users", "log_level")
+SERVER_FIELDS = ("name", "public_users", "log_level", "backup_keep")
 STRM_FIELDS = (
     "base_url", "include_name", "download_metadata", "delete_stale",
     "min_size_mb", "interval", "full_interval", "request_delay", "scan_after_sync",
@@ -121,6 +121,7 @@ def apply_settings(config: Config, raw: dict) -> None:
     if "server" in raw:
         _set_fields(config.server, SERVER_FIELDS, raw["server"] or {})
         config.server.log_level = "debug" if str(config.server.log_level).lower() == "debug" else "info"
+        config.server.backup_keep = max(0, min(config.server.backup_keep, 90))
     p115 = raw.get("p115") or {}
     _set_fields(config.p115, P115_FIELDS, p115)
     if "strm" in p115:

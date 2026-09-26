@@ -209,6 +209,12 @@ docker compose up -d --build
 
 各項目的說明見 `config.example.yaml`。
 
+### 備份
+
+Mi302 每天自動備份一次資料庫（使用者、觀看紀錄、115 登入狀態、同步索引、媒體資訊）和設定檔，放在 `data/backups`，檔名是 `mi302-年月日-時分秒.db`／`.yaml`，預設留最新 7 份（設定檔的 `server.backup_keep`，0 = 不自動備份）。「進階設定」頁可以立即備份、下載備份。備份含 115 登入資訊和密碼雜湊，請妥善保管。
+
+還原：停止 Mi302，把要還原的 `.db` 複製成 `data/library.db`，刪掉 `library.db-wal`、`library.db-shm`；需要的話把同時間的 `.yaml` 換成 `config.yaml`，再啟動。
+
 ## 115 網盤
 
 伺服器本身就能登入 115、從 115 目錄產生 strm，並在播放時取得 115 直鏈，不需要 MoviePilot 或其他工具。
