@@ -7,7 +7,7 @@
 ## 接手須知
 
 - 直接在 main 上提交，提交訊息用繁體中文，結尾加 `Co-Authored-By` 那一行；做完就推送，不用等使用者說。
-- 每一批修改都要有回歸測試；目前 `pytest -q` 是 168 個全過。
+- 每一批修改都要有回歸測試；目前 `pytest -q` 是 171 個全過。
 - 動到 `embyserver/web/admin.html` 時，把 `<script>` 抽出來跑 `node --check`。
 - 不要加回任何 Docker 相關檔案或說明（已經整個移除；install.sh 裡的 docker 字樣只是拒絕舊參數和搬遷舊安裝用的）。
 - 使用者用 MoviePilot V3（看 V3 分支的原始碼），播放器是 SenPlayer。
@@ -24,20 +24,16 @@
 | 9312bf1 | API 層第一批：API 金鑰不能進 /web/api、/p115；路徑只轉英文小寫（/Persons/Émilie）；500 訊息遮 token；關閉時停同步和探測執行緒；設定檔不認得的鍵只警告；設定依宣告型別轉換（0.5 不再變 0）；探測狀態不再搶 deque 而 500；探測執行緒不會因意外錯誤死掉 |
 | 18764a8 | 雲端工作階段啟動時用 `.claude/hooks/session-start.sh` 自動安裝依賴 |
 | 6f8fe17 | 背景服務：從片尾直接跳到結尾學得到片尾；備份路徑跳脫（資料夾名稱有 # 或 ? 時不再開到空資料庫），空備份不保存；中文名只查數字 id，MoviePilot 對單一 id 回 400／422 記成查過沒有，不再整批卡住；MoviePilotError 帶 HTTP 狀態碼 |
+| 3e0cbca | API 層第二批：/Items/{id}/Download、/File 要登入；表單登入不再 500；播放回報沒帶位置時不清續播點、不拿去學片頭；/Items?UserId=、/Users/{id}/Items 非管理員查別人 403、管理員代查用那個人的播放紀錄；/Users/{id} 非管理員讀別人 403 |
 
 ## 待辦
 
 ### 一、API 層（routes/、auth.py、dto.py）
 
-1. **下載路由不用登入。** `routes/playback.py` 的 `item_download`（`/Items/{id}/Download`、`/Items/{id}/File`）走 `_stream`，只在 `redirect.require_auth` 開啟時才檢查登入，預設關。串流 `/videos/{id}/stream*` 要維持不帶 token 可播（播放器常不帶），Download／File 改成 `require_user`。`tests/test_api.py` 的 `test_strm_302` 目前斷言 Download 不帶 token 會 302，要一起改。
-2. **表單登入 500。** `routes/system.py` 的 AuthenticateByName 用 `request.form()`，但沒裝 python-multipart。改用 `urllib.parse.parse_qsl(raw.decode())` 解析，不加依賴。
-3. **開始播放把續播點清成 0。** `routes/playback.py` 的 `_report`：回報沒帶 PositionTicks 時 `pos = 0` 還寫進去；`legacy_start` 一定不帶。沒帶位置且不是停止時只更新 `last_played`。
-4. **UserId 處理不一致。** `routes/items.py` 的 `_user_id_from` 註解說管理員可以代查別人，但 `_query_items` 和 `_dto` 永遠用登入者自己的資料；非管理員打 `/Items?UserId=別人` 也回 200。二選一：把有效的 user id 一路傳下去，或不符就 403。`_query_items` 的 `user_id` 參數目前沒用到。
-5. **非管理員可以讀任何使用者。** `routes/system.py` 的 `user_get`：不是自己也不是管理員就 403。
-6. **async 函式裡做阻塞 I/O。** `routes/web.py` 的 `intro_clear`、`create_api_key`，`routes/items.py` 的 `upload_image`。改成一般 def 或包 `run_in_threadpool`。
-7. **非物件 JSON 造成 500。** `routes/web.py` 的 `_body` 收到 `[1]` 這種內容時，後面 `.get` 會炸。不是 dict 就回 400。
-8. **圖片路由的 `{index}` 宣告成 int。** `/Items/1/Images/Primary/abc` 回 422 JSON，Emby 是純文字 404。改成 str，或拿掉沒用到的參數。
-9. **可讀性。**
+1. **async 函式裡做阻塞 I/O。** `routes/web.py` 的 `intro_clear`、`create_api_key`，`routes/items.py` 的 `upload_image`。改成一般 def 或包 `run_in_threadpool`。
+2. **非物件 JSON 造成 500。** `routes/web.py` 的 `_body` 收到 `[1]` 這種內容時，後面 `.get` 會炸。不是 dict 就回 400。
+3. **圖片路由的 `{index}` 宣告成 int。** `/Items/1/Images/Primary/abc` 回 422 JSON，Emby 是純文字 404。改成 str，或拿掉沒用到的參數。
+4. **可讀性。**
    - `routes/items.py` 的 genres 裡 `import json as _json`（檔頭已經 import json），`_background` 裡臨時 import threading；`routes/system.py` 的 `library_refresh` 也是。
    - `routes/playback.py` 從 items.py 匯入私有的 `_set_user_data`，應搬到共用模組。
    - 魔術數字：看完門檻 0.9（playback），季×100000+集（items.py 兩處）。
@@ -98,10 +94,9 @@
 
 ## 建議順序
 
-1. API 層第 1–5 項（安全性和續播點）。
-2. 管理網頁第 1–5 項，和背景服務第 2 項一起做（MoviePilot 測試連線）。
-3. 115 第 1 項。
-4. 其餘可讀性項目。
+1. 管理網頁第 1–5 項，和背景服務第 2 項一起做（MoviePilot 測試連線）。
+2. 115 第 1 項。
+3. API 層第 1–3 項（阻塞 I/O、非物件 JSON、圖片路由）和其餘可讀性項目。
 
 ## 還沒實機驗證的
 
