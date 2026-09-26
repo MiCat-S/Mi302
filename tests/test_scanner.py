@@ -60,3 +60,39 @@ def test_looks_like_series(tmp_path: Path):
     assert looks_like_series(tmp_path / "国产剧" / "某剧")
     (tmp_path / "新剧 (2024)").mkdir()
     assert looks_like_series(tmp_path / "新剧 (2024)")
+
+
+def test_unreadable_files_do_not_stop_the_scan(tmp_path: Path):
+    """壞掉的符號連結、沒權限的資料夾只略過那一項，其他的照掃。"""
+    import os
+
+    from embyserver.people import PeopleStore
+
+    movies = tmp_path / "电影"
+    touch(movies / "Good (2020)" / "Good (2020).strm")
+    (movies / "Broken (2021)").mkdir()
+    os.symlink(tmp_path / "nowhere.mkv", movies / "Broken (2021)" / "Broken (2021).mkv")  # 指向不存在的檔案
+    tv = tmp_path / "电视剧"
+    touch(tv / "Dark" / "Dark.S01E01.strm")
+    (tv / "Dark" / "Dark.S01E02.mkv").symlink_to(tmp_path / "gone.mkv")
+    db = Database(":memory:")
+    config = config_from_dict({"libraries": [
+        {"name": "電影", "type": "movies", "paths": [str(movies)]},
+        {"name": "劇集", "type": "tvshows", "paths": [str(tv)]},
+    ]})
+    Scanner(db, config).scan_all()
+    assert names(db, "Movie") == ["Good"] and names(db, "Episode") == ["第 1 集"]
+
+    # nfo 只寫年份：不能變成 2019T00:00:00 這種假日期；拿掉演員時資料庫跟著清
+    show = tv / "Dark"
+    touch(show / "tvshow.nfo", "<tvshow><title>Dark</title><premiered>2019</premiered><actor><name>A</name></actor></tvshow>")
+    scanner = Scanner(db, config)
+    scanner.scan_all()
+    row = db.one("SELECT * FROM items WHERE type='Series'")
+    assert (row["year"], row["premiere_date"]) == (2019, None)
+    assert [p["Name"] for p in PeopleStore(db).for_item(row)] == ["A"]
+    touch(show / "tvshow.nfo", "<tvshow><title>Dark</title><premiered>2019-06-27</premiered></tvshow>")
+    scanner.scan_all()
+    row = db.one("SELECT * FROM items WHERE type='Series'")
+    assert row["premiere_date"] == "2019-06-27T00:00:00.0000000Z"
+    assert PeopleStore(db).for_item(row) == []

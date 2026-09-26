@@ -13,6 +13,7 @@ from __future__ import annotations
 import copy
 import json
 import logging
+import os
 import threading
 from dataclasses import fields
 from pathlib import Path
@@ -151,10 +152,20 @@ def apply_settings(config: Config, raw: dict) -> None:
 
 def _tasks(raw) -> List[StrmTask]:
     tasks = []
+    seen: List[Path] = []
     for t in raw or []:
         remote, local = str(t.get("remote") or "").strip(), str(t.get("local") or "").strip()
         if not (remote and local):
             raise SettingsError("115 目錄和本機資料夾都要填")
+        folder = Path(local).expanduser()
+        if not folder.is_absolute():
+            # 相對路徑會跟著服務的工作目錄跑，strm 會產生到（並從）不知道哪裡刪
+            raise SettingsError(f"本機資料夾要填完整路徑（例如 /volume1/media/電影）：{local}")
+        folder = Path(os.path.normpath(folder))
+        for other in seen:
+            if folder == other or folder in other.parents or other in folder.parents:
+                raise SettingsError(f"兩個任務的本機資料夾不能相同或互相包含：{other} 和 {folder}（刪除多餘 strm 時會互刪）")
+        seen.append(folder)
         tasks.append(StrmTask(remote=remote if remote.startswith("/") else "/" + remote, local=local))
     return tasks
 

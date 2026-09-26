@@ -37,6 +37,7 @@ import httpx
 
 from .config import Config, MoviePilotConfig
 from .db import Database
+from .filetypes import IMAGE_EXTS, LIBRARY_VIDEO_EXTS as VIDEO_EXTS
 from .textutil import cjk_count, pinyin_full, simplified
 from .http_util import GuardedClient
 
@@ -48,13 +49,8 @@ SUBSCRIBE_API = "/api/v1/subscribe/"
 SUBSCRIBE_SEARCH_API = "/api/v1/subscribe/search/{sid}"
 TMDB_EPISODES_API = "/api/v1/tmdb/{tmdbid}/{season}"
 MAX_CONCURRENCY = 8
-IMAGE_EXTS = (".jpg", ".jpeg", ".png", ".webp")
 # 送過卻沒有劇照的集（TMDB 沒有這集的圖），這段時間內手動刮削不再重送
 NO_IMAGE_RETRY_SECONDS = 30 * 86400
-VIDEO_EXTS = {
-    ".strm", ".mkv", ".mp4", ".m4v", ".avi", ".ts", ".m2ts", ".mov", ".wmv", ".flv",
-    ".webm", ".rmvb", ".mpg", ".mpeg", ".iso", ".3gp",
-}
 
 
 class MoviePilotError(Exception):

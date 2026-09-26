@@ -135,3 +135,17 @@ def test_config_file_created_when_missing(tmp_path: Path):
     cfg.server.data_dir = str(tmp_path / "data")
     create_app(cfg, scan_on_start=False)
     assert load_config(str(path)).server.data_dir == str(tmp_path / "data")
+
+
+def test_task_folders_must_be_absolute_and_disjoint():
+    import pytest
+
+    from embyserver.settings import SettingsError, _tasks
+
+    with pytest.raises(SettingsError, match="完整路徑"):
+        _tasks([{"remote": "/影視", "local": "media"}])
+    with pytest.raises(SettingsError, match="互相包含"):
+        _tasks([{"remote": "/影視", "local": "/media"}, {"remote": "/影視/劇集", "local": "/media/劇集/"}])
+    with pytest.raises(SettingsError, match="互相包含"):
+        _tasks([{"remote": "/a", "local": "/media"}, {"remote": "/b", "local": "/media"}])
+    assert len(_tasks([{"remote": "/a", "local": "/media/a"}, {"remote": "/b", "local": "/media/b"}])) == 2

@@ -15,18 +15,16 @@ from urllib.parse import unquote
 
 from .config import Config, LibraryConfig
 from .db import Database
+from .filetypes import IMAGE_EXTS, LIBRARY_VIDEO_EXTS
 from .mediainfo import MediaInfoStore
 from .people import PeopleStore, localize_genres, parse_people
 from .textutil import search_text, sort_key
 
 log = logging.getLogger(__name__)
 
-VIDEO_EXTS = {
-    ".strm", ".mkv", ".mp4", ".m4v", ".avi", ".ts", ".m2ts", ".mov", ".wmv",
-    ".flv", ".webm", ".rmvb", ".mpg", ".mpeg", ".iso", ".3gp",
-}
-IMAGE_EXTS = (".jpg", ".jpeg", ".png", ".webp")
+VIDEO_EXTS = LIBRARY_VIDEO_EXTS  # 影片檔和 strm
 
+DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}")
 YEAR_RE = re.compile(r"(?:^|[\s.\-_\[(（])((?:19|20)\d{2})(?:$|[\s.\-_\])）])")
 PAREN_YEAR_RE = re.compile(r"^(?P<title>.+?)\s*[(（\[](?P<year>(?:19|20)\d{2})[)）\]]")
 EPISODE_PATTERNS = [
@@ -207,11 +205,11 @@ def parse_nfo(path: Path) -> Dict:
     for tag in ("year",):
         if text(tag) and text(tag).isdigit():
             data["year"] = int(text(tag))
-    premiered = text("premiered") or text("aired") or text("releasedate")
-    if premiered:
+    premiered = text("premiered") or text("aired") or text("releasedate") or ""
+    if DATE_RE.match(premiered):
         data["premiere_date"] = premiered[:10] + "T00:00:00.0000000Z"
-        if "year" not in data and premiered[:4].isdigit():
-            data["year"] = int(premiered[:4])
+    if "year" not in data and premiered[:4].isdigit():
+        data["year"] = int(premiered[:4])  # 只填了年份（2019）或年月的 nfo
     rating = text("rating") or text("ratings/rating/value")
     if rating:
         try:
@@ -223,9 +221,7 @@ def parse_nfo(path: Path) -> Dict:
     genres = [g.text.strip() for g in root.findall("genre") if g.text]
     if genres:
         data["genres"] = genres
-    people = parse_people(root)
-    if people:
-        data["people"] = people
+    data["people"] = parse_people(root)  # 空清單也要寫：nfo 拿掉演員時資料庫跟著清
     runtime = text("runtime")
     if runtime and runtime.isdigit():
         data["runtime_ticks"] = int(runtime) * 60 * 10_000_000
@@ -270,11 +266,11 @@ class Scanner:
         self.media_info = MediaInfoStore(db)  # 影片旁邊的 X-mediainfo.json
         self.people = PeopleStore(db, config)  # nfo 裡的演職人員
         self._custom: Optional[Dict[Tuple[int, str], str]] = None
-        self._custom_lock = threading.Lock()
+        self._custom_lock = threading.RLock()
 
     # ---- 上傳的圖片 ----
     def _custom_images(self) -> Dict[Tuple[int, str], str]:
-        with self._custom_lock:
+        with self._custom_lock:  # RLock：save／remove 已經拿著鎖再進來也可以
             if self._custom is None:
                 self._custom = {}
                 if self.images_dir.is_dir():
@@ -298,12 +294,14 @@ class Scanner:
         tmp = path.with_name(path.name + ".tmp")
         tmp.write_bytes(data)
         os.replace(tmp, path)
-        self._custom_images()[(item_id, col)] = str(path)
+        with self._custom_lock:
+            self._custom_images()[(item_id, col)] = str(path)
         self.db.execute(f"UPDATE items SET {col}=? WHERE id=?", (str(path), item_id))
         return str(path)
 
     def remove_custom_image(self, item_id: int, col: str) -> bool:
-        path = self._custom_images().pop((item_id, col), None)
+        with self._custom_lock:
+            path = self._custom_images().pop((item_id, col), None)
         if path:
             Path(path).unlink(missing_ok=True)
         return bool(path)
@@ -330,7 +328,7 @@ class Scanner:
                 fields[key] = json.dumps(fields[key], ensure_ascii=False)
         fields["seen_scan"] = 1
         if fields.get("type") in ("Movie", "Series"):
-            # 中文片名按拼音排序，按字母跳轉才有效（集的排序名是季集號，不動）
+            # 排序名：nfo 的 sorttitle，沒有就用片名；中文轉拼音，按字母跳轉才有效（集的排序名是季集號，不動）
             fields["sort_name"] = sort_key(fields.get("sort_name") or fields.get("name"))
         if fields.get("name"):
             fields["search_text"] = search_text(fields.get("name"), fields.get("original_title"))
@@ -383,11 +381,13 @@ class Scanner:
         self.people.prune()
         self.db.execute("DELETE FROM intro_obs WHERE item_id NOT IN (SELECT id FROM items)")
         # 項目刪掉了，它上傳的圖片也刪掉，免得之後新項目用到同一個 id 時誤用
-        custom = self._custom_images()
+        with self._custom_lock:
+            custom = list(self._custom_images())
         if custom:
             ids = {r["id"] for r in self.db.query("SELECT id FROM items")}
-            for item_id, col in [k for k in custom if k[0] not in ids]:
-                self.remove_custom_image(item_id, col)
+            for item_id, col in custom:
+                if item_id not in ids:
+                    self.remove_custom_image(item_id, col)
 
     def scan_all(self) -> None:
         """掃描全部媒體庫。已經有一次在排隊時不重複排。"""
@@ -415,13 +415,13 @@ class Scanner:
         with self._lock:
             self._begin("、".join(sorted(wanted)) or "媒體庫")
             try:
-                lib_ids = [self._library_item(lib) for lib in self.config.libraries if lib.name in wanted]
+                lib_ids = {lib.name: self._library_item(lib) for lib in self.config.libraries if lib.name in wanted}
                 if lib_ids:
-                    self.expected = self._count(f"library_id IN ({','.join('?' * len(lib_ids))})", tuple(lib_ids))
+                    self.expected = self._count(f"library_id IN ({','.join('?' * len(lib_ids))})", tuple(lib_ids.values()))
                 for lib in self.config.libraries:
                     if lib.name not in wanted:
                         continue
-                    lib_id = self._library_item(lib)
+                    lib_id = lib_ids[lib.name]
                     self.db.execute("UPDATE items SET seen_scan=0 WHERE library_id=? AND id<>?", (lib_id, lib_id))
                     self._scan_library(lib)
                     removed = self._delete_unseen("library_id=?", (lib_id,))
@@ -589,7 +589,10 @@ class Scanner:
             folder = Path(dirpath)
             videos = sorted(f for f in filenames if Path(f).suffix.lower() in VIDEO_EXTS)
             for fname in videos:
-                self._add_movie(lib_id, folder / fname, single=len(videos) == 1 and folder != root)
+                try:
+                    self._add_movie(lib_id, folder / fname, single=len(videos) == 1 and folder != root)
+                except OSError as exc:
+                    log.warning("略過讀不到的檔案 %s：%s", folder / fname, exc)  # 壞掉的符號連結、沒權限、剛被同步刪掉
 
     def _add_movie(self, lib_id: int, path: Path, single: bool) -> None:
         stem = path.stem
@@ -619,7 +622,6 @@ class Scanner:
             "parent_id": lib_id,
             "type": "Movie",
             "name": name,
-            "sort_name": name.lower(),
             "year": year,
             "is_strm": int(path.suffix.lower() == ".strm"),
             "container": self._container_for(path),
@@ -631,10 +633,6 @@ class Scanner:
             "date_modified": _iso(st.st_mtime),
         }
         fields.update(nfo)
-        if "sort_name" in nfo:
-            fields["sort_name"] = nfo["sort_name"].lower()
-        elif "name" in nfo:
-            fields["sort_name"] = nfo["name"].lower()
         fields.pop("parent_index_number", None)
         fields.pop("index_number", None)
         self._runtime_from_media_info(path, fields)
@@ -665,13 +663,21 @@ class Scanner:
     # ---- 劇集 ----
     def _scan_shows(self, lib_id: int, root: Path, depth: int = 0) -> None:
         """媒體庫路徑底下的每個劇集資料夾各是一部劇；分類資料夾（國產劇、日番…）會往下找。"""
-        for entry in sorted(root.iterdir()):
-            if not entry.is_dir() or _skip_dir(entry.name):
-                continue
-            if looks_like_series(entry):
-                self._add_series(lib_id, entry)
-            elif depth < MAX_CATEGORY_DEPTH:
-                self._scan_shows(lib_id, entry, depth + 1)
+        try:
+            entries = sorted(root.iterdir())
+        except OSError as exc:
+            log.warning("略過讀不到的資料夾 %s：%s", root, exc)
+            return
+        for entry in entries:
+            try:
+                if not entry.is_dir() or _skip_dir(entry.name):
+                    continue
+                if looks_like_series(entry):
+                    self._add_series(lib_id, entry)
+                elif depth < MAX_CATEGORY_DEPTH:
+                    self._scan_shows(lib_id, entry, depth + 1)
+            except OSError as exc:
+                log.warning("略過讀不到的資料夾 %s：%s", entry, exc)
 
     def _add_series(self, lib_id: int, folder: Path) -> None:
         name, year = clean_title(folder.name)
@@ -685,7 +691,6 @@ class Scanner:
             "parent_id": lib_id,
             "type": "Series",
             "name": name,
-            "sort_name": name.lower(),
             "year": year,
             "primary_image": find_image(folder, ["poster", "folder", "cover"]),
             "backdrop_image": find_image(folder, ["fanart", "backdrop", "background"]),
@@ -694,8 +699,6 @@ class Scanner:
             "date_modified": _iso(st.st_mtime),
         }
         fields.update(nfo)
-        if "name" in nfo:
-            fields["sort_name"] = nfo.get("sort_name", nfo["name"]).lower()
         series_id = self._upsert(str(folder), fields)
 
         episodes: List[Tuple[Path, Optional[int]]] = []
@@ -720,7 +723,11 @@ class Scanner:
             season_id = seasons[season_no]
             ep_no = ep_nfo.get("index_number", e)
             ep_name = ep_nfo.get("name") or (f"第 {ep_no} 集" if ep_no is not None else path.stem)
-            st = path.stat()
+            try:
+                st = path.stat()
+            except OSError as exc:
+                log.warning("略過讀不到的檔案 %s：%s", path, exc)
+                continue
             efields = {
                 "library_id": lib_id,
                 "parent_id": season_id,

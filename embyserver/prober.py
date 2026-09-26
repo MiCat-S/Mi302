@@ -30,7 +30,8 @@ from .db import Database
 from .mediainfo import MediaInfoStore, build_sidecar, parse_sidecar, sidecar_path, write_sidecar
 from .p115 import PLAIN_UA, P115Error, P115Service, P115Throttled, extract_pickcode
 from .redirect import apply_path_rules
-from .scanner import VIDEO_EXTS, read_strm
+from .filetypes import LIBRARY_VIDEO_EXTS
+from .scanner import read_strm
 
 log = logging.getLogger(__name__)
 
@@ -116,7 +117,7 @@ class MediaProber:
 
     def _needs(self, path: Path) -> bool:
         return (
-            path.suffix.lower() in VIDEO_EXTS | {".strm"}
+            path.suffix.lower() in LIBRARY_VIDEO_EXTS
             and not sidecar_path(path).exists()
             and self.store.get(str(path)) is None
         )
@@ -125,7 +126,7 @@ class MediaProber:
         """媒體庫裡還沒有媒體資訊的影片（strm 和本機影片），新的先做。"""
         have = {r["path"] for r in self.db.query("SELECT path FROM media_info")}
         found: List[Tuple[float, str]] = []
-        exts = VIDEO_EXTS | {".strm"}
+        exts = LIBRARY_VIDEO_EXTS
         for lib in self.config.libraries:
             for root in lib.paths:
                 for dirpath, _, filenames in os.walk(Path(root).expanduser()):

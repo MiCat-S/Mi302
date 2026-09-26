@@ -36,6 +36,7 @@ import httpx
 
 from .config import P115StrmConfig, StrmTask
 from .db import Database
+from .filetypes import LIBRARY_VIDEO_EXTS, METADATA_EXTS, VIDEO_EXTS
 from .mediainfo import SIDECAR_SUFFIX as MEDIAINFO_SUFFIX
 from .mediainfo import sidecar_path as mediainfo_sidecar
 from .p115 import (
@@ -45,11 +46,6 @@ from .p115 import (
 
 log = logging.getLogger(__name__)
 
-VIDEO_EXTS = {
-    ".mkv", ".mp4", ".m4v", ".avi", ".ts", ".m2ts", ".mov", ".wmv", ".flv",
-    ".webm", ".rmvb", ".mpg", ".mpeg", ".iso", ".3gp",
-}
-METADATA_EXTS = {".nfo", ".jpg", ".jpeg", ".png", ".webp", ".srt", ".ass", ".ssa", ".sup", ".vtt"}
 
 # 自動偵測到的伺服器位址、各任務的同步進度，存在資料庫 meta
 SERVER_URL_META_KEY = "server_url"
@@ -149,8 +145,15 @@ def _sidecars(folder: Path, stem: str) -> List[Path]:
 
 
 def _has_video(folder: Path) -> bool:
-    exts = VIDEO_EXTS | {".strm"}
-    return any(p.suffix.lower() in exts for p in folder.rglob("*") if p.is_file())
+    return any(p.suffix.lower() in LIBRARY_VIDEO_EXTS for p in folder.rglob("*") if p.is_file())
+
+
+def _same_file(a: Path, b: Path) -> bool:
+    """兩個路徑是不是磁碟上同一個檔案（大小寫不分的檔案系統上，只差大小寫的名字就是）。"""
+    try:
+        return os.path.samefile(a, b)
+    except OSError:
+        return False
 
 
 class _TaskIndex:
@@ -169,9 +172,6 @@ class _TaskIndex:
             "ON CONFLICT(task, file_id) DO UPDATE SET is_dir=excluded.is_dir, path=excluded.path",
             (self.key, file_id, int(is_dir), path),
         )
-
-    def delete(self, file_id: int) -> None:
-        self.db.execute("DELETE FROM p115_index WHERE task=? AND file_id=?", (self.key, file_id))
 
     def dirs(self) -> Dict[int, str]:
         return {
@@ -290,6 +290,9 @@ class _Ctx:
         self.root = _remote_root(task)
         self.local = Path(task.local).expanduser()
         self.index = _TaskIndex(db, _task_key(task))
+        # 刪除、搬走後可能空掉的資料夾；等這一輪事件全處理完再清，
+        # 「先刪舊集再上傳新集」中間那一刻資料夾沒有影片，不能就把 nfo、海報清掉
+        self.to_prune: Set[Path] = set()
 
 
 class StrmSync:
@@ -530,11 +533,14 @@ class StrmSync:
             known = index.files()
             rows += [(known[p], p, False) for p in keep if p in known]
         if self.cfg.delete_stale:
-            if complete:
-                self._remove_stale(local, produced | {str(local / p) for p in keep})
-            else:
+            if not complete:
                 # 有檔案不知道放哪，當成不存在會誤刪
                 self.result.notes.append(f"{remote}：有資料夾查不到路徑，這次不刪除本機多出來的 strm")
+            elif not produced and not keep and _has_video(local):
+                # 多半是 115 目錄填錯（另一個空資料夾）或 115 沒回完整，不能把整個媒體庫清掉
+                self.result.notes.append(f"{remote}：115 上一支影片都沒列出來，這次不刪除本機的 strm")
+            else:
+                self._remove_stale(local, produced | {str(local / p) for p in keep})
         index.replace_all(rows)
         self._save_state(
             task, since=newest or int(time.time()), full_at=int(time.time()), indexed=True,
@@ -671,6 +677,8 @@ class StrmSync:
             if life[0]:
                 self._save_state(task, life_id=life[0], life_time=life[1])
         self._scan_recent(ctx, state)
+        for folder in sorted(ctx.to_prune, key=lambda f: len(f.parts), reverse=True):
+            self._prune(ctx, folder)
 
     # ---------------- 增量：生活事件 ----------------
 
@@ -792,7 +800,8 @@ class StrmSync:
         if target is None:
             return None
         if target.suffix == ".strm":
-            self._write_strm(local / target, info)
+            if not self._write_strm(local / target, info):
+                return None
         else:
             self._download(local / target, info)
         return local / target
@@ -815,15 +824,19 @@ class StrmSync:
             return
         dst.parent.mkdir(parents=True, exist_ok=True)
         if src.suffix.lower() == ".strm":
-            for f in _sidecars(src.parent, src.stem):
-                moved = dst.parent / (dst.stem + f.name[len(src.stem):])
-                if not moved.exists():
-                    shutil.move(str(f), str(moved))
+            self._move_sidecars(src, dst)
         shutil.move(str(src), str(dst))
         self.result.moved += 1
         self.result.changed += [str(src), str(dst)]
         log.info("115 上移動或改名，本機跟著搬：%s -> %s", old, new)
-        self._prune(ctx, src.parent)
+        ctx.to_prune.add(src.parent)
+
+    def _move_sidecars(self, src: Path, dst: Path) -> None:
+        """strm 改名或搬家時，X.nfo、X-poster.jpg 這些跟著改成新名字（已有同名檔的不動）。"""
+        for f in _sidecars(src.parent, src.stem):
+            moved = dst.parent / (dst.stem + f.name[len(src.stem):])
+            if not moved.exists():
+                shutil.move(str(f), str(moved))
 
     def _move_dir(self, ctx: _Ctx, old: str, new: str) -> None:
         src, dst = ctx.local / old, ctx.local / new
@@ -836,7 +849,7 @@ class StrmSync:
             self.result.moved += 1
             self.result.changed += [str(src), str(dst)]
             log.info("115 上移動或改名資料夾，本機跟著搬：%s -> %s", old, new)
-            self._prune(ctx, src.parent)
+            ctx.to_prune.add(src.parent)
         ctx.index.move_tree(old, new)
 
     def _merge_dir(self, src: Path, dst: Path) -> None:
@@ -881,10 +894,13 @@ class StrmSync:
             ctx.index.delete_tree(rel)
         self.result.changed.append(str(path))
         log.info("115 上已刪除或移走，本機跟著刪：%s", rel)
-        self._prune(ctx, path.parent)
+        ctx.to_prune.add(path.parent)
 
     def _prune(self, ctx: _Ctx, folder: Path) -> None:
-        """由下往上清掉空資料夾；開了 delete_stale 時，已經沒有影片的資料夾裡的中繼資料也一起刪。"""
+        """由下往上清掉空資料夾；開了 delete_stale 時，已經沒有影片的資料夾裡的中繼資料也一起刪。
+
+        只在一輪事件全部處理完後呼叫（ctx.to_prune），不會在「刪舊集、上傳新集」中間誤清。
+        """
         while folder != ctx.local and ctx.local in folder.parents:
             if folder.is_dir():
                 if self.cfg.delete_stale and not _has_video(folder):
@@ -904,22 +920,24 @@ class StrmSync:
                     return  # 還有東西，上層也不會是空的
             folder = folder.parent
 
-    def _write_strm(self, target: Path, info: dict) -> None:
+    def _write_strm(self, target: Path, info: dict) -> bool:
+        """寫 strm；內容沒變就不動。回傳有沒有處理（115 沒給 pickcode 時略過）。"""
         if not info["pickcode"]:
             self.result.errors.append(f"{target.name}: 沒有 pickcode")
             log.warning("115 沒有回傳 pickcode，略過：%s", target)
-            return
+            return False
         content = strm_content(self.cfg, info["pickcode"].lower(), info["name"], self.base_url)
         existed = target.is_file()
-        old = ""
-        try:
-            old = target.read_text(encoding="utf-8").strip() if existed else ""
-            if existed and old == content:
+        old: Optional[str] = None
+        if existed:
+            try:
+                old = target.read_text(encoding="utf-8").strip()
+            except OSError:
+                pass  # 讀不到就重寫；不知道舊內容，媒體資訊先留著
+            if old == content:
                 self.result.strm_unchanged += 1
-                return
-        except OSError:
-            pass
-        if existed and extract_pickcode(old) != info["pickcode"].lower():
+                return True
+        if old is not None and extract_pickcode(old) != info["pickcode"].lower():
             self._forget_media_info(target)
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(content, encoding="utf-8")
@@ -927,6 +945,7 @@ class StrmSync:
         self.result.changed.append(str(target))
         if not existed:
             self.result.new_files.append(str(target))
+        return True
 
     def _forget_media_info(self, target: Path) -> None:
         """115 上的檔案被換掉了（pickcode 變了）：舊的媒體資訊是另一個檔案的，刪掉等重新探測。
@@ -967,15 +986,22 @@ class StrmSync:
         只刪掉與被刪 strm 同名的檔案（例如 X.nfo、X-poster.jpg、X.zh.srt），
         以及底下已經沒有任何影片的資料夾裡的中繼資料。其他副檔名的檔案一律不動。
         """
+        by_lower = {p.lower(): p for p in produced}
         gone_stems: Dict[Path, List[str]] = {}
         for dirpath, _, filenames in os.walk(local):
             for name in filenames:
                 path = Path(dirpath) / name
-                if path.suffix.lower() == ".strm" and str(path) not in produced:
-                    path.unlink(missing_ok=True)
-                    self.result.removed += 1
-                    self.result.changed.append(str(path))
-                    gone_stems.setdefault(path.parent, []).append(path.stem)
+                if path.suffix.lower() != ".strm" or str(path) in produced:
+                    continue
+                twin = by_lower.get(str(path).lower())
+                if twin and _same_file(path, Path(twin)):
+                    continue  # 115 上只改了大小寫；macOS 這類大小寫不分的磁碟上還是同一個檔案
+                if twin:
+                    self._move_sidecars(path, Path(twin))  # 大小寫有分的磁碟：新舊是兩個檔，刮削資料跟著新名字
+                path.unlink(missing_ok=True)
+                self.result.removed += 1
+                self.result.changed.append(str(path))
+                gone_stems.setdefault(path.parent, []).append(path.stem)
         for folder, stems in gone_stems.items():
             for stem in stems:
                 for f in _sidecars(folder, stem):

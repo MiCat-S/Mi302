@@ -215,10 +215,16 @@ def test_delete_stale_keeps_moviepilot_metadata(tmp_path: Path):
     assert (media / "劇集" / "Dark" / "Dark.S01E01.nfo").exists()
     assert r.removed == 3
 
-    # 整部劇被刪：資料夾裡的中繼資料一起清掉，空資料夾移除
-    fake.files = []
+    # 整部劇被刪（115 上還有別的影片）：資料夾裡的中繼資料一起清掉，空資料夾移除
+    fake.files = [{"fid": 9, "cid": 101, "n": "Other (2003).mkv", "pc": "z" * 17, "s": 900_000_000, "te": T0}]
     sync.run()
     assert not (media / "劇集" / "Dark").exists()
+
+    # 115 上一支影片都沒列出來：多半是目錄填錯或 115 沒回完整，不能把本機清空
+    fake.files = []
+    r = sync.run()
+    assert (media / "電影" / "Other (2003).strm").exists() and r.removed == 0
+    assert any("一支影片都沒列出來" in n for n in r.notes)
 
 
 def test_account_info():
@@ -399,3 +405,34 @@ def test_life_event_keeps_long_ids_exact():
     ev = _life_event({"id": "3006728302924193796", "file_id": "3006728302924193797", "parent_id": "2593093001609739968"})
     # 115 的 id 有 19 位數，不能先轉成浮點數
     assert (ev["id"], ev["file_id"], ev["parent_id"]) == (3006728302924193796, 3006728302924193797, 2593093001609739968)
+
+
+def test_case_only_rename_keeps_scraped_metadata(tmp_path: Path):
+    """115 上把 Old Movie 改成 old movie：本機 strm 和刮削資料都要留下（macOS 磁碟大小寫不分，是同一個檔）。"""
+    fake = Fake115()
+    sync = make(tmp_path, fake, delete_stale=True)
+    sync.run(FULL)
+    folder = tmp_path / "media" / "電影"
+    (folder / "Old Movie (2001).nfo").write_text("<movie/>")
+    fake.file(1)["n"] = "old movie (2001).mkv"
+    r = sync.run(FULL)
+    assert not r.errors
+    assert [p.name.lower() for p in folder.glob("*.strm")] == ["old movie (2001).strm"]
+    nfos = list(folder.glob("*.nfo"))
+    assert len(nfos) == 1 and nfos[0].read_text() == "<movie/>"  # 大小寫有分的磁碟上會跟著改名，內容不變
+
+
+def test_replace_episode_keeps_show_metadata(tmp_path: Path):
+    """先刪舊集、再上傳新集：中間那一刻資料夾沒有影片，不能把 tvshow.nfo、海報清掉。"""
+    fake, sync, media = life_sync(tmp_path)
+    show = media / "劇集" / "Dark"
+    (show / "tvshow.nfo").write_text("<tvshow/>")
+    (show / "poster.jpg").write_bytes(b"jpg")
+    fake.files = [f for f in fake.files if f["fid"] != 2]
+    fake.event(22, 2)
+    fake.files.append({"fid": 9, "cid": 103, "n": "Dark.S01E01.v2.mkv", "pc": "v" * 17, "s": 900_000_000, "te": T0 - 99999})
+    fake.event(2, 9)
+    r = sync.run(INCREMENTAL)
+    assert not r.errors and r.events == 2
+    assert not (show / "Dark.S01E01.strm").exists() and (show / "Dark.S01E01.v2.strm").exists()
+    assert (show / "tvshow.nfo").exists() and (show / "poster.jpg").exists()
