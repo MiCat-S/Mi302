@@ -7,7 +7,7 @@
 ## 接手須知
 
 - 直接在 main 上提交，提交訊息用繁體中文，結尾加 `Co-Authored-By` 那一行；做完就推送，不用等使用者說。
-- 每一批修改都要有回歸測試；目前 `pytest -q` 是 164 個全過。
+- 每一批修改都要有回歸測試；目前 `pytest -q` 是 168 個全過。
 - 動到 `embyserver/web/admin.html` 時，把 `<script>` 抽出來跑 `node --check`。
 - 不要加回任何 Docker 相關檔案或說明（已經整個移除；install.sh 裡的 docker 字樣只是拒絕舊參數和搬遷舊安裝用的）。
 - 使用者用 MoviePilot V3（看 V3 分支的原始碼），播放器是 SenPlayer。
@@ -22,6 +22,8 @@
 | eb88e94 | 115：錯誤回應帶空 data 不再當成空清單（開了 delete_stale 會把本機 strm 全刪）；JSON 限流、CDN 405 也停手不改逐層列目錄；cookie 有非 ASCII 字元直接拒絕；開放平台二維碼過期、目錄不存在；自己的 strm 取不到直鏈直接 502；任務 API 送錯格式回 400 |
 | 5a612d5 | 同步與掃描：只改大小寫不誤刪；「刪舊集再上傳新集」不清刮削資料；115 一支都沒列出時不刪；壞掉的檔案不中斷掃描；nfo 只寫年份不產生假日期；拿掉演員時跟著清；任務資料夾要絕對路徑、不能互相包含；副檔名集中到 filetypes.py |
 | 9312bf1 | API 層第一批：API 金鑰不能進 /web/api、/p115；路徑只轉英文小寫（/Persons/Émilie）；500 訊息遮 token；關閉時停同步和探測執行緒；設定檔不認得的鍵只警告；設定依宣告型別轉換（0.5 不再變 0）；探測狀態不再搶 deque 而 500；探測執行緒不會因意外錯誤死掉 |
+| 18764a8 | 雲端工作階段啟動時用 `.claude/hooks/session-start.sh` 自動安裝依賴 |
+| 6f8fe17 | 背景服務：從片尾直接跳到結尾學得到片尾；備份路徑跳脫（資料夾名稱有 # 或 ? 時不再開到空資料庫），空備份不保存；中文名只查數字 id，MoviePilot 對單一 id 回 400／422 記成查過沒有，不再整批卡住；MoviePilotError 帶 HTTP 狀態碼 |
 
 ## 待辦
 
@@ -45,14 +47,11 @@
 
 ### 二、背景服務（intro、backup、people、moviepilot、prober）
 
-1. **片頭片尾：「從片尾直接跳到結尾」永遠學不到。** `intro.py` 的 `report`：外層 if 要求跳之前的位置在 8 分鐘內，裡面的 elif 又要求在片長 75% 以後，只有 10 分鐘內的短片同時成立。把「8 分鐘內」移進片頭那個 if。補測試：40 分鐘的集從 30:24 跳到 39:55 要記下片尾。
-2. **備份可能是空的，還會把舊的好備份刪掉。** `backup.py` 的 `run` 用 `f"file:{path}?mode=ro"` 沒跳脫；資料夾名稱有 `#`、`?`（例如 NAS 的 Disk#2）時會開到另一個空資料庫。改用 `Path(...).resolve().as_uri() + "?mode=ro"`，並在 `os.replace` 前檢查備份裡有 meta、users 表。
-3. **中文名查詢卡在同一個人。** `people.py` 的 `PersonNames.run`：MoviePilot 查某個人回 4xx（例如 nfo 的 tmdbid 是 `nm0000123`）就當成 MoviePilot 掛了、整批停下，這個人又沒記成「查過」，下次同一批卡在同一處。`pending()` 過濾非數字的 tmdbid；`_from_moviepilot` 分辨連線錯誤（停下）和單一 id 的 4xx（記成查過沒有）。Wikidata 一批全是非數字 id 時 VALUES 是空的，SPARQL 回 400。
-4. **JWT 過期時一起重登。** `moviepilot.py` 的 `_request`：最多 8 條刮削執行緒同時拿到 401、同時重新登入。加鎖，「token 還是舊的才重登」。
-5. **MoviePilot 連不上時網頁卡住。** `moviepilot.py` 的 `_request` 沒接 httpx 錯誤，網址填錯時「測試連線」回 500；搭配 admin.html 的 `testMP` 沒有 try/catch，網頁一直顯示「測試中…」。兩邊都要改。
-6. **已快取的直鏈也占探測名額。** `prober.py` 的 `_source` 在取直鏈前就 `_wait_turn()`，剛播過（直鏈在快取裡）的也占掉間隔和每小時名額。先查快取，沒命中才排隊。
-7. **TMDB 沒這一季時的誤導訊息。** `moviepilot.py` 的 `tmdb_episodes` 遇到 404 時日誌說「MoviePilot 沒有這個 API，請升級」。404 另外處理成「TMDB 沒有第 N 季」。
-8. **可讀性。**
+1. **JWT 過期時一起重登。** `moviepilot.py` 的 `_request`：最多 8 條刮削執行緒同時拿到 401、同時重新登入。加鎖，「token 還是舊的才重登」。
+2. **MoviePilot 連不上時網頁卡住。** `moviepilot.py` 的 `_request` 沒接 httpx 錯誤，網址填錯時「測試連線」回 500；搭配 admin.html 的 `testMP` 沒有 try/catch，網頁一直顯示「測試中…」。兩邊都要改。
+3. **已快取的直鏈也占探測名額。** `prober.py` 的 `_source` 在取直鏈前就 `_wait_turn()`，剛播過（直鏈在快取裡）的也占掉間隔和每小時名額。先查快取，沒命中才排隊。
+4. **TMDB 沒這一季時的誤導訊息。** `moviepilot.py` 的 `tmdb_episodes` 遇到 404 時日誌說「MoviePilot 沒有這個 API，請升級」。404 另外處理成「TMDB 沒有第 N 季」。
+5. **可讀性。**
    - `moviepilot.py`：登入迴圈最後的 `raise MoviePilotError("MoviePilot 登入失敗")` 走不到；`library_series` 先 ORDER BY sort_name 又用 `name.lower()` 重排，中文變成按字碼排，應該用 sort_name；`ScrapeResult.errors` 沒上限；`mp_no_image` 從不清；`_fill_season` 對 `info["first"]` 硬取。
    - `intro.status` 在 SQL 裡算了沒用到的 first_at、intros、credits。
    - `people.py` 和 `intro.py` 各有一個相同的 `one = lambda`，應放到 `Database.scalar()`。
@@ -99,11 +98,10 @@
 
 ## 建議順序
 
-1. 背景服務第 1–3 項（片頭片尾學不到片尾、備份可能是空的、中文名卡住），都是使用者看得到的錯。
-2. API 層第 1–5 項（安全性和續播點）。
-3. 管理網頁第 1–5 項，和背景服務第 5 項一起做（MoviePilot 測試連線）。
-4. 115 第 1 項。
-5. 其餘可讀性項目。
+1. API 層第 1–5 項（安全性和續播點）。
+2. 管理網頁第 1–5 項，和背景服務第 2 項一起做（MoviePilot 測試連線）。
+3. 115 第 1 項。
+4. 其餘可讀性項目。
 
 ## 還沒實機驗證的
 
