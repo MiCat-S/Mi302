@@ -20,7 +20,7 @@ from ..moviepilot import library_series
 from ..p115 import P115Error
 from ..p115_open import P115OpenError
 from ..settings import SettingsError
-from .common import q, state
+from .common import q, q_int, state
 
 router = APIRouter()
 
@@ -303,11 +303,13 @@ def moviepilot_scrape(request: Request, ctx: AuthContext = Depends(require_admin
 
 @router.get("/web/api/series")
 def list_series(request: Request, ctx: AuthContext = Depends(require_admin)):
-    """媒體庫裡的劇和每一季的集數、集號空洞；q 搜尋劇名，gaps=1 只列有空洞的。"""
+    """媒體庫裡的劇和每一季的集數、集號空洞；q 搜尋劇名，gaps=1 只列有空洞的，offset、limit 分頁。"""
+    offset = max(q_int(request, "offset", 0) or 0, 0)
+    limit = min(max(q_int(request, "limit", 20) or 20, 1), 200)
     items, total = library_series(
-        state(request).db, q(request, "q") or "", q(request, "gaps") in ("1", "true"), limit=200
+        state(request).db, q(request, "q") or "", q(request, "gaps") in ("1", "true"), limit=limit, offset=offset
     )
-    return {"items": items, "total": total, "truncated": total > len(items)}
+    return {"items": items, "total": total, "offset": offset, "more": offset + len(items) < total}
 
 
 @router.post("/web/api/moviepilot/fill")

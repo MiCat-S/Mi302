@@ -105,6 +105,10 @@ main{min-width:0;padding:28px 32px 80px}
 .list>.li:first-child{border-top:0;padding-top:0}.list>.li:last-child{padding-bottom:0}
 .li .main{flex:1;min-width:0}.li .main b{word-break:break-all}
 .li .sub{color:var(--muted);font-size:13px;word-break:break-all}
+.li.top{align-items:flex-start}.li.top>.btn{margin-top:2px}
+/* 補全缺集：一季一行，缺集只列數量和壓縮後的區間 */
+.ss{display:flex;flex-wrap:wrap;gap:4px 8px;align-items:center;font-size:13px;color:var(--muted);margin-top:4px}
+.ss .sn{font-weight:600;color:var(--fg);font-variant-numeric:tabular-nums}.ss .eps{word-break:break-all}
 .avatar{width:40px;height:40px;border-radius:50%;background:var(--accent-soft);color:var(--accent);display:grid;place-items:center;font-weight:650;flex:none;overflow:hidden}
 .avatar img{width:100%;height:100%;object-fit:cover}
 .avatar.lg{width:56px;height:56px;font-size:20px}
@@ -1068,22 +1072,38 @@ async function pollMP() {
 // ---- 補全缺集 ----
 let seriesQT = null;
 const ep2 = n => String(n).padStart(2, '0');
-async function loadSeries() {
+// 連號的集壓成範圍：E27–E61、E86–E94…，最多列 6 段
+function epRanges(nums) {
+  const runs = [];
+  for (const n of nums) { const last = runs[runs.length - 1]; if (last && n === last[1] + 1) last[1] = n; else runs.push([n, n]); }
+  return runs.slice(0, 6).map(([a, b]) => a === b ? 'E' + ep2(a) : `E${ep2(a)}–E${ep2(b)}`).join('、') + (runs.length > 6 ? '…' : '');
+}
+const SERIES_PAGE = 20;
+async function loadSeries(more) {
+  // 一次 20 部；more = 接在後面再拿 20 部，搜尋或換篩選時從頭來
   const box = $('series');
+  const offset = more ? box.querySelectorAll('.li').length : 0;
   let r;
-  try { r = await api(`/web/api/series?q=${encodeURIComponent($('seriesQ').value)}&gaps=${$('seriesGaps').checked ? 1 : 0}`); }
+  try { r = await api(`/web/api/series?q=${encodeURIComponent($('seriesQ').value)}&gaps=${$('seriesGaps').checked ? 1 : 0}&offset=${offset}&limit=${SERIES_PAGE}`); }
   catch (e) { box.innerHTML = `<p class="notice bad">${esc(e.message)}</p>`; return; }
-  box.innerHTML = r.items.length ? '' : `<p class="hint">${r.total || $('seriesQ').value || $('seriesGaps').checked ? '沒有符合的劇' : '媒體庫裡還沒有劇集'}</p>`;
+  if (!more) box.innerHTML = '';
+  box.querySelector('.js-more')?.remove();
+  if (!r.items.length && !offset) { box.innerHTML = `<p class="hint">${$('seriesQ').value || $('seriesGaps').checked ? '沒有符合的劇' : '媒體庫裡還沒有劇集'}</p>`; return; }
   for (const s of r.items) {
-    const row = document.createElement('div'); row.className = 'li';
-    const seasons = s.seasons.map(x => `S${ep2(x.season)} ${x.count} 集` +
-      (x.gaps.length ? ` <span class="pill warn">缺 ${x.gaps.map(e => 'E' + ep2(e)).join('、')}</span>` : '')).join('　') || '沒有集';
-    row.innerHTML = `<div class="main"><b>${esc(s.name)}</b>${s.year ? ` <span class="hint">${s.year}</span>` : ''}${s.library ? ` <span class="pill">${esc(s.library)}</span>` : ''}${s.tmdbid ? '' : ' <span class="pill">沒有 tmdbid，要先刮削</span>'}
-      <div class="sub">${seasons}</div></div><button class="btn sm"${s.tmdbid ? '' : ' disabled'}>補全</button>`;
+    const row = document.createElement('div'); row.className = 'li top';
+    // 齊全的季合成一行；有空洞的季各一行，只列缺幾集和壓縮後的區間，完整清單放在 title
+    const complete = s.seasons.filter(x => !x.gaps.length).map(x => `S${ep2(x.season)} ${x.count} 集`).join('・');
+    const gapped = s.seasons.filter(x => x.gaps.length).map(x =>
+      `<div class="ss"><span class="sn">S${ep2(x.season)}</span><span>${x.count} 集</span><span class="pill warn">缺 ${x.gaps.length} 集</span>` +
+      `<span class="eps" title="${esc(x.gaps.map(e => 'E' + ep2(e)).join('、').slice(0, 600))}">${esc(epRanges(x.gaps))}</span></div>`).join('');
+    row.innerHTML = `<div class="main"><div class="row wrap"><b>${esc(s.name)}</b>${s.year ? `<span class="hint">${s.year}</span>` : ''}${s.library ? `<span class="pill">${esc(s.library)}</span>` : ''}${s.tmdbid ? '' : '<span class="pill">沒有 tmdbid，要先刮削</span>'}</div>
+      ${complete ? `<div class="sub" style="margin-top:2px">${complete}</div>` : ''}${gapped}${s.seasons.length ? '' : '<div class="sub">沒有集</div>'}</div>
+      <button class="btn sm"${s.tmdbid ? '' : ' disabled'}>補全</button>`;
     row.querySelector('button').onclick = () => fillSeries([s.id], '「' + s.name + '」');
     box.appendChild(row);
   }
-  if (r.truncated) box.insertAdjacentHTML('beforeend', `<p class="hint" style="padding-top:10px">只列出前 ${r.items.length} 部（共 ${r.total} 部），搜尋可以縮小範圍。</p>`);
+  const shown = box.querySelectorAll('.li').length;
+  if (r.more) box.insertAdjacentHTML('beforeend', `<div class="js-more row" style="padding-top:12px"><span class="hint grow">顯示 ${shown} / ${r.total} 部，搜尋可以縮小範圍</span><button class="btn sm" onclick="loadSeries(true)">再顯示 ${Math.min(SERIES_PAGE, r.total - shown)} 部</button></div>`);
 }
 async function fillSeries(ids, label) {
   let r;

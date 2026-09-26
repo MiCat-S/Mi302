@@ -37,6 +37,7 @@ def test_library_series_lists_gaps(tmp_path: Path):
     assert [s["name"] for s in library_series(db, query="2020")[0]] == ["Show A"]  # 年份也搜得到
     assert [s["name"] for s in library_series(db, gaps_only=True)[0]] == ["Show A"]
     assert library_series(db, limit=1) == ([a], 2)
+    assert library_series(db, limit=1, offset=1) == ([b], 2)
 
 
 def test_fill_subscribes_each_season_with_login(tmp_path: Path):
@@ -88,7 +89,10 @@ def test_fill_endpoints(tmp_path: Path):
     token = c.post("/Users/AuthenticateByName", json={"Username": "admin", "Pw": "pw"}).json()["AccessToken"]
     h = {"X-Emby-Token": token}
     r = c.get("/web/api/series", params={"q": "show a"}, headers=h).json()
-    assert r["total"] == 1 and not r["truncated"] and r["items"][0]["seasons"][0]["gaps"] == [3]
+    assert r["total"] == 1 and not r["more"] and r["items"][0]["seasons"][0]["gaps"] == [3]
+    page = c.get("/web/api/series", params={"limit": 1}, headers=h).json()
+    assert (len(page["items"]), page["total"], page["more"]) == (1, 2, True)
+    assert c.get("/web/api/series", params={"limit": 1, "offset": 1}, headers=h).json()["more"] is False
     assert c.get("/web/api/series", params={"gaps": "1"}, headers=h).json()["total"] == 1
 
     calls = []
