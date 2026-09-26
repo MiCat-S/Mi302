@@ -10,3 +10,4 @@ config.yaml.bak
 /config/
 /local-changes-*.patch
 mi302.pid
+*.egg-info/
