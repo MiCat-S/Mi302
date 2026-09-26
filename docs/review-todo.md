@@ -7,7 +7,7 @@
 ## 接手須知
 
 - 直接在 main 上提交，提交訊息用繁體中文，結尾加 `Co-Authored-By` 那一行；做完就推送，不用等使用者說。
-- 每一批修改都要有回歸測試；目前 `pytest -q` 是 174 個全過。
+- 每一批修改都要有回歸測試；目前 `pytest -q` 是 175 個全過。
 - 動到 `embyserver/web/admin.html` 時，把 `<script>` 抽出來跑 `node --check`。
 - 不要加回任何 Docker 相關檔案或說明（已經整個移除；install.sh 裡的 docker 字樣只是拒絕舊參數和搬遷舊安裝用的）。
 - 使用者用 MoviePilot V3（看 V3 分支的原始碼），播放器是 SenPlayer。
