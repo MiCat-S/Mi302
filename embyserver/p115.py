@@ -510,7 +510,11 @@ class P115Service:
             raise P115Error(f"115 沒有接受導出目錄樹：{data.get('error') or data}")
         deadline = time.time() + timeout
         while True:
-            result = self._webapi_get("/files/export_dir", {"export_id": export_id}).get("data")
+            status = self._webapi_get("/files/export_dir", {"export_id": export_id})
+            if not status.get("state", True):
+                # 任務失敗或被取消：不能一直等到超時
+                raise P115Error(f"115 導出目錄樹失敗：{status.get('error') or status.get('errNo') or status}")
+            result = status.get("data")
             if isinstance(result, dict) and result.get("pick_code"):
                 break
             if time.time() >= deadline:
@@ -526,7 +530,14 @@ class P115Service:
             self._delete_export(result)
         nodes = parse_export_tree(content)
         log.info("115 導出目錄樹：%s 有 %s 個項目", remote, len(nodes))
-        return tree_relative(nodes, remote)
+        try:
+            if not nodes:
+                raise P115Error("看不懂 115 導出的目錄樹：沒有解析到任何項目")
+            return tree_relative(nodes, remote)
+        except P115Error:
+            # 格式跟預期不同時，留下開頭幾行方便對照
+            log.warning("115 導出目錄樹的開頭：%r", _decode_tree(content)[:300])
+            raise
 
     def _delete_export(self, result: dict) -> None:
         try:

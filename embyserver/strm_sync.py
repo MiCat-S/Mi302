@@ -5,8 +5,8 @@
   1. 用 115 的「導出目錄樹」一次拿到所有資料夾的路徑（只有名稱）；
   2. 一次列出任務目錄底下所有檔案（有 pickcode、大小、所在資料夾 id，每頁 1150 個）；
   3. 用資料夾裡的檔名對出「資料夾 id → 路徑」，對不上的少數資料夾再個別查詢。
-  不必逐層列出每個資料夾，資料夾多時快很多。導出失敗（例如只用開放平台登入、115 正在跑
-  別的導出任務）時改回逐層列目錄。
+  不必逐層列出每個資料夾，資料夾多時快很多。導出、列檔案或查路徑失敗（例如只用開放平台登入、
+  115 正在跑別的導出任務）時改回逐層列目錄；目錄樹裡有、115 卻沒列出來的影片不當成已刪除。
   同時記下每個 115 檔案、資料夾對應到哪個本機路徑（資料表 p115_index），給增量同步用。
 - 增量：
   1. 讀 115 生活事件（網盤的操作紀錄）：上傳、接收、複製、移動、改名、刪除。
@@ -167,6 +167,13 @@ class _TaskIndex:
         return {
             r["file_id"]: r["path"]
             for r in self.db.query("SELECT file_id, path FROM p115_index WHERE task=? AND is_dir=1", (self.key,))
+        }
+
+    def files(self) -> Dict[str, int]:
+        """檔案的本機相對路徑 → 115 檔案 id。"""
+        return {
+            r["path"]: r["file_id"]
+            for r in self.db.query("SELECT file_id, path FROM p115_index WHERE task=? AND is_dir=0", (self.key,))
         }
 
     def _tree(self, path: str) -> List:
@@ -488,7 +495,7 @@ class StrmSync:
         produced: set[str] = set()
         rows: List[Tuple[int, str, bool]] = []
         newest = 0
-        entries, complete = self._full_entries(task, cid)
+        entries, complete, keep = self._full_entries(task, cid)
         for rel, info in entries:
             if info["is_dir"]:
                 rows.append((info["id"], rel, True))
@@ -498,38 +505,43 @@ class StrmSync:
             if target:
                 produced.add(str(target))
                 rows.append((info["id"], target.relative_to(local).as_posix(), False))
+        index = _TaskIndex(self.p115.db, _task_key(task))
+        if keep:
+            # 目錄樹裡有、115 卻沒列出來的影片：strm 和索引都照舊保留
+            known = index.files()
+            rows += [(known[p], p, False) for p in keep if p in known]
         if self.cfg.delete_stale:
             if complete:
-                self._remove_stale(local, produced)
+                self._remove_stale(local, produced | {str(local / p) for p in keep})
             else:
                 # 有檔案不知道放哪，當成不存在會誤刪
                 self.result.notes.append(f"{remote}：有資料夾查不到路徑，這次不刪除本機多出來的 strm")
-        _TaskIndex(self.p115.db, _task_key(task)).replace_all(rows)
+        index.replace_all(rows)
         self._save_state(
             task, since=newest or int(time.time()), full_at=int(time.time()), indexed=True,
             life_id=life[0], life_time=life[1],
         )
 
-    def _full_entries(self, task: StrmTask, cid: int) -> Tuple[Iterable[Tuple[str, dict]], bool]:
-        """全量同步要處理的 (相對路徑, 資訊)，以及是否每個檔案都知道位置。
+    def _full_entries(self, task: StrmTask, cid: int) -> Tuple[Iterable[Tuple[str, dict]], bool, Set[str]]:
+        """全量同步要處理的 (相對路徑, 資訊)、是否每個檔案都知道位置，以及不能當成已刪除的本機 strm（相對路徑）。
 
-        有 cookie 時用導出目錄樹；失敗就改回逐層列目錄。
+        有 cookie 時用導出目錄樹；導出、列檔案或查路徑失敗就改回逐層列目錄。
         """
         if self.p115.cookies:
             try:
                 tree = self.p115.export_tree(cid, task.remote)
+                found = self._tree_entries(task, cid, tree)
             except P115Error as exc:
-                log.warning("115 導出目錄樹失敗，改成逐層列目錄：%s", exc)
-                self.result.notes.append(f"{task.remote}：導出目錄樹失敗（{exc}），改成逐層列目錄")
+                log.warning("115 目錄樹比對失敗，改成逐層列目錄：%s", exc)
+                self.result.notes.append(f"{task.remote}：目錄樹比對失敗（{exc}），改成逐層列目錄")
             else:
-                entries = self._tree_entries(task, cid, tree)
-                if entries is not None:
-                    return entries
-        return self.p115.walk(cid, delay=self.cfg.request_delay, dirs=True), True
+                if found is not None:
+                    return found
+        return self.p115.walk(cid, delay=self.cfg.request_delay, dirs=True), True, set()
 
     def _tree_entries(
         self, task: StrmTask, cid: int, tree: List[Tuple[str, ...]]
-    ) -> Optional[Tuple[List[Tuple[str, dict]], bool]]:
+    ) -> Optional[Tuple[List[Tuple[str, dict]], bool, Set[str]]]:
         files = list(self.p115.iter_changed_files(cid, 0))
         # 列出的影片比目錄樹少很多，代表清單不完整；照這份清單會漏檔、誤刪，改回逐層列目錄
         in_tree = sum(1 for parts in tree if Path(parts[-1]).suffix.lower() in VIDEO_EXTS)
@@ -549,11 +561,24 @@ class StrmSync:
         entries: List[Tuple[str, dict]] = [
             (rel, {"is_dir": True, "id": d}) for d, rel in sorted(dirs.items(), key=lambda kv: kv[1]) if rel
         ]
+        placed: Set[str] = set()
         for f in files:
             parent = dirs.get(f["parent_id"])
             if parent is not None:
-                entries.append((posixpath.join(parent, f["name"]) if parent else f["name"], {**f, "is_dir": False}))
-        return entries, not missing
+                rel = posixpath.join(parent, f["name"]) if parent else f["name"]
+                placed.add(rel)
+                entries.append((rel, {**f, "is_dir": False}))
+        # 目錄樹裡有、115 卻沒列出來的影片（清單少給了，或導出之後才刪掉）：不能當成已刪除，
+        # 這次保留它們的 strm；下次全量兩邊都沒有才刪
+        keep = {
+            Path("/".join(parts)).with_suffix(".strm").as_posix()
+            for parts in tree
+            if Path(parts[-1]).suffix.lower() in VIDEO_EXTS and "/".join(parts) not in placed
+        }
+        if keep:
+            log.warning("115 沒列出目錄樹裡的 %s 個影片，這次保留它們的 strm：%s", len(keep), sorted(keep)[:5])
+            self.result.notes.append(f"{task.remote}：115 沒列出目錄樹裡的 {len(keep)} 個影片，這次保留它們的 strm 不刪")
+        return entries, not missing, keep
 
     def _resolve_tree_dirs(
         self, task: StrmTask, dirs: Dict[int, str], unmatched: List[int], folders: Set[str], hints: Dict[int, str]

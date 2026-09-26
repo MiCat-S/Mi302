@@ -2,6 +2,7 @@
 
 from pathlib import Path
 
+import httpx
 import pytest
 
 from embyserver.p115 import P115Error, parse_export_tree, tree_relative
@@ -195,3 +196,95 @@ def test_lookup_corrects_a_wrong_match(tmp_path: Path):
     dirs = {100: "", 999: "劇集/Dark/Season 1"}
     sync._resolve_tree_dirs(task, dirs, [104], {"劇集", "劇集/Dark", "劇集/Dark/Season 1"}, {})
     assert dirs == {100: "", 102: "劇集", 103: "劇集/Dark", 104: "劇集/Dark/Season 1"}
+
+
+def test_export_status_error_stops_polling(tmp_path: Path):
+    fake = Fake115()
+    sync = make(tmp_path, fake)
+    polls = []
+    real = fake.handler
+
+    def failing(request):
+        if request.url.path == "/files/export_dir" and request.method == "GET":
+            polls.append(1)
+            return httpx.Response(200, json={"state": False, "errNo": 990001, "error": "导出任务不存在", "data": []})
+        return real(request)
+
+    sync.p115._client._transport = httpx.MockTransport(failing)
+    # 任務失敗或被取消：立刻放棄，不會輪詢到超時
+    with pytest.raises(P115Error, match="導出目錄樹失敗"):
+        sync.p115.export_tree(100, "/影視", timeout=60)
+    assert len(polls) == 1
+    r = sync.run(FULL)
+    assert r.strm_created == 2 and not r.errors
+    assert any("改成逐層列目錄" in n for n in r.notes)
+    assert listings(fake)
+
+
+def test_videos_missing_from_listing_are_kept(tmp_path: Path):
+    fake = Fake115()
+    for i in range(18):
+        fake.files.append(
+            {"fid": 10 + i, "cid": 101, "n": f"Movie {i:02d} (2000).mkv", "pc": f"{i:017d}", "s": 900_000_000, "te": T0 + i}
+        )
+    sync = make(tmp_path, fake, delete_stale=True)
+    assert sync.run(FULL).strm_created == 20
+    media = tmp_path / "media"
+    dark = media / "劇集" / "Dark" / "Dark.S01E01.strm"
+    (dark.parent / "Dark.S01E01.nfo").write_text("<episodedetails/>")
+    # 115 真的刪了 Old Movie；Dark.S01E01 還在目錄樹裡，只是遞迴列檔少給了（少 1/19，沒到改回逐層的門檻）
+    fake.files = [f for f in fake.files if f["fid"] != 1]
+    real = fake.handler
+
+    def short(request):
+        resp = real(request)
+        if request.url.path == "/files" and request.url.params.get("cur") == "0":
+            data = resp.json()
+            data["data"] = [f for f in data["data"] if f["fid"] != 2]
+            data["count"] = len(data["data"])
+            return httpx.Response(200, json=data)
+        return resp
+
+    sync.p115._client._transport = httpx.MockTransport(short)
+    r = sync.run(FULL)
+    assert not r.errors and any("保留" in n for n in r.notes)
+    # 兩邊都沒有的才刪；只是沒列出來的連刮削資料一起留著
+    assert not (media / "電影" / "Old Movie (2001).strm").exists() and r.removed == 1
+    assert dark.exists() and (dark.parent / "Dark.S01E01.nfo").exists()
+    index = _TaskIndex(sync.p115.db, _task_key(sync.tasks[0]))
+    assert index.get(2) == ("劇集/Dark/Dark.S01E01.strm", False)  # 索引也留著，增量遇到它的事件才找得到
+    assert index.get(1) is None
+
+
+def test_listing_error_falls_back_to_walk(tmp_path: Path):
+    fake = Fake115()
+    sync = make(tmp_path, fake)
+    real = fake.handler
+
+    def broken(request):
+        if request.url.path == "/files" and request.url.params.get("cur") == "0":
+            return httpx.Response(200, json={"state": False, "errNo": 20004, "error": "参数错误"})
+        return real(request)
+
+    sync.p115._client._transport = httpx.MockTransport(broken)
+    r = sync.run(FULL)
+    assert r.strm_created == 2 and not r.errors
+    assert any("改成逐層列目錄" in n for n in r.notes)
+    assert listings(fake)
+
+
+def test_unreadable_tree_falls_back_to_walk(tmp_path: Path):
+    fake = Fake115()
+    sync = make(tmp_path, fake)
+    real = fake.handler
+
+    def garbage(request):
+        if request.url.host == "cdn.115.test":
+            return httpx.Response(200, content="<html>not a tree</html>".encode("utf-16"))
+        return real(request)
+
+    sync.p115._client._transport = httpx.MockTransport(garbage)
+    r = sync.run(FULL)
+    assert r.strm_created == 2 and not r.errors
+    assert any("改成逐層列目錄" in n for n in r.notes)
+    assert fake.deleted  # 看不懂也要把 115 根目錄的目錄樹檔案刪掉
