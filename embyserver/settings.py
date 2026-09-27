@@ -265,6 +265,7 @@ def after_change(st, libraries_before: list) -> List[str]:
         # 只掃新增或改過的媒體庫；刪掉的媒體庫，它的項目在掃描時一起移除
         changed = [lib["name"] for lib in after if lib not in libraries_before]
         threading.Thread(target=st.scanner.scan_libraries, args=(changed,), daemon=True).start()
+    st.prober.wake()  # 取直鏈間隔、每小時上限改了：在等的馬上照新設定重算
     if st.strm_sync.follow_format():
         notes.append("現有的 strm 正在背景改成新的網址")
     return notes

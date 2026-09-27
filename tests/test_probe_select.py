@@ -44,7 +44,7 @@ def build(tmp_path: Path, enabled: bool = True):
     c = TestClient(app)
     h = {"X-Emby-Token": c.post("/Users/AuthenticateByName", json={"Username": "admin", "Pw": "pw"}).json()["AccessToken"]}
     calls = []
-    app.state.prober.run_in_background = lambda paths, source, label="": calls.append((paths, label)) or True
+    app.state.prober.run_in_background = lambda paths, source, label="", limit=0, spec=None: calls.append((paths, label)) or True
     return app, c, h, calls
 
 
@@ -69,7 +69,7 @@ def test_titles_filters_and_order(tmp_path: Path):
     assert names(titles(c, h, order="rating")) == ["Dark", "Mid", "庆余年", "New", "Old"]
     # 劇集、2018 年以後：只剩庆余年；年份填反了也行
     assert names(titles(c, h, kind="series", year_from=2018)) == ["庆余年"]
-    assert names(titles(c, h, year_from=2021, year_to=2019)) == ["Mid", "庆余年"]
+    assert sorted(names(titles(c, h, year_from=2021, year_to=2019))) == ["Mid", "庆余年"]  # 預設順序看加入時間，這裡只驗篩選
     # 首字母、全拼、繁體都找得到
     for q in ("qyn", "qingyunian", "慶餘年"):
         assert names(titles(c, h, q=q)) == ["庆余年"], q

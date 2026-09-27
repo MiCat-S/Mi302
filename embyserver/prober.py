@@ -49,10 +49,17 @@ class ProbeAbort(Exception):
     """後面的也不會成功（115 限流、沒登入、找不到 ffprobe），整批先停。"""
 
 
+class ProbeCancelled(Exception):
+    """使用者按了「停止提取」：還在排隊等取直鏈的那一支不做了。"""
+
+
 @dataclass
 class ProbeResult:
     source: str = ""  # sync / manual
     label: str = ""  # 這一批挑了哪些，例如「劇集・2019–2023・最近加入的先做」「「庆余年」」
+    limit: int = 0  # 這一批最多幾支（0 = 全部符合的）；提取中可以改
+    stopping: bool = False  # 按了停止，等手上這幾支做完
+    stopped: bool = False  # 是按停止結束的（沒做的不算失敗）
     started: float = 0.0
     finished: float = 0.0
     running: bool = False
@@ -90,7 +97,14 @@ class MediaProber:
         self.waiting_until = 0.0  # 到了每小時上限、要等到的時間（給網頁顯示）
         self.runner: Callable = subprocess.run  # 測試時換掉
         self.clock: Callable[[], float] = time.monotonic
-        self.sleep: Callable[[float], None] = time.sleep
+        self._wake = threading.Event()
+        self.sleep: Callable[[float], None] = self._nap  # 測試時換成不真的等的假時鐘
+        # 手動提取的這一批：排隊中的影片、已經拿去做的影片；提取中可以加減、停止
+        self._pending: deque = deque()
+        self._taken: set = set()
+        self._batch_lock = threading.Lock()
+        self._cancel = threading.Event()
+        self.batch_spec: Optional[dict] = None  # 網頁挑這一批時的條件，改「這次最多幾支」時用來補
         # 打開即探測：一條背景執行緒按序處理，和批次探測共用間隔、每小時上限和熔斷
         self._queue: deque = deque()
         self._queued: set = set()
@@ -164,10 +178,25 @@ class MediaProber:
         return {"used": used, "limit": limit, "interval": interval, "slowdown": self.p115.breaker.slowdown(),
                 "waiting_until": int(waiting) or None}
 
-    def _wait_turn(self) -> None:
-        """向 115 取直鏈前排隊：全域間隔，加上每小時上限（到了就等最舊的那次滿一小時）。"""
+    def _nap(self, seconds: float) -> None:
+        """等一下；設定改了（wake）或按了停止時提早醒來。"""
+        self._wake.wait(seconds)
+        self._wake.clear()
+
+    def wake(self) -> None:
+        """設定改了：在等取直鏈間隔或每小時上限的，馬上照新設定重新算。"""
+        self._wake.set()
+
+    def _wait_turn(self, cancel: Optional[threading.Event] = None) -> None:
+        """向 115 取直鏈前排隊：全域間隔，加上每小時上限（到了就等最舊的那次滿一小時）。
+
+        等的時候每分鐘醒來看一次；設定改了（wake）馬上重算，cancel 被設了就放棄（ProbeCancelled）。
+        """
         with self._pace:
             while True:
+                if cancel is not None and cancel.is_set():
+                    self.waiting_until = 0.0
+                    raise ProbeCancelled()
                 interval, limit = self.pace()
                 now = self.clock()
                 while self._fetches and now - self._fetches[0] >= 3600:
@@ -187,7 +216,7 @@ class MediaProber:
             self._last = self.clock()
             self._fetches.append(self._last)
 
-    def _source(self, path: Path) -> Tuple[str, Optional[str], str]:
+    def _source(self, path: Path, cancel: Optional[threading.Event] = None) -> Tuple[str, Optional[str], str]:
         """要給 ffprobe 讀的位置、UA，以及用來判斷容器格式的檔名。"""
         if path.suffix.lower() != ".strm":
             return str(path), None, str(path)
@@ -200,7 +229,7 @@ class MediaProber:
             if not self.p115.logged_in:
                 raise ProbeAbort("尚未登入 115，115 的 strm 沒辦法探測")
             self.p115.breaker.check()
-            self._wait_turn()
+            self._wait_turn(cancel)
             return self.p115.download_url(pickcode, PLAIN_UA), PLAIN_UA, hint
         if target.startswith(("http://", "https://")):
             return target, PLAIN_UA, hint
@@ -208,11 +237,11 @@ class MediaProber:
             return target, None, target
         raise ProbeSkip("strm 裡不是網址，也不是存在的檔案")
 
-    def probe_one(self, path: Path) -> dict:
+    def probe_one(self, path: Path, cancel: Optional[threading.Event] = None) -> dict:
         exe = self.available()
         if not exe:
             raise ProbeAbort("找不到 ffprobe，請先安裝 ffmpeg")
-        url, ua, hint = self._source(path)
+        url, ua, hint = self._source(path, cancel)
         cmd = [exe]
         if ua:
             cmd += ["-user_agent", ua]
@@ -250,12 +279,16 @@ class MediaProber:
 
     # ---------------- 整批 ----------------
 
-    def run(self, paths: Optional[Iterable[str]], source: str, label: str = "") -> ProbeResult:
-        """依序探測 paths（網頁挑好、排好的順序）；paths 為 None 時探測媒體庫裡所有還沒有媒體資訊的影片。"""
+    def run(self, paths: Optional[Iterable[str]], source: str, label: str = "", limit: int = 0) -> ProbeResult:
+        """依序探測 paths（網頁挑好、排好的順序）；paths 為 None 時探測媒體庫裡所有還沒有媒體資訊的影片。
+
+        幾條工作執行緒輪流從排隊的清單拿下一支，所以提取中可以加減（retarget）或停止（cancel_batch）。
+        """
         if not self._lock.acquire(blocking=False):
             log.info("媒體資訊探測已在進行，略過")
             return self.result
-        r = self.result = ProbeResult(source=source, label=label, started=time.time(), running=True)
+        r = self.result = ProbeResult(source=source, label=label, limit=limit, started=time.time(), running=True)
+        self._cancel.clear()
         abort = threading.Event()
         count = threading.Lock()
 
@@ -268,7 +301,11 @@ class MediaProber:
                 return
             r.current = path.name
             try:
-                self.probe_one(path)
+                if not self._needs(path):
+                    raise ProbeSkip("已經有媒體資訊")  # 排隊的時候被打開即探測做掉、或旁邊放了 json
+                self.probe_one(path, self._cancel)
+            except ProbeCancelled:
+                return  # 按了停止：這一支沒做，不算
             except (ProbeAbort, P115Throttled) as exc:
                 with count:
                     if not abort.is_set():
@@ -296,26 +333,80 @@ class MediaProber:
             with count:
                 r.done += 1
 
+        def worker() -> None:
+            while not abort.is_set() and not self._cancel.is_set():
+                with self._batch_lock:
+                    if not self._pending:
+                        return
+                    path = self._pending.popleft()
+                    self._taken.add(path)
+                one(Path(path))
+
         try:
             if not self.available():
                 raise ProbeAbort("找不到 ffprobe，請先安裝 ffmpeg")
             todo = self.missing() if paths is None else [p for p in paths if self._needs(Path(p))]
-            r.total = len(todo)
+            with self._batch_lock:
+                self._pending, self._taken = deque(todo), set()
+                r.total = len(todo)
             log.info("探測 %s 支影片的媒體資訊（同時 %s 項）", len(todo), self.concurrency)
             with ThreadPoolExecutor(max_workers=self.concurrency) as pool:
-                for future in [pool.submit(one, Path(p)) for p in todo]:
+                for future in [pool.submit(worker) for _ in range(self.concurrency)]:
                     future.result()
-            if abort.is_set():
+            if self._cancel.is_set():
+                r.stopped = True
+                r.total = r.done + r.failed + r.skipped  # 沒做的不算
+            elif abort.is_set():
                 r.failed = r.total - r.done - r.skipped  # 中止後沒做的都算沒完成
         except ProbeAbort as exc:
             error(str(exc))
         finally:
-            r.running = False
+            with self._batch_lock:
+                self._pending.clear()
+            r.running = r.stopping = False
             r.current = ""
             r.finished = time.time()
             self._lock.release()
-        log.info("媒體資訊探測完成：成功 %s，失敗 %s，略過 %s", r.done, r.failed, r.skipped)
+        log.info("媒體資訊探測%s：成功 %s，失敗 %s，略過 %s", "停止" if r.stopped else "完成", r.done, r.failed, r.skipped)
         return r
+
+    def retarget(self, candidates: List[str], limit: int, label: str = "") -> Optional[int]:
+        """正在跑的這一批改成最多 limit 支（0 = candidates 全部）：多了從 candidates 依序補上，少了把排隊的從後面拿掉。
+
+        candidates 是照原本的條件、順序重新挑的清單；已經做過或排隊中的不會重複。回傳這一批現在共幾支；沒在跑時回傳 None。
+        """
+        r = self.result
+        if not (self._lock.locked() and r.running) or self._cancel.is_set():
+            return None
+        with self._batch_lock:
+            started = r.total - len(self._pending)  # 已經拿去做的（做完或手上正在做）
+            known = self._taken | set(self._pending)
+            fresh = [p for p in candidates if p not in known]
+            want = limit if limit > 0 else started + len(self._pending) + len(fresh)
+            room = want - started - len(self._pending)
+            if room > 0:
+                self._pending.extend(fresh[:room])
+            else:
+                for _ in range(min(-room, len(self._pending))):
+                    self._pending.pop()
+            r.total = started + len(self._pending)
+            r.limit = limit
+            if label:
+                r.label = label
+        log.info("這一批媒體資訊提取改成最多 %s 支，共 %s 支", limit or "全部", r.total)
+        return r.total
+
+    def cancel_batch(self) -> bool:
+        """停止正在跑的這一批：排隊的不做了，手上正在做的做完就停。"""
+        if not (self._lock.locked() and self.result.running):
+            return False
+        self._cancel.set()
+        with self._batch_lock:
+            self._pending.clear()
+        self.result.stopping = True
+        self.wake()  # 在等每小時上限或間隔的，馬上醒來
+        log.info("停止媒體資訊提取，等手上的做完")
+        return True
 
     # ---------------- 打開即探測 ----------------
 
@@ -341,11 +432,13 @@ class MediaProber:
         return len(self._queue)
 
     def stop(self) -> None:
-        """程式關閉時：不再處理排隊的項目。"""
+        """程式關閉時：不再處理排隊的項目，正在跑的這一批也停下。"""
         self._stop.set()
         with self._qlock:
             self._queue.clear()
             self._queued.clear()
+        self.cancel_batch()
+        self.wake()
 
     def _drain(self) -> None:
         try:
@@ -362,9 +455,11 @@ class MediaProber:
                 path = self._queue[0]
             try:
                 if self._needs(Path(path)):  # 批次探測可能已經做過了
-                    self.probe_one(Path(path))
+                    self.probe_one(Path(path), self._stop)
                     self.on_demand_done += 1
                     log.info("打開即探測：%s", Path(path).name)
+            except ProbeCancelled:
+                return  # 程式要關了
             except (ProbeAbort, P115Throttled) as exc:
                 # 後面的也不會成功：清空佇列，一小時後打開再試
                 with self._qlock:
@@ -399,8 +494,11 @@ class MediaProber:
     def busy(self) -> bool:
         return self._lock.locked()
 
-    def run_in_background(self, paths: Optional[List[str]], source: str, label: str = "") -> bool:
+    def run_in_background(self, paths: Optional[List[str]], source: str, label: str = "", limit: int = 0,
+                          spec: Optional[dict] = None) -> bool:
+        """在背景跑一批。spec 是網頁挑這一批的條件（手動提取時才有），改「這次最多幾支」時用來補。"""
         if self._lock.locked():
             return False
-        threading.Thread(target=self.run, args=(paths, source, label), daemon=True).start()
+        self.batch_spec = spec
+        threading.Thread(target=self.run, args=(paths, source, label, limit), daemon=True).start()
         return True

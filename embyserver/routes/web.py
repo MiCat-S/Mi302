@@ -457,14 +457,53 @@ async def mediainfo_probe(request: Request, ctx: AuthContext = Depends(require_a
         if st.prober.busy():
             return [], False
         paths = missing_paths(st.db, flt, limit, ids)
-        label = title_names(st.db, ids) if ids else flt.describe()
-        if limit:
-            label += f"・最多 {limit} 支"
-        return paths, bool(paths) and st.prober.run_in_background(paths, "manual", label)
+        base = title_names(st.db, ids) if ids else flt.describe()
+        spec = {"filter": flt, "ids": ids, "base": base}
+        return paths, bool(paths) and st.prober.run_in_background(paths, "manual", _probe_label(base, limit), limit, spec)
 
     paths, started = await run_in_threadpool(start)
     return {"started": started, "count": len(paths), "busy": st.prober.busy() and not started,
             "result": st.prober.result.as_dict()}
+
+
+def _probe_label(base: str, limit: int) -> str:
+    return base + (f"・最多 {limit} 支" if limit else "")
+
+
+@router.post("/web/api/mediainfo/probe/limit")
+async def mediainfo_probe_limit(request: Request, ctx: AuthContext = Depends(require_admin)):
+    """提取中改「這次最多幾支」：{"limit": N}（0 = 全部符合的），直接套用到正在跑的這一批。"""
+    body = await _body(request)
+    if not isinstance(body, dict):
+        raise HTTPException(status_code=400, detail="格式錯誤")
+    try:
+        limit = max(int(body.get("limit") or 0), 0)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="「這次最多幾支」要填數字")
+    st = state(request)
+    spec = st.prober.batch_spec
+
+    def apply():
+        if not st.prober.busy() or not st.prober.result.running:
+            raise HTTPException(status_code=409, detail="現在沒有在提取")
+        if not spec:
+            raise HTTPException(status_code=409, detail="這一批是同步後自動開始的，不能改數量")
+        # 照原本的條件和順序重新挑；多挑一些，扣掉這一批已經做過、排隊中的還夠
+        more = 0 if limit == 0 else limit + st.prober.result.total
+        candidates = missing_paths(st.db, spec["filter"], more, spec["ids"])
+        return st.prober.retarget(candidates, limit, _probe_label(spec["base"], limit))
+
+    total = await run_in_threadpool(apply)
+    if total is None:
+        raise HTTPException(status_code=409, detail="現在沒有在提取")
+    return {"total": total, "result": st.prober.result.as_dict()}
+
+
+@router.post("/web/api/mediainfo/stop")
+def mediainfo_stop(request: Request, ctx: AuthContext = Depends(require_admin)):
+    """停止正在跑的這一批：排隊的不做了，手上正在做的做完就停。"""
+    st = state(request)
+    return {"stopping": st.prober.cancel_batch(), "result": st.prober.result.as_dict()}
 
 
 @router.get("/web/api/series")

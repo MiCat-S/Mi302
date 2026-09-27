@@ -316,3 +316,73 @@ def test_usage_while_probing_does_not_crash():
     finally:
         stop.set()
         t.join()
+
+
+def _admin(app):
+    c = TestClient(app)
+    return c, {"X-Emby-Token": c.post("/Users/AuthenticateByName", json={"Username": "admin", "Pw": "pw"}).json()["AccessToken"]}
+
+
+def test_running_batch_can_grow_shrink_and_stop(tmp_path: Path):
+    """提取中改「這次最多幾支」直接套用到這一批；「停止提取」後排隊的不做，沒做的不算失敗。"""
+    import threading
+
+    app, prober, links, cmds = make(tmp_path, concurrency=1)
+    for i in range(8):
+        strm(tmp_path, f"M{i} ({2010 + i})", f"http://mi302:8096/d/{'abcdefghijklmnop' + str(i)}.mkv")
+    app.state.scanner.scan_all()
+    gate = threading.Event()
+    real = prober.runner
+
+    def slow(cmd, capture_output, timeout):
+        gate.wait(5)  # 卡住，讓這一批停在「提取中」
+        return real(cmd, capture_output=capture_output, timeout=timeout)
+
+    prober.runner = slow
+    c, h = _admin(app)
+    r = c.post("/web/api/mediainfo/probe", json={"order": "year_asc", "limit": 2}, headers=h).json()
+    assert (r["started"], r["count"]) == (True, 2)
+    assert _wait(lambda: prober.result.running and prober.result.current)
+    r = c.post("/web/api/mediainfo/probe/limit", json={"limit": 5}, headers=h).json()
+    assert r["total"] == 5 and r["result"]["label"] == "年份舊的先做・最多 5 支"
+    assert c.post("/web/api/mediainfo/probe/limit", json={"limit": 4}, headers=h).json()["total"] == 4
+    gate.set()
+    assert _wait(lambda: not prober.result.running)
+    assert (prober.result.done, prober.result.total, prober.result.stopped) == (4, 4, False)
+    assert [pc[-1] for pc, _ in links] == ["0", "1", "2", "3"]  # 照「年份舊的先做」
+
+    gate.clear()
+    assert c.post("/web/api/mediainfo/probe", json={"order": "year_asc", "limit": 0}, headers=h).json()["count"] == 4
+    assert _wait(lambda: prober.result.running and prober.result.current)
+    assert c.post("/web/api/mediainfo/stop", headers=h).json()["stopping"] is True
+    gate.set()
+    assert _wait(lambda: not prober.result.running)
+    res = prober.result
+    # 手上那一支：已經在跑 ffprobe 的做完才停；還在等取直鏈的直接放棄。排隊的都不做，也不算失敗
+    assert res.stopped and not res.stopping and res.failed == 0 and res.total == res.done <= 1
+    assert len(links) <= 5
+
+    # 沒在提取：不能改、不能停
+    assert c.post("/web/api/mediainfo/probe/limit", json={"limit": 3}, headers=h).status_code == 409
+    assert c.post("/web/api/mediainfo/stop", headers=h).json()["stopping"] is False
+
+
+def test_hourly_cap_change_or_stop_wakes_a_waiting_batch(tmp_path: Path):
+    """到了每小時上限在等的時候：調高上限並儲存，馬上繼續；按停止，馬上結束。"""
+    import threading
+
+    app, prober, links, cmds = make(tmp_path, hourly_limit=1, concurrency=1)
+    for i in range(3):
+        strm(tmp_path, f"W{i}", f"http://mi302:8096/d/{'abcdefghijklmnop' + str(i)}.mkv")
+    app.state.scanner.scan_all()
+    c, h = _admin(app)
+
+    t = threading.Thread(target=prober.run, args=(None, "manual"))
+    t.start()
+    assert _wait(lambda: prober.waiting_until > 0)  # 第 2 支在等每小時上限
+    assert c.put("/web/api/settings", json={"mediainfo": {"hourly_limit": 2}}, headers=h).status_code == 200
+    assert _wait(lambda: prober.result.done == 2)  # 不用等一分鐘
+    assert _wait(lambda: prober.waiting_until > 0)  # 第 3 支又碰到新的上限
+    assert prober.cancel_batch()
+    t.join(5)
+    assert not t.is_alive() and prober.result.stopped and prober.result.done == 2 and prober.waiting_until == 0

@@ -324,7 +324,7 @@ dialog .card-b{max-height:70vh;overflow:auto}
               <input id="miYearTo" type="number" min="1900" max="2100" placeholder="到" style="width:7.5em" onchange="loadMiTitles(1)"></div>
             <div class="logbar">
               <select id="miOrder" onchange="saveMiPrefs(); loadMiTitles(1)"><option value="added">最近加入的先做</option><option value="year_desc">年份新的先做</option><option value="year_asc">年份舊的先做</option><option value="rating">評分高的先做</option><option value="name">照片名</option></select>
-              <span class="hint">這次最多</span><input id="miLimit" type="number" min="0" value="100" style="width:6.5em" oninput="saveMiPrefs(); miSummary()"><span class="hint">支（0 = 全部）</span>
+              <span class="hint">這次最多</span><input id="miLimit" type="number" min="0" value="100" style="width:6.5em" oninput="saveMiPrefs(); miSummary(); queueRetarget()"><span class="hint">支（0 = 全部）</span>
               <button class="btn primary" id="miBtn" onclick="probeMI()">開始提取</button></div>
             <p class="hint" id="miSum"></p>
             <div id="miTitles" class="list"></div>
@@ -1005,6 +1005,7 @@ async function pollMI() {
   S.mi = s;
   setHtml($('miStat'), miHtml(s));
   miButtons();
+  miSummary();
   if (s.result.running) miTimer = setTimeout(pollMI, 2000);
   else if (wasRunning || !S.miTitles) loadMiTitles();  // 一批做完，缺的數字變了
 }
@@ -1044,8 +1045,33 @@ function miSummary() {
   const r = S.miTitles;
   if (!r) return;
   const n = r.movies + r.episodes, limit = miLimit(), order = $('miOrder').selectedOptions[0].textContent;
-  $('miSum').textContent = !n ? '符合條件的影片都有媒體資訊了。'
-    : `符合條件、還缺媒體資訊：${r.movies} 部電影、${r.episodes} 集。按「開始提取」會照「${order}」做${limit && limit < n ? '前 ' + limit : '全部 ' + n} 支。`;
+  const run = S.mi?.result;
+  $('miSum').textContent = (!n ? '符合條件的影片都有媒體資訊了。'
+    : `符合條件、還缺媒體資訊：${r.movies} 部電影、${r.episodes} 集。按「開始提取」會照「${order}」做${limit && limit < n ? '前 ' + limit : '全部 ' + n} 支。`) +
+    (run?.running && run.source === 'manual' ? '正在提取中：改「這次最多」會直接套用到這一批。' : '');
+}
+// 提取中改「這次最多幾支」：停手 0.8 秒後套用到正在跑的這一批（清空輸入框時不動，免得變成全部）
+let miRetargetT = null;
+function queueRetarget() {
+  const run = S.mi?.result;
+  if (!run?.running || run.source !== 'manual' || $('miLimit').value.trim() === '') return;
+  clearTimeout(miRetargetT);
+  miRetargetT = setTimeout(retargetMI, 800);
+}
+async function retargetMI() {
+  const limit = miLimit();
+  let r;
+  try { r = await api('/web/api/mediainfo/probe/limit', {method: 'POST', body: JSON.stringify({limit})}); }
+  catch (e) { toast(e.message, 'bad'); return; }
+  toast(`這一批改成${limit ? '最多 ' + limit + ' 支' : '全部符合的'}，共 ${r.total} 支`);
+  pollMI();
+}
+async function stopMI() {
+  try {
+    const r = await api('/web/api/mediainfo/stop', {method: 'POST'});
+    toast(r.stopping ? '正在停止，手上這幾支做完就停' : '現在沒有在提取');
+  } catch (e) { toast(e.message, 'bad'); }
+  pollMI();
 }
 function fillMiLibs(libs) {
   const sel = $('miLib'), want = [''].concat(libs.map(l => String(l.id)));
@@ -1096,10 +1122,11 @@ function miHtml(s) {
   if (!r.started) return h;
   if (r.running) {
     const n = r.done + r.failed + r.skipped, pct = r.total ? n / r.total * 100 : 0;
-    h += `<div class="row" style="margin:12px 0 8px"><span class="pill accent"><span class="spin"></span>探測中</span><span class="hint">${r.label ? esc(r.label) + '　' : ''}${n} / ${r.total}${r.current ? '　' + esc(r.current) : ''}</span></div>
+    const stop = r.stopping ? '<span class="hint">正在停止，手上這幾支做完就停…</span>' : '<button class="btn sm" onclick="stopMI()">停止提取</button>';
+    h += `<div class="row wrap" style="margin:12px 0 8px"><span class="pill accent"><span class="spin"></span>探測中</span><span class="hint grow">${r.label ? esc(r.label) + '　' : ''}${n} / ${r.total}${r.current ? '　' + esc(r.current) : ''}</span>${stop}</div>
       <div class="meter"><div style="width:${pct.toFixed(1)}%"></div></div>`;
   } else {
-    h += `<div class="row wrap" style="margin:12px 0"><span class="pill ${r.errors.length ? 'warn' : 'ok'}">${r.errors.length ? '有問題' : '完成'}</span>
+    h += `<div class="row wrap" style="margin:12px 0"><span class="pill ${r.errors.length || r.stopped ? 'warn' : 'ok'}">${r.stopped ? '已停止' : r.errors.length ? '有問題' : '完成'}</span>
       <span class="hint">上次探測（${r.source === 'sync' ? '同步後自動' : '手動'}${r.label ? '・' + esc(r.label) : ''}）・${ago(r.finished)}</span></div>
       <div class="chips">${chip(r.total, '要探測')}${chip(r.done, '成功', true)}${chip(r.failed, '失敗')}${chip(r.skipped, '略過')}</div>`;
   }
