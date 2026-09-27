@@ -236,7 +236,7 @@ def _wait(cond, seconds=5.0):
 def test_open_enqueues_probe_without_waiting(tmp_path: Path):
     import threading
 
-    app, prober, links, cmds = make(tmp_path, enabled=False)  # 不開整庫探測也能打開即探測
+    app, prober, links, cmds = make(tmp_path, enabled=False)  # 不開批次探測也能打開即探測
     gate = threading.Event()
     real = prober.runner
     prober.runner = lambda cmd, capture_output, timeout: gate.wait(5) and real(cmd, capture_output, timeout)

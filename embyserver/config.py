@@ -109,12 +109,12 @@ class MoviePilotConfig:
 class MediaInfoConfig:
     """用 ffprobe 探測 strm 指向的影片，產生 X-mediainfo.json（解析度、HDR、音軌、字幕軌、章節）。"""
 
-    enabled: bool = False  # 整庫探測（手動按鈕、同步後自動）；預設關：每一項要向 115 取一次直鏈、讀幾 MB 檔頭
-    after_sync: bool = True  # 同步產生新的 strm 後自動探測（要開整庫探測）
+    enabled: bool = False  # 批次探測（網頁上挑影片提取、同步後自動）；預設關：每一項要向 115 取一次直鏈、讀幾 MB 檔頭
+    after_sync: bool = True  # 同步產生新的 strm 後自動探測（要開批次探測）
     on_demand: bool = True  # 播放器打開某部片或某一集時，在背景探測它（不擋請求，下次打開就有）
     concurrency: int = 2  # 同時探測幾項（1–3）；115 同時最多 3 條連線
     interval: float = 1.0  # 每次向 115 取直鏈至少間隔幾秒（0.5–60）
-    hourly_limit: int = 300  # 每小時最多向 115 取幾次直鏈（0 = 不限），首次整庫探測時保護帳號
+    hourly_limit: int = 300  # 每小時最多向 115 取幾次直鏈（0 = 不限），一次提取很多支時保護帳號
     timeout: int = 300  # 每一項最多等幾秒
     ffprobe: str = "ffprobe"  # ffprobe 的路徑
 

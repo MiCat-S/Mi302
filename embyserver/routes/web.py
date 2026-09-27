@@ -19,6 +19,7 @@ from ..dto import image_tag
 from ..moviepilot import library_series
 from ..p115 import P115Error
 from ..p115_open import P115OpenError
+from ..probe_select import ProbeFilter, missing_paths, missing_titles, title_names
 from ..settings import SettingsError
 from .common import q, q_int, state
 
@@ -377,16 +378,55 @@ def mediainfo_status(request: Request, ctx: AuthContext = Depends(require_admin)
     }
 
 
+@router.get("/web/api/mediainfo/titles")
+def mediainfo_titles(request: Request, ctx: AuthContext = Depends(require_admin)):
+    """還缺媒體資訊的電影和劇，照「先做哪些」排好、分頁；篩選條件見 probe_select.ProbeFilter。
+
+    也回傳符合條件還缺的電影、集數，以及媒體庫清單（給下拉選單）。
+    """
+    st = state(request)
+    flt = ProbeFilter.from_params(request.query_params)
+    offset = max(q_int(request, "offset", 0) or 0, 0)
+    limit = min(max(q_int(request, "limit", 20) or 20, 1), 200)
+    out = missing_titles(st.db, flt, limit, offset)
+    out["libraries"] = [dict(r) for r in st.db.query("SELECT id, name FROM items WHERE type='CollectionFolder' ORDER BY id")]
+    return out
+
+
 @router.post("/web/api/mediainfo/probe")
-def mediainfo_probe(request: Request, ctx: AuthContext = Depends(require_admin)):
-    """探測媒體庫裡所有還沒有媒體資訊的影片（在背景跑）。"""
+async def mediainfo_probe(request: Request, ctx: AuthContext = Depends(require_admin)):
+    """在背景探測還沒有媒體資訊的影片。
+
+    內容（都可以不給）：篩選條件（q、library、kind、year_from、year_to、order，見 ProbeFilter）、
+    limit 這次最多幾支（0 = 全部符合的）、ids 只做這幾部電影或劇。回傳挑到幾支、有沒有開始。
+    """
+    body = await _body(request)
+    if not isinstance(body, dict):
+        raise HTTPException(status_code=400, detail="格式錯誤")
     st = state(request)
     if not st.config.mediainfo.enabled:
-        raise HTTPException(status_code=400, detail="請先開啟「整庫探測」並儲存")
+        raise HTTPException(status_code=400, detail="請先開啟「批次探測」並儲存")
     if not st.prober.available():
         raise HTTPException(status_code=400, detail="找不到 ffprobe，請先安裝 ffmpeg")
-    started = st.prober.run_in_background(None, "manual")
-    return {"started": started, "result": st.prober.result.as_dict()}
+    flt = ProbeFilter.from_params(body)
+    try:
+        limit = max(int(body.get("limit") or 0), 0)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="「這次最多幾支」要填數字")
+    ids = [int(i) for i in body.get("ids") or [] if str(i).isdigit()]
+
+    def start():
+        if st.prober.busy():
+            return [], False
+        paths = missing_paths(st.db, flt, limit, ids)
+        label = title_names(st.db, ids) if ids else flt.describe()
+        if limit:
+            label += f"・最多 {limit} 支"
+        return paths, bool(paths) and st.prober.run_in_background(paths, "manual", label)
+
+    paths, started = await run_in_threadpool(start)
+    return {"started": started, "count": len(paths), "busy": st.prober.busy() and not started,
+            "result": st.prober.result.as_dict()}
 
 
 @router.get("/web/api/series")

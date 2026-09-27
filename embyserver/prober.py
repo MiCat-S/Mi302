@@ -52,6 +52,7 @@ class ProbeAbort(Exception):
 @dataclass
 class ProbeResult:
     source: str = ""  # sync / manual
+    label: str = ""  # 這一批挑了哪些，例如「劇集・2019–2023・最近加入的先做」「「庆余年」」
     started: float = 0.0
     finished: float = 0.0
     running: bool = False
@@ -90,7 +91,7 @@ class MediaProber:
         self.runner: Callable = subprocess.run  # 測試時換掉
         self.clock: Callable[[], float] = time.monotonic
         self.sleep: Callable[[float], None] = time.sleep
-        # 打開即探測：一條背景執行緒按序處理，和整庫探測共用間隔、每小時上限和熔斷
+        # 打開即探測：一條背景執行緒按序處理，和批次探測共用間隔、每小時上限和熔斷
         self._queue: deque = deque()
         self._queued: set = set()
         self._failed: dict = {}
@@ -249,12 +250,12 @@ class MediaProber:
 
     # ---------------- 整批 ----------------
 
-    def run(self, paths: Optional[Iterable[str]], source: str) -> ProbeResult:
-        """paths 為 None 時探測媒體庫裡所有還沒有媒體資訊的影片。"""
+    def run(self, paths: Optional[Iterable[str]], source: str, label: str = "") -> ProbeResult:
+        """依序探測 paths（網頁挑好、排好的順序）；paths 為 None 時探測媒體庫裡所有還沒有媒體資訊的影片。"""
         if not self._lock.acquire(blocking=False):
             log.info("媒體資訊探測已在進行，略過")
             return self.result
-        r = self.result = ProbeResult(source=source, started=time.time(), running=True)
+        r = self.result = ProbeResult(source=source, label=label, started=time.time(), running=True)
         abort = threading.Event()
         count = threading.Lock()
 
@@ -360,7 +361,7 @@ class MediaProber:
                     return
                 path = self._queue[0]
             try:
-                if self._needs(Path(path)):  # 整庫探測可能已經做過了
+                if self._needs(Path(path)):  # 批次探測可能已經做過了
                     self.probe_one(Path(path))
                     self.on_demand_done += 1
                     log.info("打開即探測：%s", Path(path).name)
@@ -395,8 +396,11 @@ class MediaProber:
                     cutoff = time.time() - RETRY_AFTER
                     self._failed = {p: t for p, t in self._failed.items() if t >= cutoff}
 
-    def run_in_background(self, paths: Optional[List[str]], source: str) -> bool:
+    def busy(self) -> bool:
+        return self._lock.locked()
+
+    def run_in_background(self, paths: Optional[List[str]], source: str, label: str = "") -> bool:
         if self._lock.locked():
             return False
-        threading.Thread(target=self.run, args=(paths, source), daemon=True).start()
+        threading.Thread(target=self.run, args=(paths, source, label), daemon=True).start()
         return True

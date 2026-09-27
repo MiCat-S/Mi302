@@ -311,18 +311,32 @@ dialog .card-b{max-height:70vh;overflow:auto}
       <div class="savebar hidden" id="libBar"><span class="hint grow">媒體庫有未儲存的變更</span><button class="btn" onclick="loadLibs()">取消</button><button class="btn primary" onclick="saveLibs()">儲存並掃描</button></div>
 
       <div class="card" id="miCard" style="margin-top:16px">
-        <div class="card-h"><div class="t"><svg class="i"><use href="#i-film"/></svg><h2>媒體資訊</h2></div><button class="btn" id="miBtn" onclick="probeMI()">提取缺少的媒體資訊</button></div>
+        <div class="card-h"><div class="t"><svg class="i"><use href="#i-film"/></svg><h2>媒體資訊</h2></div></div>
         <div class="card-b stack">
           <p class="hint">解析度、HDR、音軌、字幕軌和章節，播放器靠它標出 4K、HDR，播放前讓人選音軌和字幕。影片旁邊有 X-mediainfo.json（神醫助手、emby-mediainfo 產生的都行）就直接讀；開啟探測後，Mi302 用 ffprobe 讀 115 上的影片檔頭產生，每一項要取一次直鏈、讀幾 MB。</p>
           <div id="miStat"><p class="hint">讀取中…</p></div>
+          <div class="stack" id="miPick">
+            <b>挑選要提取的影片</b>
+            <div class="logbar"><input id="miQ" type="search" placeholder="搜尋片名" oninput="clearTimeout(miQT); miQT = setTimeout(() => loadMiTitles(1), 300)">
+              <select id="miLib" onchange="loadMiTitles(1)"><option value="">全部媒體庫</option></select>
+              <select id="miKind" onchange="loadMiTitles(1)"><option value="">電影和劇集</option><option value="movie">只看電影</option><option value="series">只看劇集</option></select>
+              <input id="miYearFrom" type="number" min="1900" max="2100" placeholder="年份從" style="width:7.5em" onchange="loadMiTitles(1)">
+              <input id="miYearTo" type="number" min="1900" max="2100" placeholder="到" style="width:7.5em" onchange="loadMiTitles(1)"></div>
+            <div class="logbar">
+              <select id="miOrder" onchange="saveMiPrefs(); loadMiTitles(1)"><option value="added">最近加入的先做</option><option value="year_desc">年份新的先做</option><option value="year_asc">年份舊的先做</option><option value="rating">評分高的先做</option><option value="name">照片名</option></select>
+              <span class="hint">這次最多</span><input id="miLimit" type="number" min="0" value="100" style="width:6.5em" oninput="saveMiPrefs(); miSummary()"><span class="hint">支（0 = 全部）</span>
+              <button class="btn primary" id="miBtn" onclick="probeMI()">開始提取</button></div>
+            <p class="hint" id="miSum"></p>
+            <div id="miTitles" class="list"></div>
+          </div>
           <div class="fields">
             <label class="field"><span>同時探測幾項</span><input type="number" min="1" max="3" data-key="mediainfo.concurrency"><small>1–3，115 同時最多 3 條連線</small></label>
             <label class="field"><span>取直鏈間隔（秒）</span><input type="number" step="0.1" min="0.5" data-key="mediainfo.interval"><small>至少 0.5，太快會被 115 限流</small></label>
-            <label class="field"><span>每小時最多幾次</span><input type="number" min="0" data-key="mediainfo.hourly_limit"><small>向 115 取直鏈的上限，0 = 不限；首次整庫探測時保護帳號</small></label>
+            <label class="field"><span>每小時最多幾次</span><input type="number" min="0" data-key="mediainfo.hourly_limit"><small>向 115 取直鏈的上限，0 = 不限；一次提取很多支時保護帳號</small></label>
           </div>
           <label class="switch"><input type="checkbox" data-key="mediainfo.on_demand"><span class="track"></span><span class="lbl">打開影片時自動探測<small>播放器打開某部片或某一集時在背景探測它，不等；下次打開就有</small></span></label>
-          <label class="switch"><input type="checkbox" data-key="mediainfo.enabled"><span class="track"></span><span class="lbl">整庫探測<small>開了才能按「提取缺少的媒體資訊」；關閉時仍會讀現成的 X-mediainfo.json</small></span></label>
-          <label class="switch"><input type="checkbox" data-key="mediainfo.after_sync"><span class="track"></span><span class="lbl">同步產生新的 strm 後自動探測<small>要開整庫探測</small></span></label>
+          <label class="switch"><input type="checkbox" data-key="mediainfo.enabled"><span class="track"></span><span class="lbl">批次探測<small>開了才能在上面挑影片提取；關閉時仍會讀現成的 X-mediainfo.json</small></span></label>
+          <label class="switch"><input type="checkbox" data-key="mediainfo.after_sync"><span class="track"></span><span class="lbl">同步產生新的 strm 後自動探測<small>要開批次探測</small></span></label>
         </div>
         <div class="card-f"><button class="btn primary" onclick="saveFields($('miCard')).then(pollMI)">儲存</button></div>
       </div>
@@ -761,7 +775,7 @@ function renderSteps() {
 
 // ---- 媒體庫 ----
 let libs = [], libsShape = null;
-function loadLibs() { libs = structuredClone(cfg.libraries); dirtyLibs(false); renderLibs(); refreshScan(); pollMI(); pollIntro(); }
+function loadLibs() { libs = structuredClone(cfg.libraries); dirtyLibs(false); renderLibs(); refreshScan(); restoreMiPrefs(); pollMI(); pollIntro(); }
 function dirtyLibs(on) { $('libBar').classList.toggle('hidden', !on); }
 // 掃描狀態裡數量以外的部分；沒變就只改數字，不必整張卡重畫（封面會閃）
 function libShape(status) { return JSON.stringify((status?.libraries || []).map(({count, ...rest}) => rest)); }
@@ -886,11 +900,88 @@ async function pollMI() {
   if (document.hidden && S.mi?.result.running) { miTimer = setTimeout(pollMI, 2000); return; }
   let s;
   try { s = await api('/web/api/mediainfo/status'); } catch (e) { return; }
+  const wasRunning = S.mi?.result.running;
   S.mi = s;
   setHtml($('miStat'), miHtml(s));
-  $('miBtn').disabled = !s.ffprobe || !s.enabled || s.result.running;
-  $('miBtn').title = !s.ffprobe ? '找不到 ffprobe' : !s.enabled ? '先開啟整庫探測並儲存' : '';
+  miButtons();
   if (s.result.running) miTimer = setTimeout(pollMI, 2000);
+  else if (wasRunning || !S.miTitles) loadMiTitles();  // 一批做完，缺的數字變了
+}
+function miBlocked() {
+  // 按不了「提取」的原因；空字串 = 可以按
+  const s = S.mi;
+  if (!s) return '讀取中';
+  if (!s.ffprobe) return '找不到 ffprobe';
+  if (!s.enabled) return '先開啟下面的「批次探測」並儲存';
+  if (s.result.running) return '正在提取，等這一批做完';
+  return '';
+}
+function miButtons() {
+  const why = miBlocked();
+  document.querySelectorAll('#miBtn, #miTitles .js-probe').forEach(b => { b.disabled = !!why; b.title = why; });
+}
+
+// 挑選要提取的影片：篩選、先做哪些、這次最多幾支；清單一次 20 部，照「先做哪些」排
+let miPage = 1, miSeq = 0, miQT = null;
+const MI_PAGE = 20;
+function restoreMiPrefs() {
+  try {
+    const o = localStorage.getItem('mi302.miOrder'), n = localStorage.getItem('mi302.miLimit');
+    if (o && $('miOrder').querySelector(`option[value="${o}"]`)) $('miOrder').value = o;
+    if (n !== null && /^\d+$/.test(n)) $('miLimit').value = n;
+  } catch (e) {}
+}
+function saveMiPrefs() {
+  try { localStorage.setItem('mi302.miOrder', $('miOrder').value); localStorage.setItem('mi302.miLimit', $('miLimit').value); } catch (e) {}
+}
+function miFilter() {
+  return {q: $('miQ').value.trim(), library: $('miLib').value, kind: $('miKind').value,
+          year_from: $('miYearFrom').value, year_to: $('miYearTo').value, order: $('miOrder').value};
+}
+function miLimit() { return Math.max(0, parseInt($('miLimit').value, 10) || 0); }
+function miSummary() {
+  const r = S.miTitles;
+  if (!r) return;
+  const n = r.movies + r.episodes, limit = miLimit(), order = $('miOrder').selectedOptions[0].textContent;
+  $('miSum').textContent = !n ? '符合條件的影片都有媒體資訊了。'
+    : `符合條件、還缺媒體資訊：${r.movies} 部電影、${r.episodes} 集。按「開始提取」會照「${order}」做${limit && limit < n ? '前 ' + limit : '全部 ' + n} 支。`;
+}
+function fillMiLibs(libs) {
+  const sel = $('miLib'), want = [''].concat(libs.map(l => String(l.id)));
+  if (want.join(',') === Array.from(sel.options).map(o => o.value).join(',')) return;
+  const cur = sel.value;
+  sel.innerHTML = '<option value="">全部媒體庫</option>' + libs.map(l => `<option value="${l.id}">${esc(l.name)}</option>`).join('');
+  sel.value = want.includes(cur) ? cur : '';
+}
+async function loadMiTitles(page) {
+  // page = 第幾頁；換篩選時回到第 1 頁。回應帶序號，慢的舊回應不會蓋掉新的
+  miPage = Math.max(1, page || miPage);
+  const box = $('miTitles'), seq = ++miSeq, f = miFilter();
+  const qs = new URLSearchParams({...f, offset: (miPage - 1) * MI_PAGE, limit: MI_PAGE});
+  let r;
+  try { r = await api('/web/api/mediainfo/titles?' + qs); }
+  catch (e) { if (seq === miSeq) box.innerHTML = `<p class="notice bad">${esc(e.message)}</p>`; return; }
+  if (seq !== miSeq) return;
+  S.miTitles = r;
+  fillMiLibs(r.libraries || []);
+  miSummary();
+  const pages = Math.max(1, Math.ceil(r.total / MI_PAGE));
+  if (miPage > pages) return loadMiTitles(pages);  // 換篩選後頁數變少
+  box.innerHTML = '';
+  const libName = Object.fromEntries((r.libraries || []).map(l => [l.id, l.name]));
+  for (const t of r.items) {
+    const row = document.createElement('div'); row.className = 'li';
+    const count = t.type === 'Series' ? `缺 ${t.missing} / ${t.total} 集` : '還沒有';
+    row.innerHTML = `<div class="main"><div class="row wrap"><b>${esc(t.name)}</b>${t.year ? `<span class="hint">${t.year}</span>` : ''}` +
+      `${libName[t.library_id] ? `<span class="pill">${esc(libName[t.library_id])}</span>` : ''}<span class="pill warn">${count}</span></div></div>
+      <button class="btn sm js-probe">提取</button>`;
+    row.querySelector('button').onclick = () => probeMI([t.id], '「' + t.name + '」');
+    box.appendChild(row);
+  }
+  const nav = pages > 1
+    ? `<button class="btn sm"${miPage <= 1 ? ' disabled' : ''} onclick="loadMiTitles(${miPage - 1})">上一頁</button><button class="btn sm"${miPage >= pages ? ' disabled' : ''} onclick="loadMiTitles(${miPage + 1})">下一頁</button>` : '';
+  if (r.total) box.insertAdjacentHTML('beforeend', `<div class="row" style="padding-top:12px"><span class="hint grow">${pages > 1 ? `第 ${miPage} / ${pages} 頁，` : ''}共 ${r.total} 部還缺</span>${nav}</div>`);
+  miButtons();
 }
 function miHtml(s) {
   const r = s.result;
@@ -904,20 +995,25 @@ function miHtml(s) {
   if (!r.started) return h;
   if (r.running) {
     const n = r.done + r.failed + r.skipped, pct = r.total ? n / r.total * 100 : 0;
-    h += `<div class="row" style="margin:12px 0 8px"><span class="pill accent"><span class="spin"></span>探測中</span><span class="hint">${n} / ${r.total}${r.current ? '　' + esc(r.current) : ''}</span></div>
+    h += `<div class="row" style="margin:12px 0 8px"><span class="pill accent"><span class="spin"></span>探測中</span><span class="hint">${r.label ? esc(r.label) + '　' : ''}${n} / ${r.total}${r.current ? '　' + esc(r.current) : ''}</span></div>
       <div class="meter"><div style="width:${pct.toFixed(1)}%"></div></div>`;
   } else {
     h += `<div class="row wrap" style="margin:12px 0"><span class="pill ${r.errors.length ? 'warn' : 'ok'}">${r.errors.length ? '有問題' : '完成'}</span>
-      <span class="hint">上次探測（${r.source === 'sync' ? '同步後自動' : '手動'}）・${ago(r.finished)}</span></div>
+      <span class="hint">上次探測（${r.source === 'sync' ? '同步後自動' : '手動'}${r.label ? '・' + esc(r.label) : ''}）・${ago(r.finished)}</span></div>
       <div class="chips">${chip(r.total, '要探測')}${chip(r.done, '成功', true)}${chip(r.failed, '失敗')}${chip(r.skipped, '略過')}</div>`;
   }
   if (r.errors.length) h += `<div class="notice bad" style="margin-top:10px">${r.errors.slice(0, 5).map(esc).join('<br>')}${r.errors.length > 5 ? '<br>…還有 ' + (r.errors.length - 5) + ' 個' : ''}</div>`;
   return h;
 }
-async function probeMI() {
+async function probeMI(ids, label) {
+  // 沒給 ids：照篩選和「先做哪些」挑；給了：只做這幾部。都受「這次最多幾支」限制
   let r;
-  try { r = await api('/web/api/mediainfo/probe', {method: 'POST'}); } catch (e) { toast(e.message, 'bad'); return; }
-  toast(r.started ? '開始探測缺少媒體資訊的影片' : '已經在探測中'); pollMI();
+  const body = {...miFilter(), limit: miLimit()};
+  if (ids) body.ids = ids;
+  try { r = await api('/web/api/mediainfo/probe', {method: 'POST', body: JSON.stringify(body)}); } catch (e) { toast(e.message, 'bad'); return; }
+  if (r.started) toast(`開始提取${label ? label + '的' : ''} ${r.count} 支`);
+  else toast(r.busy ? '正在提取，等這一批做完' : '沒有符合條件、還缺媒體資訊的影片', r.busy ? '' : 'bad');
+  pollMI();
 }
 function scanHtml(s) {
   if (!s.scanning) return '';
