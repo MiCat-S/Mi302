@@ -140,7 +140,7 @@ Installed manually: run this in the folder that holds `data/` (`Mi302/` in the i
    - A line like 播放 … 302 到 … ("play … 302 to …"): Mi302 handed the 115 direct link to the player. The problem is between the player and 115.
    - A line like 播放 … 失敗 ("play … failed"): getting the direct link from 115 failed; the message gives the reason.
    - Nothing: the play request never got that far. Turn on verbose mode, play again and look at the status codes of the player's requests.
-3. The stream URL returns 401: the player did not send its login. **Playback URLs require login** (播放網址要求登入) under **Advanced settings** (進階設定) is on by default; turn it off only if a player cannot play because of it.
-4. Downloads return 403: **Allow players to download videos** (允許播放器下載影片) under Advanced settings is turned off.
+3. The stream URL returns 401: the player did not send its login. **Playback URLs require login** (播放網址要求登入) on the **Playback** card (播放) of the **Settings** tab (設定) is on by default; turn it off only if a player cannot play because of it.
+4. Downloads return 403: **Allow players to download videos** (允許播放器下載影片) on the Playback card of the Settings tab is turned off.
 
 How playback works, the login requirement and remote access are covered in [Playback](Playback).

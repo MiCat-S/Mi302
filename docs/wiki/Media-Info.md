@@ -34,7 +34,7 @@ For `X.strm` (or a local video `X.mkv`), Mi302 reads `X-mediainfo.json` from the
 
 ## Probing with ffprobe
 
-For videos without a json file, Mi302 can probe the file itself with ffprobe. The settings are in the **Media info** card (媒體資訊) on the **Library** tab (媒體庫). There are two modes, and both can be on.
+For videos without a json file, Mi302 can probe the file itself with ffprobe. The settings are in the collapsed **Settings** section (設定) of the **Media info** card (媒體資訊) on the **Tools** tab (整理). There are two modes, and both can be on.
 
 ### Probe on open
 
@@ -49,7 +49,7 @@ If you do not want to probe a large batch at once, this mode is enough: the vide
 
 ### Picking what to probe
 
-To probe a batch, use **Pick videos to probe** (挑選要提取的影片) in the card. First turn on **Batch probing** (批次探測) at the bottom of the card and click **Save** (儲存); it is off by default. Until then, **Start** (開始提取) and the per-title **Probe** buttons (提取) are disabled.
+To probe a batch, use **Pick videos to probe** (挑選要提取的影片) in the card. First turn on **Batch probing** (批次探測) in the **Settings** section at the bottom of the card and click **Save settings** (儲存設定); it is off by default. Until then, **Start** (開始提取) and the per-title **Probe** buttons (提取) are disabled.
 
 Filters; anything left empty is not limited:
 
@@ -109,7 +109,7 @@ Each item may take at most `mediainfo.timeout` seconds (default 300); after that
 | (config file only) | `mediainfo.timeout` | 300 | 10–3600 seconds |
 | (config file only) | `mediainfo.ffprobe` | `ffprobe` | path to ffprobe |
 
-After changing them in the web UI, click **Save** at the bottom of the card. Changes apply immediately; no restart is needed. For the config file syntax, see [Configuration Reference](Configuration-Reference).
+After changing them in the web UI, click **Save settings** in the **Settings** section at the bottom of the card. Changes apply immediately; no restart is needed. For the config file syntax, see [Configuration Reference](Configuration-Reference).
 
 ## 115 limits
 
@@ -117,7 +117,7 @@ Every 115 strm file needs one direct-link fetch from 115, and 115 is sensitive t
 
 - **Connections**: 115 allows at most 3 connections at once, so concurrent probes are capped at 3 (default 2).
 - **Interval**: at least 0.5 seconds between two direct-link fetches (default 1 second). All probing shares this interval.
-- **Hourly cap**: at most 300 fetches per hour by default; 0 = unlimited. When the cap is reached, probing waits until the oldest fetch is an hour old; raising the cap (or changing the interval) and clicking **Save** while it waits resumes probing straight away. Probing tens of thousands of videos at once takes several days; you can also split it up with **At most N this time**.
+- **Hourly cap**: at most 300 fetches per hour by default; 0 = unlimited. When the cap is reached, probing waits until the oldest fetch is an hour old; raising the cap (or changing the interval) and clicking **Save settings** while it waits resumes probing straight away. Probing tens of thousands of videos at once takes several days; you can also split it up with **At most N this time**.
 - **Circuit breaker**: when 115 responds with rate limiting or an invalid login, probing and sync stop, and the rest of the current batch is not done. A breaker tripped by rate limiting clears itself after 45 minutes. An invalid login needs a new QR-code login on the **115 Cloud** tab (115 網盤) with the **Scan QR code** button (掃碼登入). An interrupted run does not restart by itself: click **Start** again once the breaker has cleared. Clicking it while the breaker is tripped stops the run straight away. For the first 30 minutes after the cool-down, the interval is 4 times longer and the hourly cap a quarter; for the next 30 minutes, twice as long and half; then back to normal.
 
 Probe-on-open and batch probing share the interval, the hourly cap and the circuit breaker. Playback is not subject to these limits and is not stopped by the circuit breaker. The breaker's reason is shown in the **Media info** card and on the **115 Cloud** tab. For details on the circuit breaker, see [115 Cloud Sync](115-Cloud-Sync).

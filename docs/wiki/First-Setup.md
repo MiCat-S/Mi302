@@ -48,7 +48,7 @@ Folders are paths on the machine that runs Mi302, and the account running Mi302 
 
 115 Cloud (115 網盤) is a Chinese cloud drive. On the **115 Cloud** page (115 網盤):
 
-1. In the **Account** card (帳號), click **Scan QR code** (掃碼登入), scan the code with the 115 mobile app and confirm. QR-code login occupies one 115 device type (by default the Alipay mini program); other logins of the same type are signed out. You can change the type under **Advanced settings** (進階設定).
+1. In the **Account** card (帳號), click **Scan QR code** (掃碼登入), scan the code with the 115 mobile app and confirm. QR-code login occupies one 115 device type (by default the Alipay mini program); other logins of the same type are signed out. You can change the type under **Advanced: device type used by QR login, 115 open platform** (進階：掃碼佔用的裝置類型、115 開放平台) on the same card.
 2. In the **Sync tasks** card (同步任務):
    - Next to **115 folder** (115 目錄), click **Browse** (瀏覽) and choose a folder on 115.
    - Next to **Local folder** (放到本機資料夾), click **Browse** and choose the local folder for the `.strm` files.
@@ -83,7 +83,7 @@ In Infuse, VidHub, SenPlayer, the official Emby apps or another player, add an *
 - Address: `http://<host>:8096`, without `/web`. The **Connect in your player** card (在播放器裡連線) on the Overview page shows this address with a copy button. It shows the address you used to open the web page; if you opened it via `localhost`, use the machine's LAN IP instead.
 - Account: the administrator account or an account created on the **Users** page (使用者).
 
-The server name shown in players is set under **Advanced settings** → **Server name** (伺服器名稱); the default is `Emby Server`. To watch away from home, see [Playback](Playback).
+The server name shown in players is set under **Settings** (設定) → **Server name** (伺服器名稱); the default is `Emby Server`. To watch away from home, see [Playback](Playback).
 
 ## Users
 
@@ -93,13 +93,13 @@ The **Users** page (使用者) lists all accounts, whether each one is an **admi
 - To add an account, fill in the account name and password under **Add user** (新增使用者), turn on **Administrator** (管理員) if the person should manage Mi302 too, and click **Add** (新增). The password cannot be empty.
 - Each account has **Change password** (改密碼), **Make administrator** (設為管理員) or **Remove administrator** (取消管理員), and a delete button. Deleting an account also deletes its watch history.
 - At least one administrator must remain: the last administrator cannot be deleted or demoted.
-- Whether players list the account names on their login screen is set under **Advanced settings** with **List user names on the player login screen** (播放器登入畫面列出使用者名稱). It is on by default.
+- Whether players list the account names on their login screen is set under **Settings** with **List user names on the player login screen** (播放器登入畫面列出使用者名稱). It is on by default.
 
 To reset a forgotten password, see [Logs and FAQ](Logs-and-FAQ).
 
 ## The config file config.yaml
 
-All settings from the web page are stored in the config file `config.yaml`, and the two stay in sync. With the one-line installer it is `config/config.yaml` in the install folder (`/opt/mi302/config/config.yaml` on Linux); with a manual install it is in the folder you run Mi302 from. The **Advanced settings** page shows the full path at the top.
+All settings from the web page are stored in the config file `config.yaml`, and the two stay in sync. With the one-line installer it is `config/config.yaml` in the install folder (`/opt/mi302/config/config.yaml` on Linux); with a manual install it is in the folder you run Mi302 from. The **Settings** page shows the full path at the top.
 
 - **Created automatically**: on first start Mi302 creates the file, with a comment explaining each setting. You do not need to create it.
 - **Written back when you save in the web page**: Mi302 rewrites the whole file and first copies the old one to `config.yaml.bak`. The file is regenerated from a template each time, so comments you add yourself are not kept.

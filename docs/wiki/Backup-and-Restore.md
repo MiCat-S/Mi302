@@ -39,7 +39,7 @@ Backups go into `backups` inside the data folder (`server.data_dir`):
 | One-line installer (macOS) | `~/Mi302/config/data/backups` |
 | Manual Python install | `data/backups` in the folder you start Mi302 from |
 
-The **Backup** card (備份) under **Advanced settings** (進階設定) shows the actual location.
+The **Backup** card (備份) under **Settings** (設定) shows the actual location.
 
 ## Automatic backups
 
@@ -57,7 +57,7 @@ The **Backup** card (備份) under **Advanced settings** (進階設定) shows th
 
 ## Manual backup and download
 
-On the Backup card under Advanced settings:
+On the Backup card under Settings:
 
 - **Back up now** (立即備份) makes a backup immediately and shows its file name.
 - The list below shows each backup's time, file name and size, marked "includes config" (含設定檔) when the `.yaml` exists.

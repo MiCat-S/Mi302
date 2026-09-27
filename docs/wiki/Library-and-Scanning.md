@@ -189,7 +189,7 @@ Person photos are the `<thumb>` URLs from the nfo (usually on TMDB). When a play
 
 ### Chinese names
 
-TMDB often has names in pinyin or English (Chen He). When **Show Chinese names for cast and crew** (演職人員顯示中文名, `server.chinese_people`, on by default) is enabled in the **Chinese localisation** card (中文化) on the **Advanced settings** tab (進階設定), Mi302 looks up Chinese names in the background:
+TMDB often has names in pinyin or English (Chen He). When **Show Chinese names for cast and crew** (演職人員顯示中文名, `server.chinese_people`, on by default) is enabled in the **Chinese localisation** card (中文化) on the **Settings** tab (設定), Mi302 looks up Chinese names in the background:
 
 - Only people with a numeric TMDB person id in the nfo are looked up: each title's directors, writers, guest stars, and the top-billed actors (the code allows 20 actors plus 10 places for directors and writers listed before them).
 - First it asks MoviePilot's person endpoint (`/api/v1/tmdb/person/{id}`) and picks a Chinese name from the TMDB aliases (陈赫): names containing Japanese kana are skipped, names already in Simplified are preferred, otherwise a Traditional one is converted to Simplified. At most 2 requests per second.

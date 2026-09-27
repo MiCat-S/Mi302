@@ -45,7 +45,7 @@ Mi302 uses the first line of the strm that is not empty and does not start with 
 
 ## Playback authentication
 
-The **Other tools' strm** card (其他工具產生的 strm) on the **Advanced settings** tab (進階設定) has **Require login for playback URLs** (播放網址要求登入, `redirect.require_auth`, on by default).
+The **Playback** card (播放) on the **Settings** tab (設定) has **Require login for playback URLs** (播放網址要求登入, `redirect.require_auth`, on by default).
 
 When it is on, `/Videos/{id}/…` only answers with a 302 if a valid token is sent, just like official Emby (since 4.7 Emby blocks unauthenticated stream requests on the LAN as well). The token can be sent as:
 
@@ -60,7 +60,7 @@ When it is off, anyone who knows an item id can get the 115 direct link without 
 
 ## Downloads
 
-The **Server** card (伺服器) on the **Advanced settings** tab has **Allow players to download videos** (允許播放器下載影片, `server.allow_download`, on by default).
+The **Playback** card on the **Settings** tab has **Allow players to download videos** (允許播放器下載影片, `server.allow_download`, on by default).
 
 - The download URLs `/Items/{id}/Download` and `/Items/{id}/File` always require login. Downloading a strm item is the same 302 to 115, so the player downloads straight from 115.
 - When the switch is off, items report `CanDownload: false` and the user policy reports `EnableContentDownloading: false`, so players hide their download button. Calling a download URL directly returns 403 "下載功能已關閉" (downloads are disabled).
@@ -68,7 +68,7 @@ The **Server** card (伺服器) on the **Advanced settings** tab has **Allow pla
 
 ## strm files from other tools
 
-The other settings in the **Other tools' strm** card only matter when the strm contents were not written by Mi302 (for example alist URLs or local paths). Click **Save settings** (儲存設定) at the bottom of the page after changing them.
+The settings in the **Other tools' strm** card (其他工具產生的 strm) on the **Settings** tab only matter when the strm contents were not written by Mi302 (for example alist URLs or local paths). Click **Save settings** (儲存設定) at the bottom of the page after changing them.
 
 **Path rules** (路徑替換, `redirect.path_rules`): one rule per line, written as `old prefix => new prefix`. The strm content is rewritten before anything else happens.
 
@@ -151,7 +151,7 @@ In the player, use `https://emby.example.com` as the server address.
 
 ### Server URL inside strm files
 
-The **115 and strm** card (115 與 strm) on the **Advanced settings** tab has **Server URL in strm files** (strm 裡的伺服器網址, `p115.strm.base_url`). Left empty, Mi302 uses the address the admin most recently used to open the web admin page.
+The **Sync options** card (同步選項) on the **115 Cloud** tab (115 網盤) has **Server URL in strm files** (strm 裡的伺服器網址, `p115.strm.base_url`). Left empty, Mi302 uses the address the admin most recently used to open the web admin page.
 
 When Mi302 plays a strm itself, it only extracts the pickcode and ignores the host, so remote playback works without changing this setting. You only need to set your public address when other programs read these strm files directly (for example another Emby server, or a player that opens the strm files over SMB) and must reach Mi302 from outside.
 

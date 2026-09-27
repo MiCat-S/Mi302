@@ -59,7 +59,7 @@ These are computed when a player asks. A newly learned intro shows up the next t
 
 SenPlayer reads the Emby chapter markers (the first row above). To test:
 
-1. Make sure **Learn intros and credits and send them to players** (學片頭片尾並給播放器) in the **Intro and credits** card (片頭片尾) on the **Libraries** tab (媒體庫) is on (it is by default).
+1. Make sure **Learn intros and credits and send them to players** (學片頭片尾並給播放器) in the collapsed **Settings** section (設定) of the **Intro and credits** card (片頭片尾) on the **Tools** tab (整理) is on (it is by default).
 2. In SenPlayer, open an episode of a series that has an intro and let it play normally for a few seconds.
 3. Inside the intro zone (the first 10 minutes, or the first 25% for short episodes), skip forward past the intro in a single jump of 15 seconds to 3 minutes, for example by dragging the progress bar.
 4. Keep playing for 10 to 20 seconds after the jump so SenPlayer reports the new position.
@@ -72,14 +72,14 @@ To test credits, stop playback or move to the next episode within the last 5 min
 
 ## The Intro and credits card
 
-On the **Libraries** tab:
+On the **Intro and credits** sub-tab of the **Tools** tab:
 
 - The numbers at the top are seasons learned (學到的季), episodes with records (有紀錄的集) and seasons set by hand (手動設定的季).
 - The search box finds every season of a series by title, including seasons nothing has been learned for yet. It matches the title, original title, Simplified or Traditional characters, full pinyin and pinyin initials, for example `qyn`.
 - Without a search, the list shows seasons with learned records or manual settings, most recent activity first, 20 per page. Each season shows the series, the season number, "片頭 X → Y" (intro) and "片尾在結尾前 …" (credits start before the end), each marked learned (學到) or manual (手動); seasons set by hand carry a **Manual** tag (手動). The values are computed for the season's first episode.
 - **Edit** (編輯) on each season opens the manual settings, see the next section.
 - **Clear all** (清除全部) deletes every learned record after a confirmation; learning starts over as you watch. Manual settings are kept.
-- **Learn intros and credits and send them to players** is `server.intro_skip`. It is saved as soon as you toggle it.
+- **Learn intros and credits and send them to players**, in the **Settings** section, is `server.intro_skip`. It is saved as soon as you toggle it.
 
 ## Manual settings
 

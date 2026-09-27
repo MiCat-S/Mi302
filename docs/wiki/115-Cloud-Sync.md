@@ -14,7 +14,7 @@ Mi302 logs in to 115 by itself. You do not need MoviePilot or any other 115 tool
 
 The status next to the code changes from "waiting for scan" (等待掃描…) to "scanned, confirm on the phone" (已掃描，請在手機上確認), and a "115 login succeeded" (115 登入成功) message appears. If the code expires, click the button again. Once logged in, the button reads **Scan again** (重新掃碼登入).
 
-A QR-code login takes one of 115's device slots. 115 allows one login per device type, so another login of the same type is kicked out. The default type is Alipay mini program. If you use that type yourself, go to **Advanced settings** (進階設定) → **115 and strm** (115 與 strm), change **Device type used by QR login** (掃碼登入佔用的 115 裝置類型), click **Save settings** (儲存設定), then **Scan again**. The new type only applies from the next scan.
+A QR-code login takes one of 115's device slots. 115 allows one login per device type, so another login of the same type is kicked out. The default type is Alipay mini program. If you use that type yourself, expand **Advanced: device type used by QR login, 115 open platform** (進階：掃碼佔用的裝置類型、115 開放平台) on the **Account** card, change **Device type used by QR login** (掃碼登入佔用的 115 裝置類型), click **Save device type and AppID** (儲存裝置類型和 AppID), then **Scan again**. The new type only applies from the next scan.
 
 | Option | Value in the config file (`p115.app`) |
 | --- | --- |
@@ -60,11 +60,11 @@ Account data is cached for one minute. The **Refresh** button (重新整理) in 
 
 Most users can skip this. It is only for people who registered their own application on the [115 open platform](https://open.115.com) and have an AppID.
 
-1. On the **Account** card, expand **Advanced: 115 open platform** (進階：115 開放平台…).
+1. On the **Account** card, expand **Advanced: device type used by QR login, 115 open platform** (進階：掃碼佔用的裝置類型、115 開放平台).
 2. Enter the AppID and click **Authorize** (授權).
 3. Scan and authorize with the 115 mobile app.
 
-Once authorized, folder lookups, folder listings, new-file listings and direct links go through the open platform first and fall back to the QR or cookie login when it fails. The token lasts about two hours; Mi302 renews it automatically when it is about to expire. If 115 refuses the renewal, authorize again. **Revoke** (取消授權) removes the authorization. You can pre-fill the AppID under **Advanced settings** → **115 open platform AppID** (115 開放平台 AppID, `p115.open_app_id`).
+Once authorized, folder lookups, folder listings, new-file listings and direct links go through the open platform first and fall back to the QR or cookie login when it fails. The token lasts about two hours; Mi302 renews it automatically when it is about to expire. If 115 refuses the renewal, authorize again. **Revoke** (取消授權) removes the authorization. You can pre-fill the AppID and keep it with **Save device type and AppID** in the same section (`p115.open_app_id`).
 
 Reading life events and exporting the directory tree need a QR or cookie login. With only the open platform, incremental sync only picks up new files by modification time, and full sync lists folders one level at a time.
 
@@ -97,14 +97,14 @@ http://192.168.1.10:8096/d/abcdefghijklmnopq.mkv
 
 - The middle part is the pickcode, the 17-character code 115 uses to identify a file. At playback Mi302 uses it to fetch a direct link from 115 and redirects the player there with HTTP 302. See [Playback](Playback).
 - The extension is the original file's extension, so players and the scanner know the container format.
-- With **Append the original file name to strm URLs** (strm 網址後附上原檔名) under Advanced settings, the link ends with `?/original-file-name`. This is only for humans; Mi302 ignores it.
+- With **Append the original file name to strm URLs** (strm 網址後附上原檔名) on the **Sync options** card (同步選項), the link ends with `?/original-file-name`. This is only for humans; Mi302 ignores it.
 - **Skip videos smaller than (MB)** (略過小於這個大小的影片（MB）, `p115.strm.min_size_mb`) in the sync options skips small videos when set above 0. For example, 50 skips most trailers.
 
 ### Server address in strm files
 
 Mi302 picks the address in this order:
 
-1. **Server URL in strm files** (strm 裡的伺服器網址, `p115.strm.base_url`) under Advanced settings, if set.
+1. **Server URL in strm files** (strm 裡的伺服器網址, `p115.strm.base_url`) on the Sync options card, if set.
 2. The address in your browser's address bar the last time you opened the 115 Cloud tab or started a sync. So open the admin page with an address players can reach, such as `http://192.168.1.10:8096`, not `localhost`.
 3. Otherwise `http://127.0.0.1:<port>`.
 
@@ -219,7 +219,7 @@ The **Sync** card (also on the Overview tab) shows the last sync:
 
 ## After a sync
 
-- **Scan**: with **Rescan libraries after sync** (同步完自動重新掃描媒體庫, `p115.strm.scan_after_sync`, on by default) under Advanced settings, only the series or movies with new, updated, moved or deleted files are rescanned. See [Library and Scanning](Library-and-Scanning).
+- **Scan**: with **Rescan libraries after sync** (同步完自動重新掃描媒體庫, `p115.strm.scan_after_sync`, on by default) on the Sync options card, only the series or movies with new, updated, moved or deleted files are rescanned. See [Library and Scanning](Library-and-Scanning).
 - **Scrape**: new strm files are sent to MoviePilot (同步產生新的 strm 後自動送去刮削). See [MoviePilot](MoviePilot).
 - **Probe**: with batch probing (批次探測) and probing after sync (同步產生新的 strm 後自動探測) on, new strm files and files replaced on 115 are probed for media info in the background. See [Media Info](Media-Info).
 - **Fill missing episodes**: with **Fill after full sync** (全量同步後自動補全) on, every full sync sends all series that have a tmdbid to MoviePilot as subscriptions.
@@ -252,7 +252,7 @@ Deleting a sync task never deletes the strm files it created, whether this optio
 
 ## Duplicate files
 
-The **Duplicate files** card (重複檔案) at the bottom of the 115 tab finds duplicate videos on 115 and deletes the extra copies. One **Find duplicates** run looks for two kinds, shown on two tabs:
+The **Duplicate files** card (重複檔案) on the **Tools** tab (整理) finds duplicate videos on 115 and deletes the extra copies. One **Find duplicates** run looks for two kinds, shown on two tabs:
 
 | Tab | What counts as a duplicate | Default |
 | --- | --- | --- |
@@ -303,13 +303,13 @@ While the breaker is open:
 - Scheduled syncs wait, and media-info probing stops.
 - Playback does not go through the breaker and still fetches direct links from 115.
 
-The notice appears on the Account cards of the 115 Cloud and Overview tabs and on the **Media info** card (媒體資訊) of the Libraries tab.
+The notice appears on the Account cards of the 115 Cloud and Overview tabs and on the **Media info** card (媒體資訊) of the Tools tab.
 
 For one hour after recovering from rate limiting, media-info probing runs slower: for the first 30 minutes the interval between direct-link requests is 4 times longer and the hourly cap is a quarter, for the next 30 minutes 2 times and a half, then back to normal. Sync is not slowed down. The Media info card says it is slowing down while this lasts.
 
 ## Other settings
 
-- **Seconds to wait before listing each 115 folder** (`p115.strm.request_delay`, default 0.2): the pause before each request when listing folder by folder or looking up a folder path. Too fast may get you rate-limited. Under Advanced settings → 115 and strm.
+- **Seconds to wait before listing each 115 folder** (`p115.strm.request_delay`, default 0.2): the pause before each request when listing folder by folder or looking up a folder path. Too fast may get you rate-limited. On the 115 Cloud tab → Sync options.
 - `p115.timeout` (default 15 seconds): timeout for requests to 115. Config file only; needs a restart.
 
 Every key is described in the [Configuration Reference](Configuration-Reference).

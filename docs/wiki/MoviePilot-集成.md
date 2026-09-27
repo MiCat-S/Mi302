@@ -34,7 +34,7 @@ Mi302 只读取文件夹里已有的 nfo 和图片。这些数据可以在 115 �
 | 路径对应 | `moviepilot.path_mappings` | 无 | 见下一节 |
 | 同步产生新的 strm 后自动送去刮削 | `moviepilot.scrape_after_sync` | 开 | 关闭时同步完只扫描 |
 | MoviePilot 帐号、MoviePilot 密码 | `moviepilot.username`、`moviepilot.password` | 空 | 补全缺集需要；旧版刮削 API 也需要 |
-| 全量同步后自动补全 | `moviepilot.fill_after_full_sync` | 关 | 在“补全缺集”卡片，切换后立即保存 |
+| 全量同步后自动补全 | `moviepilot.fill_after_full_sync` | 关 | 在“补全缺集”卡片的“设定”里，切换后立即保存 |
 | （只在配置文件） | `moviepilot.timeout` | 300 | 每一项最多等几秒；超时当作连接失败，这一批停下 |
 
 ### 什么时候要填账号密码

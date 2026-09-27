@@ -34,7 +34,7 @@ The connection test only checks the URL and the API token. It sends an empty pat
 | Path mappings (路徑對應) | `moviepilot.path_mappings` | none | see the next section |
 | Send new strm files for scraping after sync (同步產生新的 strm 後自動送去刮削) | `moviepilot.scrape_after_sync` | on | when off, sync only scans |
 | MoviePilot username, password (MoviePilot 帳號, MoviePilot 密碼) | `moviepilot.username`, `moviepilot.password` | empty | needed to fill missing episodes, and by the scrape API of older versions |
-| Fill missing episodes after full sync (全量同步後自動補全) | `moviepilot.fill_after_full_sync` | off | in the fill card; saved as soon as you toggle it |
+| Fill missing episodes after full sync (全量同步後自動補全) | `moviepilot.fill_after_full_sync` | off | in the collapsed Settings section (設定) of the fill card; saved as soon as you toggle it |
 | (config file only) | `moviepilot.timeout` | 300 | seconds to wait per item; exceeding it counts as a connection failure and stops the batch |
 
 ### When you need the username and password
