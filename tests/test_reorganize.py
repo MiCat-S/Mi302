@@ -74,6 +74,13 @@ class FakeMP:
             return httpx.Response(404)
         items = []
         for fi in body["fileitems"]:
+            if body.get("type_name") == "电影":  # 電影：放到電影資料夾（「放外面」的放到同步目錄外）
+                root = "/别处" if fi["name"] in self.outside else "/影視/電影"
+                target = f"{root}/{fi['basename']}/{fi['name']}"
+                items.append({"source": fi["path"], "target": target, "success": True, "type": "电影"})
+                if not body["preview"]:
+                    items[-1]["state"] = "completed"
+                continue
             ep = self.wrong_ep.get(fi["name"]) or self.episode(fi, body.get("episode_format"))
             if not ep:
                 items.append({"source": fi["path"], "success": False, "message": "无法识别集数", "state": "failed"})
@@ -261,3 +268,76 @@ def test_preview_needs_moviepilot_login(tmp_path: Path):
     body = {"series_id": r["items"][0]["series_id"], "season": 1, "tmdbid": "1", "groups": []}
     resp = c.post("/web/api/moviepilot/reorganize/preview", json=body, headers=h)
     assert resp.status_code == 400 and "帳號" in resp.text
+
+
+def test_browse_115_and_reorganize_a_folder(tmp_path: Path):
+    app, fake, mp, media, c, h = build(tmp_path)
+    # 瀏覽：用路徑打開、用資料夾 id 往下走；影片附上在媒體庫裡被認成什麼
+    r = c.get("/web/api/115/files", params={"path": "/影視/劇集"}, headers=h).json()
+    assert r["cid"] == 102 and r["sync_root"] == "/影視" and [d["name"] for d in r["dirs"]] == ["Dark", "中国新说唱 (2017)"]
+    r = c.get("/web/api/115/files", params={"cid": 107, "path": SHOW + "/Season 01"}, headers=h).json()
+    files = {f["name"]: f for f in r["files"]}
+    ten = files["10.潘玮柏战队面临团危机-蓝光4K.mp4"]
+    assert ten["video"] and (ten["lib"]["type"], ten["lib"]["season"], ten["lib"]["episode"], ten["lib"]["ep_from"]) == \
+        ("Episode", 1, 10, "name") and ten["lib"]["series"] == "中国新说唱"
+    root = c.get("/web/api/115/files", params={"path": "/"}, headers=h).json()
+    assert root["cid"] == 0 and root["sync_root"] is None and [d["name"] for d in root["dirs"]] == ["影視"]
+    assert c.get("/web/api/115/files", params={"path": "/沒有這個"}, headers=h).status_code == 400
+    assert c.get("/web/api/115/files", params={"path": "/"}).status_code == 401
+
+    # 整理一整部劇的資料夾：類型、TMDB 編號、季都從媒體庫猜好
+    plan = c.get("/web/api/moviepilot/reorganize/folder", params={"cid": 106, "path": SHOW}, headers=h).json()
+    assert (plan["mode"], plan["type"], plan["tmdbid"], plan["season"], plan["in_sync"]) == ("folder", "tv", "103863", 1, 5)
+    groups = {g["key"]: g for g in plan["groups"]}
+    assert groups["unknown"]["enabled"] and "電影" in groups["unknown"]["note"]  # 資料夾模式：認不出集號的照樣送
+    assert c.get("/web/api/moviepilot/reorganize/folder", params={"cid": 0, "path": "/"}, headers=h).status_code == 400
+
+    mp.calls.clear()
+    body = {"plan_id": plan["plan_id"], "tmdbid": "", "type": "tv", "season": 1, "target": "path",
+            "target_path": "/影視/劇集", "scrape": False,
+            "groups": [{"key": g["key"], "template": g["template"], "enabled": g["enabled"]} for g in plan["groups"]]}
+    pv = c.post("/web/api/moviepilot/reorganize/preview", json=body, headers=h).json()
+    sent = [b for p_, b in mp.calls if p_ == "/api/v1/transfer/manual"]
+    assert all(b["type_name"] == "电视剧" and b["season"] == 1 and b["target_path"] == "/影視/劇集"
+               and "media_id" not in b and not b["scrape"] for b in sent)  # 沒填 TMDB 編號：讓 MoviePilot 自己認
+    assert pv["summary"]["ok"] == 4 and pv["token"]  # 「特辑」認不出集號：MoviePilot 也失敗
+    # 執行：寫著 -1 的舊 nfo 刪掉
+    assert c.post("/web/api/moviepilot/reorganize/execute", json={"token": pv["token"]}, headers=h).status_code == 200
+    wait(lambda: not app.state.reorganizer.job.running)
+    assert app.state.reorganizer.job.done == 4
+    assert not (media / "劇集" / "中国新说唱 (2017)" / "Season 01" / "10.潘玮柏战队面临团危机-蓝光4K.nfo").exists()
+
+
+def test_reorganize_movie_folder_outside_sync(tmp_path: Path):
+    """同步目錄外的「待整理」：類型選電影、不送集數定位；新位置在同步目錄外只提醒，不擋。"""
+    app, fake, mp, media, c, h = build(tmp_path)
+    fake.dirs[200] = ("待整理", 0)
+    for i, n in enumerate(["Up (2009).mkv", "Heat (1995).mkv"]):
+        fake.files.append({"fid": 60 + i, "cid": 200, "n": n, "pc": chr(ord("p") + i) * 17, "s": 900_000_000, "te": T0})
+    plan = c.get("/web/api/moviepilot/reorganize/folder", params={"cid": 200, "path": "/待整理"}, headers=h).json()
+    assert (plan["type"], plan["tmdbid"], plan["season"], plan["in_sync"]) == ("auto", "", None, 0)
+    mp.outside.add("Heat (1995).mkv")
+    mp.calls.clear()
+    body = {"plan_id": plan["plan_id"], "type": "movie", "target": "auto", "scrape": True,
+            "groups": [{"key": g["key"], "template": "{ep}.{a}", "enabled": True} for g in plan["groups"]]}
+    pv = c.post("/web/api/moviepilot/reorganize/preview", json=body, headers=h).json()
+    sent = [b for p_, b in mp.calls if p_ == "/api/v1/transfer/manual"]
+    assert sent and all(b["type_name"] == "电影" and "episode_format" not in b and "season" not in b for b in sent)
+    items = {i["name"]: i for i in pv["items"]}
+    assert items["Up (2009).mkv"]["ok"] and not items["Up (2009).mkv"]["warnings"]
+    assert items["Heat (1995).mkv"]["ok"] and "不會替它產生 strm" in items["Heat (1995).mkv"]["warnings"][0]
+
+
+def test_folder_mode_only_drops_nfo_with_negative_numbers(tmp_path: Path):
+    from embyserver.reorganize import Reorganizer
+
+    movie, bad, ep = tmp_path / "Up (2009).strm", tmp_path / "10.xx.strm", tmp_path / "S01E02.strm"
+    movie.with_suffix(".nfo").write_text("<movie><title>Up</title></movie>", encoding="utf-8")
+    bad.with_suffix(".nfo").write_text("<episodedetails><season>-1</season><episode>-1</episode></episodedetails>")
+    ep.with_suffix(".nfo").write_text("<episodedetails><title>x</title></episodedetails>")
+    for strm in (movie, bad, ep):
+        Reorganizer._drop_stale_nfo(strm, strict=True)
+    assert movie.with_suffix(".nfo").exists() and ep.with_suffix(".nfo").exists()
+    assert not bad.with_suffix(".nfo").exists()
+    Reorganizer._drop_stale_nfo(ep)  # 一季整理：沒有集號的 nfo 就刪
+    assert not ep.with_suffix(".nfo").exists()

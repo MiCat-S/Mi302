@@ -169,6 +169,12 @@ dialog.wide{width:min(720px,calc(100vw - 32px))}
 .reog+.reog{margin-top:10px}
 .reog .files{font-size:13px;color:var(--muted);word-break:break-all}
 .reo-to{font-size:13px;word-break:break-all}
+/* 瀏覽 115 */
+.crumbs{display:flex;flex-wrap:wrap;gap:2px 4px;align-items:center;font-size:13.5px}
+.crumbs a{cursor:pointer}.crumbs .sep{color:var(--muted)}
+#b115List .li{padding:8px 0}
+#b115List .dir{cursor:pointer;color:var(--fg)}#b115List .dir:hover{color:var(--accent)}
+#b115List .other{color:var(--muted);font-size:13px}
 .logbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;justify-content:flex-start}
 .logbar select{width:auto}.logbar input[type=search]{flex:1 1 180px;width:auto}
 .logs{font:12.5px/1.55 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;height:calc(100vh - 330px);min-height:280px;overflow:auto}
@@ -412,6 +418,20 @@ dialog .card-b{max-height:70vh;overflow:auto}
             <p><b>增量</b>：讀 115 的生活事件（操作紀錄），處理上次同步之後的上傳、移動、改名、刪除；移動和改名時，本機的 strm 連同刮好的 nfo、海報一起搬。再依修改時間補抓沒有產生事件的上傳（例如離線下載）。速度快，適合常常跑。</p>
             <p><b>全量</b>：用 115 的「導出目錄樹」重新比對整個目錄，查漏補缺，預設每週自動跑一次。</p>
             <p>任務第一次增量同步、或太久沒同步超出 115 保留的事件範圍時，會自動改跑全量。</p></div></details>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-h"><div class="t"><svg class="i"><use href="#i-folder"/></svg><h2>瀏覽 115</h2></div>
+          <button class="btn" id="b115Start" onclick="browse115Start()">開始瀏覽</button></div>
+        <div class="card-b stack">
+          <p class="hint">看 115 上的資料夾裡有什麼，影片標出在 Mi302 媒體庫裡被認成哪一集或哪部電影。覺得哪個資料夾不對，按「交給 MoviePilot 整理…」，一樣先預覽，看過新位置再執行。每打開一個資料夾會列一次 115 的目錄。</p>
+          <div id="b115Job"></div>
+          <div id="b115Crumbs" class="crumbs"></div>
+          <div id="b115Bar" class="row wrap hidden"><span class="hint grow" id="b115Info"></span>
+            <button class="btn sm" onclick="b115Open(b115.cid, b115.path)">重新整理清單</button>
+            <button class="btn sm" id="b115Reo" onclick="openReorgFolder(b115.cid, b115.path)">交給 MoviePilot 整理這個資料夾…</button></div>
+          <div id="b115List" class="list"></div>
         </div>
       </div>
 
@@ -720,9 +740,12 @@ dialog .card-b{max-height:70vh;overflow:auto}
     <div id="reoPlan"></div>
     <div id="reoForm" class="stack hidden">
       <div class="fields">
-        <label class="field"><span>TMDB 編號</span><input id="reoTmdb" type="text" inputmode="numeric" oninput="reoDirty()"><small>從 tvshow.nfo 讀到的；沒有或不對就自己填</small></label>
-        <label class="field"><span>整理到</span><select id="reoTarget" onchange="reoDirty()"><option value="auto">照 MoviePilot 的目錄設定</option><option value="parent">現在的分類資料夾</option></select><small id="reoTargetHint"></small></label>
+        <label class="field" id="reoTypeField"><span>類型</span><select id="reoType" onchange="reoTypeChanged()"><option value="auto">讓 MoviePilot 自己認</option><option value="tv">電視劇</option><option value="movie">電影</option></select></label>
+        <label class="field"><span>TMDB 編號</span><input id="reoTmdb" type="text" inputmode="numeric" oninput="reoDirty()"><small id="reoTmdbHint"></small></label>
+        <label class="field" id="reoSeasonField"><span>季</span><input id="reoSeason" type="number" min="0" placeholder="不填讓 MoviePilot 自己認" oninput="reoDirty()"></label>
+        <label class="field"><span>整理到</span><select id="reoTarget" onchange="reoTargetChanged()"><option value="auto">照 MoviePilot 的目錄設定</option><option value="path">指定的 115 資料夾</option></select><small id="reoTargetHint"></small></label>
       </div>
+      <div class="inline hidden" id="reoPathRow"><input id="reoTargetPath" type="text" placeholder="/影視/電視劇" oninput="reoDirty()"><button class="btn" onclick="reoPickTarget()">選擇…</button></div>
       <label class="switch"><input type="checkbox" id="reoScrape" checked onchange="reoDirty()"><span class="track"></span><span class="lbl">整理後刮削<small>MoviePilot 把 nfo 和劇照寫到 115，Mi302 同步時下載（要開 115 同步的「一併下載 115 上的 nfo、海報、字幕」）</small></span></label>
       <div id="reoGroups"></div>
     </div>
@@ -1990,12 +2013,11 @@ function fillHtml(f) {
   return h;
 }
 // ---- 集號不對的劇：交給 MoviePilot 整理（先預覽再執行）----
-let reoQT = null, reoPage = 1, reoSeq = 0, reoTimer = null, reoWasRunning = false, reoLast = null;
+let reoQT = null, reoPage = 1, reoSeq = 0, reoWasRunning = false, reoLast = null;
 let reo = {plan: null, token: null, preview: null};
 const REO_PAGE = 20;
 async function loadReorg(page) {
   reoPage = Math.max(1, page || reoPage);
-  clearTimeout(reoTimer);
   const seq = ++reoSeq;
   let r;
   try { r = await api(`/web/api/moviepilot/reorganize?q=${encodeURIComponent($('reoQ').value)}&offset=${(reoPage - 1) * REO_PAGE}&limit=${REO_PAGE}`); }
@@ -2020,9 +2042,7 @@ async function loadReorg(page) {
   const pages = Math.max(1, Math.ceil(r.total / REO_PAGE));
   if (pages > 1) box.insertAdjacentHTML('beforeend', `<div class="row" style="padding-top:12px"><span class="hint grow">第 ${reoPage} / ${pages} 頁，共 ${r.total} 季</span>
     <button class="btn sm"${reoPage <= 1 ? ' disabled' : ''} onclick="loadReorg(${reoPage - 1})">上一頁</button><button class="btn sm"${reoPage >= pages ? ' disabled' : ''} onclick="loadReorg(${reoPage + 1})">下一頁</button></div>`);
-  if (running) reoTimer = setTimeout(() => loadReorg(), 2000);
-  else if (reoWasRunning) toast('MoviePilot 整理完成', r.job.failed || r.job.errors.length ? 'bad' : '');
-  reoWasRunning = running;
+  if (running) pollReorgJob();
 }
 const REO_STATE = {completed: '完成', accepted: 'MoviePilot 已接收', failed: '失敗', retry_wait: '等待重試', skipped: '略過', manual_review: '要人工確認'};
 function reoJobHtml(j) {
@@ -2037,39 +2057,71 @@ function reoJobHtml(j) {
   if (j.errors.length) h += `<div class="notice bad" style="margin-top:10px">${j.errors.slice(0, 3).map(esc).join('<br>')}</div>`;
   return h;
 }
-async function openReorg(it) {
+function openReorg(it) {
+  openReorgPlan(`/web/api/moviepilot/reorganize/plan?series=${it.series_id}&season=${it.season}`, `交給 MoviePilot 整理：${it.name} 第 ${it.season} 季`);
+}
+function openReorgFolder(cid, path) {
+  if (!path || path === '/') { toast('不能整理整個 115，請進到一個資料夾', 'bad'); return; }
+  openReorgPlan(`/web/api/moviepilot/reorganize/folder?cid=${cid}&path=${encodeURIComponent(path)}`, `交給 MoviePilot 整理：${path}`);
+}
+async function openReorgPlan(url, title) {
   reo = {plan: null, token: null, preview: null};
-  $('reoTitle').textContent = `交給 MoviePilot 整理：${it.name} 第 ${it.season} 季`;
+  $('reoTitle').textContent = title;
   $('reoPlan').innerHTML = '<p class="hint row"><span class="spin"></span>讀取 115 上的檔案…</p>';
   $('reoForm').classList.add('hidden'); $('reoResult').innerHTML = ''; note($('reoMsg'), '');
   $('reoPreviewBtn').disabled = $('reoRunBtn').disabled = true; $('reoRunBtn').textContent = '執行整理'; $('reoInfo').textContent = '';
   reoDlg.showModal();
   let plan;
-  try { plan = await api(`/web/api/moviepilot/reorganize/plan?series=${it.series_id}&season=${it.season}`); }
+  try { plan = await api(url); }
   catch (e) { $('reoPlan').innerHTML = ''; note($('reoMsg'), e.message, 'bad'); return; }
   reo.plan = plan;
-  $('reoPlan').innerHTML = `<p class="hint">115 上的位置：<code>${esc(plan.remote_series)}</code></p>` + (plan.missing.length
+  const folder = plan.mode === 'folder', count = plan.groups.reduce((n, g) => n + g.files.length, 0);
+  $('reoPlan').innerHTML = (folder
+    ? `<p class="hint">115 上的位置：<code>${esc(plan.path)}</code>・${count} 支影片${plan.in_sync ? `，其中 ${plan.in_sync} 支在同步目錄裡（媒體庫裡有）` : '，都不在同步目錄裡'}</p>`
+    : `<p class="hint">115 上的位置：<code>${esc(plan.remote_series)}</code></p>`) + (plan.missing.length
     ? `<p class="notice warn" style="margin-top:8px">${plan.missing.length} 集找不到 115 上的檔案，這次不會送：${esc(plan.missing[0].reason)}</p>` : '');
+  $('reoTypeField').classList.toggle('hidden', !folder); $('reoSeasonField').classList.toggle('hidden', !folder);
+  $('reoType').value = plan.type || 'auto'; $('reoSeason').value = plan.season ?? '';
   $('reoTmdb').value = plan.tmdbid || '';
-  $('reoTarget').value = 'auto'; $('reoScrape').checked = true;
-  $('reoTargetHint').textContent = `「現在的分類資料夾」是 ${plan.remote_parent}，不另加類型、類別資料夾；劇集資料夾的名稱照 MoviePilot 的命名設定`;
+  $('reoTmdbHint').textContent = folder ? '不填讓 MoviePilot 用檔名辨識；從媒體庫或資料夾名稱（[tmdb=…]）找到的會先填好' : '從 tvshow.nfo 讀到的；沒有或不對就自己填';
+  $('reoTarget').value = 'auto'; $('reoTargetPath').value = plan.remote_parent || ''; $('reoScrape').checked = true;
+  reoTargetChanged(true);
   const box = $('reoGroups'); box.innerHTML = '';
   for (const g of plan.groups) {
     const d = document.createElement('div'); d.className = 'reog'; d.dataset.key = g.key;
     const first = g.files[0]?.name || '', short = first.length > 18 ? first.slice(0, 18) + '…' : first;
-    const label = g.key === 'native' ? 'MoviePilot 自己認得的寫法' : g.key === 'unknown' ? '認不出集號' : `和「${esc(short)}」同一種寫法`;
+    const label = g.key === 'native' ? 'MoviePilot 自己認得的寫法' : g.key === 'unknown' ? (folder ? '檔名看不出集號' : '認不出集號') : `和「${esc(short)}」同一種寫法`;
     d.innerHTML = `<label class="switch" style="padding:0"><input type="checkbox" class="js-on"${g.enabled ? ' checked' : ''}><span class="track"></span>
         <span class="lbl">${label}（${g.files.length} 個）${g.note ? `<small>${esc(g.note)}</small>` : ''}</span></label>
-      ${g.key === 'native' ? '' : `<label class="field" style="margin-top:8px"><span>集數定位</span><input type="text" class="js-tpl" placeholder="{ep}.{a}">
-        <small>{ep} 是集號，{a}、{b} 是任意文字，要對上整個檔名。${g.source === 'mi302' ? 'Mi302 依檔名產生的。' : g.source === 'moviepilot' ? 'MoviePilot 推薦的。' : ''}</small></label>`}
+      ${g.key === 'native' ? '' : `<label class="field js-tplf" style="margin-top:8px"><span>集數定位</span><input type="text" class="js-tpl" placeholder="{ep}.{a}">
+        <small>{ep} 是集號，{a}、{b} 是任意文字，要對上整個檔名。${g.source === 'mi302' ? 'Mi302 依檔名產生的。' : g.source === 'moviepilot' ? 'MoviePilot 推薦的。' : ''}類型是電影時不用。</small></label>`}
       <details class="more" style="margin-top:6px"><summary>看檔案</summary><div class="in files">${g.files.map(f => esc(f.name) + (f.episode != null ? `（第 ${f.episode} 集）` : '')).join('<br>')}</div></details>`;
     const tpl = d.querySelector('.js-tpl'); if (tpl) { tpl.value = g.template || ''; tpl.oninput = reoDirty; }
     d.querySelector('.js-on').onchange = reoDirty;
     box.appendChild(d);
   }
+  reoTypeChanged(true);
   $('reoForm').classList.remove('hidden');
   $('reoPreviewBtn').disabled = false;
   $('reoInfo').textContent = '先按「預覽」，看過每個檔案的新位置再執行';
+}
+function reoTypeChanged(init) {
+  // 電影沒有季和集數定位
+  const movie = reo.plan?.mode === 'folder' && $('reoType').value === 'movie';
+  $('reoSeasonField').classList.toggle('hidden', reo.plan?.mode !== 'folder' || movie);
+  for (const el of document.querySelectorAll('#reoGroups .js-tplf')) el.classList.toggle('hidden', movie);
+  if (!init) reoDirty();
+}
+function reoTargetChanged(init) {
+  const path = $('reoTarget').value === 'path';
+  $('reoPathRow').classList.toggle('hidden', !path);
+  $('reoTargetHint').textContent = path ? '放在這個資料夾底下，不另加類型、類別資料夾；劇集、電影資料夾的名稱照 MoviePilot 的命名設定。預設是現在的上一層'
+    : 'MoviePilot 目錄設定裡的媒體庫目錄，照它的類型、類別資料夾';
+  if (!init) reoDirty();
+}
+async function reoPickTarget() {
+  const p = await pickDir('115', $('reoTargetPath').value || '/');
+  if (p) { $('reoTargetPath').value = p; reoDirty(); }
 }
 function reoDirty() {
   // 改了任何設定，之前的預覽就不算數了
@@ -2081,7 +2133,8 @@ function reoDirty() {
 async function reoPreview() {
   const p = reo.plan; if (!p) return;
   const groups = Array.from($('reoGroups').children).map(d => ({key: d.dataset.key, enabled: d.querySelector('.js-on').checked, template: d.querySelector('.js-tpl')?.value || ''}));
-  const body = {series_id: p.series_id, season: p.season, tmdbid: $('reoTmdb').value.trim(), target: $('reoTarget').value, scrape: $('reoScrape').checked, groups};
+  const body = {plan_id: p.plan_id, tmdbid: $('reoTmdb').value.trim(), type: $('reoType').value, season: $('reoSeason').value.trim(),
+    target: $('reoTarget').value, target_path: $('reoTargetPath').value.trim(), scrape: $('reoScrape').checked, groups};
   note($('reoMsg'), ''); reo.token = null; $('reoRunBtn').disabled = true;
   $('reoPreviewBtn').disabled = true; $('reoResult').innerHTML = '<p class="hint row"><span class="spin"></span>MoviePilot 預覽中，只算不改…</p>';
   let r;
@@ -2111,11 +2164,95 @@ async function reoExecute() {
   const r = reo.preview; if (!reo.token || !r) return;
   const skip = r.summary.failed;
   if (!await ask({title: `在 115 上整理 ${r.summary.ok} 個檔案？`,
-    text: `MoviePilot 會在 115 上移動、改名這些檔案${$('reoScrape').checked ? '並刮削' : ''}，照剛才預覽的位置。${skip ? `預覽時不行的 ${skip} 個不會送。` : ''}完成後 Mi302 刪掉本機沒有集號的舊 nfo，約 20 秒後同步 115。`,
+    text: `MoviePilot 會在 115 上移動、改名這些檔案${$('reoScrape').checked ? '並刮削' : ''}，照剛才預覽的位置。${skip ? `預覽時不行的 ${skip} 個不會送。` : ''}完成後 Mi302 刪掉本機${reo.plan.mode === 'folder' ? '寫著 -1' : '沒有集號'}的舊 nfo，約 20 秒後同步 115。`,
     ok: '執行整理', danger: true})) return;
   try { await api('/web/api/moviepilot/reorganize/execute', {method: 'POST', body: JSON.stringify({token: reo.token})}); }
   catch (e) { note($('reoMsg'), e.message, 'bad'); return; }
-  reoDlg.close(); toast('已交給 MoviePilot 整理'); loadReorg();
+  reoDlg.close(); toast('已交給 MoviePilot 整理'); reoWasRunning = true; pollReorgJob();
+}
+// 整理的進度：MoviePilot 頁和 115 頁都顯示；做完時重新整理看得到的清單
+let reoJobTimer = null;
+async function pollReorgJob() {
+  clearTimeout(reoJobTimer);
+  let r;
+  try { r = await api('/web/api/moviepilot/reorganize?limit=1'); } catch (e) { return; }
+  const html = reoJobHtml(r.job);
+  setHtml($('reoJob'), html); setHtml($('b115Job'), html);
+  if (r.job.running) { reoWasRunning = true; reoJobTimer = setTimeout(pollReorgJob, 2000); return; }
+  if (reoWasRunning) {
+    reoWasRunning = false;
+    toast('MoviePilot 整理完成', r.job.failed || r.job.errors.length ? 'bad' : '');
+    if (!$('tab-moviepilot').classList.contains('hidden')) loadReorg();
+  }
+}
+
+// ---- 瀏覽 115 ----
+let b115 = {cid: null, path: '', seq: 0};
+const joinPath = (dir, name) => (dir === '/' ? '' : dir.replace(/\/+$/, '')) + '/' + name;
+const parentPath = path => path.replace(/\/[^/]*$/, '') || '/';
+function browse115Start() {
+  // 從第一個同步任務的 115 目錄開始；還沒有任務就從根目錄
+  const t = (cfg?.p115?.strm?.tasks || [])[0];
+  b115Open(null, t ? '/' + String(t.remote).replace(/^\/+|\/+$/g, '') : '/');
+}
+async function b115Open(cid, path) {
+  const seq = ++b115.seq, box = $('b115List');
+  box.innerHTML = '<p class="hint row"><span class="spin"></span>讀取 115…</p>';
+  let r;
+  try { r = await api('/web/api/115/files?' + (cid != null ? `cid=${cid}&` : '') + 'path=' + encodeURIComponent(path)); }
+  catch (e) { if (seq === b115.seq) box.innerHTML = `<p class="notice bad">${esc(e.message)}</p>`; return; }
+  if (seq !== b115.seq) return;
+  b115.cid = r.cid; b115.path = r.path;
+  $('b115Start').textContent = '回到同步目錄';
+  // 路徑列：每一層都可以點
+  const parts = r.path.split('/').filter(Boolean);
+  let acc = '', crumbs = [`<a onclick="b115Open(null, '/')">115</a>`];
+  parts.forEach((name, i) => {
+    acc += '/' + name;
+    crumbs.push('<span class="sep">/</span>' + (i === parts.length - 1 ? `<b>${esc(name)}</b>` : `<a data-path="${esc(acc)}">${esc(name)}</a>`));
+  });
+  $('b115Crumbs').innerHTML = crumbs.join('');
+  for (const a of $('b115Crumbs').querySelectorAll('a[data-path]')) a.onclick = () => b115Open(null, a.dataset.path);
+  const videos = r.files.filter(f => f.video).length;
+  $('b115Info').textContent = `${r.dirs.length} 個資料夾、${r.total_files} 個檔案（${videos} 支影片）` + (r.sync_root ? `・在同步目錄 ${r.sync_root} 裡` : '・不在同步目錄裡');
+  $('b115Reo').disabled = r.path === '/';
+  $('b115Bar').classList.remove('hidden');
+  box.innerHTML = '';
+  if (r.path !== '/') {
+    const up = document.createElement('div'); up.className = 'li';
+    up.innerHTML = `<div class="main path dir">${icon('up')}<span>上一層</span></div>`;
+    up.querySelector('.dir').onclick = () => b115Open(null, parentPath(r.path));
+    box.appendChild(up);
+  }
+  for (const d of r.dirs) {
+    const row = document.createElement('div'); row.className = 'li';
+    const full = joinPath(r.path, d.name);
+    row.innerHTML = `<div class="main path dir">${icon('folder')}<span>${esc(d.name)}</span></div><button class="btn sm ghost" title="交給 MoviePilot 整理這個資料夾">整理…</button>`;
+    row.querySelector('.dir').onclick = () => b115Open(d.id, full);
+    row.querySelector('button').onclick = () => openReorgFolder(d.id, full);
+    box.appendChild(row);
+  }
+  for (const f of r.files) {
+    const row = document.createElement('div'); row.className = 'li top';
+    const meta = `${fmtSize(f.size)}${f.mtime ? '・' + fmtTime(f.mtime) : ''}`;
+    row.innerHTML = f.video
+      ? `<div class="main"><b>${esc(f.name)}</b><div class="row wrap" style="margin-top:4px;gap:6px"><span class="hint">${meta}</span>${b115Lib(f, !!r.sync_root)}</div></div>`
+      : `<div class="main other">${esc(f.name)}・${meta}</div>`;
+    box.appendChild(row);
+  }
+  if (r.total_files > r.files.length) box.insertAdjacentHTML('beforeend', `<p class="hint" style="padding-top:10px">還有 ${r.total_files - r.files.length} 個檔案沒列出</p>`);
+  if (!r.dirs.length && !r.files.length) box.insertAdjacentHTML('beforeend', '<p class="hint" style="padding-top:10px">這個資料夾是空的</p>');
+}
+function b115Lib(f, inSync) {
+  // 這支影片在 Mi302 媒體庫裡被認成什麼
+  const l = f.lib;
+  if (!l) return inSync ? '<span class="pill">不在媒體庫（沒有 strm）</span>' : '';
+  if (!l.type) return '<span class="pill">有 strm，還沒掃描</span>';
+  if (l.type === 'Movie') return `<span class="pill ok">電影：${esc(l.name)}${l.year ? ' (' + l.year + ')' : ''}</span>`;
+  if (l.type !== 'Episode') return `<span class="pill">${esc(l.type)}</span>`;
+  const se = l.episode != null ? `S${ep2(l.season ?? 1)}E${ep2(l.episode)}` : `第 ${l.season ?? '?'} 季，集號不明`;
+  const src = {name: '<span class="pill warn">集號是從檔名猜的</span>', none: '<span class="pill warn">認不出集號</span>'}[l.ep_from] || '';
+  return `<span class="pill ${src ? '' : 'ok'}">${esc(l.series || '')} ${se}</span>${src}`;
 }
 async function loadKeys() {
   const list = await api('/web/api/apikeys');

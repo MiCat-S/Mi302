@@ -20,6 +20,7 @@ from ..moviepilot import library_series
 from ..p115 import P115Error
 from ..p115_open import P115OpenError
 from ..probe_select import ProbeFilter, missing_paths, missing_titles, title_names
+from ..browse115 import list_folder
 from ..reorganize import ReorgError, candidates as reorg_candidates
 from ..settings import SettingsError
 from .common import q, q_int, state
@@ -268,6 +269,23 @@ def suggest_libraries(request: Request, ctx: AuthContext = Depends(require_admin
         return library_suggest.suggest(q(request, "path") or "", st.config.libraries)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
+
+
+@router.get("/web/api/115/files")
+def browse_115_files(request: Request, ctx: AuthContext = Depends(require_admin)):
+    """瀏覽 115：資料夾的子資料夾和檔案，影片附上在 Mi302 媒體庫裡的樣子。給 cid（和 path）或只給 path。"""
+    st = state(request)
+    path = (q(request, "path") or "").strip()
+    cid = q_int(request, "cid")
+    try:
+        if cid is None:
+            path = "/" + path.strip("/") if path.strip("/") else "/"
+            cid = st.p115.dir_id(path) if path != "/" else 0
+            if not cid and path != "/":
+                raise HTTPException(status_code=400, detail=f"115 上沒有這個資料夾：{path}")
+        return list_folder(st.p115, st.db, st.strm_sync.tasks, cid, path)
+    except (P115Error, P115OpenError) as exc:
+        raise HTTPException(status_code=400, detail=f"讀不到 115：{exc}")
 
 
 @router.get("/web/api/115/browse")
@@ -666,17 +684,31 @@ def reorganize_plan(request: Request, ctx: AuthContext = Depends(require_admin))
         raise HTTPException(status_code=400, detail=str(exc))
 
 
+@router.get("/web/api/moviepilot/reorganize/folder")
+def reorganize_folder_plan(request: Request, ctx: AuthContext = Depends(require_admin)):
+    """「瀏覽 115」裡的一個資料夾：裡面（含子資料夾）的影片、建議的類型、TMDB 編號、季、分批。"""
+    st = state(request)
+    try:
+        return st.reorganizer.folder_plan(q_int(request, "cid") or 0, q(request, "path") or "")
+    except ReorgError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
 @router.post("/web/api/moviepilot/reorganize/preview")
 async def reorganize_preview(request: Request, ctx: AuthContext = Depends(require_admin)):
-    """請 MoviePilot 只算不做：{series_id, season, tmdbid, target: auto|parent, scrape, groups: [{key, template, enabled}]}。"""
+    """請 MoviePilot 只算不做：{plan_id（或 series_id + season）, tmdbid, type: auto|tv|movie, season,
+    target: auto|parent|path, target_path, scrape, groups: [{key, template, enabled}]}。"""
     st = state(request)
     body = await _body(request)
     if not st.reorganizer.ready()["login"]:
         raise HTTPException(status_code=400, detail="MoviePilot 的手動整理只接受帳號登入，請在「MoviePilot 帳號密碼」填好再儲存")
+    plan_id = str(body.get("plan_id") or "") or f"s{int(body.get('series_id') or 0)}-{int(body.get('season') or 0)}"
+    season = body.get("season")
     try:
         return await run_in_threadpool(
-            st.reorganizer.preview, int(body.get("series_id") or 0), int(body.get("season") or 0),
-            str(body.get("tmdbid") or ""), str(body.get("target") or "auto"), bool(body.get("scrape", True)),
+            st.reorganizer.preview, plan_id, str(body.get("tmdbid") or ""), str(body.get("type") or "auto"),
+            int(season) if str(season if season is not None else "").strip().isdigit() else None,
+            str(body.get("target") or "auto"), str(body.get("target_path") or ""), bool(body.get("scrape", True)),
             [g for g in body.get("groups") or [] if isinstance(g, dict)],
         )
     except ReorgError as exc:

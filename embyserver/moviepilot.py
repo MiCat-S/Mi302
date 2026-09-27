@@ -508,20 +508,23 @@ class MoviePilot:
     # ---------------- 手動整理 ----------------
 
     def transfer(
-        self, fileitems: List[dict], tmdbid: str, season: int, episode_format: Optional[str], scrape: bool,
-        target_path: Optional[str], preview: bool, timeout: Optional[float] = None,
+        self, fileitems: List[dict], tmdbid: Optional[str], season: Optional[int], episode_format: Optional[str],
+        scrape: bool, target_path: Optional[str], preview: bool, mtype: Optional[str] = "电视剧",
+        timeout: Optional[float] = None,
     ) -> List[dict]:
-        """請 MoviePilot 整理這些 115 上的集（一次一批、同一個集數定位模板）。
+        """請 MoviePilot 整理這些 115 上的檔案（一次一批、同一個集數定位模板）。
 
-        preview=True 只預覽新路徑；否則真的在 115 上移動、改名（和刮削）。target_path 是空的時候
-        照 MoviePilot 的目錄設定放；有給就放在那個資料夾底下（不另加類型、類別資料夾）。
-        回傳每個檔案的結果：source、target、success、message、episode、state（實際執行時）。
+        preview=True 只預覽新路徑；否則真的在 115 上移動、改名（和刮削）。tmdbid、season、mtype（电视剧／电影）
+        空的時候讓 MoviePilot 自己辨識。target_path 是空的時候照 MoviePilot 的目錄設定放；有給就放在那個資料夾
+        底下（不另加類型、類別資料夾）。回傳每個檔案的結果：source、target、success、message、episode、state。
         """
-        body = {
-            "fileitems": fileitems,
-            "media_source": "themoviedb", "media_id": str(tmdbid), "tmdbid": int(tmdbid),  # V3 看前兩個，V2 看 tmdbid
-            "type_name": "电视剧", "season": season, "transfer_type": "move", "scrape": scrape, "preview": preview,
-        }
+        body = {"fileitems": fileitems, "transfer_type": "move", "scrape": scrape, "preview": preview}
+        if tmdbid:
+            body.update(media_source="themoviedb", media_id=str(tmdbid), tmdbid=int(tmdbid))  # V3 看前兩個，V2 看 tmdbid
+        if mtype:
+            body["type_name"] = mtype
+        if season is not None:
+            body["season"] = season
         if episode_format:
             body["episode_format"] = episode_format
         if target_path:
