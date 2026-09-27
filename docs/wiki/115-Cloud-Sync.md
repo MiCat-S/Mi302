@@ -219,7 +219,7 @@ The **Sync** card (also on the Overview tab) shows the last sync:
 
 - **Scan**: with **Rescan libraries after sync** (同步完自動重新掃描媒體庫, `p115.strm.scan_after_sync`, on by default) under Advanced settings, only the series or movies with new, updated, moved or deleted files are rescanned. See [Library and Scanning](Library-and-Scanning).
 - **Scrape**: new strm files are sent to MoviePilot (同步產生新的 strm 後自動送去刮削). See [MoviePilot](MoviePilot).
-- **Probe**: with whole-library probing (整庫探測) and probing after sync (同步產生新的 strm 後自動探測) on, new strm files and files replaced on 115 are probed for media info in the background. See [Media Info](Media-Info).
+- **Probe**: with batch probing (批次探測) and probing after sync (同步產生新的 strm 後自動探測) on, new strm files and files replaced on 115 are probed for media info in the background. See [Media Info](Media-Info).
 - **Fill missing episodes**: with **Fill after full sync** (全量同步後自動補全) on, every full sync sends all series that have a tmdbid to MoviePilot as subscriptions.
 
 ## Follow deletions

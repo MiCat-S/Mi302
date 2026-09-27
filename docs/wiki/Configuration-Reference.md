@@ -200,8 +200,8 @@ Probing the videos behind strm files with ffprobe and writing `X-mediainfo.json`
 
 | Key | Default | Meaning | In the web page |
 | --- | --- | --- | --- |
-| `enabled` | `false` | Whole-library probing (the manual button and probing after sync). When off, existing `X-mediainfo.json` files are still read | Libraries → Media info → **Whole-library probing** (整庫探測) |
-| `after_sync` | `true` | Probe new strm files after a sync; needs whole-library probing | Libraries → Media info → **Probe new strm files after sync** (同步產生新的 strm 後自動探測) |
+| `enabled` | `false` | Batch probing (picking videos to probe in the web page, and probing after sync). When off, existing `X-mediainfo.json` files are still read | Libraries → Media info → **Batch probing** (批次探測) |
+| `after_sync` | `true` | Probe new strm files after a sync; needs batch probing | Libraries → Media info → **Probe new strm files after sync** (同步產生新的 strm 後自動探測) |
 | `on_demand` | `true` | Probe a movie or episode in the background when a player opens it | Libraries → Media info → **Probe when a video is opened** (打開影片時自動探測) |
 | `concurrency` | `2` | Items probed at the same time, 1–3. 115 allows at most 3 connections at once | Libraries → Media info → **Items to probe at once** (同時探測幾項) |
 | `interval` | `1.0` | Minimum seconds between direct-link requests to 115, 0.5–60 | Libraries → Media info → **Direct-link interval (seconds)** (取直鏈間隔（秒）) |

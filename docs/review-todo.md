@@ -28,7 +28,8 @@
 | f658b66 | 下載功能加開關 server.allow_download（預設開；關掉後 CanDownload、EnableContentDownloading 回 false，下載網址 403） |
 | 05e4ed1 | 播放網址預設要求登入（redirect.require_auth 預設 true）。查證過：Emby 官方文件標明串流要登入、4.7 起不分內外網都擋；Emby Web、Kodi 把 token 放查詢參數，Infuse 放 X-Emby-Authorization 標頭，兩種都認。「很多播放器不帶 token」是第一版沒依據的假設，已從程式和說明拿掉 |
 | f2b3743 | MoviePilot 刮削：媒體庫底下有分類資料夾（电视剧/国产剧/庆余年 (2019)）時送對那一部劇，不再把整個分類當成一部劇；和掃描器共用 `scanner.series_folder` |
-| （本次） | README 改成繁中、简中、English 三份概覽；詳細說明拆成 12 頁 × 3 語的 wiki，原始檔在 `docs/wiki`，用 `docs/publish-wiki.sh` 發布 |
+| 506e2af | 媒體資訊可以挑著提取：搜尋片名、媒體庫、電影或劇集、年份範圍篩選；先做哪些（最近加入、年份新舊、評分、片名）；這次最多幾支；每一部可以單獨提取。「整庫探測」開關改名「批次探測」 |
+| b3697ab | README 改成繁中、简中、English 三份概覽；詳細說明拆成 12 頁 × 3 語的 wiki，原始檔在 `docs/wiki`，用 `docs/publish-wiki.sh` 發布 |
 | 73cf045 | 片頭片尾範圍照查證資料改：片頭起點前 10 分鐘內、一次跳 15 秒–3 分鐘；片尾最後 5 分鐘，片尾區裡往前跳 60 秒以上也算；短的集用前後 25%（24 分鐘動畫＝前 6 分鐘、後 5 分鐘），不用判斷是不是動畫。依據：AniSkip 27 部動畫統計、TheIntroDB 影集統計、廣電《電視劇母版製作規範》、Emby／Intro Skipper／神醫助手的預設 |
 | 130349c | 補全缺集：年份篩選、每頁 20–200 部可選、上一頁／下一頁；搜尋或換篩選回到第 1 頁，回應帶序號不被舊回應蓋掉（管理網頁第 4 項）。用 Chromium 實際跑過 |
 
@@ -107,7 +108,7 @@ wiki 已經照程式實際行為寫；下面是程式本身值得改、或註解
 8. **`mi302` 指令沒裝成時印的替代指令會重新安裝。** install.sh 的 `manage_cmd` 印出 `bash <資料夾>/install.sh`，不帶子指令執行等於重裝兼更新；應該印成 `bash <資料夾>/install.sh status` 這種帶子指令的寫法。
 9. **沒有 `/Users` 前綴的 `/Items/Latest`、`/Items/Resume`。** 只有 `/Users/{id}/Items/Latest`、`/Users/{id}/Items/Resume`。確認有沒有播放器會打沒有前綴的版本，有的話補別名。
 10. **一般影片檔的 Range 支援看 Starlette 版本。** requirements.txt 只寫 `fastapi>=0.110`，可能裝到 FileResponse 不支援 Range 的舊 Starlette。查出最低版本後寫進 requirements.txt。
-11. **整庫探測被熔斷中止後不會自己接著做。** 冷卻期過後要再按一次「提取缺少的媒體資訊」。可以考慮熔斷恢復後自動續跑。
+11. **批次探測被熔斷中止後不會自己接著做。** 冷卻期過後要再按一次「開始提取」。可以考慮熔斷恢復後自動續跑剩下的。
 
 ### 七、測試檔
 

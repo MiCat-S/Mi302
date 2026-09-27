@@ -45,14 +45,40 @@ For videos without a json file, Mi302 can probe the file itself with ffprobe. Th
 - Items that failed or were skipped are not queued again for one hour.
 - On an error that would make the rest fail too (115 rate limiting, not logged in to 115, ffprobe not found), the whole queue is dropped. Those items are queued again when opened after an hour.
 
-If you do not want to probe the whole library, this mode is enough: the videos you actually watch gain media info over time.
+If you do not want to probe a large batch at once, this mode is enough: the videos you actually watch gain media info over time.
 
-### Whole-library probing
+### Picking what to probe
 
-**Whole-library probing** (整庫探測) is off by default. After you turn it on and click **Save** (儲存) at the bottom of the card:
+To probe a batch, use **Pick videos to probe** (挑選要提取的影片) in the card. First turn on **Batch probing** (批次探測) at the bottom of the card and click **Save** (儲存); it is off by default. Until then, **Start** (開始提取) and the per-title **Probe** buttons (提取) are disabled.
 
-- You can click **Extract missing media info** (提取缺少的媒體資訊) at the top right of the card. It probes every video in the libraries (strm files and local videos) that has no media info yet, newest first. Only one run happens at a time; clicking again during a run shows "already probing" (已經在探測中).
-- **Probe automatically after sync creates new strm files** (同步產生新的 strm 後自動探測) is on by default and only works with whole-library probing on. It probes, in the background, the strm files each sync creates, and strm files whose file on 115 was replaced (see below). Probing runs alongside scanning and scraping; they do not wait for each other.
+Filters; anything left empty is not limited:
+
+| Filter | What it does |
+|---|---|
+| Search titles (搜尋片名) | Matches the title, original title, Simplified or Traditional characters, full pinyin and pinyin initials; `qyn` and `慶餘年` both find 庆余年 |
+| All libraries (全部媒體庫) | Limit to one library |
+| Movies and series (電影和劇集) | Switch to movies only (只看電影) or series only (只看劇集) |
+| Year from / to (年份從、到) | Only these years; for series, the series' year. Fill in one side for "from year X on" or "up to year X". With a year filter set, titles without a year are left out |
+
+**Order** decides both the list order and the probing order; within a series, episodes go by season and episode number:
+
+- Recently added first (最近加入的先做, the default): what entered the library most recently goes first.
+- Newest year first (年份新的先做) or oldest year first (年份舊的先做): by the movie's or series' year.
+- Highest rated first (評分高的先做): by the rating in the nfo.
+- By title (照片名): Chinese titles sort by pinyin.
+
+**At most N this time** (這次最多 … 支) caps how many videos one run probes. The default is 100; 0 means everything that matches. The order and this number are remembered in your browser.
+
+The list below shows movies and series that still lack media info, 20 per page. A series shows how many episodes it lacks (缺 X / Y 集); a movie shows "missing" (還沒有). A line above the list says how many movies and episodes match and still lack media info, and which ones **Start** would probe.
+
+- **Start** (開始提取): probes the first N videos, using the filters and the order.
+- **Probe** (提取) next to a title: probes only that movie or series (the episodes it lacks), again at most N.
+
+Only one run happens at a time, and the buttons are disabled while it runs. When it finishes, the list and the numbers refresh by themselves. The result says how the run was picked, for example "manual, newest year first, at most 100" (手動・年份新的先做・最多 100 支) or "manual, 庆余年, at most 100".
+
+### Probing after sync
+
+**Probe automatically after sync creates new strm files** (同步產生新的 strm 後自動探測) is on by default and only works with batch probing on. It probes, in the background, the strm files each sync creates, and strm files whose file on 115 was replaced (see below). Probing runs alongside scanning and scraping; they do not wait for each other.
 
 ### What probing one item does
 
@@ -70,8 +96,8 @@ Each item may take at most `mediainfo.timeout` seconds (default 300); after that
 | Label in the web UI | Key | Default | Range |
 |---|---|---|---|
 | Probe automatically when a video is opened (打開影片時自動探測) | `mediainfo.on_demand` | on | |
-| Whole-library probing (整庫探測) | `mediainfo.enabled` | off | |
-| Probe automatically after sync creates new strm files (同步產生新的 strm 後自動探測) | `mediainfo.after_sync` | on | needs whole-library probing |
+| Batch probing (批次探測) | `mediainfo.enabled` | off | |
+| Probe automatically after sync creates new strm files (同步產生新的 strm 後自動探測) | `mediainfo.after_sync` | on | needs batch probing |
 | Concurrent probes (同時探測幾項) | `mediainfo.concurrency` | 2 | 1–3 |
 | Direct-link interval in seconds (取直鏈間隔（秒）) | `mediainfo.interval` | 1.0 | 0.5–60 |
 | Maximum per hour (每小時最多幾次) | `mediainfo.hourly_limit` | 300 | 0–100000, 0 = unlimited |
@@ -86,17 +112,17 @@ Every 115 strm file needs one direct-link fetch from 115, and 115 is sensitive t
 
 - **Connections**: 115 allows at most 3 connections at once, so concurrent probes are capped at 3 (default 2).
 - **Interval**: at least 0.5 seconds between two direct-link fetches (default 1 second). All probing shares this interval.
-- **Hourly cap**: at most 300 fetches per hour by default; 0 = unlimited. When the cap is reached, probing waits until the oldest fetch is an hour old. A first whole-library run over tens of thousands of videos takes several days.
-- **Circuit breaker**: when 115 responds with rate limiting or an invalid login, probing and sync stop, and the rest of the current batch is not done. A breaker tripped by rate limiting clears itself after 45 minutes. An invalid login needs a new QR-code login on the **115 Cloud** tab (115 網盤) with the **Scan QR code** button (掃碼登入). An interrupted whole-library run does not restart by itself: click **Extract missing media info** again once the breaker has cleared. Clicking it while the breaker is tripped stops the run straight away. For the first 30 minutes after the cool-down, the interval is 4 times longer and the hourly cap a quarter; for the next 30 minutes, twice as long and half; then back to normal.
+- **Hourly cap**: at most 300 fetches per hour by default; 0 = unlimited. When the cap is reached, probing waits until the oldest fetch is an hour old. Probing tens of thousands of videos at once takes several days; you can also split it up with **At most N this time**.
+- **Circuit breaker**: when 115 responds with rate limiting or an invalid login, probing and sync stop, and the rest of the current batch is not done. A breaker tripped by rate limiting clears itself after 45 minutes. An invalid login needs a new QR-code login on the **115 Cloud** tab (115 網盤) with the **Scan QR code** button (掃碼登入). An interrupted run does not restart by itself: click **Start** again once the breaker has cleared. Clicking it while the breaker is tripped stops the run straight away. For the first 30 minutes after the cool-down, the interval is 4 times longer and the hourly cap a quarter; for the next 30 minutes, twice as long and half; then back to normal.
 
-Probe-on-open and whole-library probing share the interval, the hourly cap and the circuit breaker. Playback is not subject to these limits and is not stopped by the circuit breaker. The breaker's reason is shown in the **Media info** card and on the **115 Cloud** tab. For details on the circuit breaker, see [115 Cloud Sync](115-Cloud-Sync).
+Probe-on-open and batch probing share the interval, the hourly cap and the circuit breaker. Playback is not subject to these limits and is not stopped by the circuit breaker. The breaker's reason is shown in the **Media info** card and on the **115 Cloud** tab. For details on the circuit breaker, see [115 Cloud Sync](115-Cloud-Sync).
 
 ## When the file on 115 is replaced
 
 Each file on 115 has a pickcode, an access code that the strm file uses to get a direct link. If a sync finds that the file at the same place on 115 was replaced (for example by another release), the pickcode changes. The old media info then belongs to a different file, so Mi302 deletes `X-mediainfo.json` and the database record:
 
-- With whole-library probing and "probe automatically after sync" on, the file is probed again right after the sync.
-- Otherwise it is probed the next time the item is opened, or when you click **Extract missing media info**.
+- With batch probing and "probe automatically after sync" on, the file is probed again right after the sync.
+- Otherwise it is probed the next time the item is opened, or when you probe it from **Pick videos to probe**.
 
 A strm file rewritten only because the server URL (`p115.strm.base_url`) or the strm URL format changed keeps the same pickcode, so its media info stays.
 
@@ -108,7 +134,7 @@ The **Media info** card shows:
 - A warning when ffprobe is not found, and the reason when the 115 circuit breaker is tripped.
 - The probe-on-open queue: how many are queued, done and failed.
 - How many direct links were fetched from 115 in the last hour and the cap; how much probing is slowed down right after the breaker recovers; and, when the cap is reached, the time probing continues.
-- The last whole-library run (after sync or manual): to probe, succeeded, failed, skipped, and the first few failure reasons.
+- The last batch run (after sync or manual; a manual run shows how it was picked): to probe, succeeded, failed, skipped, and the first few failure reasons.
 
 Why items fail or are skipped:
 
@@ -116,7 +142,7 @@ Why items fail or are skipped:
 - **Whole run stopped**: ffprobe not found, not logged in to 115, or the 115 circuit breaker tripped. Items not yet done count as failed.
 - **Single item failed**: ffprobe could not read the file (for example 403, timeout, decoding error), the item took longer than the per-item timeout, or no streams were found. URLs are removed from error messages before they reach the card and the log.
 
-Failed videos still have no media info. The next click on **Extract missing media info** tries them again.
+Failed videos still have no media info. The next run tries them again.
 
 ## Installing ffmpeg
 
@@ -133,7 +159,7 @@ brew install ffmpeg       # macOS
 - No restart is needed after installing; Mi302 finds ffprobe within a minute.
 - If ffprobe is not on the service's PATH, set `mediainfo.ffprobe` in the config file to its full path.
 
-Without ffprobe, Mi302 still reads existing `X-mediainfo.json` files. The card shows a warning, **Extract missing media info** is disabled, and neither probe-on-open nor probing after sync runs.
+Without ffprobe, Mi302 still reads existing `X-mediainfo.json` files. The card shows a warning, **Start** and **Probe** are disabled, and neither probe-on-open nor probing after sync runs.
 
 ## Credits
 
