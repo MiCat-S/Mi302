@@ -306,6 +306,14 @@ class P115OpenClient:
             if not items or not newer or offset >= int(count or 0):
                 return
 
+    def recycle_bin(self, offset: int, limit: int) -> dict:
+        """回收站的一頁（原始回應，p115.parse_recycle_bin 解析）。"""
+        return self._call("GET", "/open/rb/list", params={"limit": limit, "offset": offset})
+
+    def recycle_bin_clean(self) -> None:
+        """清空回收站（不帶 tid 就是全部）；開放平台不用安全密鑰。"""
+        self._call("POST", "/open/rb/del", form={})
+
     def list_dir(self, cid: int) -> List[dict]:
         out: List[dict] = []
         offset = 0

@@ -297,6 +297,40 @@ class P115Service:
         data["ignore_warn"] = "1"
         self._webapi_post("/rb/delete", data)
 
+    # ---------------- 回收站 ----------------
+
+    def recycle_bin(self, offset: int = 0, limit: int = 50) -> dict:
+        """115 回收站的一頁：{count, items: [{id, name, size, dtime, parent}]}。"""
+        self.breaker.check()
+        return self._dispatch(
+            "列回收站",
+            lambda: parse_recycle_bin(self.open.recycle_bin(offset, limit)),
+            lambda: parse_recycle_bin(self._webapi_get("/rb", {"aid": 7, "cid": 0, "limit": limit, "offset": offset})),
+        )
+
+    def recycle_bin_clean(self, password: str = "") -> str:
+        """清空 115 回收站：永久刪除，在 115 也救不回來。回傳用了哪個通道（open / cookie）。
+
+        開放平台不用安全密鑰。cookie 要 115 的安全密鑰（6 位數字）；在 115「帳號安全 → 安全密鑰」
+        關掉清空回收站要密鑰的話，不填也可以（照 115 網頁的做法送 000000）。
+        """
+        password = (password or "").strip()
+        if password and not re.fullmatch(r"\d{6}", password):
+            raise P115Error("安全密鑰是 6 位數字")
+        self.breaker.check()
+        if self.open.authorized:
+            try:
+                self.open.recycle_bin_clean()
+                return "open"
+            except (P115OpenError, httpx.HTTPError) as exc:
+                if not self.cookies:
+                    raise P115Error(f"開放平台清空回收站失敗：{exc}") from exc
+                log.warning("開放平台清空回收站失敗，改用 cookie：%s", exc)
+        if not self.cookies:
+            raise P115Error("尚未登入 115")
+        self._webapi_post("/rb/secret_del", {"tid": "", "password": password or "000000"})
+        return "cookie"
+
     def iter_changed_files(self, cid: int, since: float) -> Iterator[dict]:
         """cid 底下（含所有子目錄）修改時間不早於 since 的檔案，由新到舊。
 
@@ -856,6 +890,28 @@ def _parallel(jobs: Dict[str, Callable[[], object]]) -> Dict[str, object]:
     with ThreadPoolExecutor(max_workers=len(jobs)) as pool:
         futures = {name: pool.submit(job) for name, job in jobs.items()}
         return {name: future.result() for name, future in futures.items()}
+
+
+def parse_recycle_bin(body: dict) -> dict:
+    """回收站清單：cookie 的 data 是清單；開放平台的 data 是以 "0"、"1"… 為鍵的物件，旁邊帶著 count。"""
+    data = body.get("data")
+    count = body.get("count")
+    if isinstance(data, dict):
+        count = data.get("count", count)
+        raw = [v for v in data.values() if isinstance(v, dict)]
+    else:
+        raw = [v for v in data or [] if isinstance(v, dict)]
+    items = [
+        {
+            "id": str(i.get("id") or i.get("rid") or ""),
+            "name": str(i.get("file_name") or i.get("fn") or i.get("n") or ""),
+            "size": _int(i.get("file_size") or i.get("fs") or i.get("s")),
+            "dtime": _int(i.get("dtime") or i.get("utime")),
+            "parent": str(i.get("parent_name") or ""),
+        }
+        for i in raw
+    ]
+    return {"count": _int(count) if count is not None else len(items), "items": items}
 
 
 def _int(value) -> int:

@@ -435,6 +435,16 @@ dialog .card-b{max-height:70vh;overflow:auto}
         </div>
       </div>
 
+      <div class="card">
+        <div class="card-h"><div class="t"><svg class="i"><use href="#i-trash"/></svg><h2>115 回收站</h2></div>
+          <div class="row"><button class="btn" onclick="loadRecycle(0)">查看</button><button class="btn danger" id="rbClean" onclick="cleanRecycle()" disabled>清空回收站…</button></div></div>
+        <div class="card-b stack">
+          <p class="hint">115 上刪掉的檔案（包括 Mi302 刪重複檔案時送進去的）會先留在回收站，在 115 還能還原。清空之後永久刪除，救不回來。有 115 開放平台授權時用開放平台清空；只有掃碼登入時，要填 115 的安全密鑰（6 位數字；在 115「帳號安全 → 安全密鑰」可以關掉清空回收站要密鑰）。</p>
+          <div id="rbInfo"></div>
+          <div id="rbList" class="list"></div>
+        </div>
+      </div>
+
       <div class="card" id="syncOpts">
         <div class="card-h"><div class="t"><svg class="i"><use href="#i-sliders"/></svg><h2>同步選項</h2></div></div>
         <div class="card-b stack">
@@ -2185,6 +2195,48 @@ async function pollReorgJob() {
     toast('MoviePilot 整理完成', r.job.failed || r.job.errors.length ? 'bad' : '');
     if (!$('tab-moviepilot').classList.contains('hidden')) loadReorg();
   }
+}
+
+// ---- 115 回收站 ----
+let rb = {offset: 0, count: 0, via: ''};
+const RB_PAGE = 50;
+async function loadRecycle(offset) {
+  const box = $('rbList');
+  box.innerHTML = '<p class="hint row"><span class="spin"></span>讀取 115 回收站…</p>';
+  let r;
+  try { r = await api(`/web/api/115/recyclebin?offset=${offset}&limit=${RB_PAGE}`); }
+  catch (e) { box.innerHTML = `<p class="notice bad">${esc(e.message)}</p>`; $('rbClean').disabled = true; return; }
+  rb = {offset, count: r.count, via: r.via};
+  $('rbInfo').innerHTML = r.count
+    ? `<p class="hint">回收站裡有 <b>${r.count}</b> 個項目${r.via === 'open' ? '・會用開放平台清空，不用安全密鑰' : '・清空時要 115 的安全密鑰'}</p>`
+    : '<p class="hint">回收站是空的</p>';
+  $('rbClean').disabled = !r.count;
+  box.innerHTML = r.items.map(i => `<div class="li"><div class="main"><b>${esc(i.name)}</b>
+    <div class="sub">${[i.size ? fmtSize(i.size) : '', i.dtime ? '刪除於 ' + fmtTime(i.dtime) : '', i.parent ? '原本在 ' + esc(i.parent) : ''].filter(Boolean).join('・')}</div></div></div>`).join('');
+  const pages = Math.max(1, Math.ceil(r.count / RB_PAGE)), page = Math.floor(offset / RB_PAGE) + 1;
+  if (pages > 1) box.insertAdjacentHTML('beforeend', `<div class="row" style="padding-top:12px"><span class="hint grow">第 ${page} / ${pages} 頁</span>
+    <button class="btn sm"${page <= 1 ? ' disabled' : ''} onclick="loadRecycle(${offset - RB_PAGE})">上一頁</button><button class="btn sm"${page >= pages ? ' disabled' : ''} onclick="loadRecycle(${offset + RB_PAGE})">下一頁</button></div>`);
+}
+async function cleanRecycle() {
+  // 永久刪除：先輸入「清空」，只有 cookie 通道時再問安全密鑰
+  if (!rb.count) return;
+  const open = rb.via === 'open';
+  const word = await ask({title: `永久刪除 115 回收站裡的 ${rb.count} 個項目？`,
+    text: '清空之後在 115 也救不回來，Mi302 刪重複檔案時送進回收站的也會一起刪掉。確定的話，在下面輸入「清空」。',
+    input: 'text', ok: open ? '永久刪除' : '下一步', danger: true});
+  if (word === null) return;
+  if (word.trim() !== '清空') { toast('沒有輸入「清空」，回收站沒動', 'bad'); return; }
+  let password = '';
+  if (!open) {
+    const key = await ask({title: '輸入 115 的安全密鑰', text: '6 位數字。在 115「帳號安全 → 安全密鑰」關掉了清空回收站要密鑰的話，留空就好。',
+      input: 'password', ok: '永久刪除', danger: true});
+    if (key === null) return;
+    password = key.trim();
+  }
+  try { await api('/web/api/115/recyclebin/clean', {method: 'POST', body: JSON.stringify({confirm: '清空', password})}); }
+  catch (e) { toast(e.message, 'bad'); return; }
+  toast('已清空 115 回收站');
+  loadRecycle(0);
 }
 
 // ---- 瀏覽 115 ----

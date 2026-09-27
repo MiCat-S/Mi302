@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import string
 import threading
@@ -24,6 +25,8 @@ from ..browse115 import list_folder
 from ..reorganize import ReorgError, candidates as reorg_candidates
 from ..settings import SettingsError
 from .common import q, q_int, state
+
+log = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -286,6 +289,33 @@ def browse_115_files(request: Request, ctx: AuthContext = Depends(require_admin)
         return list_folder(st.p115, st.db, st.strm_sync.tasks, cid, path)
     except (P115Error, P115OpenError) as exc:
         raise HTTPException(status_code=400, detail=f"讀不到 115：{exc}")
+
+
+@router.get("/web/api/115/recyclebin")
+def recyclebin_list(request: Request, ctx: AuthContext = Depends(require_admin)):
+    """115 回收站的一頁：數量、檔名、大小、刪除時間、原本的資料夾。"""
+    st = state(request)
+    offset, limit = max(q_int(request, "offset") or 0, 0), min(max(q_int(request, "limit") or 50, 1), 200)
+    try:
+        page = st.p115.recycle_bin(offset, limit)
+    except (P115Error, P115OpenError) as exc:
+        raise HTTPException(status_code=400, detail=f"讀不到 115 回收站：{exc}")
+    return {**page, "offset": offset, "limit": limit, "via": "open" if st.p115.open.authorized else "cookie"}
+
+
+@router.post("/web/api/115/recyclebin/clean")
+async def recyclebin_clean(request: Request, ctx: AuthContext = Depends(require_admin)):
+    """清空 115 回收站（永久刪除）：{"confirm": "清空", "password": 安全密鑰}。沒帶 confirm 不做。"""
+    body = await _body(request)
+    if body.get("confirm") != "清空":
+        raise HTTPException(status_code=400, detail="要在 confirm 帶上「清空」才會清空回收站")
+    st = state(request)
+    try:
+        via = await run_in_threadpool(st.p115.recycle_bin_clean, str(body.get("password") or ""))
+    except P115Error as exc:
+        raise HTTPException(status_code=400, detail=f"清空回收站失敗：{exc}")
+    log.warning("%s 清空了 115 回收站（%s）", (ctx.user or {}).get("name") or "管理員", "開放平台" if via == "open" else "cookie")
+    return {"ok": True, "via": via}
 
 
 @router.get("/web/api/115/browse")
