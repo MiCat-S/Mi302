@@ -150,7 +150,7 @@ need_privilege() {
 	Darwin)
 		[ "$(id -u)" != 0 ] || die "macOS 請不要用 sudo，直接以自己的帳號執行"
 		;;
-	*) die "不支援的系統：$OS。Windows 請照 README 手動用 Python 執行" ;;
+	*) die "不支援的系統：${OS}。Windows 請照 README 手動用 Python 執行" ;;
 	esac
 }
 
@@ -260,14 +260,14 @@ fetch_code() {
 			if [ "$CMD" = install ]; then
 				info "使用 $DIR 裡的程式"
 			else
-				info "更新程式（$DIR，下載壓縮檔）"
+				info "更新程式（${DIR}，下載壓縮檔）"
 				download_tarball
 			fi
 			return
 		fi
 		has git || pkg_install git >/dev/null 2>&1 || true
 		has git || die "需要 git 才能更新 $DIR"
-		info "更新程式（$DIR）"
+		info "更新程式（${DIR}）"
 		git_in_dir fetch -q origin "+refs/heads/$BRANCH:refs/remotes/origin/$BRANCH" ||
 			die "無法連到 GitHub 更新程式，檢查網路後再試"
 		if ! git_in_dir diff --quiet HEAD --; then
@@ -275,7 +275,7 @@ fetch_code() {
 			patch="$DIR/local-changes-$(date +%Y%m%d-%H%M%S).patch"
 			git_in_dir diff HEAD -- >"$patch"
 			chown "$(owner_of "$DIR")" "$patch" 2>/dev/null || true
-			warn "程式資料夾裡有自己改過的檔案，已備份成 $patch，然後還原成最新版"
+			warn "程式資料夾裡有自己改過的檔案，已備份成 ${patch}，然後還原成最新版"
 			git_in_dir reset -q --hard
 		fi
 		git_in_dir checkout -q -B "$BRANCH" "origin/$BRANCH"
@@ -291,7 +291,7 @@ fetch_code() {
 			info "下載程式到 $DIR"
 			git clone -q --depth 1 -b "$BRANCH" "$REPO_URL" "$DIR" || die "無法從 $REPO_URL 下載程式，檢查網路後再試"
 		else
-			info "下載程式到 $DIR（沒有 git，改下載壓縮檔）"
+			info "下載程式到 ${DIR}（沒有 git，改下載壓縮檔）"
 			mkdir -p "$DIR"
 			download_tarball
 		fi
@@ -660,7 +660,7 @@ check_port_free() {
 cmd_install() {
 	MODE=python
 	echo
-	echo "${C_B}Mi302 安裝${C_0}（安裝位置 $DIR）"
+	echo "${C_B}Mi302 安裝${C_0}（安裝位置 ${DIR}）"
 	set_conf
 	fetch_code
 	install_wrapper

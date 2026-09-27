@@ -28,6 +28,6 @@ if git diff --cached --quiet; then
 	echo "Wiki 已經是最新的。"
 	exit 0
 fi
-git commit -q -m "同步倉庫 docs/wiki（$REV）"
+git commit -q -m "同步倉庫 docs/wiki（${REV}）"
 git push -q origin HEAD
 echo "已發布到 https://github.com/MiCat-S/Mi302/wiki"
