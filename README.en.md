@@ -16,7 +16,7 @@ You do not need a real Emby server behind it, or any other 115 tool. The full do
 - **Intro and credits skipping**: learns intros and credits from how people watch, so players such as SenPlayer offer "Skip intro".
 - **Made for Chinese libraries**: Chinese titles sort by pinyin; search matches full pinyin, initials, Simplified and Traditional characters; cast names and genres can be shown in Chinese.
 - **Web admin**: everything is set up at `/web` and kept in sync with `config.yaml`. The database is backed up daily.
-- **Removes duplicate files on 115**: finds videos with identical content and, after you confirm, moves the extra copies to the 115 recycle bin; local strm files and watch history are handled too.
+- **Removes duplicate files on 115**: finds identical videos and different versions of the same title (comparing resolution, HDR and audio) and, after you confirm, moves the extra copies to the 115 recycle bin; local strm files and watch history are handled too.
 - **Protects your 115 account**: when 115 rate-limits or the login expires, a circuit breaker pauses syncing and probing. Playback keeps working.
 
 ## How it works

@@ -252,26 +252,40 @@ Deleting a sync task never deletes the strm files it created, whether this optio
 
 ## Duplicate files
 
-The **Duplicate files** card (重複檔案) at the bottom of the 115 tab finds videos whose content is identical and deletes the extra copies. Only videos are checked. Files form a group when their SHA1 (a fingerprint of the content) and size match, even if their names differ.
+The **Duplicate files** card (重複檔案) at the bottom of the 115 tab finds duplicate videos on 115 and deletes the extra copies. One **Find duplicates** run looks for two kinds, shown on two tabs:
+
+| Tab | What counts as a duplicate | Default |
+| --- | --- | --- |
+| Identical (完全相同) | Same SHA1 (a fingerprint of the content) and size, even with different names | One copy suggested to keep, the rest ticked |
+| Versions (不同版本) | The same movie or episode in your library, but different files, for example 1080p and 2160p | Nothing ticked; you choose |
+
+### Finding duplicates
 
 1. **Scope**: the sync tasks' 115 folders by default. **Pick a 115 folder…** (改選 115 目錄…) lets you choose any folder, for example the whole drive `/`.
-2. **Find duplicates** (找重複): Mi302 lists every file in the scope. 115 includes the SHA1 in its file listings, so forty thousand videos take about forty requests. For files outside the sync folders, the folder path is looked up once per folder. Rate limiting trips the circuit breaker as usual.
-3. **Results**: one card per group, largest savings first, 20 groups per page, searchable by file name or path. Each copy shows its 115 path, its upload time, and the tags suggested to keep (建議保留), has strm (有 strm), outside sync folders (不在同步目錄) and has watch history (有觀看紀錄).
-4. **Choosing**: one copy per group is suggested to keep (the one with a local strm first, then the earliest upload); the others are ticked. You can change any tick, but every group must keep at least one copy.
-5. **Deleting**: **Delete ticked** (刪除勾選的) handles all groups, including ticks suggested on pages you have not opened; **Delete ticked in this group** (刪這一組勾選的) handles one group. The confirmation shows the count and size, and more than 50 files asks a second time.
+2. **Find duplicates** (找重複): Mi302 lists every video in the scope. 115 includes the SHA1 in its file listings, so forty thousand videos take about forty requests. For files outside the sync folders, the folder path is looked up once per folder. Rate limiting trips the circuit breaker as usual.
+3. **Results**: the top shows how many groups each kind has and how much deleting per the suggestions would free. Each group is a card, largest savings first, 20 groups per page, searchable.
 
-After deleting:
+### Identical files
 
+- One copy per group is suggested to keep: the one with a local strm first, then the earliest upload. The others are ticked, and you can change any tick.
+- Each copy shows its 115 path, its upload time, and the tags suggested to keep (建議保留), has strm (有 strm), outside sync folders (不在同步目錄) and has watch history (有觀看紀錄).
+
+### Versions
+
+- How the same title is recognised: movies by tmdbid (from a scraped nfo), otherwise by title and year; episodes by series, season and episode number. Only files in the sync folders that have a strm are considered, so the library knows what they are.
+- Not treated as duplicates: split files (CD1, Part 2) and files holding several episodes (E01E02, E01-02). Different cuts such as director's cut or extended are grouped separately. Groups where every copy is identical are left to the Identical tab.
+- Each version shows resolution, HDR or Dolby Vision, codec, the first audio track, the number of audio and subtitle tracks, and size. Quality comes from extracted media info (see [Media Info](Media-Info)); anything missing is guessed from the file name and marked from file name (看檔名).
+- The files differ, so nothing is ticked by default. The suggestion keeps the highest resolution, then the largest file: **Tick as suggested** (照建議勾選) on a group ticks that group, and **Tick all as suggested** (全部照建議勾選) at the top ticks every group, including pages you have not opened.
+
+### Deleting
+
+- **Delete ticked** (刪除勾選的) handles every group on the current tab, including pages you have not opened; **Delete ticked in this group** (刪這一組勾選的) handles one group. The confirmation shows the count and size, and more than 50 files asks a second time. Every group must keep at least one copy.
 - Files go to the 115 recycle bin and can be restored there. One request handles up to a hundred files.
 - The local strm and its same-name nfo, posters, subtitles and `X-mediainfo.json` are deleted too (regardless of the follow-deletions setting), and only the affected series or movies are rescanned.
 - Watch history of the deleted copy (played, resume position, favourite) moves to the kept copy, per user.
 - **Recently deleted** (最近刪掉的) at the bottom of the card lists what was deleted and where, to find it in the recycle bin.
-
-Notes:
-
 - Deleting needs QR-code (cookie) login; it is not available with only the open platform.
 - Results reflect the moment you clicked **Find duplicates**. If files were moved, renamed or deleted on 115 since, find again before deleting.
-- Different versions of the same title (other resolution or release group) have different content and are not listed here.
 
 ## Circuit breaker
 
