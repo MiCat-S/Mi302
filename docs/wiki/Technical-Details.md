@@ -135,6 +135,7 @@ The API behind the web admin page `/web`. Apart from `/web/api/setup`, it needs 
 | `GET, POST /web/api/scan` | Scan progress and item counts per library; start a scan with `{"library": name}`, `{"path": path}`, or neither for everything |
 | `GET, POST /web/api/users`; `PUT, DELETE /web/api/users/{id}` | Users |
 | `GET /web/api/browse`, `/web/api/115/browse` | Pick a folder on the server, pick a 115 directory |
+| `GET /web/api/libraries/suggest?path=` | Bulk add libraries: list the subfolders with a suggested type and the reason, the video count (`complete` when fully counted), whether a library already uses the folder (`used`), and whether to tick it by default; `partial` means some folders were not fully read |
 | `POST /web/api/moviepilot/test`, `GET /web/api/moviepilot/status`, `POST /web/api/moviepilot/scrape` | MoviePilot connection test, status, scrape items missing metadata |
 | `GET /web/api/series`, `POST /web/api/moviepilot/fill` | Series and episode-gap list; fill missing episodes |
 | `GET /web/api/intro/status`, `POST /web/api/intro/clear` | Intro and credits (`{"season_id": id}` clears one season's learned records) |

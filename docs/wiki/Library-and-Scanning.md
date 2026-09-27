@@ -4,7 +4,9 @@ This page covers how to lay out library folders, how Mi302 scans them, and the C
 
 ## Libraries and folders
 
-You create libraries on the **Libraries** tab (媒體庫) of the web admin page: click **Add library** (新增媒體庫), give it a name, pick the type **Movies** (電影) or **TV shows** (劇集), click **Add folder** (加入資料夾) to choose a folder on the server, then click **Save and scan** (儲存並掃描). A library can have several folders.
+You create libraries on the **Libraries** tab (媒體庫) of the web admin page. The tab shows one tile per library with its cover, name, type, item count and folders. Click **Add library** (新增媒體庫) in the last tile, give the library a name in the dialog, pick the type **Movies** (電影) or **TV shows** (劇集), click **Add folder** (加入資料夾) to choose a folder on the server, then click **Save and scan** (儲存並掃描). A library can have several folders.
+
+To change the name, type, folders or cover, click the tile's cover, its name or **Edit** (編輯); the same dialog opens. **Delete library** (刪除媒體庫) in the dialog's bottom-left corner deletes the whole library; the files in its folders are not touched. To create several libraries at once, see [Adding libraries in bulk](#adding-libraries-in-bulk).
 
 Mi302 does not scrape (fetch metadata and artwork) itself. It only reads what is already in the folders:
 
@@ -87,7 +89,25 @@ Two layouts get misread:
 - A category folder that directly contains a video is treated as a series.
 - A series folder with no year, no `tvshow.nfo`, and episodes only in subfolders that are not season folders (for example `Disc1`) is treated as a category. Adding the year to series folder names is the safest option.
 
-If you want each category to be its own row on the player's home screen, create one library per category.
+If you want each category to be its own row on the player's home screen, create one library per category. **Bulk add from a folder** (從資料夾批量新增), described in the next section, does that in one go.
+
+## Adding libraries in bulk
+
+When a folder already holds subfolders such as 电影, 国产剧 and 日番 and you want each subfolder to become its own library, click **Bulk add from a folder** (從資料夾批量新增) in the last tile of the **Libraries** tab:
+
+1. Choose the parent folder. The dialog first reads the folder above the first folder of the first library; with no libraries yet it opens the folder picker straight away. To use another folder, click **Choose…** (選擇…), or type a path and click **Read** (讀取).
+2. Each subfolder gets a row with its video count and a suggested type.
+3. Tick the ones to add; you can change the name and type of each. Empty folders and folders already used by a library start unticked, and the latter say which library uses them.
+4. Click **Add and scan** (新增並掃描).
+
+The suggested type comes from the files in the folder:
+
+- If at least 30% of the sampled videos have an episode number in the file name (`S01E01`, `1x01`, `第1集`, `EP01` and so on), sit in a season folder, or sit under a folder with a `tvshow.nfo`, the suggestion is TV shows. Otherwise it is Movies.
+- With fewer than 3 videos, the folder name decides: names with 电影, 剧场版, movie or film are Movies; names with 剧, 番, 动漫, 动画, 综艺, 电视, tv, series, show, anime or drama are TV shows. Traditional characters work too. If the name gives no hint either, the suggestion is Movies.
+
+Rows renamed to the same name are merged into one library, and they must have the same type. A row whose name matches an existing library adds its folder to that library and takes that library's type. Each row says what will happen to it. Rows with a problem (an empty name, or the same name with different types) must be fixed before you can submit.
+
+Folders may live on a network drive, so Mi302 looks at most 5 levels deep and 1.5 seconds into each subfolder, and 12 seconds in total. A count that was cut short shows as "至少 N 部" (at least N videos). A folder there was no time to look at shows "影片數不明" (video count unknown), gets its type from its name, and starts unticked; a note at the top of the dialog asks you to check.
 
 ## Image and nfo file names
 
@@ -113,8 +133,8 @@ A scan reads the videos, nfo files and images in the folders into the database. 
 
 On the **Libraries** tab you can:
 
-- Click **Scan** (掃描) at the top right of a library to scan only that library.
-- Click **Scan** on a folder's row to scan only that folder. A missing folder is marked **Folder does not exist** (資料夾不存在) and has no scan button.
+- Click **Scan** (掃描) on a library's tile to scan only that library.
+- Open the library's **Edit** dialog and click **Scan** on a folder's row to scan only that folder. A missing folder is marked **Folder does not exist** (資料夾不存在) and has no scan button; the library's tile also says how many folders are missing. A folder you just added and have not saved yet has no scan button either.
 - Click **Scan folder…** (掃描資料夾…) at the top and pick any folder inside a library, for example a category `电视剧/国产剧` or a single series `电视剧/国产剧/庆余年 (2019)`. A folder outside every library is rejected with "這個位置不在任何媒體庫的資料夾裡" (this location is not in any library folder).
 - Click **Rescan all** (全部重新掃描) to scan every library.
 
@@ -132,7 +152,7 @@ Automatic scans also cover only what changed:
 | MoviePilot or another tool calls `POST /Library/Media/Updated` | The paths in the notification (mapped back to Mi302 paths with the MoviePilot path mappings); all libraries if the notification has no paths |
 | A player refreshes one item (`POST /Items/{id}/Refresh`, admin account required) | That movie or series; for a library, the whole library |
 | `POST /Library/Refresh` | All libraries |
-| **Save and scan** on the Libraries tab | New or changed libraries; deleted libraries are removed together with their items |
+| Saving on the Libraries tab (**Save and scan**, **Add and scan**, **Delete library**) | New or changed libraries; deleted libraries are removed together with their items |
 
 ### Scan units
 
@@ -157,7 +177,7 @@ Folders on NFS/SMB shares or Parallels shared folders (`/media/psf/...`) may be 
 
 Once the share is mounted, click **Rescan all** on the Libraries tab.
 
-The flip side: if you really empty a folder, its old items stay. Remove the folder from the library (or delete the library) and click **Save and scan**.
+The flip side: if you really empty a folder, its old items stay. Remove the folder in the library's **Edit** dialog and click **Save and scan**, or click **Delete library** to delete the whole library.
 
 ## Sorting and searching Chinese titles
 
@@ -236,7 +256,7 @@ The cover of each library on the player's home screen comes from, in order:
 1. An uploaded cover.
 2. A `poster`, `folder` or `cover` image in the library folder (the first folder that has one, if the library has several).
 
-Each library card on the **Libraries** tab shows the cover and where it comes from:
+Each tile on the **Libraries** tab shows the library's cover. The tile's **Edit** dialog also shows where the cover comes from:
 
 - **Upload cover** (上傳封面) accepts a jpg, png, gif or webp image of up to 30 MB.
 - When an uploaded cover exists, **Restore default** (改回預設) deletes it and goes back to the folder image.

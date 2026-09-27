@@ -105,7 +105,7 @@ users:
 
 ## libraries
 
-Libraries. The default is `libraries: []`. Create them on the **Libraries** tab with **Add library** (新增媒體庫), then **Save and scan** (儲存並掃描).
+Libraries. The default is `libraries: []`. Create them on the **Libraries** tab with **Add library** (新增媒體庫) or **Bulk add from a folder** (從資料夾批量新增).
 
 ```yaml
 libraries:

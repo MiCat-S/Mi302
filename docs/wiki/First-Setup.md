@@ -37,12 +37,12 @@ Each unfinished step has a **Go** button (前往) that takes you to the right pa
 
 A library is a category on the players' home screen, such as Movies or Series. On the **Libraries** page (媒體庫):
 
-1. Click **Add library** (新增媒體庫). The first library is named 電影 (Movies) by default.
+1. Click **Add library** (新增媒體庫) to open the dialog. The first library is named 電影 (Movies) by default.
 2. Enter a name and pick the type: **Movies** (電影) or **Series** (劇集).
-3. Click **Add folder** (加入資料夾). In the **Choose folder** dialog (選擇資料夾), click through to a folder on the server, or type a path at the top and click **Go** (前往), then click **Choose this folder** (選這個資料夾). A library can have several folders.
-4. Click **Save and scan** (儲存並掃描) at the bottom of the page.
+3. Click **Add folder** (加入資料夾). In the **Choose folder** dialog (選擇資料夾), click through to a folder on the server, or type a path at the top and click **Go** (前往), then click **Choose this folder** (選這個資料夾). A library can have several folders. If the name is still empty, the chosen folder's name is filled in.
+4. Click **Save and scan** (儲存並掃描) at the bottom of the dialog.
 
-Folders are paths on the machine that runs Mi302, and the account running Mi302 must be able to read them. If a folder contains category folders such as 国产剧 or 日番, pick the parent folder; Mi302 looks inside. Folder layout and naming are covered in [Library and Scanning](Library-and-Scanning).
+Folders are paths on the machine that runs Mi302, and the account running Mi302 must be able to read them. If a folder contains category folders such as 国产剧 or 日番, pick the parent folder; Mi302 looks inside. To make each subfolder its own library in one go, use **Bulk add from a folder** (從資料夾批量新增). Folder layout, naming and bulk adding are covered in [Library and Scanning](Library-and-Scanning).
 
 ## 5. Log in to 115 and sync
 

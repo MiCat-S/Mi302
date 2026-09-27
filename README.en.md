@@ -49,7 +49,7 @@ The installer sets up Python, ffmpeg and the dependencies, starts Mi302 at boot,
 Then open `http://<host>:8096/web` in a browser:
 
 1. Create the admin account.
-2. Add a library and pick a folder on the server.
+2. Add a library and pick a folder on the server. To turn each subfolder into its own library, use **Bulk add from a folder** (從資料夾批量新增).
 3. On the 115 tab (115 網盤), scan the QR code with the 115 app, add a sync task, and press **Incremental sync** (增量同步). The first run does a full sync automatically.
 4. If you use MoviePilot, enter its URL and API token on the MoviePilot tab.
 5. In your player, add an Emby server at `http://<host>:8096` and sign in with the account you created.
