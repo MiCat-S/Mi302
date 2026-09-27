@@ -137,16 +137,18 @@ The API behind the web admin page `/web`. Apart from `/web/api/setup`, it needs 
 | `GET /web/api/browse`, `/web/api/115/browse` | Pick a folder on the server, pick a 115 directory |
 | `POST /web/api/moviepilot/test`, `GET /web/api/moviepilot/status`, `POST /web/api/moviepilot/scrape` | MoviePilot connection test, status, scrape items missing metadata |
 | `GET /web/api/series`, `POST /web/api/moviepilot/fill` | Series and episode-gap list; fill missing episodes |
-| `GET /web/api/intro/status`, `POST /web/api/intro/clear` | Intro and credits (`{"season_id": id}` clears one season) |
+| `GET /web/api/intro/status`, `POST /web/api/intro/clear` | Intro and credits (`{"season_id": id}` clears one season's learned records) |
+| `GET /web/api/intro/seasons?q=`, `PUT /web/api/intro/seasons/{season id}` | Season list and search for intro and credits; manual settings for a season (`all_seasons` applies them to the whole series) |
 | `GET /web/api/people/status`, `POST /web/api/people/resolve` | Chinese names for cast and crew |
 | `GET, POST /web/api/backups`; `GET /web/api/backups/{name}` | List backups, back up now, download a backup |
-| `GET /web/api/mediainfo/status`, `POST /web/api/mediainfo/probe` | Media info |
+| `GET /web/api/mediainfo/status`, `GET /web/api/mediainfo/titles`, `POST /web/api/mediainfo/probe` | Media info: status; titles still missing media info (filterable, ordered); probing (optional filters, `limit`, `ids`) |
 | `GET /web/api/logs`, `/web/api/logs/download` | Logs, download the log file |
 | `GET, POST /web/api/apikeys`; `DELETE /web/api/apikeys/{key}` | API keys |
 | `GET /p115/status` | 115 account status |
 | `POST /p115/qrcode`, `GET /p115/qrcode/status`, `POST /p115/cookies`, `POST /p115/logout` | QR-code login, paste a cookie, log out |
 | `POST /p115/open/qrcode`, `GET /p115/open/qrcode/status`, `POST /p115/open/logout` | 115 open platform authorisation |
 | `POST /p115/strm/sync?mode=incremental` (full sync without `mode`), `GET /p115/strm/status`, `PUT /p115/strm/tasks` | Sync, sync status, sync tasks |
+| `POST /p115/strm/rewrite` | Rewrite existing strm files to the current server address (local files only) |
 
 `GET /web` serves the admin page itself, and `/web/115` redirects to `/web#115`.
 

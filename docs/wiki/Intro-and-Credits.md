@@ -1,6 +1,6 @@
 [繁體中文](片頭片尾跳過) | [简体中文](片头片尾跳过) | **English**
 
-Mi302 learns where each season's intro and credits are from the way people watch, so players can offer "Skip intro". This page explains how it learns, what players receive, how to test it with SenPlayer, and where the data is kept. The web admin page is in Traditional Chinese; labels are given in English with the original in parentheses.
+Mi302 learns where each season's intro and credits are from the way people watch, so players can offer "Skip intro". Seasons it gets wrong, or that you want set up in advance, can be set by hand. This page explains how it learns, how to set values by hand, what players receive, how to test it with SenPlayer, and where the data is kept. The web admin page is in Traditional Chinese; labels are given in English with the original in parentheses.
 
 ## How it learns
 
@@ -41,6 +41,7 @@ The "60 seconds or more" rule covers a preview after the ending song: you skip t
 - If it has none: the records of the other episodes in the same season are used. The intro again uses the medians of starts and ends; the credits use the median "time before the end", applied to this episode's runtime (so this episode needs a runtime too).
 - An episode's own records take priority and are not mixed with the season's.
 - Medians mean an occasional odd jump does not overwrite the result.
+- If the season has manual settings, the manual values win for whatever was set; see "Manual settings" below.
 
 ## What players receive
 
@@ -73,10 +74,28 @@ To test credits, stop playback or move to the next episode within the last 5 min
 
 On the **Libraries** tab:
 
-- The numbers at the top are "學到的季" (seasons learned) and "有紀錄的集" (episodes with records).
-- The list shows the 20 most recently learned seasons: series, season number, "片頭 X → Y" (or "還沒學到片頭", no intro learned yet), "片尾在結尾前 …", how many episodes have records, and how long ago. The values are computed for the season's first episode.
-- **Clear all** (清除全部) deletes every record after a confirmation; learning starts over as you watch. The admin API `POST /web/api/intro/clear` with `{"season_id": id}` clears a single season; the page has no button for that.
+- The numbers at the top are seasons learned (學到的季), episodes with records (有紀錄的集) and seasons set by hand (手動設定的季).
+- The search box finds every season of a series by title, including seasons nothing has been learned for yet. It matches the title, original title, Simplified or Traditional characters, full pinyin and pinyin initials, for example `qyn`.
+- Without a search, the list shows seasons with learned records or manual settings, most recent activity first, 20 per page. Each season shows the series, the season number, "片頭 X → Y" (intro) and "片尾在結尾前 …" (credits start before the end), each marked learned (學到) or manual (手動); seasons set by hand carry a **Manual** tag (手動). The values are computed for the season's first episode.
+- **Edit** (編輯) on each season opens the manual settings, see the next section.
+- **Clear all** (清除全部) deletes every learned record after a confirmation; learning starts over as you watch. Manual settings are kept.
 - **Learn intros and credits and send them to players** is `server.intro_skip`. It is saved as soon as you toggle it.
+
+## Manual settings
+
+If a learned value is off, or you want a season set up before anyone watches it, search for the series and click **Edit** (編輯) on the season:
+
+| Field | Choices |
+| --- | --- |
+| Intro (片頭) | Automatic, learned from playback (自動（照播放行為學）); Manual (手動設定), with a start and an end; No intro in this season (這一季沒有片頭) |
+| Credits (片尾) | Automatic (自動（照播放行為學）); Manual (手動設定), with how long before the end the credits start; No credits in this season (這一季沒有片尾) |
+
+- Write times as minutes:seconds (for example `1:35`), hours:minutes:seconds, or plain seconds. Until a season has manual settings, the fields start with the learned values, so small corrections are quick.
+- Credits are stored as "time before the end", so episodes of different lengths in one season still line up. A runtime is needed (the nfo `<runtime>` or media info) before they can be sent to players.
+- Tick **Use this for every season of the series** (這部劇的每一季都用這個設定) to save the same settings for all seasons of that series.
+- Seasons with learned records also have **Clear this season's learned records** (清除這一季學到的紀錄).
+- Whatever is set by hand goes to players directly instead of what playback taught; intro and credits can be set separately, and the other one keeps learning. Playback is still recorded, so switching both back to Automatic returns to the learned values.
+- The intro end and the credits length must be within 60 minutes, and the intro start must come before its end.
 
 ## Turning it off
 
@@ -84,11 +103,13 @@ With **Learn intros and credits and send them to players** off:
 
 - No new records are learned.
 - Nothing is sent to players: no chapter markers, the Intro Skipper endpoints return 404 or `Valid: false`, and media segments are empty.
-- Existing records stay in the database and are used again when you turn it back on. Use **Clear all** to delete them.
+- Learned records and manual settings stay in the database and are used again when you turn it back on. Use **Clear all** to delete the learned records.
+- Manual settings are also only sent to players while this switch is on.
 
 ## Where the data lives
 
 - Records are stored in the `intro_obs` table of the database `data/library.db`: one row per episode, user and kind (intro or credits), with start and end positions and a timestamp.
 - They survive restarts and updates, and the daily automatic backup includes them, see [Backup and Restore](Backup-and-Restore).
 - Only the current playback session is kept in memory: the last reported position and time for each user and episode, dropped when playback stops or after 6 hours of silence. A jump that happens exactly across a restart is therefore missed.
-- When an episode leaves the library (the file is deleted or renamed), its records are deleted too.
+- Manual settings live in the `intro_manual` table of the same database, one row per season.
+- When an episode leaves the library (the file is deleted or renamed), its records are deleted too; when a season disappears, its manual settings are deleted as well.
