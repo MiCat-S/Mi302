@@ -149,6 +149,21 @@ details.more>.in{margin-top:12px}
 .cover{display:flex;gap:14px;align-items:center;flex-wrap:wrap;padding-bottom:14px;border-bottom:1px solid var(--line)}
 .cover img,.cover .ph{width:176px;aspect-ratio:16/9;object-fit:cover;border-radius:8px;background:var(--panel2);border:1px solid var(--line);flex:none}
 .cover .ph{display:grid;place-items:center;color:var(--muted);font-size:12.5px}
+/* 媒體庫：一格一個，點開對話框編輯 */
+.libgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:14px;margin-bottom:16px}
+.lib{display:flex;flex-direction:column;background:var(--panel);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow);overflow:hidden;min-width:0}
+.lib .cv{aspect-ratio:16/9;background:var(--panel2);display:grid;place-items:center;color:var(--muted);cursor:pointer;border-bottom:1px solid var(--line)}
+.lib .cv img{width:100%;height:100%;object-fit:cover;display:block}
+.lib .cv svg{width:36px;height:36px;opacity:.55}
+.lib .b{padding:10px 12px 8px;flex:1;display:flex;flex-direction:column;gap:2px;min-width:0}
+.lib .nm{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer}
+.lib .pp{font-size:12.5px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;direction:rtl;text-align:left}  /* 路徑太長時省略開頭，留下資料夾名稱 */
+.lib .f{display:flex;gap:6px;align-items:center;padding:8px 12px;border-top:1px solid var(--line)}
+.lib.add{border-style:dashed;box-shadow:none;background:transparent;align-items:center;justify-content:center;gap:10px;padding:18px;min-height:180px;text-align:center}
+dialog.wide{width:min(720px,calc(100vw - 32px))}
+.bk input[type=checkbox]{width:auto;flex:none;margin-top:12px}
+.bk.off .main{opacity:.55}
+.bk .js-st:empty{display:none}
 .logbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;justify-content:flex-start}
 .logbar select{width:auto}.logbar input[type=search]{flex:1 1 180px;width:auto}
 .logs{font:12.5px/1.55 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;height:calc(100vh - 330px);min-height:280px;overflow:auto}
@@ -192,7 +207,8 @@ dialog .card-b{max-height:70vh;overflow:auto}
   .grid2{grid-template-columns:1fr}
   .stats{grid-template-columns:repeat(2,minmax(0,1fr))}
 }
-@media (max-width:520px){.side nav a span{display:none}.side nav a.on span{display:inline}}
+@media (max-width:520px){.side nav a span{display:none}.side nav a.on span{display:inline}
+  .libgrid{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.lib .b,.lib .f{padding-left:10px;padding-right:10px}}
 </style></head><body>
 
 <svg style="display:none">
@@ -319,12 +335,10 @@ dialog .card-b{max-height:70vh;overflow:auto}
     <!-- 媒體庫 -->
     <section id="tab-libraries" class="page hidden">
       <div class="page-h">
-        <div><h1>媒體庫</h1><p class="sub">播放器首頁看到的分類。每個媒體庫可以有多個資料夾，裡面放影片或 .strm 檔。底下有「国产剧」「日番」這類分類資料夾時，直接選上層資料夾就好，會自動往下找。</p></div>
+        <div><h1>媒體庫</h1><p class="sub">播放器首頁看到的分類。點一格可以改名稱、類型、資料夾和封面。每個媒體庫可以有多個資料夾，底下有「国产剧」「日番」這類分類資料夾時，選上層資料夾就好，會自動往下找；想讓每個子資料夾各自成為一個媒體庫，用「從資料夾批量新增」。</p></div>
         <div class="row wrap"><div id="scanSt" class="hint"></div><button class="btn" onclick="scanFolder()"><svg class="i"><use href="#i-folder"/></svg>掃描資料夾…</button><button class="btn" onclick="scanNow()"><svg class="i"><use href="#i-refresh"/></svg>全部重新掃描</button></div>
       </div>
-      <div id="libs"></div>
-      <button class="btn" onclick="addLib()"><svg class="i"><use href="#i-plus"/></svg>新增媒體庫</button>
-      <div class="savebar hidden" id="libBar"><span class="hint grow">媒體庫有未儲存的變更</span><button class="btn" onclick="loadLibs()">取消</button><button class="btn primary" onclick="saveLibs()">儲存並掃描</button></div>
+      <div id="libs" class="libgrid"></div>
 
     </section>
 
@@ -652,6 +666,36 @@ dialog .card-b{max-height:70vh;overflow:auto}
   <div class="card-f" style="justify-content:flex-end"><button class="btn" onclick="picker.close()">取消</button><button class="btn primary" onclick="pickDone()">選這個資料夾</button></div>
 </dialog>
 
+<dialog id="libDlg" class="wide">
+  <div class="card-h"><div class="t"><svg class="i"><use href="#i-film"/></svg><h2 id="ldTitle">編輯媒體庫</h2></div></div>
+  <div class="card-b stack">
+    <div class="fields">
+      <label class="field"><span>名稱</span><input id="ldName" type="text" placeholder="例如 電影"></label>
+      <label class="field"><span>類型</span><select id="ldType"><option value="movies">電影</option><option value="tvshows">劇集</option></select></label>
+    </div>
+    <div>
+      <div class="row"><b class="grow">資料夾</b><button class="btn sm" onclick="libDlgAddPath()"><svg class="i"><use href="#i-plus"/></svg>加入資料夾</button></div>
+      <div id="ldPaths" class="list" style="margin-top:10px"></div>
+    </div>
+    <div id="ldCover"></div>
+    <p id="ldMsg" class="notice bad hidden"></p>
+  </div>
+  <div class="card-f"><button class="btn danger" id="ldDel" onclick="deleteLibDlg()"><svg class="i"><use href="#i-trash"/></svg>刪除媒體庫</button><span class="grow"></span>
+    <button class="btn" onclick="libDlg.close()">取消</button><button class="btn primary" id="ldSave" onclick="saveLibDlg()">儲存並掃描</button></div>
+</dialog>
+
+<dialog id="bulkDlg" class="wide">
+  <div class="card-h"><div class="t"><svg class="i"><use href="#i-folder"/></svg><h2>從資料夾批量新增</h2></div></div>
+  <div class="card-b stack">
+    <p class="hint">選一個上層資料夾，底下每個子資料夾各建一個媒體庫。類型是看裡面的檔案猜的，可以改。名稱改成一樣的會合成一個媒體庫；和現有的媒體庫同名，就加進那個媒體庫。</p>
+    <div class="inline"><input id="blkPath" type="text" placeholder="/media" onkeydown="if (event.key === 'Enter') bulkLoad()"><button class="btn" onclick="bulkPick()">選擇…</button><button class="btn" onclick="bulkLoad()">讀取</button></div>
+    <p id="blkMsg" class="notice hidden"></p>
+    <div id="blkBar" class="row wrap hidden"><button class="btn sm" onclick="bulkAll(true)">全選</button><button class="btn sm" onclick="bulkAll(false)">全不選</button><span class="hint grow" id="blkInfo"></span></div>
+    <div id="blkList" class="list"></div>
+  </div>
+  <div class="card-f"><span class="grow"></span><button class="btn" onclick="bulkDlg.close()">取消</button><button class="btn primary" id="blkOk" onclick="bulkSave()" disabled>新增並掃描</button></div>
+</dialog>
+
 <dialog id="modal">
   <form method="dialog">
     <div class="card-b stack">
@@ -847,7 +891,7 @@ function renderSteps() {
 
 // ---- 媒體庫 ----
 let libs = [], libsShape = null;
-function loadLibs() { libs = structuredClone(cfg.libraries); dirtyLibs(false); renderLibs(); refreshScan(); }
+function loadLibs() { libs = structuredClone(cfg.libraries); renderLibs(); refreshScan(); }
 // 「整理」分頁：媒體資訊、片頭片尾、重複檔案一次只顯示一個，記住上次看的
 const TOOLS = {mi: () => { restoreMiPrefs(); pollMI(); }, intro: () => pollIntro(), dup: () => loadDupes()};
 function loadTools() {
@@ -861,58 +905,210 @@ function showTool(t) {
   try { localStorage.setItem('mi302.tool', t); } catch (e) {}
   TOOLS[t]();
 }
-function dirtyLibs(on) { $('libBar').classList.toggle('hidden', !on); }
-// 掃描狀態裡數量以外的部分；沒變就只改數字，不必整張卡重畫（封面會閃）
+// 掃描狀態裡數量以外的部分；沒變就只改數字，不必整格重畫（封面會閃）
 function libShape(status) { return JSON.stringify((status?.libraries || []).map(({count, ...rest}) => rest)); }
+function libStatus(name) { return S.scan?.libraries.find(s => s.name === name); }
 function updateLibCounts() {
-  $('libs').querySelectorAll('.card').forEach((card, i) => {
-    const st = S.scan?.libraries.find(s => s.name === libs[i]?.name), pill = card.querySelector('.js-count');
-    if (st && pill) pill.textContent = st.count + ' 個項目';
-  });
+  for (const tile of $('libs').querySelectorAll('.lib[data-i]')) {
+    const st = libStatus(libs[tile.dataset.i]?.name), el = tile.querySelector('.js-count');
+    if (st && el) el.textContent = st.count + ' 個項目';
+  }
 }
 function renderLibs() {
   const box = $('libs'); box.innerHTML = '';
-  const status = S.scan;
-  libsShape = libShape(status);
-  if (!libs.length) box.innerHTML = `<div class="card"><div class="card-b">${emptyState('還沒有媒體庫', '按「新增媒體庫」開始，例如「電影」選 /media/movies。')}</div></div>`;
+  libsShape = libShape(S.scan);
   libs.forEach((l, i) => {
-    const st = status?.libraries.find(s => s.name === l.name);
-    const saved = st?.id;
-    const card = document.createElement('div'); card.className = 'card';
-    card.innerHTML = `<div class="card-h"><div class="row grow" style="min-width:220px">${icon(l.type === 'tvshows' ? 'tv' : 'film')}
-        <input type="text" class="grow" value="${esc(l.name)}" placeholder="名稱，例如 電影">
-        <select style="width:auto"><option value="movies">電影</option><option value="tvshows">劇集</option></select></div>
-        <div class="row">${st ? `<span class="pill accent js-count">${st.count} 個項目</span>` : ''}
-          ${saved ? `<button class="btn sm js-scan" title="只掃描這個媒體庫">${icon('refresh')}掃描</button>` : ''}
-          <button class="btn sm ghost icon danger js-del" title="刪除媒體庫">${icon('trash')}</button></div></div>
-      <div class="card-b stack">
-        ${saved ? `<div class="cover">${st.cover ? `<img src="/Items/${st.id}/Images/Primary?tag=${st.cover}&maxWidth=360" alt="">` : '<div class="ph">還沒有封面</div>'}
-          <div class="grow" style="min-width:180px"><b>封面</b><p class="hint">${st.custom_cover ? '上傳的封面（例如 MoviePilot 封面插件產生的）' : st.cover ? '媒體庫資料夾裡的 poster／folder／cover 圖' : '可以在這裡上傳，或用 MoviePilot 的媒體庫封面插件產生'}</p>
-            <div class="row" style="margin-top:8px"><button class="btn sm js-up">上傳封面</button>${st.custom_cover ? '<button class="btn sm ghost js-reset">改回預設</button>' : ''}</div></div></div>` : ''}
-        <div class="list paths"></div>
-        <div><button class="btn sm js-add">${icon('plus')}加入資料夾</button></div></div>`;
-    const [name, type] = card.querySelectorAll('.card-h input, .card-h select'); type.value = l.type;
-    name.oninput = () => { l.name = name.value; dirtyLibs(true); };
-    type.onchange = () => { l.type = type.value; dirtyLibs(true); renderLibs(); };
-    const on = (sel, fn) => { const b = card.querySelector(sel); if (b) b.onclick = fn; };
-    on('.js-del', async () => { if (await ask({title: '刪除媒體庫「' + (l.name || '未命名') + '」？', text: '資料夾裡的檔案不會被刪。', ok: '刪除', danger: true})) { libs.splice(i, 1); dirtyLibs(true); renderLibs(); } });
-    on('.js-add', async () => { const path = await pickDir('local', l.paths.at(-1)); if (path) { l.paths.push(path); dirtyLibs(true); renderLibs(); } });
-    on('.js-scan', () => scanReq({library: st.name}, '「' + st.name + '」'));
-    on('.js-up', () => uploadCover(st.id));
-    on('.js-reset', () => resetCover(st.id));
-    const paths = card.querySelector('.paths');
-    if (!l.paths.length) paths.innerHTML = '<p class="hint">還沒有資料夾</p>';
-    l.paths.forEach((p, j) => {
-      const missing = st?.missing.includes(p);
-      const r = document.createElement('div'); r.className = 'li';
-      r.innerHTML = `<div class="main path">${icon('folder')}<span>${esc(p)}</span>${missing ? '<span class="pill warn">資料夾不存在</span>' : ''}</div>
-        ${saved && !missing ? '<button class="btn sm ghost js-scan-path">掃描</button>' : ''}<button class="btn sm ghost js-rm">移除</button>`;
-      r.querySelector('.js-rm').onclick = () => { l.paths.splice(j, 1); dirtyLibs(true); renderLibs(); };
-      const sp = r.querySelector('.js-scan-path'); if (sp) sp.onclick = () => scanReq({path: p}, '：' + p);
-      paths.appendChild(r);
-    });
-    box.appendChild(card);
+    const st = libStatus(l.name), miss = st?.missing.length || 0, tv = l.type === 'tvshows';
+    const tile = document.createElement('div'); tile.className = 'lib'; tile.dataset.i = i;
+    tile.innerHTML = `<div class="cv js-edit" title="編輯">${st?.cover ? `<img src="/Items/${st.id}/Images/Primary?tag=${st.cover}&maxWidth=480" alt="" loading="lazy">` : icon(tv ? 'tv' : 'film')}</div>
+      <div class="b">
+        <div class="row"><span class="nm grow js-edit" title="${esc(l.name)}">${esc(l.name)}</span><span class="pill">${tv ? '劇集' : '電影'}</span></div>
+        <div class="hint">${st?.id ? `<span class="js-count">${st.count} 個項目</span>・` : '還沒掃描・'}${l.paths.length} 個資料夾</div>
+        <div class="pp" title="${esc(l.paths.join('\n'))}"><span dir="ltr">${esc(l.paths[0] || '')}${l.paths.length > 1 ? `（還有 ${l.paths.length - 1} 個）` : ''}</span></div>
+        ${miss ? `<div style="margin-top:4px"><span class="pill warn">${miss} 個資料夾不存在</span></div>` : ''}
+      </div>
+      <div class="f">${st?.id ? `<button class="btn sm js-scan" title="只掃描這個媒體庫">${icon('refresh')}掃描</button>` : ''}<span class="grow"></span><button class="btn sm js-edit">編輯</button></div>`;
+    for (const el of tile.querySelectorAll('.js-edit')) el.onclick = () => openLibDlg(i);
+    const sc = tile.querySelector('.js-scan'); if (sc) sc.onclick = () => scanReq({library: st.name}, '「' + st.name + '」');
+    box.appendChild(tile);
   });
+  const add = document.createElement('div'); add.className = 'lib add';
+  add.innerHTML = `${libs.length ? '' : '<p class="hint">還沒有媒體庫。例如「電影」選 /media/movies，或用批量新增一次建好。</p>'}
+    <button class="btn" onclick="openLibDlg(null)">${icon('plus')}新增媒體庫</button>
+    <button class="btn ghost" onclick="openBulk()">${icon('folder')}從資料夾批量新增</button>`;
+  box.appendChild(add);
+}
+function parentDir(p) {
+  const up = p.replace(/[\\/]+$/, '').replace(/[\\/][^\\/]*$/, '');
+  return !up ? '/' : /^[A-Za-z]:$/.test(up) ? up + '\\' : up;
+}
+// 送出整份媒體庫清單；伺服器只重新掃描有變動的媒體庫
+async function commitLibs(next, msg, dlg, msgEl) {
+  try { await putSettings({libraries: next}); }
+  catch (e) { note(msgEl, '儲存失敗：' + e.message, 'bad'); return false; }
+  dlg.close(); toast(msg); loadLibs();
+  return true;
+}
+
+// ---- 編輯一個媒體庫（對話框）----
+let libEdit = null;  // {i: 第幾個，新增時是 null；paths: 對話框裡的資料夾}
+function openLibDlg(i) {
+  const l = i === null ? {name: libs.length ? '' : '電影', type: 'movies', paths: []} : libs[i];
+  libEdit = {i, paths: [...l.paths]};
+  $('ldTitle').textContent = i === null ? '新增媒體庫' : '編輯媒體庫';
+  ldName.value = l.name; ldType.value = l.type;
+  $('ldDel').classList.toggle('hidden', i === null);
+  $('ldSave').disabled = false;
+  note($('ldMsg'), '');
+  renderLibDlg();
+  libDlg.showModal();
+  if (i === null) ldName.focus();
+}
+function renderLibDlg() {
+  if (!libEdit) return;
+  const saved = libEdit.i === null ? null : libs[libEdit.i], st = saved && libStatus(saved.name);
+  const box = $('ldPaths'); box.innerHTML = '';
+  if (!libEdit.paths.length) box.innerHTML = '<p class="hint">還沒有資料夾，按「加入資料夾」選一個。</p>';
+  libEdit.paths.forEach((p, j) => {
+    const missing = st?.missing.includes(p), canScan = st?.id && !missing && saved.paths.includes(p);
+    const r = document.createElement('div'); r.className = 'li';
+    r.innerHTML = `<div class="main path">${icon('folder')}<span>${esc(p)}</span>${missing ? '<span class="pill warn">資料夾不存在</span>' : ''}</div>
+      ${canScan ? '<button class="btn sm ghost js-scan">掃描</button>' : ''}<button class="btn sm ghost js-rm">移除</button>`;
+    r.querySelector('.js-rm').onclick = () => { libEdit.paths.splice(j, 1); renderLibDlg(); };
+    const sp = r.querySelector('.js-scan'); if (sp) sp.onclick = () => scanReq({path: p}, '：' + p);
+    box.appendChild(r);
+  });
+  const cov = $('ldCover');
+  if (!st?.id) { cov.innerHTML = ''; return; }
+  cov.innerHTML = `<div class="cover" style="border-bottom:0;padding-bottom:0">${st.cover ? `<img src="/Items/${st.id}/Images/Primary?tag=${st.cover}&maxWidth=360" alt="">` : '<div class="ph">還沒有封面</div>'}
+    <div class="grow" style="min-width:180px"><b>封面</b><p class="hint">${st.custom_cover ? '上傳的封面（例如 MoviePilot 封面插件產生的）' : st.cover ? '媒體庫資料夾裡的 poster／folder／cover 圖' : '可以在這裡上傳，或用 MoviePilot 的媒體庫封面插件產生'}</p>
+      <div class="row" style="margin-top:8px"><button class="btn sm js-up">上傳封面</button>${st.custom_cover ? '<button class="btn sm ghost js-reset">改回預設</button>' : ''}</div></div></div>`;
+  cov.querySelector('.js-up').onclick = () => uploadCover(st.id);
+  const rs = cov.querySelector('.js-reset'); if (rs) rs.onclick = () => resetCover(st.id);
+}
+async function libDlgAddPath() {
+  const last = libEdit.paths.at(-1);
+  const p = await pickDir('local', last ? parentDir(last) : '');
+  if (!p || !libEdit) return;
+  if (libEdit.paths.includes(p)) { toast('這個資料夾已經加過了', 'bad'); return; }
+  libEdit.paths.push(p);
+  if (!ldName.value.trim()) ldName.value = p.split(/[\\/]/).filter(Boolean).at(-1) || '';  // 還沒取名就用資料夾名稱
+  renderLibDlg();
+}
+async function saveLibDlg() {
+  const name = ldName.value.trim(), i = libEdit.i;
+  const err = !name ? '名稱不可空白'
+    : libs.some((l, j) => j !== i && l.name === name) ? `已經有叫「${name}」的媒體庫了`
+    : !libEdit.paths.length ? '至少要有一個資料夾' : '';
+  if (err) { note($('ldMsg'), err, 'bad'); return; }
+  const next = structuredClone(libs), lib = {name, type: ldType.value, paths: [...libEdit.paths]};
+  if (i === null) next.push(lib); else next[i] = lib;
+  if (JSON.stringify(next) === JSON.stringify(libs)) { libDlg.close(); return; }  // 沒改東西
+  $('ldSave').disabled = true;
+  if (!await commitLibs(next, i === null ? `已新增「${name}」，正在掃描` : '已儲存，正在掃描', libDlg, $('ldMsg'))) $('ldSave').disabled = false;
+}
+async function deleteLibDlg() {
+  const l = libs[libEdit.i];
+  if (!await ask({title: '刪除媒體庫「' + l.name + '」？', text: '資料夾裡的檔案不會被刪。', ok: '刪除', danger: true})) return;
+  await commitLibs(libs.filter((_, j) => j !== libEdit.i), '已刪除「' + l.name + '」', libDlg, $('ldMsg'));
+}
+
+// ---- 從資料夾批量新增 ----
+let bulkRows = [], bulkSeq = 0;
+function openBulk() {
+  const first = libs.find(l => l.paths.length)?.paths[0];
+  blkPath.value = first ? parentDir(first) : '';
+  bulkRows = []; $('blkList').innerHTML = ''; note($('blkMsg'), ''); bulkRefresh();
+  bulkDlg.showModal();
+  if (blkPath.value) bulkLoad(); else bulkPick();
+}
+async function bulkPick() { const p = await pickDir('local', blkPath.value); if (p) { blkPath.value = p; bulkLoad(); } }
+async function bulkLoad() {
+  const path = blkPath.value.trim();
+  if (!path) { bulkPick(); return; }
+  const seq = ++bulkSeq;
+  bulkRows = []; bulkRefresh(); note($('blkMsg'), '');
+  $('blkList').innerHTML = '<p class="hint row"><span class="spin"></span>正在看每個子資料夾裡有什麼，資料夾多或在網路磁碟上時要等一下…</p>';
+  let r;
+  try { r = await api('/web/api/libraries/suggest?path=' + encodeURIComponent(path)); }
+  catch (e) { if (seq === bulkSeq) { $('blkList').innerHTML = ''; note($('blkMsg'), e.message, 'bad'); } return; }
+  if (seq !== bulkSeq) return;
+  blkPath.value = r.path;
+  bulkRows = r.folders.map(f => ({...f, on: f.checked}));
+  if (!bulkRows.length) note($('blkMsg'), '這個資料夾底下沒有子資料夾。要把它整個當成一個媒體庫，請用「新增媒體庫」。');
+  else if (r.partial) note($('blkMsg'), '子資料夾太多或讀得太慢，有些沒看完：影片數寫「至少」或「不明」的，類型是照名稱猜的，請檢查一下。', 'warn');
+  renderBulk();
+}
+function renderBulk() {
+  const box = $('blkList'); box.innerHTML = '';
+  for (const r of bulkRows) {
+    const row = document.createElement('div'); row.className = 'li top bk';
+    const count = r.videos === null ? '影片數不明' : (r.complete ? '' : '至少 ') + r.videos + ' 部影片';
+    row.innerHTML = `<input type="checkbox" ${r.on ? 'checked' : ''} aria-label="選取">
+      <div class="main">
+        <div class="row wrap"><input type="text" class="js-name" style="flex:1 1 160px;width:auto" placeholder="媒體庫名稱">
+          <select class="js-type" style="width:auto"><option value="movies">電影</option><option value="tvshows">劇集</option></select></div>
+        <div class="sub" style="margin-top:4px" title="${esc(r.path)}">資料夾 ${esc(r.path.split(/[\\/]/).pop())}・${count}・${esc(r.why)}</div>
+        <div class="sub js-st"></div>
+      </div>`;
+    const cb = row.querySelector('input[type=checkbox]'), name = row.querySelector('.js-name'), type = row.querySelector('.js-type');
+    name.value = r.name; type.value = r.type;
+    cb.onchange = () => { r.on = cb.checked; bulkRefresh(); };
+    name.oninput = () => { r.name = name.value; bulkRefresh(); };
+    type.onchange = () => { r.type = type.value; bulkRefresh(); };
+    r.el = row;
+    box.appendChild(row);
+  }
+  bulkRefresh();
+}
+// 每列顯示會變成什麼：新增、合進上面同名的、加進現有的媒體庫；有問題就不能送出
+function bulkRefresh() {
+  const firstType = {}, into = new Set(), group = {};
+  for (const r of bulkRows) if (r.on) { const k = r.name.trim(); group[k] = (group[k] || 0) + 1; }
+  let n = 0, made = 0, bad = 0;
+  for (const r of bulkRows) {
+    if (!r.el) continue;
+    const name = r.name.trim(), type = r.el.querySelector('.js-type'), exist = libs.find(l => l.name === name);
+    type.disabled = !!exist; type.value = exist ? exist.type : r.type;
+    const msgs = r.used ? [r.used] : [];
+    let err = false;
+    if (r.on) {
+      n++;
+      if (!name) { msgs.push('請填名稱'); err = true; }
+      else if (exist) { msgs.push(`會加進現有的「${exist.name}」`); into.add(name); }
+      else if (name in firstType) {
+        if (firstType[name] !== r.type) { msgs.push('和上面同名的類型不一樣'); err = true; }
+        else msgs.push('和上面同名的合成一個媒體庫');
+      } else {
+        firstType[name] = r.type; made++;
+        if (group[name] > 1) msgs.push('和下面同名的合成一個媒體庫');
+      }
+    }
+    if (err) bad++;
+    const st = r.el.querySelector('.js-st');
+    st.textContent = msgs.join('；'); st.style.color = err ? 'var(--danger)' : r.used ? 'var(--warn)' : '';
+    r.el.classList.toggle('off', !r.on);
+  }
+  $('blkBar').classList.toggle('hidden', !bulkRows.length);
+  $('blkInfo').textContent = !n ? '還沒有勾選' : `勾了 ${n} 個資料夾：新增 ${made} 個媒體庫` + (into.size ? `，加進現有的 ${into.size} 個` : '') + (bad ? `，${bad} 個要先修正` : '');
+  $('blkOk').disabled = !n || bad > 0;
+}
+function bulkAll(on) {
+  for (const r of bulkRows) { r.on = on; if (r.el) r.el.querySelector('input[type=checkbox]').checked = on; }
+  bulkRefresh();
+}
+async function bulkSave() {
+  const next = structuredClone(libs), made = [];
+  for (const r of bulkRows) {
+    if (!r.on) continue;
+    const name = r.name.trim();
+    let lib = next.find(l => l.name === name);
+    if (!lib) { lib = {name, type: r.type, paths: []}; next.push(lib); made.push(name); }
+    if (!lib.paths.includes(r.path)) lib.paths.push(r.path);
+  }
+  $('blkOk').disabled = true;
+  const msg = made.length ? `已新增 ${made.length} 個媒體庫，正在掃描` : '已加進現有的媒體庫，正在掃描';
+  if (!await commitLibs(next, msg, bulkDlg, $('blkMsg'))) $('blkOk').disabled = false;
 }
 async function scanReq(body, label) {
   try { await api('/web/api/scan', {method: 'POST', body: JSON.stringify(body)}); }
@@ -938,21 +1134,16 @@ async function resetCover(id) {
   try { await api('/Items/' + id + '/Images/Primary', {method: 'DELETE'}); } catch (e) { toast(e.message, 'bad'); return; }
   toast('已改回預設封面'); refreshScan();
 }
-function addLib() { libs.push({name: libs.length ? '' : '電影', type: 'movies', paths: []}); dirtyLibs(true); renderLibs(); }
-async function saveLibs() {
-  try { await putSettings({libraries: libs}); toast('已儲存，正在重新掃描'); loadLibs(); }
-  catch (e) { toast('儲存失敗：' + e.message, 'bad'); }
-}
 let scanTimer = null;
 async function refreshScan() {
   clearTimeout(scanTimer);  // 好幾個地方會叫它，不能各開一條輪詢
   if (document.hidden && S.scan) { scanTimer = setTimeout(refreshScan, 2000); return; }  // 沒在看就不問伺服器
   try { S.scan = await api('/web/api/scan'); } catch (e) { return; }
   setHtml($('scanSt'), scanHtml(S.scan));
-  const el = document.activeElement, typing = el?.closest('#libs') && /^(INPUT|SELECT|TEXTAREA)$/.test(el.tagName);
-  if (!$('tab-libraries').classList.contains('hidden') && !typing) {  // 正在改名稱時不重畫，免得輸入框跳掉
-    const same = libShape(S.scan) === libsShape && $('libs').querySelectorAll('.card').length === libs.length;
-    if (same) updateLibCounts(); else renderLibs();
+  if (!$('tab-libraries').classList.contains('hidden')) {
+    const same = libShape(S.scan) === libsShape && $('libs').querySelectorAll('.lib[data-i]').length === libs.length;
+    if (same) updateLibCounts();
+    else { renderLibs(); if (libDlg.open) renderLibDlg(); }  // 封面換了、資料夾不見了：對話框也跟著更新
   }
   if (S.scan.scanning) scanTimer = setTimeout(refreshScan, 2000);
 }

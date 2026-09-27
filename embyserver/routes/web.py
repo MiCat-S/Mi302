@@ -13,7 +13,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse, RedirectResponse
 from starlette.concurrency import run_in_threadpool
 
-from .. import logs, settings
+from .. import library_suggest, logs, settings
 from ..auth import AuthContext, client_info, require_admin
 from ..dto import image_tag
 from ..moviepilot import library_series
@@ -257,6 +257,16 @@ def browse_local(request: Request, ctx: AuthContext = Depends(require_admin)):
         raise HTTPException(status_code=400, detail=f"無法讀取：{exc}")
     parent = str(path.parent) if path.parent != path else None
     return {"path": str(path), "parent": parent, "dirs": dirs, "roots": _roots()}
+
+
+@router.get("/web/api/libraries/suggest")
+def suggest_libraries(request: Request, ctx: AuthContext = Depends(require_admin)):
+    """批量新增媒體庫：列出某個資料夾底下的子資料夾，猜每個是電影還是劇集。"""
+    st = state(request)
+    try:
+        return library_suggest.suggest(q(request, "path") or "", st.config.libraries)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
 
 
 @router.get("/web/api/115/browse")
