@@ -1,6 +1,6 @@
 [繁體中文](115-網盤與同步) | [简体中文](115-网盘与同步) | **English**
 
-This page covers logging in to 115 Cloud (115 網盤), turning 115 folders into local `.strm` files, how incremental sync, full sync, deletion and the circuit breaker work, and how to browse folders on 115 and hand a wrong one to MoviePilot. The web admin page is only in Traditional Chinese, so button and field names below are given in English with the original label in parentheses.
+This page covers logging in to 115 Cloud (115 網盤), turning 115 folders into local `.strm` files, how incremental sync, full sync, deletion and the circuit breaker work, how to browse folders on 115 and hand a wrong one to MoviePilot, and how to empty the 115 recycle bin. The web admin page is only in Traditional Chinese, so button and field names below are given in English with the original label in parentheses.
 
 ## Logging in to 115
 
@@ -269,6 +269,20 @@ Marks next to a video:
 
 If a folder looks wrong, click **Reorganise this folder with MoviePilot…** (交給 MoviePilot 整理這個資料夾…), or **Reorganise…** on a subfolder. MoviePilot renames, moves and scrapes the files on 115, again with a preview before anything runs; see [MoviePilot](MoviePilot#reorganising-a-folder-on-115).
 
+## 115 recycle bin
+
+Files deleted on 115 first go to 115's recycle bin, where they can still be restored in 115; Mi302 also sends deleted duplicates there. The **115 recycle bin** (115 回收站) card on the 115 tab:
+
+- **View** (查看) loads the bin and lists each item's name, size, deletion time and original folder, 50 per page.
+- **Empty recycle bin…** (清空回收站…) permanently deletes everything in the bin. After that, the files cannot be recovered in 115 either.
+
+Emptying asks for confirmation twice:
+
+1. Type 清空 ("empty") in the confirmation box. Anything else cancels.
+2. With QR-code (cookie) login only, enter your 115 security key (安全密鑰, 6 digits). If you turned off the security-key requirement for emptying the bin in 115 (帳號安全 → 安全密鑰), leave it empty.
+
+With [115 open platform](#115-open-platform-advanced) authorisation, Mi302 empties the bin through the open platform, which needs no security key; it falls back to the cookie only if the open platform fails. Emptying the bin is recorded in the log.
+
 ## Duplicate files
 
 The **Duplicate files** card (重複檔案) on the **Tools** tab (整理) finds duplicate videos on 115 and deletes the extra copies. One **Find duplicates** run looks for two kinds, shown on two tabs:
@@ -310,7 +324,7 @@ The **Duplicate files** card (重複檔案) on the **Tools** tab (整理) finds 
 
 - A bar above the list has **Tick all as suggested** (全部照建議勾選) and **Untick all** (全部取消勾選), which work on both tabs and include pages you have not opened, plus a **Delete ticked** button that shows how many files are ticked and their total size (刪除勾選的 N 個). The same button is repeated below the list.
 - **Delete ticked** (刪除勾選的) handles every group on the current tab, including pages you have not opened; **Delete ticked in this group** (刪這一組勾選的) handles one group. The confirmation shows the count and size, and more than 50 files asks a second time. Every group must keep at least one copy.
-- Files go to the 115 recycle bin and can be restored there. One request handles up to a hundred files.
+- Files go to the 115 recycle bin and can be restored there, until the bin is emptied (see [115 recycle bin](#115-recycle-bin)). One request handles up to a hundred files.
 - The local strm and its same-name nfo, posters, subtitles and `X-mediainfo.json` are deleted too (regardless of the follow-deletions setting), and only the affected series or movies are rescanned.
 - Watch history of the deleted copy (played, resume position, favourite) moves to the kept copy, per user.
 - **Recently deleted** (最近刪掉的) at the bottom of the card lists what was deleted and where, to find it in the recycle bin.
