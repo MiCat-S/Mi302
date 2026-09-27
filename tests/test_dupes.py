@@ -1,5 +1,6 @@
 """115 上內容完全相同的影片：找出來、建議保留、刪掉多的，本機 strm 和觀看紀錄跟著處理。"""
 
+import json
 import time
 from pathlib import Path
 
@@ -338,3 +339,48 @@ def test_old_version_results_are_cleared_after_rule_change(tmp_path: Path):
     assert not wait_job(app).errors
     s = c.get("/web/api/dupes", headers=h).json()
     assert not s["versions_outdated"] and s["versions"]["groups"] == 2
+
+
+def test_name_complete():
+    from embyserver.dupes import name_complete
+
+    assert name_complete("Dark.S01E02.1080p.mkv", "episode") and name_complete("Dark 1x02.mkv", "episode")
+    for name in ("10.潘玮柏战队.mp4", "Dark EP02.mkv", "某剧 第2集.mp4", "Dark.mkv"):
+        assert not name_complete(name, "episode"), name
+    assert name_complete("Old Movie (2001).mkv", "movie") and name_complete("Old.Movie.2001.2160p.mkv", "movie")
+    assert not name_complete("old movie 2160p.mkv", "movie") and not name_complete("heat 1080p.mkv", "movie")
+    # 不知道類型（完全相同的檔案）：看得出集號就要標準寫法，看不出就要有年份
+    assert name_complete("Dark.S01E02.mkv") and not name_complete("02-xx 2019.mkv") and name_complete("Heat (1995).mkv")
+
+
+def test_suggestion_prefers_complete_names_then_smaller_files(tmp_path: Path):
+    from embyserver.db import Database
+    from embyserver.dupes import SUGGEST_RULE_KEY, DupeFinder
+
+    db = Database(str(tmp_path / "t.db"))
+    DupeFinder(db, None, None, None)  # 新資料庫：記下目前的規則版本
+    GB = 1_000_000_000
+    rows = [  # (file_id, grp, name, size, res)
+        (1, "ep:1:1:5", "Show.S01E05.1080p.BluRay.mkv", 8 * GB, 1080),
+        (2, "ep:1:1:5", "05.1080p.mp4", 1 * GB, 1080),  # 最小，但檔名只有集號
+        (3, "ep:1:1:5", "Show.S01E05.1080p.WEB.mkv", 2 * GB, 1080),  # 檔名完整裡最小的 → 建議保留
+        (4, "ep:1:1:5", "Show.S01E05.2160p.mkv", 1.5 * GB, 2160),  # 預設 1080P 優先，4K 不留
+        (5, "movie:tmdb:9", "heat.1080p.mkv", 2 * GB, 1080),
+        (6, "movie:tmdb:9", "Heat (1995) 1080p.mkv", 5 * GB, 1080),  # 有年份 → 建議保留
+        (7, "movie:tmdb:8", "Up (2009) 1080p REMUX.mkv", 30 * GB, 1080),
+        (8, "movie:tmdb:8", "Up (2009) 1080p.mkv", 4 * GB, 1080),  # 都完整：留小的
+    ]
+    db.executemany(
+        "INSERT INTO dup_versions(file_id, grp, title, name, size, mtime, quality, keep) VALUES(?,?,?,?,?,?,?,0)",
+        [(fid, grp, grp, name, int(size), 100 + fid, json.dumps({"res": res})) for fid, grp, name, size, res in rows],
+    )
+    # 完全相同：兩份都有 strm；早上傳的那份檔名只有集號
+    db.executemany("INSERT INTO dup_files(file_id, sha1, size, name, local, mtime, keep) VALUES(?,?,?,?,?,?,0)",
+                   [(20, "A", 10, "02.mkv", "/a/02.strm", 1), (21, "A", 10, "Show.S01E02.mkv", "/b/x.strm", 5),
+                    (22, "A", 10, "Show.S01E02.mkv", None, 0)])  # 沒有 strm 的不優先，就算檔名完整又最早
+    db.set_meta(SUGGEST_RULE_KEY, "1")  # 舊版照「檔案大的」算好的結果
+    DupeFinder(db, None, None, None)  # 規則版本不同：啟動時重算
+    kept = {r["file_id"] for r in db.query("SELECT file_id FROM dup_versions WHERE keep=1")}
+    assert kept == {3, 6, 8}
+    assert [r["file_id"] for r in db.query("SELECT file_id FROM dup_files WHERE keep=1")] == [21]
+    assert db.get_meta(SUGGEST_RULE_KEY) == "2"

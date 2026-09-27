@@ -1704,8 +1704,8 @@ let dupSuggestAll = {exact: true, versions: false};
 let dupSelT = null, dupSelSeq = 0;
 const DUP_PAGE = 20;
 const DUP_HINT = {
-  exact: '每組建議保留一份：本機有 strm 的優先，其次最早上傳的；其餘預先勾選。',
-  versions: '檔案內容不同，所以預設都不勾，由你挑。建議保留哪一份照下面選的解析度（預設 1080P，沒有再 4K，再沒有就留剩下最高的），一樣時保留檔案最大的；要照建議一次勾好每一組，按「全部照建議勾選」。畫質看已經提取的媒體資訊，沒有的從檔名猜，看不出解析度的排最後。分段檔（CD1）、一個檔案好幾集、加長版這類不同剪輯不會列在一起；不知道第幾集的、檔名集號和媒體庫對不上的也不列。',
+  exact: '每組建議保留一份：本機有 strm 的優先，其次檔名編號格式完整的（劇集有 S01E02、電影有年份），再來最早上傳的；其餘預先勾選。',
+  versions: '檔案內容不同，所以預設都不勾，由你挑。建議保留哪一份照下面選的解析度（預設 1080P，沒有再 4K，再沒有就留剩下最高的），一樣時保留檔名編號格式完整的（劇集有 S01E02、電影有年份），再來佔空間小的；要照建議一次勾好每一組，按「全部照建議勾選」。畫質看已經提取的媒體資訊，沒有的從檔名猜，看不出解析度的排最後。分段檔（CD1）、一個檔案好幾集、加長版這類不同剪輯不會列在一起；不知道第幾集的、檔名集號和媒體庫對不上的也不列。',
 };
 function setDupKind(kind) {
   dupKind = kind;
@@ -1818,7 +1818,8 @@ function dupGroup(g) {
   const versions = dupKind === 'versions';
   const members = g.members.map(m => {
     const title = m.series ? `${m.series}・${m.item}` : m.item || '';
-    const pills = (m.keep ? '<span class="pill ok">建議保留</span>' : '') + (versions ? qualityPills(m.quality) + `<span class="pill">${fmtSize(m.size)}</span>`
+    const named = m.complete === false ? `<span class="pill warn" title="${g.kind === 'movie' ? '電影的檔名要有年份' : '劇集的檔名要有 S01E02 這種季和集都寫明的編號'}">檔名編號不完整</span>` : '';
+    const pills = (m.keep ? '<span class="pill ok">建議保留</span>' : '') + named + (versions ? qualityPills(m.quality) + `<span class="pill">${fmtSize(m.size)}</span>`
       : (m.local ? '<span class="pill">有 strm</span>' : '<span class="pill">不在同步目錄</span>')) + (m.watched ? '<span class="pill">有觀看紀錄</span>' : '');
     return `<label class="dupm"><input type="checkbox" data-fid="${m.file_id}"${dupWanted(m) ? ' checked' : ''}>` +
       `<span class="grow"><span class="p">${esc(m.path)}</span><span class="row wrap" style="margin-top:4px">${pills}` +
