@@ -88,13 +88,30 @@ When it finishes, the list and the numbers refresh by themselves. The result say
 ### What probing one item does
 
 1. Reads the strm file (after applying `redirect.path_rules`).
-2. For a 115 strm, fetches one direct link from 115. 115 direct links are usually tied to the User-Agent that requested them, so the link fetch and ffprobe use the same ordinary browser User-Agent. ffprobe reuses one connection while reading, which triggers 115's CDN rate limiting less often.
-3. If the strm holds another URL (for example alist), ffprobe reads that URL directly. If it holds a local path, or the item is a local video, ffprobe reads the local file. Neither case fetches a 115 direct link or counts towards the hourly cap.
-4. ffprobe reads only the header, usually a few MB.
+2. For a 115 strm, fetches one direct link from 115 with an ordinary browser User-Agent (115 direct links are usually tied to the User-Agent that requested them).
+3. Mi302 reads the parts it needs itself, over a single connection with the same User-Agent (plus the cookie for 115 domains), instead of letting ffprobe read the URL. ffprobe opens several connections and jumps back and forth, which 115's CDN often refuses, showing up as "moov atom not found" or "Invalid data found".
+   - The first 6 MB.
+   - mp4: follows the top-level boxes to the moov (the video index) and reads only that; nothing extra when the moov is already in the first 6 MB.
+   - Other formats: the last 2 MB (Cues in mkv, the last timestamps in ts).
+   The pieces go into a sparse temporary file of the original size (unread parts take no space), ffprobe reads that local file, and it is deleted afterwards. A video usually costs 6 to 9 MB.
+4. Other URLs in a strm (for example alist) are read the same way, just without a 115 direct link or cookie; only a server without range support is read by ffprobe directly. Local paths and local videos are read from disk. Neither case counts towards the hourly cap.
 5. The result is written as `X-mediainfo.json` next to the strm file and stored in the database. Chapters come from the video if it has any; otherwise, as in Emby, one chapter is generated every 5 minutes. If the media folder is read-only, the result is kept in the database only.
 6. If the video had no runtime, the probed runtime is filled in.
 
 Each item may take at most `mediainfo.timeout` seconds (default 300); after that it counts as failed.
+
+### Failure messages
+
+The **Media info** card lists failed videos with the reason:
+
+| Message | Meaning | What to do |
+| --- | --- | --- |
+| 115 回的不是影片（text/html）：… (115 did not return a video) | 115 answered with an error page or JSON, followed by its own reason | Act on 115's reason; usually too many requests, so extract again later |
+| 115 回 HTTP 403 | The direct link expired or was refused | Extract again (a new link is fetched) |
+| 115 回了空的內容 (115 returned nothing) | 115 sent an empty response | Extract again |
+| mp4 檔裡找不到 moov (no moov in the mp4) | The mp4 lacks its index, usually because the file on 115 was not uploaded completely | Players most likely cannot play it either; download or replace the file |
+| ffprobe 失敗：…（檔頭 …） (ffprobe failed, with the file header) | The data looks like video but ffprobe cannot parse it; the file may be damaged or in an unsupported format (such as ISO) | The header hex is the first bytes of the file; include it when reporting a problem |
+| 限流 (throttled) | 115 throttled requests and the circuit breaker tripped | See "115 limits" below |
 
 ## Settings
 
