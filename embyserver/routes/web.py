@@ -542,10 +542,10 @@ def dupes_groups(request: Request, ctx: AuthContext = Depends(require_admin)):
 async def dupes_delete(request: Request, ctx: AuthContext = Depends(require_admin)):
     """刪重複：{"overrides": {"檔案 id": true/false}} 逐個指定要不要刪，沒指定的照預設。
 
-    kind=exact（完全相同，預設）：預設照建議刪；{"sha1", "size"} 只處理那一組。
-    kind=versions（不同版本）：預設不刪，{"use_suggestions": true} 才照建議；{"grp"} 只處理那一組。
+    use_suggestions：沒指定的檔案要不要照建議刪（不是建議保留的都刪）。完全相同（kind=exact，預設）預設 true，
+    不同版本（kind=versions）預設 false。{"sha1", "size"}（完全相同）或 {"grp"}（不同版本）只處理那一組。
     送進 115 回收站，每組至少留一份；本機 strm 跟著刪、觀看紀錄轉到保留的那份。在背景跑。
-    {"dry_run": true} 只算會刪幾個、多大，不刪（網頁確認框用）。
+    {"dry_run": true} 只算會刪幾個、多大，不刪（網頁上的數量和確認框用；不用登入 115）。
     """
     body = await _body(request)
     if not isinstance(body, dict):
@@ -559,19 +559,19 @@ async def dupes_delete(request: Request, ctx: AuthContext = Depends(require_admi
     except (TypeError, ValueError, KeyError):
         raise HTTPException(status_code=400, detail="格式錯誤")
     st = state(request)
-    if not st.p115.cookies:
-        raise HTTPException(status_code=400, detail="刪除 115 上的檔案要用掃碼登入（cookie）")
-    if st.dupes.busy():
-        raise HTTPException(status_code=409, detail="正在找重複或刪重複，等它做完")
     kind = "versions" if body.get("kind") == "versions" else "exact"
     grp = str(body["grp"]) if body.get("grp") else None
+    use_suggestions = bool(body.get("use_suggestions", kind == "exact"))
     try:
-        plan = await run_in_threadpool(st.dupes.plan, overrides, body.get("sha1"), size, kind, grp,
-                                       bool(body.get("use_suggestions")))
+        plan = await run_in_threadpool(st.dupes.plan, overrides, body.get("sha1"), size, kind, grp, use_suggestions)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     if body.get("dry_run"):
         return {"started": False, "count": len(plan), "size": sum(r["size"] for r in plan)}
+    if not st.p115.cookies:
+        raise HTTPException(status_code=400, detail="刪除 115 上的檔案要用掃碼登入（cookie）")
+    if st.dupes.busy():
+        raise HTTPException(status_code=409, detail="正在找重複或刪重複，等它做完")
     started = st.dupes.delete_in_background(plan)
     return {"started": started, "count": len(plan), "size": sum(r["size"] for r in plan)}
 

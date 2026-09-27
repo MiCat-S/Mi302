@@ -135,9 +135,12 @@ def test_override_and_single_group(tmp_path: Path):
     assert (media / "電影" / "Old Movie Copy" / "Old Movie (2001).strm").exists()
     assert c.get("/web/api/dupes", headers=h).json()["groups"] == 1  # 劇集那一組還在
 
-    # 刪除要 cookie 登入；沒登入不能找
+    # 刪除要 cookie 登入；沒登入不能找，但網頁上的數量（試算）照樣算得出來
     app.state.p115.logout()
     assert c.post("/web/api/dupes/delete", json={}, headers=h).status_code == 400
+    assert c.post("/web/api/dupes/delete", json={"dry_run": True}, headers=h).json()["count"] == 1
+    # 「全部取消勾選」：完全相同的也可以預設不刪
+    assert c.post("/web/api/dupes/delete", json={"dry_run": True, "use_suggestions": False}, headers=h).json()["count"] == 0
     assert c.post("/web/api/dupes/scan", json={}, headers=h).status_code == 400
 
 

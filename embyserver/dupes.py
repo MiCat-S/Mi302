@@ -377,10 +377,11 @@ class DupeFinder:
     # ---------------- 刪重複 ----------------
 
     def plan(self, overrides: Dict[int, bool], sha1: Optional[str] = None, size: Optional[int] = None,
-             kind: str = "exact", grp: Optional[str] = None, use_suggestions: bool = False) -> List[dict]:
+             kind: str = "exact", grp: Optional[str] = None, use_suggestions: Optional[bool] = None) -> List[dict]:
         """要刪哪些：overrides 逐個指定（file_id → 要不要刪），沒指定的照預設。
 
-        完全相同的預設照建議刪（不是建議保留的都刪）；不同版本的預設不刪，use_suggestions 為真時才照建議。
+        use_suggestions 為真時，沒指定的照建議刪（不是建議保留的都刪），為假時不刪；
+        沒給的話，完全相同的照建議、不同版本的不刪（內容不同，要使用者自己挑）。
         給了 sha1＋size（完全相同）或 grp（不同版本）時只看那一組。每一組至少要留一份，不然丟 ValueError。
         """
         if kind == "versions":
@@ -393,7 +394,7 @@ class DupeFinder:
                 return r["grp"]
 
             def default(r):
-                return use_suggestions and not r["keep"]
+                return bool(use_suggestions) and not r["keep"]
 
             def label(r):
                 return r["title"]
@@ -407,7 +408,7 @@ class DupeFinder:
                 return (r["sha1"], r["size"])
 
             def default(r):
-                return not r["keep"]
+                return (use_suggestions is None or use_suggestions) and not r["keep"]
 
             def label(r):
                 return r["name"]

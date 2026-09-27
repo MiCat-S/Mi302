@@ -58,6 +58,7 @@ textarea{resize:vertical;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,
 .dupm{display:flex;gap:10px;align-items:flex-start;padding:8px 0;border-top:1px dashed var(--line);cursor:pointer}
 .dupm input{width:auto;flex:none;margin-top:3px}
 .dupm .p{word-break:break-all}
+.dupbar{position:sticky;top:0;z-index:2;background:var(--panel);padding:8px 0;border-bottom:1px solid var(--line)}
 .seg{display:inline-flex;border:1px solid var(--line);border-radius:9px;overflow:hidden;flex-wrap:wrap}
 .seg button{border:0;background:transparent;padding:7px 14px;font:inherit;font-size:13.5px;color:var(--muted);cursor:pointer}
 .seg button.on{background:var(--accent-soft);color:var(--accent);font-weight:600}
@@ -474,10 +475,13 @@ dialog .card-b{max-height:70vh;overflow:auto}
           <div id="dupStat"><p class="hint">讀取中…</p></div>
           <div class="seg" id="dupTabs"><button data-kind="exact" class="on" onclick="setDupKind('exact')">完全相同</button><button data-kind="versions" onclick="setDupKind('versions')">不同版本</button></div>
           <p class="hint" id="dupKindHint"></p>
-          <div class="logbar"><input id="dupQ" type="search" placeholder="搜尋檔名或路徑" oninput="clearTimeout(dupQT); dupQT = setTimeout(() => loadDupGroups(1), 300)">
-            <button class="btn sm hidden" id="dupSuggestBtn" onclick="suggestAllVersions()">全部照建議勾選</button></div>
+          <div class="logbar"><input id="dupQ" type="search" placeholder="搜尋檔名或路徑" oninput="clearTimeout(dupQT); dupQT = setTimeout(() => loadDupGroups(1), 300)"></div>
+          <div class="row wrap dupbar">
+            <button class="btn sm" onclick="dupSelectAll(true)">全部照建議勾選</button><button class="btn sm" onclick="dupSelectAll(false)">全部取消勾選</button>
+            <span class="hint grow" id="dupSelInfo"></span>
+            <button class="btn danger js-dupdel" onclick="deleteDupes()"><svg class="i"><use href="#i-trash"/></svg><span class="js-dupdel-label">刪除勾選的</span></button></div>
           <div id="dupList" class="list"></div>
-          <div class="row wrap"><span class="grow"></span><button class="btn danger" id="dupDelBtn" onclick="deleteDupes()"><svg class="i"><use href="#i-trash"/></svg>刪除勾選的</button></div>
+          <div class="row wrap"><span class="grow"></span><button class="btn danger js-dupdel" onclick="deleteDupes()"><svg class="i"><use href="#i-trash"/></svg><span class="js-dupdel-label">刪除勾選的</span></button></div>
           <details class="more"><summary>最近刪掉的</summary><div class="in" id="dupLog"></div></details>
         </div>
       </div>
@@ -1444,7 +1448,9 @@ async function rewriteStrm() {
 let dupTimer = null, dupPage = 1, dupSeq = 0, dupQT = null, dupRoot = null, dupWasRunning = false;
 let dupKind = 'exact';  // exact = 完全相同、versions = 不同版本
 let dupOverrides = {exact: {}, versions: {}};  // 檔案 id → 要不要刪；只記跟預設不一樣的，沒翻到的頁面照預設
-let dupSuggestAll = false;  // 不同版本：按了「全部照建議勾選」後，預設改成照建議
+// 沒逐個改過的檔案要不要照建議勾選：完全相同預設照建議，不同版本預設不勾；「全部照建議勾選／全部取消勾選」切換
+let dupSuggestAll = {exact: true, versions: false};
+let dupSelT = null, dupSelSeq = 0;
 const DUP_PAGE = 20;
 const DUP_HINT = {
   exact: '每組建議保留一份：本機有 strm 的優先，其次最早上傳的；其餘預先勾選。',
@@ -1454,15 +1460,31 @@ function setDupKind(kind) {
   dupKind = kind;
   for (const b of document.querySelectorAll('#dupTabs button')) b.classList.toggle('on', b.dataset.kind === kind);
   $('dupKindHint').textContent = DUP_HINT[kind];
-  $('dupSuggestBtn').classList.toggle('hidden', kind !== 'versions');
   $('dupQ').placeholder = kind === 'versions' ? '搜尋片名、檔名或路徑' : '搜尋檔名或路徑';
   if (S.dupes) pollDupes();
   loadDupGroups(1);
 }
-function suggestAllVersions() {
-  dupSuggestAll = true; dupOverrides.versions = {};
-  toast('每組都照建議勾選了（包含還沒翻到的頁面），確認後按「刪除勾選的」');
+function dupSelectAll(on) {
+  // 全部照建議勾選、或全部取消勾選（包含還沒翻到的頁面）
+  dupSuggestAll[dupKind] = on; dupOverrides[dupKind] = {};
+  toast(on ? '每組都照建議勾選了（包含還沒翻到的頁面）' : '全部取消勾選了');
   loadDupGroups(dupPage);
+}
+function refreshDupSelection() {
+  // 試算現在勾了幾個、多大（含沒翻到的頁面），顯示在按鈕上
+  clearTimeout(dupSelT);
+  dupSelT = setTimeout(async () => {
+    const seq = ++dupSelSeq, running = !!S.dupes?.job.running;
+    let r;
+    try {
+      r = await api('/web/api/dupes/delete', {method: 'POST', body: JSON.stringify(
+        {kind: dupKind, overrides: dupOverrides[dupKind], use_suggestions: dupSuggestAll[dupKind], dry_run: true})});
+    } catch (e) { if (seq === dupSelSeq) $('dupSelInfo').textContent = e.message; return; }
+    if (seq !== dupSelSeq) return;
+    $('dupSelInfo').textContent = r.count ? `勾選了 ${r.count} 個，共 ${fmtSize(r.size)}（包含還沒翻到的頁面）` : '還沒有勾選要刪的檔案';
+    for (const el of document.querySelectorAll('.js-dupdel-label')) el.textContent = r.count ? `刪除勾選的 ${r.count} 個（${fmtSize(r.size)}）` : '刪除勾選的';
+    for (const b of document.querySelectorAll('.js-dupdel')) b.disabled = running || !r.count;
+  }, 250);
 }
 function loadDupes() { $('dupKindHint').textContent = DUP_HINT[dupKind]; pollDupes(); loadDupGroups(1); loadDupLog(); }
 async function pollDupes() {
@@ -1492,13 +1514,14 @@ async function pollDupes() {
     h += `<p class="notice bad" style="margin-top:8px">${esc(j.errors[0])}</p>`;
   }
   setHtml($('dupStat'), h);
-  $('dupScanBtn').disabled = $('dupDelBtn').disabled = j.running;
+  $('dupScanBtn').disabled = j.running;
+  for (const b of document.querySelectorAll('.js-dupdel')) if (j.running) b.disabled = true;
   document.querySelectorAll('#dupList .js-delgroup').forEach(b => { b.disabled = j.running; });
   if (j.running) dupTimer = setTimeout(pollDupes, 2000);
   else if (dupWasRunning) { loadDupGroups(1); loadDupLog(); toast(j.kind === 'scan' ? '找重複完成' : '刪除完成', j.errors.length ? 'bad' : ''); }
   dupWasRunning = j.running;
 }
-function dupDefault(m) { return dupKind === 'versions' ? dupSuggestAll && !m.keep : !m.keep; }
+function dupDefault(m) { return dupSuggestAll[dupKind] && !m.keep; }
 function dupWanted(m) { const o = dupOverrides[dupKind]; return m.file_id in o ? o[m.file_id] : dupDefault(m); }
 async function loadDupGroups(page) {
   dupPage = Math.max(1, page || dupPage);
@@ -1516,6 +1539,7 @@ async function loadDupGroups(page) {
     ? `<button class="btn sm"${dupPage <= 1 ? ' disabled' : ''} onclick="loadDupGroups(${dupPage - 1})">上一頁</button><button class="btn sm"${dupPage >= pages ? ' disabled' : ''} onclick="loadDupGroups(${dupPage + 1})">下一頁</button>` : '';
   if (pages > 1) box.insertAdjacentHTML('beforeend', `<div class="row" style="padding-top:12px"><span class="hint grow">第 ${dupPage} / ${pages} 頁，共 ${r.total} 組</span>${nav}</div>`);
   document.querySelectorAll('#dupList .js-delgroup').forEach(b => { b.disabled = !!S.dupes?.job.running; });
+  refreshDupSelection();
 }
 function qualityPills(q) {
   // 一個版本的畫質：解析度、HDR、編碼、第一條音軌、音軌和字幕數；看檔名猜的標出來
@@ -1548,18 +1572,18 @@ function dupGroup(g) {
   };
   for (const cb of boxes) cb.onchange = () => {
     if (boxes.every(b => b.checked)) { cb.checked = false; toast('每組至少要留一份', 'bad'); }
-    remember();
+    remember(); refreshDupSelection();
   };
   if (versions) row.querySelector('.js-suggest').onclick = () => {
     for (const b of boxes) b.checked = !g.members.find(x => String(x.file_id) === b.dataset.fid).keep;
-    remember();
+    remember(); refreshDupSelection();
   };
   row.querySelector('.js-delgroup').onclick = () => deleteDupes(g);
   return row;
 }
 async function deleteDupes(group) {
   // 先算會刪幾個、多大（含沒翻到的頁面裡照建議勾的），確認後才真的刪
-  const body = {kind: dupKind, overrides: dupOverrides[dupKind], use_suggestions: dupKind === 'versions' && dupSuggestAll};
+  const body = {kind: dupKind, overrides: dupOverrides[dupKind], use_suggestions: dupSuggestAll[dupKind]};
   if (group) Object.assign(body, dupKind === 'versions' ? {grp: group.grp} : {sha1: group.sha1, size: group.size});
   let plan;
   try { plan = await api('/web/api/dupes/delete', {method: 'POST', body: JSON.stringify({...body, dry_run: true})}); }
@@ -1574,7 +1598,7 @@ async function deleteDupes(group) {
   toast(r.started ? `開始刪除 ${r.count} 個檔案` : '正在找重複或刪重複，等它做完');
   if (r.started) {
     if (group) for (const m of group.members) delete dupOverrides[dupKind][m.file_id];
-    else { dupOverrides[dupKind] = {}; if (dupKind === 'versions') dupSuggestAll = false; }
+    else { dupOverrides[dupKind] = {}; dupSuggestAll[dupKind] = dupKind === 'exact'; }
   }
   pollDupes();
 }
@@ -1583,7 +1607,7 @@ async function scanDupes() {
   try { r = await api('/web/api/dupes/scan', {method: 'POST', body: JSON.stringify(dupRoot ? {paths: [dupRoot]} : {})}); }
   catch (e) { toast(e.message, 'bad'); return; }
   toast(r.started ? '開始找重複' : '已經在找了');
-  dupOverrides = {exact: {}, versions: {}}; dupSuggestAll = false;
+  dupOverrides = {exact: {}, versions: {}}; dupSuggestAll = {exact: true, versions: false};
   pollDupes();
 }
 async function pickDupRoot() { const p = await pickDir('115', dupRoot || '/'); if (p) { dupRoot = p; pollDupes(); } }

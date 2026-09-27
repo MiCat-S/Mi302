@@ -279,6 +279,7 @@ The **Duplicate files** card (重複檔案) on the **Tools** tab (整理) finds 
 
 ### Deleting
 
+- A bar above the list has **Tick all as suggested** (全部照建議勾選) and **Untick all** (全部取消勾選), which work on both tabs and include pages you have not opened, plus a **Delete ticked** button that shows how many files are ticked and their total size (刪除勾選的 N 個). The same button is repeated below the list.
 - **Delete ticked** (刪除勾選的) handles every group on the current tab, including pages you have not opened; **Delete ticked in this group** (刪這一組勾選的) handles one group. The confirmation shows the count and size, and more than 50 files asks a second time. Every group must keep at least one copy.
 - Files go to the 115 recycle bin and can be restored there. One request handles up to a hundred files.
 - The local strm and its same-name nfo, posters, subtitles and `X-mediainfo.json` are deleted too (regardless of the follow-deletions setting), and only the affected series or movies are rescanned.
