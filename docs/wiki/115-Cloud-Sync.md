@@ -286,7 +286,8 @@ The **Duplicate files** card (重複檔案) on the **Tools** tab (整理) finds 
 
 ### Identical files
 
-- One copy per group is suggested to keep: the one with a local strm first, then the earliest upload. The others are ticked, and you can change any tick.
+- One copy per group is suggested to keep: the one with a local strm first, then one with complete numbering in its file name, then the earliest upload. The others are ticked, and you can change any tick.
+- Complete numbering in the file name means an episode shows both season and episode (`S01E02`, `1x02`) and a movie shows its year. Names with only an episode number (`EP05`, `第5集`, `10.xxx`) are incomplete and marked **Incomplete numbering in file name** (檔名編號不完整).
 - Each copy shows its 115 path, its upload time, and the tags suggested to keep (建議保留), has strm (有 strm), outside sync folders (不在同步目錄) and has watch history (有觀看紀錄).
 
 ### Versions
@@ -303,7 +304,7 @@ The **Duplicate files** card (重複檔案) on the **Tools** tab (整理) finds 
   | 4K, else 1080P (4K（沒有再 1080P）) | 4K; if there is none, 1080P, then the highest remaining |
   | Highest resolution (解析度最高的) | The highest resolution |
 
-  With equal resolution the largest file wins, then the earliest upload; copies whose resolution cannot be told come last. Changing the option recalculates the existing results at once, without finding duplicates again. **Tick as suggested** (照建議勾選) on a group ticks that group, and **Tick all as suggested** (全部照建議勾選) at the top ticks every group, including pages you have not opened. For example, choose 1080P, else 4K and click **Tick all as suggested** to keep only the 1080P copy in every group.
+  With equal resolution a file name with complete numbering wins, then the smaller file, then the earliest upload; copies whose resolution cannot be told come last. Changing the option recalculates the existing results at once, without finding duplicates again. **Tick as suggested** (照建議勾選) on a group ticks that group, and **Tick all as suggested** (全部照建議勾選) at the top ticks every group, including pages you have not opened. For example, choose 1080P, else 4K and click **Tick all as suggested** to keep only the 1080P copy in every group.
 
 ### Deleting
 
