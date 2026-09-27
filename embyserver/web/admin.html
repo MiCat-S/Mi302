@@ -720,7 +720,7 @@ dialog .card-b{max-height:70vh;overflow:auto}
         <label class="field"><span>TMDB 編號</span><input id="reoTmdb" type="text" inputmode="numeric" oninput="reoDirty()"><small>從 tvshow.nfo 讀到的；沒有或不對就自己填</small></label>
         <label class="field"><span>整理到</span><select id="reoTarget" onchange="reoDirty()"><option value="auto">照 MoviePilot 的目錄設定</option><option value="parent">現在的分類資料夾</option></select><small id="reoTargetHint"></small></label>
       </div>
-      <label class="switch"><input type="checkbox" id="reoScrape" checked onchange="reoDirty()"><span class="track"></span><span class="lbl">整理後刮削<small>MoviePilot 把 nfo 和劇照寫到 115，Mi302 同步時下載（要開「一併下載 nfo、圖片」）</small></span></label>
+      <label class="switch"><input type="checkbox" id="reoScrape" checked onchange="reoDirty()"><span class="track"></span><span class="lbl">整理後刮削<small>MoviePilot 把 nfo 和劇照寫到 115，Mi302 同步時下載（要開 115 同步的「一併下載 115 上的 nfo、海報、字幕」）</small></span></label>
       <div id="reoGroups"></div>
     </div>
     <p id="reoMsg" class="notice hidden"></p>

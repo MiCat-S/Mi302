@@ -138,6 +138,7 @@ The API behind the web admin page `/web`. Apart from `/web/api/setup`, it needs 
 | `GET /web/api/libraries/suggest?path=` | Bulk add libraries: list the subfolders with a suggested type and the reason, the video count (`complete` when fully counted), whether a library already uses the folder (`used`), and whether to tick it by default; `partial` means some folders were not fully read |
 | `POST /web/api/moviepilot/test`, `GET /web/api/moviepilot/status`, `POST /web/api/moviepilot/scrape` | MoviePilot connection test, status, scrape items missing metadata |
 | `GET /web/api/series`, `POST /web/api/moviepilot/fill` | Series and episode-gap list; fill missing episodes |
+| `GET /web/api/moviepilot/reorganize`, `GET /web/api/moviepilot/reorganize/plan`, `POST /web/api/moviepilot/reorganize/preview`, `POST /web/api/moviepilot/reorganize/execute` | Reorganise series with wrong episode numbers through MoviePilot: the list (with the current job and missing settings), one season's plan (`series`, `season`; batches and episode formats), a preview (returns a `token`), and running a preview by its token |
 | `GET /web/api/intro/status`, `POST /web/api/intro/clear` | Intro and credits (`{"season_id": id}` clears one season's learned records) |
 | `GET /web/api/intro/seasons?q=`, `PUT /web/api/intro/seasons/{season id}` | Season list and search for intro and credits; manual settings for a season (`all_seasons` applies them to the whole series) |
 | `GET /web/api/people/status`, `POST /web/api/people/resolve` | Chinese names for cast and crew |

@@ -1,6 +1,6 @@
 [繁體中文](MoviePilot-整合) | [简体中文](MoviePilot-集成) | **English**
 
-Mi302 does not scrape (fetch metadata and artwork) by itself; it hands this to [MoviePilot](https://github.com/jxxghp/MoviePilot). This page covers connecting to MoviePilot, which videos are sent for scraping, how filling missing episodes decides what is missing, and how to add Mi302 to MoviePilot as an Emby media server. The web admin page is in Traditional Chinese; original labels are given in parentheses.
+Mi302 does not scrape (fetch metadata and artwork) by itself; it hands this to [MoviePilot](https://github.com/jxxghp/MoviePilot). This page covers connecting to MoviePilot, which videos are sent for scraping, how filling missing episodes decides what is missing, how to reorganise series with wrong episode numbers, and how to add Mi302 to MoviePilot as an Emby media server. The web admin page is in Traditional Chinese; original labels are given in parentheses.
 
 Mi302 was built against MoviePilot V3. Older versions mostly work, with a few features reduced; see [Older MoviePilot versions](#older-moviepilot-versions).
 
@@ -33,15 +33,16 @@ The connection test only checks the URL and the API token. It sends an empty pat
 | Concurrent scrapes (同時刮削幾項) | `moviepilot.concurrency` | 3 | 1–8 |
 | Path mappings (路徑對應) | `moviepilot.path_mappings` | none | see the next section |
 | Send new strm files for scraping after sync (同步產生新的 strm 後自動送去刮削) | `moviepilot.scrape_after_sync` | on | when off, sync only scans |
-| MoviePilot username, password (MoviePilot 帳號, MoviePilot 密碼) | `moviepilot.username`, `moviepilot.password` | empty | needed to fill missing episodes, and by the scrape API of older versions |
+| MoviePilot username, password (MoviePilot 帳號, MoviePilot 密碼) | `moviepilot.username`, `moviepilot.password` | empty | needed to fill missing episodes and to reorganise episode numbers, and by the scrape API of older versions |
 | Fill missing episodes after full sync (全量同步後自動補全) | `moviepilot.fill_after_full_sync` | off | in the collapsed Settings section (設定) of the fill card; saved as soon as you toggle it |
 | (config file only) | `moviepilot.timeout` | 300 | seconds to wait per item; exceeding it counts as a connection failure and stops the batch |
 
 ### When you need the username and password
 
-The account fields are in a collapsed section of the **Connection** card, "MoviePilot account (needed to fill missing episodes; also by the scrape API of older versions)" (MoviePilot 帳號密碼（補全缺集需要；舊版刮削 API 也需要）). Click it to expand.
+The account fields are in a collapsed section of the **Connection** card, "MoviePilot account (needed to fill missing episodes and reorganise episode numbers; also by the scrape API of older versions)" (MoviePilot 帳號密碼（補全缺集、整理集號需要；舊版刮削 API 也需要）). Click it to expand.
 
 - **Filling missing episodes**: MoviePilot's subscription API only accepts a logged-in account, not the API token. You must fill these in.
+- **Reorganising series with wrong episode numbers**: the manual transfer, episode-format recommendation and version APIs only accept a logged-in account, and it must be an admin.
 - **Older MoviePilot versions**: the scrape API only accepts a logged-in account. Fill these in if the connection test reports "access denied" (拒絕存取).
 
 With an account filled in, when MoviePilot answers 401 or 403, Mi302 logs in with it (`POST /api/v1/login/access-token`) and retries, then keeps using the token from that login. When the token expires, it logs in again. You can also leave the API token empty and use only the URL and the account.
@@ -174,6 +175,62 @@ Expand "Results per season (N)" (每一季的結果（N）) to see which episode
 
 With **Fill missing episodes after full sync** (全量同步後自動補全) ticked (off by default; saved as soon as you toggle it), every full sync ends by sending all series with a tmdbid, after scraping has finished. Nothing is sent if no MoviePilot account is filled in. It waits for scraping because newly scraped series only have a tmdbid at that point.
 
+## Reorganise series with wrong episode numbers
+
+When the scraper cannot tell which episode a file is, the nfo has no episode number, or `-1`. If the file name is not a standard `S01E02` either, Mi302 can only guess from names such as "10.xxx" or "第10集", and some it cannot read at all. The card **Series with wrong episode numbers: reorganise with MoviePilot** (集號不對的劇：交給 MoviePilot 整理) lists these seasons and hands them to MoviePilot's manual transfer. MoviePilot renames the files on 115 to the standard names from its own naming settings (for example "Title - S01E10 - Episode title") and scrapes them, and Mi302 syncs the result. From then on any tool can read the episode number from the file name.
+
+This really renames and moves files on 115, so you always preview first and check every file's new path before running it.
+
+### Before you start
+
+- MoviePilot must be v2.11.1-1 or later. Older versions do not support preview, so a "preview" would really reorganise the files. Mi302 therefore checks the version first (`GET /api/v1/system/env`) and sends nothing if the version is too old or cannot be read.
+- Fill in the MoviePilot username and password on the **Connection** card, with an admin account. The manual transfer, episode-format recommendation and version APIs only accept a logged-in account.
+- MoviePilot's 115 storage must be logged in to the same 115 account as Mi302. Mi302 sends 115 file ids, and MoviePilot moves the files by id.
+- The episodes must be inside a 115 sync task and known to its sync records. If they are not found, run a full sync first.
+
+### The list
+
+Each season gets a row that says how many episodes have a guessed number and how many cannot be read. Only strm files are listed. Episodes whose number comes from the nfo, or whose file name is `S01E02` or `1x02`, are not listed. After reorganising, the new standard names drop off the list at the next scan.
+
+The list needs a scan to know where each episode number came from. After upgrading, it stays empty until the first scan after startup has finished.
+
+### Preview
+
+Click **Preview reorganisation…** (預覽整理…) to open the dialog. Mi302 lists the files on 115 and splits them into batches by naming style:
+
+| Batch | Episode format |
+| --- | --- |
+| Same naming as "10.潘玮柏…" (和「…」同一種寫法) | Generated by Mi302 from where the episode number sits in the name, for example `{ep}.{a}`, `{ep}-{a}` or `{b}第{ep}集{a}` |
+| A style MoviePilot recognises itself (MoviePilot 自己認得的寫法) | None needed (`EP02`, `第十二集` and so on) |
+| Episode number not recognised (認不出集號) | Recommended by MoviePilot; if it has no suggestion, the batch is off by default and you fill in the format yourself |
+
+The episode format is MoviePilot's syntax: `{ep}` is the episode number, `{a}` and `{b}` stand for any text, and the pattern must match the whole file name including the extension. Each batch can be switched off or given a different format.
+
+Other settings:
+
+- **TMDB ID** (TMDB 編號): read from `tvshow.nfo`. Fill it in if it is missing or wrong.
+- **Destination** (整理到): **Follow MoviePilot's directory settings** (照 MoviePilot 的目錄設定) lets MoviePilot use its library directory with type and category folders. **Current category folder** (現在的分類資料夾) puts the files one level above the series folder (for example `/cms/电视剧/综艺`) without adding type or category folders. Either way, MoviePilot's naming settings decide the series folder and file names.
+- **Scrape after reorganising** (整理後刮削): on by default. MoviePilot writes the nfo and stills to 115, and Mi302 downloads them during sync, as long as the 115 sync option **Also download nfo, posters and subtitles from 115** (一併下載 115 上的 nfo、海報、字幕) is on.
+
+Click **Preview** (預覽). MoviePilot only works out the result without changing anything, and lists each file's new path and episode number. Mi302 adds its own checks and marks each file:
+
+| Mark | Meaning |
+| --- | --- |
+| OK (可以) | No problem found |
+| Check this (要看一下) | MoviePilot's episode number differs from what the file name suggests, or the file moves to a different series folder |
+| Not sent (不會送) | MoviePilot's preview failed, the format does not match the file name, or the new location is outside Mi302's 115 sync folders (the episode would disappear from the library) |
+
+Changing any setting discards the preview; preview again.
+
+### Running it
+
+Click **Run reorganisation (N)** (執行整理（N 個）) and confirm:
+
+- Only files marked OK or Check this are sent, with exactly the settings of the preview. A preview is valid for 30 minutes and can be run once.
+- MoviePilot moves and renames the files on 115, and scrapes them if enabled. The card shows progress and each file's result.
+- Afterwards Mi302 deletes the old local nfo files that have no episode number, so they do not follow the strm to its new name. About 20 seconds later it runs an incremental 115 sync, the strm files move to their new names, and the affected series is rescanned.
+- If a 115 sync is already running, the changes are picked up by the next sync.
+
 ## Add Mi302 to MoviePilot as Emby
 
 MoviePilot can add Mi302 as a media server. It uses it to check what you already have, and to notify Mi302 to rescan after organising files.
@@ -209,6 +266,7 @@ Mi302 was built against MoviePilot V3. On older versions (for example V2):
 - Subscriptions: older versions read the `tmdbid` field, V3 reads `media_source` / `media_id`; Mi302 sends both. Older versions reject titles already in the library ("媒体库中已存在"), which Mi302 counts as "already complete".
 - Subscription search: V3 uses POST, older versions GET. On HTTP 405 Mi302 retries with GET.
 - TMDB episode lists: V3 and older versions use different response formats; both are understood.
+- Reorganising episode numbers: preview in manual transfer exists from v2.11.1-1; older versions get nothing sent (see [Before you start](#before-you-start-1)). The episode-format recommendation exists only in V3, so on older versions you fill in the format yourself.
 - If MoviePilot lacks an API (HTTP 404), Mi302 shows "MoviePilot 沒有這個 API（…），請確認網址或升級 MoviePilot" (MoviePilot has no such API; check the URL or upgrade MoviePilot).
 
 ## Other uses of MoviePilot
