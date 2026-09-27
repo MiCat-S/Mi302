@@ -16,6 +16,7 @@ You do not need a real Emby server behind it, or any other 115 tool. The full do
 - **Intro and credits skipping**: learns intros and credits from how people watch, so players such as SenPlayer offer "Skip intro".
 - **Made for Chinese libraries**: Chinese titles sort by pinyin; search matches full pinyin, initials, Simplified and Traditional characters; cast names and genres can be shown in Chinese.
 - **Web admin**: everything is set up at `/web` and kept in sync with `config.yaml`. The database is backed up daily.
+- **Removes duplicate files on 115**: finds videos with identical content and, after you confirm, moves the extra copies to the 115 recycle bin; local strm files and watch history are handled too.
 - **Protects your 115 account**: when 115 rate-limits or the login expires, a circuit breaker pauses syncing and probing. Playback keeps working.
 
 ## How it works
@@ -61,7 +62,7 @@ Then open `http://<host>:8096/web` in a browser:
 | --- | --- |
 | [Installation](https://github.com/MiCat-S/Mi302/wiki/Installation) | Installer, manual install, the `mi302` command, updating and uninstalling |
 | [First Setup](https://github.com/MiCat-S/Mi302/wiki/First-Setup) | Setting up in the web page, users, how the config file works |
-| [115 Cloud Sync](https://github.com/MiCat-S/Mi302/wiki/115-Cloud-Sync) | Signing in, sync tasks, incremental and full sync, the circuit breaker |
+| [115 Cloud Sync](https://github.com/MiCat-S/Mi302/wiki/115-Cloud-Sync) | Signing in, sync tasks, incremental and full sync, duplicate files, the circuit breaker |
 | [Library and Scanning](https://github.com/MiCat-S/Mi302/wiki/Library-and-Scanning) | Folder layout, partial scans, pinyin sort and search, Chinese names |
 | [Playback](https://github.com/MiCat-S/Mi302/wiki/Playback) | The 302 flow, playback authentication, downloads, reverse proxies |
 | [Intro and Credits](https://github.com/MiCat-S/Mi302/wiki/Intro-and-Credits) | How intros and credits are learned, what players receive, how to test |

@@ -250,6 +250,29 @@ If a file on 115 only changed the letter case of its name: on a case-insensitive
 
 Deleting a sync task never deletes the strm files it created, whether this option is on or off.
 
+## Duplicate files
+
+The **Duplicate files** card (重複檔案) at the bottom of the 115 tab finds videos whose content is identical and deletes the extra copies. Only videos are checked. Files form a group when their SHA1 (a fingerprint of the content) and size match, even if their names differ.
+
+1. **Scope**: the sync tasks' 115 folders by default. **Pick a 115 folder…** (改選 115 目錄…) lets you choose any folder, for example the whole drive `/`.
+2. **Find duplicates** (找重複): Mi302 lists every file in the scope. 115 includes the SHA1 in its file listings, so forty thousand videos take about forty requests. For files outside the sync folders, the folder path is looked up once per folder. Rate limiting trips the circuit breaker as usual.
+3. **Results**: one card per group, largest savings first, 20 groups per page, searchable by file name or path. Each copy shows its 115 path, its upload time, and the tags suggested to keep (建議保留), has strm (有 strm), outside sync folders (不在同步目錄) and has watch history (有觀看紀錄).
+4. **Choosing**: one copy per group is suggested to keep (the one with a local strm first, then the earliest upload); the others are ticked. You can change any tick, but every group must keep at least one copy.
+5. **Deleting**: **Delete ticked** (刪除勾選的) handles all groups, including ticks suggested on pages you have not opened; **Delete ticked in this group** (刪這一組勾選的) handles one group. The confirmation shows the count and size, and more than 50 files asks a second time.
+
+After deleting:
+
+- Files go to the 115 recycle bin and can be restored there. One request handles up to a hundred files.
+- The local strm and its same-name nfo, posters, subtitles and `X-mediainfo.json` are deleted too (regardless of the follow-deletions setting), and only the affected series or movies are rescanned.
+- Watch history of the deleted copy (played, resume position, favourite) moves to the kept copy, per user.
+- **Recently deleted** (最近刪掉的) at the bottom of the card lists what was deleted and where, to find it in the recycle bin.
+
+Notes:
+
+- Deleting needs QR-code (cookie) login; it is not available with only the open platform.
+- Results reflect the moment you clicked **Find duplicates**. If files were moved, renamed or deleted on 115 since, find again before deleting.
+- Different versions of the same title (other resolution or release group) have different content and are not listed here.
+
 ## Circuit breaker
 
 115's firewall is sensitive: sending more requests after being rate-limited only extends the block. So when 115 rate-limits Mi302 or the login becomes invalid, Mi302 pauses background work: sync and media-info probing.
