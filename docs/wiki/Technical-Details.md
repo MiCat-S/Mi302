@@ -152,7 +152,7 @@ The API behind the web admin page `/web`. Apart from `/web/api/setup`, it needs 
 | `POST /p115/open/qrcode`, `GET /p115/open/qrcode/status`, `POST /p115/open/logout` | 115 open platform authorisation |
 | `POST /p115/strm/sync?mode=incremental` (full sync without `mode`), `GET /p115/strm/status`, `PUT /p115/strm/tasks` | Sync, sync status, sync tasks |
 | `POST /p115/strm/rewrite` | Rewrite existing strm files to the current server address (local files only) |
-| `GET /web/api/dupes`, `POST /web/api/dupes/scan`, `GET /web/api/dupes/groups`, `POST /web/api/dupes/delete`, `GET /web/api/dupes/log` | 115 duplicate files: status, find (`paths`), grouped list, delete (`overrides`; `sha1` + `size` for one group; `dry_run` to only count); `kind=versions` for versions (`grp` for one group, `use_suggestions` to follow the suggestion), deletion log |
+| `GET /web/api/dupes`, `POST /web/api/dupes/scan`, `GET /web/api/dupes/groups`, `POST /web/api/dupes/delete`, `GET /web/api/dupes/log` | 115 duplicate files: status, find (`paths`), grouped list, delete (`overrides`; `sha1` + `size` for one group; `dry_run` to only count); `kind=versions` for versions (`grp` for one group, `use_suggestions` to follow the suggestion), deletion log; `POST /web/api/dupes/prefer` sets which resolution the versions suggestion keeps (`prefer` is `1080`, `2160` or `highest`) |
 
 `GET /web` serves the admin page itself, and `/web/115` redirects to `/web#115`.
 

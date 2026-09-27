@@ -276,7 +276,15 @@ The **Duplicate files** card (重複檔案) on the **Tools** tab (整理) finds 
 - Episodes with an unknown number are skipped: no episode number in the library, or `-1` in the nfo with nothing usable in the file name. An episode is also skipped when its 115 file name shows an episode number that differs from the library's, so nothing is deleted by mistake. Older versions treated a whole season whose episode numbers the scraper could not read as one episode; after updating, those old results are cleared and the page asks you to click **Find duplicates** (找重複) again.
 - Not treated as duplicates: split files (CD1, Part 2) and files holding several episodes (E01E02, E01-02). Different cuts such as director's cut or extended are grouped separately. Groups where every copy is identical are left to the Identical tab.
 - Each version shows resolution, HDR or Dolby Vision, codec, the first audio track, the number of audio and subtitle tracks, and size. Quality comes from extracted media info (see [Media Info](Media-Info)); anything missing is guessed from the file name and marked from file name (看檔名).
-- The files differ, so nothing is ticked by default. The suggestion keeps the highest resolution, then the largest file: **Tick as suggested** (照建議勾選) on a group ticks that group, and **Tick all as suggested** (全部照建議勾選) at the top ticks every group, including pages you have not opened.
+- The files differ, so nothing is ticked by default. Which copy is suggested for keeping depends on **Suggest keeping** (建議保留) in the action bar:
+
+  | Option | Suggested copy |
+  | --- | --- |
+  | 1080P, else 4K (1080P（沒有再 4K）), the default | 1080P; if there is none, 4K; if neither exists, the highest remaining |
+  | 4K, else 1080P (4K（沒有再 1080P）) | 4K; if there is none, 1080P, then the highest remaining |
+  | Highest resolution (解析度最高的) | The highest resolution |
+
+  With equal resolution the largest file wins, then the earliest upload; copies whose resolution cannot be told come last. Changing the option recalculates the existing results at once, without finding duplicates again. **Tick as suggested** (照建議勾選) on a group ticks that group, and **Tick all as suggested** (全部照建議勾選) at the top ticks every group, including pages you have not opened. For example, choose 1080P, else 4K and click **Tick all as suggested** to keep only the 1080P copy in every group.
 
 ### Deleting
 
