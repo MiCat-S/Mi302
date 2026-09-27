@@ -12,7 +12,8 @@ from typing import Optional
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import PlainTextResponse
+from fastapi.responses import PlainTextResponse, Response
+from starlette.requests import ClientDisconnect
 
 from .auth import AuthService
 from .backup import Backup
@@ -157,6 +158,12 @@ def create_app(config: Config, db_path: Optional[str] = None, scan_on_start: boo
     async def http_error(request: Request, exc: HTTPException):
         # Emby 的錯誤回應是純文字
         return PlainTextResponse(str(exc.detail), status_code=exc.status_code)
+
+    @app.exception_handler(ClientDisconnect)
+    async def client_gone(request: Request, exc: ClientDisconnect):
+        # 瀏覽器或播放器在請求送完之前就斷了（重新整理、關掉分頁、網路斷掉）：不是伺服器的錯，這個請求也沒做任何事
+        log.info("連線在請求送完之前就斷了，這個請求沒有執行：%s %s", request.method, request.url.path)
+        return Response(status_code=499)  # 499 = 客戶端先關閉連線（Nginx 的慣例）
 
     @app.exception_handler(Exception)
     async def unexpected_error(request: Request, exc: Exception):

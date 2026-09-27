@@ -152,3 +152,25 @@ def test_config_tolerates_unknown_keys_and_float_fields(tmp_path: Path):
     assert cfg.server.log_level == "info"
     settings.save(Database(":memory:"), cfg, {"p115": {"strm": {"min_size_mb": "0.5"}}, "moviepilot": {"timeout": "12.5"}})
     assert cfg.p115.strm.min_size_mb == 0.5 and cfg.moviepilot.timeout == 12.5  # 預設值是 0、300，型別看宣告
+
+
+def test_client_disconnect_is_not_logged_as_error(tmp_path: Path, monkeypatch, caplog):
+    """瀏覽器在請求送完前就斷線（例如按了按鈕就重新整理）：記一行 INFO，不要整段錯誤堆疊。"""
+    import logging
+
+    from starlette.requests import ClientDisconnect
+
+    from embyserver.routes import web
+
+    c = make_client(tmp_path, {"users": [{"name": "admin", "password": "pw", "admin": True}]})
+    h = admin_headers(c)
+
+    async def gone(request):
+        raise ClientDisconnect()
+
+    monkeypatch.setattr(web, "_body", gone)
+    with caplog.at_level(logging.INFO):
+        r = c.post("/web/api/mediainfo/probe", json={}, headers=h)
+    assert r.status_code == 499
+    assert not [rec for rec in caplog.records if rec.levelno >= logging.ERROR]
+    assert any("請求送完之前就斷了" in rec.getMessage() for rec in caplog.records)
