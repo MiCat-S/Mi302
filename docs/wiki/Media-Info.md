@@ -74,7 +74,12 @@ The list below shows movies and series that still lack media info, 20 per page. 
 - **Start** (開始提取): probes the first N videos, using the filters and the order.
 - **Probe** (提取) next to a title: probes only that movie or series (the episodes it lacks), again at most N.
 
-Only one run happens at a time, and the buttons are disabled while it runs. When it finishes, the list and the numbers refresh by themselves. The result says how the run was picked, for example "manual, newest year first, at most 100" (手動・年份新的先做・最多 100 支) or "manual, 庆余年, at most 100".
+Only one run happens at a time, and **Start** and **Probe** are disabled while it runs. During a run:
+
+- Changing **At most N this time** applies to the running batch right away: a higher number adds videos using the same filters and order, a lower one drops videos still waiting in the queue. This works for runs you started by hand, not for runs started automatically after a sync.
+- **Stop probing** (停止提取) next to the progress bar stops the run: queued videos are dropped, a video already in ffprobe is finished, and one still waiting for its direct link is abandoned. The result says stopped (已停止); videos not done do not count as failed, and the next **Start** picks up what is still missing.
+
+When it finishes, the list and the numbers refresh by themselves. The result says how the run was picked, for example "manual, newest year first, at most 100" (手動・年份新的先做・最多 100 支) or "manual, 庆余年, at most 100".
 
 ### Probing after sync
 
@@ -112,7 +117,7 @@ Every 115 strm file needs one direct-link fetch from 115, and 115 is sensitive t
 
 - **Connections**: 115 allows at most 3 connections at once, so concurrent probes are capped at 3 (default 2).
 - **Interval**: at least 0.5 seconds between two direct-link fetches (default 1 second). All probing shares this interval.
-- **Hourly cap**: at most 300 fetches per hour by default; 0 = unlimited. When the cap is reached, probing waits until the oldest fetch is an hour old. Probing tens of thousands of videos at once takes several days; you can also split it up with **At most N this time**.
+- **Hourly cap**: at most 300 fetches per hour by default; 0 = unlimited. When the cap is reached, probing waits until the oldest fetch is an hour old; raising the cap (or changing the interval) and clicking **Save** while it waits resumes probing straight away. Probing tens of thousands of videos at once takes several days; you can also split it up with **At most N this time**.
 - **Circuit breaker**: when 115 responds with rate limiting or an invalid login, probing and sync stop, and the rest of the current batch is not done. A breaker tripped by rate limiting clears itself after 45 minutes. An invalid login needs a new QR-code login on the **115 Cloud** tab (115 網盤) with the **Scan QR code** button (掃碼登入). An interrupted run does not restart by itself: click **Start** again once the breaker has cleared. Clicking it while the breaker is tripped stops the run straight away. For the first 30 minutes after the cool-down, the interval is 4 times longer and the hourly cap a quarter; for the next 30 minutes, twice as long and half; then back to normal.
 
 Probe-on-open and batch probing share the interval, the hourly cap and the circuit breaker. Playback is not subject to these limits and is not stopped by the circuit breaker. The breaker's reason is shown in the **Media info** card and on the **115 Cloud** tab. For details on the circuit breaker, see [115 Cloud Sync](115-Cloud-Sync).

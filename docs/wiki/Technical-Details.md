@@ -142,6 +142,7 @@ The API behind the web admin page `/web`. Apart from `/web/api/setup`, it needs 
 | `GET /web/api/people/status`, `POST /web/api/people/resolve` | Chinese names for cast and crew |
 | `GET, POST /web/api/backups`; `GET /web/api/backups/{name}` | List backups, back up now, download a backup |
 | `GET /web/api/mediainfo/status`, `GET /web/api/mediainfo/titles`, `POST /web/api/mediainfo/probe` | Media info: status; titles still missing media info (filterable, ordered); probing (optional filters, `limit`, `ids`) |
+| `POST /web/api/mediainfo/probe/limit`, `POST /web/api/mediainfo/stop` | Change how many the running batch probes (`{"limit": N}`); stop the running batch |
 | `GET /web/api/logs`, `/web/api/logs/download` | Logs, download the log file |
 | `GET, POST /web/api/apikeys`; `DELETE /web/api/apikeys/{key}` | API keys |
 | `GET /p115/status` | 115 account status |
