@@ -300,6 +300,7 @@ class P115OpenClient:
                     "pickcode": info.get("pc") or info.get("pick_code") or "",
                     "size": int(info.get("fs") or info.get("size") or 0),
                     "mtime": mtime,
+                    "sha1": str(info.get("sha1") or info.get("sha") or "").upper(),
                 }
             offset += len(items)
             if not items or not newer or offset >= int(count or 0):

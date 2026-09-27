@@ -55,6 +55,9 @@ textarea{resize:vertical;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,
 .inline{display:flex;gap:8px}.inline>input{flex:1;min-width:0}
 /* 開關 */
 .switch{display:flex;gap:12px;align-items:flex-start;cursor:pointer;padding:6px 0}
+.dupm{display:flex;gap:10px;align-items:flex-start;padding:8px 0;border-top:1px dashed var(--line);cursor:pointer}
+.dupm input{width:auto;flex:none;margin-top:3px}
+.dupm .p{word-break:break-all}
 .switch input{position:absolute;opacity:0;width:1px;height:1px}
 .switch .track{flex:none;width:38px;height:22px;border-radius:11px;background:var(--line);position:relative;transition:background .15s;margin-top:1px}
 .switch .track::after{content:"";position:absolute;top:3px;left:3px;width:16px;height:16px;border-radius:50%;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.25);transition:transform .15s}
@@ -429,6 +432,18 @@ dialog .card-b{max-height:70vh;overflow:auto}
           <label class="switch"><input type="checkbox" data-key="p115.strm.delete_stale"><span class="track"></span><span class="lbl">跟著刪<small>115 上刪掉或移出同步目錄的影片，本機的 strm 和刮削資料也跟著刪</small></span></label>
         </div>
         <div class="card-f"><button class="btn primary" onclick="saveFields($('syncOpts'))">儲存同步選項</button></div>
+      </div>
+      <div class="card" id="dupCard">
+        <div class="card-h"><div class="t"><svg class="i"><use href="#i-copy"/></svg><h2>重複檔案</h2></div>
+          <div class="row"><button class="btn" onclick="pickDupRoot()">改選 115 目錄…</button><button class="btn primary" id="dupScanBtn" onclick="scanDupes()">找重複</button></div></div>
+        <div class="card-b stack">
+          <p class="hint">找出 115 上內容完全相同（SHA1 一樣）的影片。每組建議保留一份：本機有 strm 的優先，其次最早上傳的；其餘預先勾選。刪除會送進 115 回收站，需要時可以在 115 還原；本機的 strm 跟著刪，觀看紀錄轉到保留的那份。</p>
+          <div id="dupStat"><p class="hint">讀取中…</p></div>
+          <div class="logbar"><input id="dupQ" type="search" placeholder="搜尋檔名或路徑" oninput="clearTimeout(dupQT); dupQT = setTimeout(() => loadDupGroups(1), 300)"></div>
+          <div id="dupList" class="list"></div>
+          <div class="row wrap"><span class="grow"></span><button class="btn danger" id="dupDelBtn" onclick="deleteDupes()"><svg class="i"><use href="#i-trash"/></svg>刪除勾選的</button></div>
+          <details class="more"><summary>最近刪掉的</summary><div class="in" id="dupLog"></div></details>
+        </div>
       </div>
     </section>
 
@@ -1211,6 +1226,7 @@ const APP_NAME = {alipaymini: '支付寶小程式', wechatmini: '微信小程式
   ios: '115（iOS）', android: '115（Android）', web: '網頁版'};
 async function load115(refresh) {
   pollSync(true);
+  if (!refresh) loadDupes();
   try { S.p115 = await api('/p115/status' + (refresh ? '?refresh=1' : '')); }
   catch (e) { $('acct').innerHTML = `<p class="notice bad">${esc(e.message)}</p>`; return; }
   if (S.p115.open.app_id && !appid.value) appid.value = S.p115.open.app_id;
@@ -1389,6 +1405,120 @@ async function rewriteStrm() {
   try { r = await api('/p115/strm/rewrite', {method: 'POST'}); } catch (e) { toast(e.message, 'bad'); return; }
   toast(r.started ? '開始改寫現有的 strm' : '已經在改寫中');
   pollSync(true);
+}
+
+// ---- 115 上的重複檔案 ----
+let dupTimer = null, dupPage = 1, dupSeq = 0, dupQT = null, dupRoot = null, dupWasRunning = false;
+let dupOverrides = {};  // 檔案 id → 要不要刪；只記跟建議不一樣的，沒翻到的頁面照建議
+const DUP_PAGE = 20;
+function loadDupes() { pollDupes(); loadDupGroups(1); loadDupLog(); }
+async function pollDupes() {
+  clearTimeout(dupTimer);
+  let s;
+  try { s = await api('/web/api/dupes'); } catch (e) { setHtml($('dupStat'), `<p class="notice bad">${esc(e.message)}</p>`); return; }
+  S.dupes = s;
+  const j = s.job, roots = dupRoot ? [dupRoot] : s.default_roots;
+  let h = `<p class="hint">範圍：${roots.length ? roots.map(r => `<code>${esc(r)}</code>`).join('、') : '還沒有同步任務，請按「改選 115 目錄…」'}` +
+    (dupRoot ? '（自己選的，<a href="#115" onclick="dupRoot = null; pollDupes(); return false">改回同步任務的目錄</a>）' : roots.length ? '（同步任務的目錄）' : '') + '</p>';
+  if (j.running && j.kind === 'scan') {
+    h += `<div class="row" style="margin-top:8px"><span class="pill accent"><span class="spin"></span>找重複中</span><span class="hint">已看 ${j.listed} 個檔案${j.current ? '　' + esc(j.current) : ''}</span></div>`;
+  } else if (j.running) {
+    const pct = j.total ? j.done / j.total * 100 : 0;
+    h += `<div class="row" style="margin:8px 0"><span class="pill accent"><span class="spin"></span>刪除中</span><span class="hint">${j.done} / ${j.total}${j.current ? '　' + esc(j.current) : ''}</span></div><div class="meter"><div style="width:${pct.toFixed(1)}%"></div></div>`;
+  } else if (s.scanned_at) {
+    h += `<div class="chips" style="margin-top:8px">${chip(s.groups, '組重複', true)}${chip(s.files, '個檔案')}${chip(fmtSize(s.reclaimable), '照建議刪可以省')}</div>
+      <p class="hint" style="margin-top:6px">上次在 ${ago(s.scanned_at)} 找過（${s.roots.map(esc).join('、')}，看了 ${s.scanned_files} 支影片）。115 上有變動的話，先重新找一次。</p>`;
+  } else {
+    h += '<p class="hint" style="margin-top:8px">還沒找過。按「找重複」開始，四萬支影片大約只要幾十次請求。</p>';
+  }
+  if (!j.running && j.kind === 'delete' && j.finished) {
+    h += `<p class="notice ${j.errors.length ? 'bad' : ''}" style="margin-top:8px">上次刪除（${ago(j.finished)}）：${j.done} 個送進 115 回收站，省下 ${fmtSize(j.freed)}${j.errors.length ? '。' + esc(j.errors[0]) : ''}</p>`;
+  } else if (!j.running && j.errors.length) {
+    h += `<p class="notice bad" style="margin-top:8px">${esc(j.errors[0])}</p>`;
+  }
+  setHtml($('dupStat'), h);
+  $('dupScanBtn').disabled = $('dupDelBtn').disabled = j.running;
+  document.querySelectorAll('#dupList .js-delgroup').forEach(b => { b.disabled = j.running; });
+  if (j.running) dupTimer = setTimeout(pollDupes, 2000);
+  else if (dupWasRunning) { loadDupGroups(1); loadDupLog(); toast(j.kind === 'scan' ? '找重複完成' : '刪除完成', j.errors.length ? 'bad' : ''); }
+  dupWasRunning = j.running;
+}
+function dupWanted(m) { return m.file_id in dupOverrides ? dupOverrides[m.file_id] : !m.keep; }
+async function loadDupGroups(page) {
+  dupPage = Math.max(1, page || dupPage);
+  const box = $('dupList'), seq = ++dupSeq, q = $('dupQ').value.trim();
+  let r;
+  try { r = await api(`/web/api/dupes/groups?q=${encodeURIComponent(q)}&offset=${(dupPage - 1) * DUP_PAGE}&limit=${DUP_PAGE}`); }
+  catch (e) { if (seq === dupSeq) box.innerHTML = `<p class="notice bad">${esc(e.message)}</p>`; return; }
+  if (seq !== dupSeq) return;
+  const pages = Math.max(1, Math.ceil(r.total / DUP_PAGE));
+  if (dupPage > pages) return loadDupGroups(pages);
+  box.innerHTML = r.items.length ? '' : `<p class="hint">${q ? '沒有符合的重複檔案' : S.dupes?.scanned_at ? '沒有重複的檔案' : ''}</p>`;
+  for (const g of r.items) box.appendChild(dupGroup(g));
+  const nav = pages > 1
+    ? `<button class="btn sm"${dupPage <= 1 ? ' disabled' : ''} onclick="loadDupGroups(${dupPage - 1})">上一頁</button><button class="btn sm"${dupPage >= pages ? ' disabled' : ''} onclick="loadDupGroups(${dupPage + 1})">下一頁</button>` : '';
+  if (pages > 1) box.insertAdjacentHTML('beforeend', `<div class="row" style="padding-top:12px"><span class="hint grow">第 ${dupPage} / ${pages} 頁，共 ${r.total} 組</span>${nav}</div>`);
+  document.querySelectorAll('#dupList .js-delgroup').forEach(b => { b.disabled = !!S.dupes?.job.running; });
+}
+function dupGroup(g) {
+  const row = document.createElement('div'); row.className = 'li top';
+  const members = g.members.map(m => {
+    const title = m.series ? `${m.series}・${m.item}` : m.item || '';
+    const pills = (m.keep ? '<span class="pill ok">建議保留</span>' : '') + (m.local ? '<span class="pill">有 strm</span>' : '<span class="pill">不在同步目錄</span>') +
+      (m.watched ? '<span class="pill">有觀看紀錄</span>' : '');
+    return `<label class="dupm"><input type="checkbox" data-fid="${m.file_id}"${dupWanted(m) ? ' checked' : ''}>` +
+      `<span class="grow"><span class="p">${esc(m.path)}</span><span class="row wrap" style="margin-top:4px">${pills}` +
+      `<span class="hint">${m.mtime ? '上傳於 ' + fmtTime(m.mtime) : ''}${title ? '・' + esc(title) : ''}</span></span></span></label>`;
+  }).join('');
+  row.innerHTML = `<div class="main"><div class="row wrap"><b>${esc(g.members[0].name)}</b><span class="pill">${fmtSize(g.size)}</span><span class="hint">${g.count} 份，勾選的會刪</span></div>${members}</div>
+    <button class="btn sm danger js-delgroup">刪這一組勾選的</button>`;
+  const boxes = [...row.querySelectorAll('input[data-fid]')];
+  for (const cb of boxes) cb.onchange = () => {
+    if (boxes.every(b => b.checked)) { cb.checked = false; toast('每組至少要留一份', 'bad'); }
+    for (const b of boxes) {
+      const m = g.members.find(x => String(x.file_id) === b.dataset.fid);
+      if (b.checked === !m.keep) delete dupOverrides[m.file_id]; else dupOverrides[m.file_id] = b.checked;
+    }
+  };
+  row.querySelector('.js-delgroup').onclick = () => deleteDupes(g);
+  return row;
+}
+async function deleteDupes(group) {
+  // 先算會刪幾個、多大（含沒翻到的頁面裡照建議勾的），確認後才真的刪
+  const body = {overrides: dupOverrides};
+  if (group) Object.assign(body, {sha1: group.sha1, size: group.size});
+  let plan;
+  try { plan = await api('/web/api/dupes/delete', {method: 'POST', body: JSON.stringify({...body, dry_run: true})}); }
+  catch (e) { toast(e.message, 'bad'); return; }
+  if (!plan.count) { toast('沒有勾選要刪的檔案'); return; }
+  const text = '會送進 115 回收站，需要時可以在 115 還原。本機的 strm 跟著刪，觀看紀錄轉到保留的那份。' +
+    (group ? '' : '包含還沒翻到的頁面裡，照建議勾選的檔案。');
+  if (!await ask({title: `刪除 ${plan.count} 個檔案（共 ${fmtSize(plan.size)}）？`, text, ok: '刪除', danger: true})) return;
+  if (plan.count > 50 && !await ask({title: `真的要刪 ${plan.count} 個檔案嗎？`, text: '數量比較多，再確認一次。', ok: '確定刪除', danger: true})) return;
+  let r;
+  try { r = await api('/web/api/dupes/delete', {method: 'POST', body: JSON.stringify(body)}); } catch (e) { toast(e.message, 'bad'); return; }
+  toast(r.started ? `開始刪除 ${r.count} 個檔案` : '正在找重複或刪重複，等它做完');
+  if (r.started) {
+    if (group) for (const m of group.members) delete dupOverrides[m.file_id]; else dupOverrides = {};
+  }
+  pollDupes();
+}
+async function scanDupes() {
+  let r;
+  try { r = await api('/web/api/dupes/scan', {method: 'POST', body: JSON.stringify(dupRoot ? {paths: [dupRoot]} : {})}); }
+  catch (e) { toast(e.message, 'bad'); return; }
+  toast(r.started ? '開始找重複' : '已經在找了');
+  dupOverrides = {};
+  pollDupes();
+}
+async function pickDupRoot() { const p = await pickDir('115', dupRoot || '/'); if (p) { dupRoot = p; pollDupes(); } }
+async function loadDupLog() {
+  let r;
+  try { r = await api('/web/api/dupes/log?limit=50'); } catch (e) { return; }
+  setHtml($('dupLog'), r.length
+    ? '<div class="list">' + r.map(e => `<div class="li"><div class="main"><span class="p">${esc(e.path)}</span><div class="sub">${fmtSize(e.size)}・${ago(e.at)}</div></div></div>`).join('') +
+      '</div><p class="hint" style="margin-top:8px">要找回的話，到 115 的回收站還原。</p>'
+    : '<p class="hint">還沒有刪過。</p>');
 }
 
 // ---- MoviePilot ----

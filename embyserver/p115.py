@@ -288,10 +288,19 @@ class P115Service:
             "查詢目錄路徑", lambda: self.open.dir_ancestors(cid), lambda: self._cookie_dir_ancestors(cid)
         )
 
+    def delete_files(self, file_ids: List[int]) -> None:
+        """把 115 上的這些檔案送進回收站（可以在 115 還原）。要用掃碼或 cookie 登入。"""
+        if not self.cookies:
+            raise P115Error("刪除 115 上的檔案要用掃碼登入（cookie）")
+        self.breaker.check()
+        data = {f"fid[{i}]": str(fid) for i, fid in enumerate(file_ids)}
+        data["ignore_warn"] = "1"
+        self._webapi_post("/rb/delete", data)
+
     def iter_changed_files(self, cid: int, since: float) -> Iterator[dict]:
         """cid 底下（含所有子目錄）修改時間不早於 since 的檔案，由新到舊。
 
-        回傳 {name, id, parent_id, pickcode, size, mtime}。增量同步用它找出新增、改名、移入的檔案。
+        回傳 {name, id, parent_id, pickcode, size, mtime, sha1}。增量同步用它找出新增、改名、移入的檔案。
         """
         if self.open.authorized:
             try:
@@ -607,6 +616,7 @@ class P115Service:
                     "pickcode": info.get("pc") or "",
                     "size": _int(info.get("s")),
                     "mtime": mtime,
+                    "sha1": str(info.get("sha") or "").upper(),  # 檔案內容的 SHA1，找重複用
                 }
             offset += len(items)
             # 依修改時間由新到舊排序，整頁都比 since 舊就不用再往下翻

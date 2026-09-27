@@ -19,6 +19,7 @@ from .auth import AuthService
 from .backup import Backup
 from .config import Config
 from .db import Database
+from .dupes import DupeFinder
 from .intro import IntroLearner
 from .moviepilot import MoviePilot, library_series
 from .p115 import P115Service
@@ -119,6 +120,7 @@ def create_app(config: Config, db_path: Optional[str] = None, scan_on_start: boo
         on_done=after_sync,
         port=config.server.port,
     )
+    app.state.dupes = DupeFinder(db, app.state.p115, app.state.strm_sync, scanner)  # 115 上的重複檔案
 
     app.add_middleware(
         CORSMiddleware,

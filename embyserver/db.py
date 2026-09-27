@@ -148,6 +148,32 @@ CREATE TABLE IF NOT EXISTS intro_manual (
     at INTEGER NOT NULL
 );
 
+-- 115 上內容完全相同（SHA1 和大小都一樣）的影片，「找重複」時整批重建，只存有重複的。
+-- path 是 115 上的完整路徑，local 是本機的 strm（在同步任務裡才有），keep = 建議保留
+CREATE TABLE IF NOT EXISTS dup_files (
+    file_id INTEGER PRIMARY KEY,
+    sha1 TEXT NOT NULL,
+    size INTEGER NOT NULL,
+    name TEXT NOT NULL,
+    pickcode TEXT,
+    parent_id INTEGER,
+    path TEXT,
+    local TEXT,
+    mtime INTEGER,
+    keep INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_dup_group ON dup_files(sha1, size);
+
+-- 刪掉的重複檔案（在 115 回收站找回用）
+CREATE TABLE IF NOT EXISTS dup_deleted (
+    file_id INTEGER,
+    sha1 TEXT,
+    size INTEGER,
+    name TEXT,
+    path TEXT,
+    at INTEGER NOT NULL
+);
+
 -- 送去 MoviePilot 刮削後有 nfo 卻沒有劇照的集（多半是 TMDB 沒有這集的圖），一段時間內不再重送
 CREATE TABLE IF NOT EXISTS mp_no_image (
     path TEXT PRIMARY KEY,

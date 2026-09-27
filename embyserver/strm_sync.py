@@ -433,6 +433,35 @@ class StrmSync:
         except OSError as exc:
             r.errors.append(f"{path.name}：{exc}")
 
+    # ---------------- 115 上刪掉了（例如刪重複） ----------------
+
+    def remove_local(self, file_ids: Iterable[int]) -> List[str]:
+        """115 上刪掉了這些檔案：本機的 strm 和同名的中繼資料一起刪、清掉對照表，回傳刪掉的 strm 路徑。
+
+        不看「跟著刪」的設定，因為是使用者自己在 Mi302 刪的。正在同步時等同步做完。
+        """
+        ids = [int(i) for i in file_ids]
+        removed: List[str] = []
+        with self._lock:
+            for task in self.tasks:
+                ctx = _Ctx(task, self.p115.db)
+                for fid in ids:
+                    old = ctx.index.get(fid)
+                    if not old or old[1]:
+                        continue
+                    path = ctx.local / old[0]
+                    if path.suffix.lower() == ".strm":
+                        for f in _sidecars(path.parent, path.stem):
+                            f.unlink(missing_ok=True)
+                    path.unlink(missing_ok=True)
+                    ctx.index.delete_tree(old[0])
+                    removed.append(str(path))
+                    try:
+                        path.parent.rmdir()  # 只有空資料夾才刪得掉
+                    except OSError:
+                        pass
+        return removed
+
     def remember_base_url(self, url: str) -> None:
         url = url.rstrip("/")
         if url and not self.cfg.base_url and self.p115.db.get_meta(SERVER_URL_META_KEY) != url:

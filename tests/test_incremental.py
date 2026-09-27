@@ -105,7 +105,10 @@ class Fake115:
                 "export_id": p["export_id"], "file_id": "9" + p["export_id"], "file_name": "目录树.txt",
                 "pick_code": f"tree{job[0]}"}})
         if request.url.path == "/rb/delete":
-            self.deleted.append(dict(httpx.QueryParams(request.content.decode()))["fid[0]"])
+            form = dict(httpx.QueryParams(request.content.decode()))
+            ids = [v for k, v in form.items() if k.startswith("fid[")]
+            self.deleted += ids
+            self.files = [f for f in self.files if str(f["fid"]) not in ids]  # 送進回收站就不在清單上了
             return httpx.Response(200, json={"state": True})
         if request.url.path == "/files/getid":
             for cid in self.dirs:

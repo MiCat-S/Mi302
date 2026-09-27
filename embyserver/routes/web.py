@@ -506,6 +506,75 @@ def mediainfo_stop(request: Request, ctx: AuthContext = Depends(require_admin)):
     return {"stopping": st.prober.cancel_batch(), "result": st.prober.result.as_dict()}
 
 
+# ---------------- 115 上的重複檔案 ----------------
+
+
+@router.get("/web/api/dupes")
+def dupes_status(request: Request, ctx: AuthContext = Depends(require_admin)):
+    """找重複的進度和上次結果：幾組、幾個檔案、照建議刪可以省多少。"""
+    return state(request).dupes.summary()
+
+
+@router.post("/web/api/dupes/scan")
+async def dupes_scan(request: Request, ctx: AuthContext = Depends(require_admin)):
+    """開始找重複：{"paths": ["/影視"]}，不給就用同步任務的 115 目錄。在背景跑。"""
+    body = await _body(request)
+    paths = body.get("paths") if isinstance(body, dict) else None
+    if paths is not None and (not isinstance(paths, list) or not all(isinstance(p, str) for p in paths)):
+        raise HTTPException(status_code=400, detail="paths 要是 115 路徑的清單")
+    st = state(request)
+    if not st.p115.logged_in:
+        raise HTTPException(status_code=400, detail="尚未登入 115")
+    return {"started": st.dupes.scan_in_background(paths)}
+
+
+@router.get("/web/api/dupes/groups")
+def dupes_groups(request: Request, ctx: AuthContext = Depends(require_admin)):
+    """重複的組，可以省最多空間的在前面；q 比對檔名和路徑，offset、limit 分頁。"""
+    offset = max(q_int(request, "offset", 0) or 0, 0)
+    limit = min(max(q_int(request, "limit", 20) or 20, 1), 100)
+    return state(request).dupes.groups(q(request, "q") or "", offset, limit)
+
+
+@router.post("/web/api/dupes/delete")
+async def dupes_delete(request: Request, ctx: AuthContext = Depends(require_admin)):
+    """刪重複：預設照建議刪；{"overrides": {"檔案 id": true/false}} 逐個改，{"sha1", "size"} 只處理那一組。
+
+    送進 115 回收站，每組至少留一份；本機 strm 跟著刪、觀看紀錄轉到保留的那份。在背景跑。
+    {"dry_run": true} 只算會刪幾個、多大，不刪（網頁確認框用）。
+    """
+    body = await _body(request)
+    if not isinstance(body, dict):
+        raise HTTPException(status_code=400, detail="格式錯誤")
+    raw = body.get("overrides") or {}
+    if not isinstance(raw, dict):
+        raise HTTPException(status_code=400, detail="overrides 格式錯誤")
+    try:
+        overrides = {int(k): bool(v) for k, v in raw.items()}
+        size = int(body["size"]) if body.get("sha1") else None
+    except (TypeError, ValueError, KeyError):
+        raise HTTPException(status_code=400, detail="格式錯誤")
+    st = state(request)
+    if not st.p115.cookies:
+        raise HTTPException(status_code=400, detail="刪除 115 上的檔案要用掃碼登入（cookie）")
+    if st.dupes.busy():
+        raise HTTPException(status_code=409, detail="正在找重複或刪重複，等它做完")
+    try:
+        plan = await run_in_threadpool(st.dupes.plan, overrides, body.get("sha1"), size)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    if body.get("dry_run"):
+        return {"started": False, "count": len(plan), "size": sum(r["size"] for r in plan)}
+    started = st.dupes.delete_in_background(plan)
+    return {"started": started, "count": len(plan), "size": sum(r["size"] for r in plan)}
+
+
+@router.get("/web/api/dupes/log")
+def dupes_log(request: Request, ctx: AuthContext = Depends(require_admin)):
+    """最近刪掉的重複檔案（到 115 回收站找回用）。"""
+    return state(request).dupes.recent_deletions(min(max(q_int(request, "limit", 50) or 50, 1), 500))
+
+
 @router.get("/web/api/series")
 def list_series(request: Request, ctx: AuthContext = Depends(require_admin)):
     """媒體庫裡的劇和每一季的集數、集號空洞；q 搜尋劇名，year 只列那一年的，gaps=1 只列有空洞的，offset、limit 分頁。
