@@ -4,7 +4,8 @@
 - 完全相同（exact）：SHA1 和大小都一樣。115 列檔案時本來就附上 SHA1，四萬多個檔案大約四十次請求。
   建議保留本機有 strm 的那份（刮削資料、觀看紀錄都在它身上），其次最早上傳的；其餘預先勾選。
 - 不同版本（versions）：媒體庫裡同一部電影（tmdbid，沒有就片名＋年份）或同一部劇的同一集，檔案卻不同，
-  例如 1080p 和 2160p。只看同步任務裡、有 strm 的檔案。分段檔（CD1、Part 2）、一個檔案好幾集的不算；
+  例如 1080p 和 2160p。只看同步任務裡、有 strm 的檔案。不知道第幾集的、檔名集號和媒體庫對不上的不比；
+  分段檔（CD1、Part 2）、一個檔案好幾集的不算；
   導演剪輯版、加長版這類版本名不同的分開算。建議保留解析度最高的，一樣時保留檔案最大的；預設不勾，由使用者挑。
 
 刪除：送進 115 回收站（在 115 還原得回來），每組至少留一份。本機的 strm 和同名的中繼資料跟著刪，
@@ -27,11 +28,16 @@ from .db import Database
 from .filetypes import VIDEO_EXTS
 from .mediainfo import MediaInfoStore
 from .p115 import P115Error, P115Service
+from .scanner import parse_episode
 from .textutil import simplified
 
 log = logging.getLogger(__name__)
 
 SCAN_META_KEY = "dupes_scan"
+# 「不同版本」的判斷規則改過時加一：舊規則找出的結果可能不對，啟動時清掉，請使用者重新找
+VERSIONS_RULE = "2"
+VERSIONS_RULE_KEY = "dupes_versions_rule"
+VERSIONS_OUTDATED_KEY = "dupes_versions_outdated"
 DELETE_BATCH = 100  # 一次請求送幾個檔案進回收站
 
 # 檔名裡看得出來的畫質（沒有媒體資訊時用）
@@ -113,6 +119,13 @@ class DupeFinder:
         self.scanner = scanner
         self.job = DupeJob()
         self._lock = threading.Lock()
+        if db.get_meta(VERSIONS_RULE_KEY) != VERSIONS_RULE:
+            # 第 1 版會把刮削時沒認出集號（nfo 寫 -1）的不同集算成同一集，清掉免得照著刪錯
+            if db.one("SELECT 1 FROM dup_versions LIMIT 1"):
+                db.execute("DELETE FROM dup_versions")
+                db.set_meta(VERSIONS_OUTDATED_KEY, "1")
+                log.info("不同版本的判斷規則更新了，清掉舊的結果，請重新找重複")
+            db.set_meta(VERSIONS_RULE_KEY, VERSIONS_RULE)
 
     # ---------------- 範圍與狀態 ----------------
 
@@ -142,6 +155,7 @@ class DupeFinder:
             "versions": dict(self.db.one(  # 不同版本：幾組、幾個檔案、照建議刪可以省多少
                 "SELECT COUNT(*) AS files, COUNT(DISTINCT grp) AS groups, "
                 "COALESCE(SUM(CASE WHEN keep THEN 0 ELSE size END), 0) AS reclaimable FROM dup_versions")),
+            "versions_outdated": bool(self.db.get_meta(VERSIONS_OUTDATED_KEY)),  # 規則更新後清掉了，要重新找
             "default_roots": self.default_roots(),
         }
 
@@ -215,6 +229,7 @@ class DupeFinder:
                 self.db.conn.commit()
             self.db.set_meta(SCAN_META_KEY, json.dumps({"at": int(time.time()), "roots": roots, "files": len(files)},
                                                        ensure_ascii=False))
+            self.db.set_meta(VERSIONS_OUTDATED_KEY, "")
             log.info("找重複：%s 看了 %s 支影片，完全相同的 %s 支、不同版本的 %s 支",
                      "、".join(roots), len(files), len(rows), len(versions))
         except P115Error as exc:
@@ -259,10 +274,15 @@ class DupeFinder:
             if PART_RE.search(name):
                 continue
             if it["type"] == "Episode":
-                if it["index_number"] is None or not it["series_id"] or MULTI_EP_RE.search(name):
+                ep, season = it["index_number"], it["parent_index_number"] or 0
+                # 不知道第幾集的（沒寫，或刮削時沒認出來寫成 -1）不能比，否則整季都會變成「同一集」
+                if ep is None or ep < 0 or season < 0 or not it["series_id"] or MULTI_EP_RE.search(name):
                     continue
-                season = it["parent_index_number"] or 0
-                key = f"ep:{it['series_id']}:{season}:{it['index_number']}"
+                # 115 上的檔名看得出集號、卻和媒體庫對不上：寧可不列，免得刪錯
+                name_season, name_ep = parse_episode(posixpath.splitext(name)[0])
+                if (name_ep is not None and name_ep != ep) or (name_season is not None and name_season != season):
+                    continue
+                key = f"ep:{it['series_id']}:{season}:{ep}"
                 title = f"{it['series'] or '?'} S{season:02d}E{it['index_number']:02d}"
             else:
                 try:

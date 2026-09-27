@@ -62,11 +62,16 @@ Episode numbers are taken from the file name. The patterns are tried in this ord
 | `NxNN` | `1x02` |
 | `第N集`, `第N話`, `第N话` (Arabic or Chinese numerals) | `第2集`, `第十二集` |
 | `Eyy`, `EPyy` (at the start, or after a space, dot, underscore, hyphen or `[`) | `EP02`, `[E05]` |
+| The file name starts with the episode number, followed by a dot, hyphen, underscore or `、`; with only a space after it, the number must have a leading zero | `10.潘玮柏战队…`, `03-比赛…`, `01 嘻哈首战`, `07` |
+
+The last pattern is used only when no other pattern matches. A number followed only by a space and without a leading zero (`21 Jump Street`) is not an episode number.
 
 When several sources exist, this is the order of precedence:
 
 - Season: `<season>` in the episode nfo → the season folder → `SxxEyy` in the file name → season 1.
 - Episode number: `<episode>` in the episode nfo → the file name.
+
+A negative `<season>` or `<episode>` in the nfo (for example `-1`, written when the scraper could not tell the episode) counts as missing, and the next source is used.
 - Episode title: `<title>` in the episode nfo → "第 N 集" (episode N) → the file name.
 
 Seasons are named "第 N 季" (season N) and season 0 is "特別篇" (specials). A `season.nfo` in the season folder can set the season's title and overview.

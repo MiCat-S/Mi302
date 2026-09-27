@@ -1645,7 +1645,7 @@ let dupSelT = null, dupSelSeq = 0;
 const DUP_PAGE = 20;
 const DUP_HINT = {
   exact: '每組建議保留一份：本機有 strm 的優先，其次最早上傳的；其餘預先勾選。',
-  versions: '檔案內容不同，所以預設都不勾，由你挑。建議保留解析度最高的，一樣時保留檔案最大的；畫質看已經提取的媒體資訊，沒有的從檔名猜。分段檔（CD1）、一個檔案好幾集、加長版這類不同剪輯不會列在一起。',
+  versions: '檔案內容不同，所以預設都不勾，由你挑。建議保留解析度最高的，一樣時保留檔案最大的；畫質看已經提取的媒體資訊，沒有的從檔名猜。分段檔（CD1）、一個檔案好幾集、加長版這類不同剪輯不會列在一起；不知道第幾集的、檔名集號和媒體庫對不上的也不列。',
 };
 function setDupKind(kind) {
   dupKind = kind;
@@ -1698,6 +1698,9 @@ async function pollDupes() {
       <p class="hint" style="margin-top:6px">上次在 ${ago(s.scanned_at)} 找過（${s.roots.map(esc).join('、')}，看了 ${s.scanned_files} 支影片）。115 上有變動的話，先重新找一次。</p>`;
   } else {
     h += '<p class="hint" style="margin-top:8px">還沒找過。按「找重複」開始，四萬支影片大約只要幾十次請求。</p>';
+  }
+  if (!j.running && s.versions_outdated) {
+    h += '<p class="notice warn" style="margin-top:8px">「不同版本」的判斷改過了（以前會把刮削時沒認出集號的不同集當成同一集），舊的結果已經清掉。請按「找重複」重新找一次。</p>';
   }
   if (!j.running && j.kind === 'delete' && j.finished) {
     h += `<p class="notice ${j.errors.length ? 'bad' : ''}" style="margin-top:8px">上次刪除（${ago(j.finished)}）：${j.done} 個送進 115 回收站，省下 ${fmtSize(j.freed)}${j.errors.length ? '。' + esc(j.errors[0]) : ''}</p>`;

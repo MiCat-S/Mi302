@@ -52,6 +52,26 @@ def test_series_detection():
     assert parse_season_dir("第二季") == 2 and parse_season_dir("第十一季") == 11 and parse_season_dir("Season 3") == 3
     assert parse_episode("某剧 第一百零五集") == (None, 105)
     assert parse_episode("Show.S02E07.1080p") == (2, 7)
+    # 開頭就是集號（綜藝常見）
+    assert parse_episode("10.潘玮柏战队面临团危机-蓝光4K") == (None, 10)
+    assert parse_episode("03-比赛惊现死亡之组-蓝光4K") == (None, 3)
+    assert parse_episode("9.吴亦凡热狗助攻队员开启6强PK-蓝光1080P") == (None, 9)
+    assert parse_episode("01 嘻哈首战") == (None, 1) and parse_episode("07") == (None, 7)
+    # 不是集號的數字
+    assert parse_episode("21 Jump Street (2012)") == (None, None)
+    assert parse_episode("2019.12.01 某节目") == (None, None)
+    assert parse_episode("1080p") == (None, None)
+
+
+def test_episode_nfo_with_unknown_numbers(tmp_path: Path):
+    """刮削時沒認出集號，nfo 寫 -1：改從季資料夾和檔名判斷，不能整季都變成第 -1 集。"""
+    season = tmp_path / "tv" / "中国新说唱 (2017)" / "Season 01"
+    for stem in ("10.潘玮柏战队面临团危机-蓝光4K", "03-比赛惊现死亡之组-蓝光4K", "01-嘻哈首战-蓝光4K", "无法识别的特辑"):
+        touch(season / f"{stem}.strm")
+        touch(season / f"{stem}.nfo", f"<episodedetails><title>{stem}</title><season>-1</season><episode>-1</episode></episodedetails>")
+    db = scan(tmp_path, [tmp_path / "tv"])
+    rows = db.query("SELECT parent_index_number AS s, index_number AS e FROM items WHERE type='Episode' ORDER BY e")
+    assert [(r["s"], r["e"]) for r in rows] == [(1, None), (1, 1), (1, 3), (1, 10)]
 
 
 def test_looks_like_series(tmp_path: Path):

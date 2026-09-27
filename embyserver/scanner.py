@@ -32,6 +32,9 @@ EPISODE_PATTERNS = [
     re.compile(r"(?P<season>\d{1,2})x(?P<episode>\d{1,3})(?!\d)"),
     re.compile(r"第\s*(?P<episode>\d{1,4}|[一二三四五六七八九十百零〇两兩]{1,6})\s*[集话話]"),
     re.compile(r"(?:^|[\s._\-\[])[Ee][Pp]?(?P<episode>\d{1,4})(?!\d)"),
+    # 開頭就是集號：「10.潘玮柏战队…」「03-比赛…」「01」；只有空格隔開時要補零（「01 嘻哈首战」），免得「21 Jump Street」被當成第 21 集
+    re.compile(r"^(?P<episode>\d{1,3})(?:$|(?=[._\-、]))"),
+    re.compile(r"^(?P<episode>0\d{1,2})(?=\s)"),
 ]
 SEASON_DIR_PATTERNS = [
     re.compile(r"^(?:season|series)[\s._-]*(?P<season>\d{1,3})$", re.I),
@@ -256,8 +259,9 @@ def parse_nfo(path: Path) -> Dict:
             providers.setdefault(key, text(tag))
     if providers:
         data["provider_ids"] = providers
+    # 季、集號；刮削時沒認出來的會寫成 -1，當成沒寫，改從資料夾和檔名判斷
     for tag, key in (("season", "parent_index_number"), ("episode", "index_number")):
-        if text(tag) and text(tag).lstrip("-").isdigit():
+        if text(tag) and text(tag).isdigit():
             data[key] = int(text(tag))
     return data
 

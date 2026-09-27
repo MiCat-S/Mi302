@@ -236,3 +236,55 @@ def test_versions_are_grouped_and_deleted_only_when_picked(tmp_path: Path):
     s = c.get("/web/api/dupes", headers=h).json()
     assert s["versions"]["groups"] == 1  # 電影那一組還在
     assert c.get("/web/api/dupes/groups", params={"kind": "versions", "q": "Old Movie"}, headers=h).json()["total"] == 1
+
+
+def test_versions_need_known_matching_episode_numbers(tmp_path: Path):
+    """不知道第幾集的（nfo 寫 -1）不能算同一集的不同版本；檔名和媒體庫的集號對不上的也不列。"""
+    app, fake, media, c, h = build_versions(tmp_path)
+    fake.dirs.update({106: ("中国新说唱 (2017)", 102), 107: ("Season 01", 106)})
+    shows = ["10.潘玮柏战队面临团危机-蓝光4K", "03-比赛惊现死亡之组-蓝光4K", "01-嘻哈首战-蓝光4K", "无法识别的特辑A", "无法识别的特辑B"]
+    for i, stem in enumerate(shows):
+        fake.files.append({"fid": 20 + i, "cid": 107, "n": f"{stem}.mp4", "pc": chr(ord("m") + i) * 17,
+                           "s": 2_000_000_000 + i, "te": T0 + 100 + i, "sha": str(i) * 40})
+    # 檔名是第 2 集，nfo 卻寫第 1 集：和第 1 集的兩個版本不能放在一起
+    fake.files.append({"fid": 30, "cid": 103, "n": "Dark.S01E02.WEB.mkv", "pc": "w" * 17, "s": 700_000_000, "te": T0 + 200, "sha": "3" * 40})
+    app.state.strm_sync.run(FULL)
+    for stem in shows:
+        (media / "劇集" / "中国新说唱 (2017)" / "Season 01" / f"{stem}.nfo").write_text(
+            "<episodedetails><season>-1</season><episode>-1</episode></episodedetails>", encoding="utf-8")
+    (media / "劇集" / "Dark" / "Dark.S01E02.WEB.nfo").write_text(
+        "<episodedetails><season>1</season><episode>1</episode></episodedetails>", encoding="utf-8")
+    app.state.scanner.scan_all()
+
+    c.post("/web/api/dupes/scan", json={}, headers=h)
+    assert not wait_job(app).errors
+    r = c.get("/web/api/dupes/groups", params={"kind": "versions"}, headers=h).json()
+    by_title = {g["title"]: g for g in r["items"]}
+    assert set(by_title) == {"Dark S01E01", "Old Movie (2001)"}
+    assert sorted(m["file_id"] for m in by_title["Dark S01E01"]["members"]) == [2, 12]
+
+
+def test_old_version_results_are_cleared_after_rule_change(tmp_path: Path):
+    from embyserver.dupes import VERSIONS_RULE_KEY, DupeFinder
+
+    app, fake, media, c, h = build_versions(tmp_path)
+    c.post("/web/api/dupes/scan", json={}, headers=h)
+    assert not wait_job(app).errors
+    db = app.state.db
+    assert db.one("SELECT COUNT(*) AS n FROM dup_versions")["n"] == 4
+    # 模擬舊版留下的結果：規則版本還是舊的，重新啟動時清掉，並提醒重新找
+    db.set_meta(VERSIONS_RULE_KEY, "1")
+    db.execute("INSERT INTO dup_files(file_id, sha1, size, name, keep) VALUES(99, 'X', 1, 'a.mkv', 1)")
+    finder = DupeFinder(db, app.state.p115, app.state.strm_sync, app.state.scanner)
+    assert db.one("SELECT COUNT(*) AS n FROM dup_versions")["n"] == 0
+    assert finder.summary()["versions_outdated"]
+    assert db.one("SELECT COUNT(*) AS n FROM dup_files")["n"] == 1  # 完全相同的不受影響
+    # 同一個版本再啟動一次不會再清
+    DupeFinder(db, app.state.p115, app.state.strm_sync, app.state.scanner)
+    assert finder.summary()["versions_outdated"]
+    # 重新找過就好了
+    app.state.dupes = finder
+    c.post("/web/api/dupes/scan", json={}, headers=h)
+    assert not wait_job(app).errors
+    s = c.get("/web/api/dupes", headers=h).json()
+    assert not s["versions_outdated"] and s["versions"]["groups"] == 2
