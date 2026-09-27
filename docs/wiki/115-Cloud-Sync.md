@@ -1,6 +1,6 @@
 [繁體中文](115-網盤與同步) | [简体中文](115-网盘与同步) | **English**
 
-This page covers logging in to 115 Cloud (115 網盤), turning 115 folders into local `.strm` files, and how incremental sync, full sync, deletion and the circuit breaker work. The web admin page is only in Traditional Chinese, so button and field names below are given in English with the original label in parentheses.
+This page covers logging in to 115 Cloud (115 網盤), turning 115 folders into local `.strm` files, how incremental sync, full sync, deletion and the circuit breaker work, and how to browse folders on 115 and hand a wrong one to MoviePilot. The web admin page is only in Traditional Chinese, so button and field names below are given in English with the original label in parentheses.
 
 ## Logging in to 115
 
@@ -249,6 +249,25 @@ When 115 returns an error or rate-limits the request, the whole task fails inste
 If a file on 115 only changed the letter case of its name: on a case-insensitive disk such as macOS, old and new are the same file and nothing is deleted; on a case-sensitive disk the old strm file is deleted and its nfo and posters are renamed to the new name.
 
 Deleting a sync task never deletes the strm files it created, whether this option is on or off.
+
+## Browsing 115
+
+The **Browse 115** (瀏覽 115) card on the 115 tab shows what is inside folders on 115. Click **Start browsing** (開始瀏覽) to start at the 115 folder of the first sync task (or at the root when there are no sync tasks). Click a folder to open it; click any part of the path at the top, or **Up** (上一層), to go back. Each folder you open costs one directory listing on 115.
+
+- Subfolders: click the name to open one. **Reorganise…** (整理…) on the right hands that folder to MoviePilot.
+- Videos: size, upload time, and what Mi302's library made of them.
+- Other files (nfo, images, subtitles) are listed in grey. A folder lists at most 1000 files.
+
+Marks next to a video:
+
+| Mark | Meaning |
+| --- | --- |
+| Title S01E10 | An episode in the library. With "number guessed from the file name" (集號是從檔名猜的) or "episode number not recognised" (認不出集號) next to it, the number may be wrong |
+| Movie: Title (Year) (電影：…) | A movie in the library |
+| strm exists, not scanned yet (有 strm，還沒掃描) | Synced to a strm, not yet picked up by a library scan |
+| Not in the library (no strm) (不在媒體庫（沒有 strm）) | Inside a sync folder but without a strm, for example smaller than the size limit in the sync options, or not synced yet |
+
+If a folder looks wrong, click **Reorganise this folder with MoviePilot…** (交給 MoviePilot 整理這個資料夾…), or **Reorganise…** on a subfolder. MoviePilot renames, moves and scrapes the files on 115, again with a preview before anything runs; see [MoviePilot](MoviePilot#reorganising-a-folder-on-115).
 
 ## Duplicate files
 

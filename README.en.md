@@ -11,7 +11,7 @@ You do not need a real Emby server behind it, or any other 115 tool. The full do
 - **115 sync**: sign in to 115 by scanning a QR code and sync folders into strm files. After that, incremental syncs read 115's activity log (its "life events"), and a weekly full sync catches anything missed.
 - **Emby compatible**: Infuse, VidHub, SenPlayer, the official Emby apps and other Emby clients just add the server and sign in.
 - **302 direct play**: Mi302 fetches the 115 direct link with the player's own User-Agent and redirects the player to it. No proxying, no transcoding.
-- **Scraping by MoviePilot**: newly synced videos are sent to [MoviePilot](https://github.com/jxxghp/MoviePilot) for metadata and artwork. When a series is missing episodes, MoviePilot can subscribe and download them. Series with wrong episode numbers can be reorganised by MoviePilot on 115, with a preview first.
+- **Scraping by MoviePilot**: newly synced videos are sent to [MoviePilot](https://github.com/jxxghp/MoviePilot) for metadata and artwork. When a series is missing episodes, MoviePilot can subscribe and download them. Series with wrong episode numbers, or any folder that looks wrong while browsing 115 in the web page, can be reorganised by MoviePilot on 115, with a preview first.
 - **Media info**: reads `X-mediainfo.json` files (the StrmAssistant format) and can probe videos with ffprobe, so players show 4K, HDR, audio tracks and subtitle tracks.
 - **Intro and credits skipping**: learns intros and credits from how people watch, so players such as SenPlayer offer "Skip intro".
 - **Made for Chinese libraries**: Chinese titles sort by pinyin; search matches full pinyin, initials, Simplified and Traditional characters; cast names and genres can be shown in Chinese.

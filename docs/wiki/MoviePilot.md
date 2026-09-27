@@ -209,7 +209,7 @@ The episode format is MoviePilot's syntax: `{ep}` is the episode number, `{a}` a
 Other settings:
 
 - **TMDB ID** (TMDB 編號): read from `tvshow.nfo`. Fill it in if it is missing or wrong.
-- **Destination** (整理到): **Follow MoviePilot's directory settings** (照 MoviePilot 的目錄設定) lets MoviePilot use its library directory with type and category folders. **Current category folder** (現在的分類資料夾) puts the files one level above the series folder (for example `/cms/电视剧/综艺`) without adding type or category folders. Either way, MoviePilot's naming settings decide the series folder and file names.
+- **Destination** (整理到): **Follow MoviePilot's directory settings** (照 MoviePilot 的目錄設定) lets MoviePilot use its library directory with type and category folders. **A 115 folder you specify** (指定的 115 資料夾) puts the files under the folder you enter, without adding type or category folders. It defaults to the folder above the series folder (for example `/cms/电视剧/综艺`), and **Choose…** (選擇…) lets you pick another. Either way, MoviePilot's naming settings decide the series folder and file names.
 - **Scrape after reorganising** (整理後刮削): on by default. MoviePilot writes the nfo and stills to 115, and Mi302 downloads them during sync, as long as the 115 sync option **Also download nfo, posters and subtitles from 115** (一併下載 115 上的 nfo、海報、字幕) is on.
 
 Click **Preview** (預覽). MoviePilot only works out the result without changing anything, and lists each file's new path and episode number. Mi302 adds its own checks and marks each file:
@@ -230,6 +230,18 @@ Click **Run reorganisation (N)** (執行整理（N 個）) and confirm:
 - MoviePilot moves and renames the files on 115, and scrapes them if enabled. The card shows progress and each file's result.
 - Afterwards Mi302 deletes the old local nfo files that have no episode number, so they do not follow the strm to its new name. About 20 seconds later it runs an incremental 115 sync, the strm files move to their new names, and the affected series is rescanned.
 - If a 115 sync is already running, the changes are picked up by the next sync.
+
+### Reorganising a folder on 115
+
+Besides the seasons listed on this card, you can pick any folder in **Browse 115** on the 115 tab (see [115 Cloud Sync](115-Cloud-Sync#browsing-115)) and hand it to MoviePilot, for example a folder you just saved and have not organised yet, or a series that looks wrong. The flow is the same: preview first, then run. The differences:
+
+- All videos in the folder, including subfolders, are sent, up to 500. For larger folders, pick a smaller one.
+- There are two more fields, **Type** (類型: let MoviePilot decide, TV series or movie) and **Season** (季). The TMDB ID and season can be left empty so MoviePilot identifies the files by name.
+- Mi302 fills in what it can guess. Type and season come from what the library made of these videos, or from a folder name such as `Season 1`. The TMDB ID comes from the library, or from `[tmdb=…]` in a folder name.
+- With the type set to movie, no season or episode format is sent.
+- The batch whose file names show no episode number is sent too (movies usually look like that), and MoviePilot identifies those files itself.
+- Files that are currently inside a sync folder may not move outside the sync folders, or they would disappear from the library. For files that were outside the sync folders to begin with, a new location outside them only gives the note that Mi302 will not create strm files for them.
+- Afterwards only local nfo files with `-1` numbers are deleted; movie nfo files and others stay.
 
 ## Add Mi302 to MoviePilot as Emby
 
