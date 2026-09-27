@@ -209,6 +209,7 @@ dialog .card-b{max-height:70vh;overflow:auto}
   <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/></symbol>
   <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></symbol>
   <symbol id="i-up" viewBox="0 0 24 24"><path d="M12 19V5M6 11l6-6 6 6"/></symbol>
+  <symbol id="i-tool" viewBox="0 0 24 24"><path d="M14.7 6.3a4 4 0 0 0-5.4 5.1L4 16.7V20h3.3l5.3-5.3a4 4 0 0 0 5.1-5.4l-2.5 2.5-2.1-.6-.6-2.1z"/></symbol>
   <symbol id="i-copy" viewBox="0 0 24 24"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 0 1 2-2h9"/></symbol>
   <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></symbol>
   <symbol id="i-key" viewBox="0 0 24 24"><circle cx="8" cy="15" r="4"/><path d="M11 12l9-9M17 6l3 3M14.5 8.5l2 2"/></symbol>
@@ -261,10 +262,11 @@ dialog .card-b{max-height:70vh;overflow:auto}
       <a href="#overview" data-tab="overview"><svg class="i"><use href="#i-grid"/></svg><span>概覽</span></a>
       <a href="#libraries" data-tab="libraries"><svg class="i"><use href="#i-film"/></svg><span>媒體庫</span></a>
       <a href="#115" data-tab="115"><svg class="i"><use href="#i-cloud"/></svg><span>115 網盤</span></a>
+      <a href="#tools" data-tab="tools"><svg class="i"><use href="#i-tool"/></svg><span>整理</span></a>
       <a href="#moviepilot" data-tab="moviepilot"><svg class="i"><use href="#i-spark"/></svg><span>MoviePilot</span></a>
       <a href="#users" data-tab="users"><svg class="i"><use href="#i-users"/></svg><span>使用者</span></a>
       <a href="#logs" data-tab="logs"><svg class="i"><use href="#i-doc"/></svg><span>日誌</span></a>
-      <a href="#settings" data-tab="settings"><svg class="i"><use href="#i-sliders"/></svg><span>進階設定</span></a>
+      <a href="#settings" data-tab="settings"><svg class="i"><use href="#i-sliders"/></svg><span>設定</span></a>
     </nav>
     <div class="foot"><button class="btn ghost full" onclick="logoutWeb()" title="登出"><svg class="i"><use href="#i-logout"/></svg><span>登出</span></button></div>
   </aside>
@@ -323,47 +325,6 @@ dialog .card-b{max-height:70vh;overflow:auto}
       <button class="btn" onclick="addLib()"><svg class="i"><use href="#i-plus"/></svg>新增媒體庫</button>
       <div class="savebar hidden" id="libBar"><span class="hint grow">媒體庫有未儲存的變更</span><button class="btn" onclick="loadLibs()">取消</button><button class="btn primary" onclick="saveLibs()">儲存並掃描</button></div>
 
-      <div class="card" id="miCard" style="margin-top:16px">
-        <div class="card-h"><div class="t"><svg class="i"><use href="#i-film"/></svg><h2>媒體資訊</h2></div></div>
-        <div class="card-b stack">
-          <p class="hint">解析度、HDR、音軌、字幕軌和章節，播放器靠它標出 4K、HDR，播放前讓人選音軌和字幕。影片旁邊有 X-mediainfo.json（神醫助手、emby-mediainfo 產生的都行）就直接讀；開啟探測後，Mi302 用 ffprobe 讀 115 上的影片檔頭產生，每一項要取一次直鏈、讀幾 MB。</p>
-          <div id="miStat"><p class="hint">讀取中…</p></div>
-          <div class="stack" id="miPick">
-            <b>挑選要提取的影片</b>
-            <div class="logbar"><input id="miQ" type="search" placeholder="搜尋片名" oninput="clearTimeout(miQT); miQT = setTimeout(() => loadMiTitles(1), 300)">
-              <select id="miLib" onchange="loadMiTitles(1)"><option value="">全部媒體庫</option></select>
-              <select id="miKind" onchange="loadMiTitles(1)"><option value="">電影和劇集</option><option value="movie">只看電影</option><option value="series">只看劇集</option></select>
-              <input id="miYearFrom" type="number" min="1900" max="2100" placeholder="年份從" style="width:7.5em" onchange="loadMiTitles(1)">
-              <input id="miYearTo" type="number" min="1900" max="2100" placeholder="到" style="width:7.5em" onchange="loadMiTitles(1)"></div>
-            <div class="logbar">
-              <select id="miOrder" onchange="saveMiPrefs(); loadMiTitles(1)"><option value="added">最近加入的先做</option><option value="year_desc">年份新的先做</option><option value="year_asc">年份舊的先做</option><option value="rating">評分高的先做</option><option value="name">照片名</option></select>
-              <span class="hint">這次最多</span><input id="miLimit" type="number" min="0" value="100" style="width:6.5em" oninput="saveMiPrefs(); miSummary(); queueRetarget()"><span class="hint">支（0 = 全部）</span>
-              <button class="btn primary" id="miBtn" onclick="probeMI()">開始提取</button></div>
-            <p class="hint" id="miSum"></p>
-            <div id="miTitles" class="list"></div>
-          </div>
-          <div class="fields">
-            <label class="field"><span>同時探測幾項</span><input type="number" min="1" max="3" data-key="mediainfo.concurrency"><small>1–3，115 同時最多 3 條連線</small></label>
-            <label class="field"><span>取直鏈間隔（秒）</span><input type="number" step="0.1" min="0.5" data-key="mediainfo.interval"><small>至少 0.5，太快會被 115 限流</small></label>
-            <label class="field"><span>每小時最多幾次</span><input type="number" min="0" data-key="mediainfo.hourly_limit"><small>向 115 取直鏈的上限，0 = 不限；一次提取很多支時保護帳號</small></label>
-          </div>
-          <label class="switch"><input type="checkbox" data-key="mediainfo.on_demand"><span class="track"></span><span class="lbl">打開影片時自動探測<small>播放器打開某部片或某一集時在背景探測它，不等；下次打開就有</small></span></label>
-          <label class="switch"><input type="checkbox" data-key="mediainfo.enabled"><span class="track"></span><span class="lbl">批次探測<small>開了才能在上面挑影片提取；關閉時仍會讀現成的 X-mediainfo.json</small></span></label>
-          <label class="switch"><input type="checkbox" data-key="mediainfo.after_sync"><span class="track"></span><span class="lbl">同步產生新的 strm 後自動探測<small>要開批次探測</small></span></label>
-        </div>
-        <div class="card-f"><button class="btn primary" onclick="saveFields($('miCard')).then(pollMI)">儲存</button></div>
-      </div>
-
-      <div class="card" id="introCard" style="margin-top:16px">
-        <div class="card-h"><div class="t"><svg class="i"><use href="#i-play"/></svg><h2>片頭片尾</h2></div><button class="btn ghost" onclick="clearIntro()">清除全部</button></div>
-        <div class="card-b stack">
-          <p class="hint">從播放行為學：有人在開頭跳過一段、在片尾切下一集，就記成這一季的片頭片尾，播放器（Emby 系列、SenPlayer 等認 Emby 章節標記的，以及認 Jellyfin Intro Skipper 的）會顯示「跳過片頭」。不碰 115、不讀影片。同一季其他集自動套用，多人多集取中位數。學得不準或想先設好的，可以搜尋劇名、按「編輯」手動設定某一季（或標成沒有片頭）；手動設定的優先，不再照播放行為。</p>
-          <div id="introStat"><p class="hint">讀取中…</p></div>
-          <div class="logbar"><input id="introQ" type="search" placeholder="搜尋劇名（還沒學到的劇也找得到）" oninput="clearTimeout(introQT); introQT = setTimeout(() => loadIntroSeasons(1), 300)"></div>
-          <div id="introList" class="list"></div>
-          <label class="switch"><input type="checkbox" data-key="server.intro_skip" onchange="putSettings({server: {intro_skip: this.checked}}).then(() => { toast('已儲存'); pollIntro(); }).catch(e => { toast('儲存失敗：' + e.message, 'bad'); fillFields(); })"><span class="track"></span><span class="lbl">學片頭片尾並給播放器</span></label>
-        </div>
-      </div>
     </section>
 
     <!-- 115 -->
@@ -385,9 +346,20 @@ dialog .card-b{max-height:70vh;overflow:auto}
             <details class="more"><summary>改用貼上 cookie</summary><div class="in stack">
               <label class="field"><span>115 cookie</span><textarea id="ck" rows="3" placeholder="UID=…; CID=…; SEID=…"></textarea></label>
               <div><button class="btn" onclick="saveCookie()">儲存 cookie</button></div></div></details>
-            <details class="more"><summary>進階：115 開放平台（需要自己申請的 AppID，一般用戶不用管）</summary><div class="in stack">
-              <p class="hint">只有在 open.115.com 申請到應用的人才用得到。授權後會優先走開放平台，失敗再用上面的登入。</p>
-              <div class="inline"><input id="appid" type="text" placeholder="AppID"><button class="btn" onclick="startOpenQr()">授權</button><button class="btn danger" onclick="logoutOpen()">取消授權</button></div>
+            <details class="more" id="p115Adv"><summary>進階：掃碼佔用的裝置類型、115 開放平台</summary><div class="in stack">
+              <label class="field" style="max-width:320px"><span>掃碼登入佔用的 115 裝置類型</span>
+                <select data-key="p115.app">
+                  <option value="alipaymini">支付寶小程式（預設）</option>
+                  <option value="wechatmini">微信小程式</option>
+                  <option value="tv">115 TV 版</option>
+                  <option value="qandroid">115 管理（Android）</option>
+                  <option value="ios">115（iOS）</option>
+                  <option value="android">115（Android）</option>
+                  <option value="web">網頁版</option>
+                </select><small>同類型的其他登入會被踢下線；改了之後重新掃碼才生效</small></label>
+              <p class="hint">115 開放平台：只有在 open.115.com 申請到應用的人才用得到。授權後會優先走開放平台，失敗再用上面的登入。</p>
+              <div class="inline"><input id="appid" type="text" placeholder="AppID" data-key="p115.open_app_id"><button class="btn" onclick="startOpenQr()">授權</button><button class="btn danger" onclick="logoutOpen()">取消授權</button></div>
+              <div><button class="btn" onclick="saveFields($('p115Adv'))">儲存裝置類型和 AppID</button></div>
               <div id="oqrBox" class="qr hidden"><div id="oqr"></div><div class="grow"><b>用手機 115 App 掃描並授權</b><p id="oqrst" class="hint"></p></div></div>
             </div></details>
           </div>
@@ -430,13 +402,71 @@ dialog .card-b{max-height:70vh;overflow:auto}
             <label class="field"><span>自動增量同步間隔（分鐘）</span><input type="number" min="0" data-key="p115.strm.interval"><small>0 = 不自動，建議 5</small></label>
             <label class="field"><span>自動全量同步間隔（小時）</span><input type="number" min="0" data-key="p115.strm.full_interval"><small>0 = 不自動，168 = 每週</small></label>
             <label class="field"><span>略過小於這個大小的影片（MB）</span><input type="number" min="0" data-key="p115.strm.min_size_mb"><small>例如 50 可略過預告片</small></label>
+            <label class="field"><span>每列一個 115 目錄前等待的秒數</span><input type="number" step="0.1" min="0" data-key="p115.strm.request_delay"><small>太快可能被 115 限制</small></label>
           </div>
           <label class="switch"><input type="checkbox" data-key="p115.strm.download_metadata"><span class="track"></span><span class="lbl">一併下載 115 上的 nfo、海報、字幕</span></label>
           <label class="switch"><input type="checkbox" data-key="p115.strm.delete_stale"><span class="track"></span><span class="lbl">跟著刪<small>115 上刪掉或移出同步目錄的影片，本機的 strm 和刮削資料也跟著刪</small></span></label>
+          <label class="switch"><input type="checkbox" data-key="p115.strm.scan_after_sync"><span class="track"></span><span class="lbl">同步完自動重新掃描媒體庫</span></label>
+          <label class="field"><span>strm 裡的伺服器網址</span><input type="text" data-key="p115.strm.base_url" placeholder="例如 https://emby.example.com"><small>留空 = 自動使用你開這個網頁的網址。放在反向代理後面時填對外的網址。儲存後，現有的 strm 會在背景一起改成新網址（只改本機檔案，不連 115）。</small></label>
+          <label class="switch"><input type="checkbox" data-key="p115.strm.include_name"><span class="track"></span><span class="lbl">strm 網址後附上原檔名<small>方便人工辨識，伺服器會忽略這一段；儲存後現有的 strm 會一起改</small></span></label>
         </div>
         <div class="card-f"><button class="btn primary" onclick="saveFields($('syncOpts'))">儲存同步選項</button></div>
       </div>
-      <div class="card" id="dupCard">
+    </section>
+
+    <!-- 整理 -->
+    <section id="tab-tools" class="page hidden">
+      <div class="page-h">
+        <div><h1>整理</h1><p class="sub">補齊媒體資訊、校正片頭片尾、刪掉 115 上重複的影片。</p></div>
+      </div>
+      <div class="seg" id="toolTabs" style="margin-bottom:16px"><button data-tool="mi" class="on" onclick="showTool('mi')">媒體資訊</button><button data-tool="intro" onclick="showTool('intro')">片頭片尾</button><button data-tool="dup" onclick="showTool('dup')">重複檔案</button></div>
+      <div class="card tool" id="miCard" data-tool="mi">
+        <div class="card-h"><div class="t"><svg class="i"><use href="#i-film"/></svg><h2>媒體資訊</h2></div></div>
+        <div class="card-b stack">
+          <p class="hint">解析度、HDR、音軌、字幕軌和章節，播放器靠它標出 4K、HDR，播放前讓人選音軌和字幕。影片旁邊有 X-mediainfo.json（神醫助手、emby-mediainfo 產生的都行）就直接讀；開啟探測後，Mi302 用 ffprobe 讀 115 上的影片檔頭產生，每一項要取一次直鏈、讀幾 MB。</p>
+          <div id="miStat"><p class="hint">讀取中…</p></div>
+          <div class="stack" id="miPick">
+            <b>挑選要提取的影片</b>
+            <div class="logbar"><input id="miQ" type="search" placeholder="搜尋片名" oninput="clearTimeout(miQT); miQT = setTimeout(() => loadMiTitles(1), 300)">
+              <select id="miLib" onchange="loadMiTitles(1)"><option value="">全部媒體庫</option></select>
+              <select id="miKind" onchange="loadMiTitles(1)"><option value="">電影和劇集</option><option value="movie">只看電影</option><option value="series">只看劇集</option></select>
+              <input id="miYearFrom" type="number" min="1900" max="2100" placeholder="年份從" style="width:7.5em" onchange="loadMiTitles(1)">
+              <input id="miYearTo" type="number" min="1900" max="2100" placeholder="到" style="width:7.5em" onchange="loadMiTitles(1)"></div>
+            <div class="logbar">
+              <select id="miOrder" onchange="saveMiPrefs(); loadMiTitles(1)"><option value="added">最近加入的先做</option><option value="year_desc">年份新的先做</option><option value="year_asc">年份舊的先做</option><option value="rating">評分高的先做</option><option value="name">照片名</option></select>
+              <span class="hint">這次最多</span><input id="miLimit" type="number" min="0" value="100" style="width:6.5em" oninput="saveMiPrefs(); miSummary(); queueRetarget()"><span class="hint">支（0 = 全部）</span>
+              <button class="btn primary" id="miBtn" onclick="probeMI()">開始提取</button></div>
+            <p class="hint" id="miSum"></p>
+            <div id="miTitles" class="list"></div>
+          </div>
+          <details class="more" id="miSettings"><summary>設定</summary><div class="in stack">
+          <div class="fields">
+            <label class="field"><span>同時探測幾項</span><input type="number" min="1" max="3" data-key="mediainfo.concurrency"><small>1–3，115 同時最多 3 條連線</small></label>
+            <label class="field"><span>取直鏈間隔（秒）</span><input type="number" step="0.1" min="0.5" data-key="mediainfo.interval"><small>至少 0.5，太快會被 115 限流</small></label>
+            <label class="field"><span>每小時最多幾次</span><input type="number" min="0" data-key="mediainfo.hourly_limit"><small>向 115 取直鏈的上限，0 = 不限；一次提取很多支時保護帳號</small></label>
+          </div>
+          <label class="switch"><input type="checkbox" data-key="mediainfo.on_demand"><span class="track"></span><span class="lbl">打開影片時自動探測<small>播放器打開某部片或某一集時在背景探測它，不等；下次打開就有</small></span></label>
+          <label class="switch"><input type="checkbox" data-key="mediainfo.enabled"><span class="track"></span><span class="lbl">批次探測<small>開了才能在上面「挑選要提取的影片」；關閉時仍會讀現成的 X-mediainfo.json</small></span></label>
+          <label class="switch"><input type="checkbox" data-key="mediainfo.after_sync"><span class="track"></span><span class="lbl">同步產生新的 strm 後自動探測<small>要開批次探測</small></span></label>
+          <div><button class="btn primary" onclick="saveFields($('miSettings')).then(pollMI)">儲存設定</button></div>
+          </div></details>
+        </div>
+      </div>
+
+      <div class="card tool hidden" id="introCard" data-tool="intro">
+        <div class="card-h"><div class="t"><svg class="i"><use href="#i-play"/></svg><h2>片頭片尾</h2></div><button class="btn ghost" onclick="clearIntro()">清除全部</button></div>
+        <div class="card-b stack">
+          <p class="hint">從播放行為學：有人在開頭跳過一段、在片尾切下一集，就記成這一季的片頭片尾，播放器（Emby 系列、SenPlayer 等認 Emby 章節標記的，以及認 Jellyfin Intro Skipper 的）會顯示「跳過片頭」。不碰 115、不讀影片。同一季其他集自動套用，多人多集取中位數。學得不準或想先設好的，可以搜尋劇名、按「編輯」手動設定某一季（或標成沒有片頭）；手動設定的優先，不再照播放行為。</p>
+          <div id="introStat"><p class="hint">讀取中…</p></div>
+          <div class="logbar"><input id="introQ" type="search" placeholder="搜尋劇名（還沒學到的劇也找得到）" oninput="clearTimeout(introQT); introQT = setTimeout(() => loadIntroSeasons(1), 300)"></div>
+          <div id="introList" class="list"></div>
+          <details class="more"><summary>設定</summary><div class="in">
+          <label class="switch"><input type="checkbox" data-key="server.intro_skip" onchange="putSettings({server: {intro_skip: this.checked}}).then(() => { toast('已儲存'); pollIntro(); }).catch(e => { toast('儲存失敗：' + e.message, 'bad'); fillFields(); })"><span class="track"></span><span class="lbl">學片頭片尾並給播放器<small>關掉後不再學、也不給播放器；學到的紀錄和手動設定都留著</small></span></label>
+          </div></details>
+        </div>
+      </div>
+
+      <div class="card tool hidden" id="dupCard" data-tool="dup">
         <div class="card-h"><div class="t"><svg class="i"><use href="#i-copy"/></svg><h2>重複檔案</h2></div>
           <div class="row"><button class="btn" onclick="pickDupRoot()">改選 115 目錄…</button><button class="btn primary" id="dupScanBtn" onclick="scanDupes()">找重複</button></div></div>
         <div class="card-b stack">
@@ -497,7 +527,9 @@ dialog .card-b{max-height:70vh;overflow:auto}
             <label class="switch" style="padding:0"><input type="checkbox" id="seriesGaps" onchange="loadSeries(1)"><span class="track"></span><span class="lbl">只看集號有空洞的</span></label></div>
           <div id="series" class="list"><p class="hint">讀取中…</p></div>
           <p class="hint">「集號有空洞」只是提示（例如有第 2、4 集沒有第 3 集）；最後幾集沒下到、整季沒有的情況，MoviePilot 對照 TMDB 一樣會算出來。沒有 tmdbid 的劇要先刮削。</p>
+          <details class="more"><summary>設定</summary><div class="in">
           <label class="switch"><input type="checkbox" data-key="moviepilot.fill_after_full_sync" onchange="putSettings({moviepilot: {fill_after_full_sync: this.checked}}).then(() => toast('已儲存')).catch(e => { toast('儲存失敗：' + e.message, 'bad'); fillFields(); })"><span class="track"></span><span class="lbl">全量同步後自動補全<small>每次全量同步、刮削完之後，把所有有 tmdbid 的劇送一次</small></span></label>
+          </div></details>
         </div>
       </div>
       <div class="card">
@@ -555,40 +587,24 @@ dialog .card-b{max-height:70vh;overflow:auto}
       </div>
     </section>
 
-    <!-- 進階設定 -->
+    <!-- 設定 -->
     <section id="tab-settings" class="page hidden">
       <div class="page-h">
-        <div><h1>進階設定</h1><p class="sub">設定都存在設定檔 <code id="cfgPath"></code>，儲存時自動寫入（舊檔留成 .bak）。直接改檔案也可以，重新整理網頁就會套用。</p></div>
+        <div><h1>設定</h1><p class="sub">設定都存在設定檔 <code id="cfgPath"></code>，儲存時自動寫入（舊檔留成 .bak）。直接改檔案也可以，重新整理網頁就會套用。</p></div>
       </div>
       <div class="card">
         <div class="card-h"><div class="t"><h2>伺服器</h2></div></div>
         <div class="card-b stack">
           <label class="field"><span>伺服器名稱</span><input type="text" data-key="server.name"><small>播放器裡顯示的名稱</small></label>
           <label class="switch"><input type="checkbox" data-key="server.public_users"><span class="track"></span><span class="lbl">播放器登入畫面列出使用者名稱</span></label>
-          <label class="switch"><input type="checkbox" data-key="server.allow_download"><span class="track"></span><span class="lbl">允許播放器下載影片<small>要登入才能下載；關掉後播放器不顯示下載，直接打下載網址也會被拒絕</small></span></label>
-          <p class="hint">埠號目前是 <b id="port"></b>。要改埠號：改設定檔的 <code>server.port</code>，然後重新啟動。</p>
+          <p class="hint">埠號目前是 <b id="port"></b>。要改埠號：改設定檔的 <code>server.port</code>，然後重新啟動。115 的設定在「115 網盤」分頁，媒體資訊、片頭片尾的設定在「整理」分頁各卡片的「設定」裡。</p>
         </div>
       </div>
       <div class="card">
-        <div class="card-h"><div class="t"><h2>115 與 strm</h2></div></div>
+        <div class="card-h"><div class="t"><svg class="i"><use href="#i-play"/></svg><h2>播放</h2></div></div>
         <div class="card-b stack">
-          <label class="field"><span>strm 裡的伺服器網址</span><input type="text" data-key="p115.strm.base_url" placeholder="例如 https://emby.example.com"><small>留空 = 自動使用你開這個網頁的網址。放在反向代理後面時填對外的網址。儲存後，現有的 strm 會在背景一起改成新網址（只改本機檔案，不連 115）。</small></label>
-          <div class="fields">
-            <label class="field"><span>掃碼登入佔用的 115 裝置類型</span>
-              <select data-key="p115.app">
-                <option value="alipaymini">支付寶小程式（預設）</option>
-                <option value="wechatmini">微信小程式</option>
-                <option value="tv">115 TV 版</option>
-                <option value="qandroid">115 管理（Android）</option>
-                <option value="ios">115（iOS）</option>
-                <option value="android">115（Android）</option>
-                <option value="web">網頁版</option>
-              </select><small>同類型的其他登入會被踢下線</small></label>
-            <label class="field"><span>每列一個 115 目錄前等待的秒數</span><input type="number" step="0.1" min="0" data-key="p115.strm.request_delay"><small>太快可能被 115 限制</small></label>
-            <label class="field"><span>115 開放平台 AppID</span><input type="text" data-key="p115.open_app_id"><small>沒有申請過就留空</small></label>
-          </div>
-          <label class="switch"><input type="checkbox" data-key="p115.strm.include_name"><span class="track"></span><span class="lbl">strm 網址後附上原檔名<small>方便人工辨識，伺服器會忽略這一段；儲存後現有的 strm 會一起改</small></span></label>
-          <label class="switch"><input type="checkbox" data-key="p115.strm.scan_after_sync"><span class="track"></span><span class="lbl">同步完自動重新掃描媒體庫</span></label>
+          <label class="switch"><input type="checkbox" data-key="redirect.require_auth"><span class="track"></span><span class="lbl">播放網址要求登入<small>和官方 Emby 一樣，建議開著；關掉的話，知道項目編號的人不用登入就能拿到 115 直鏈。某個播放器播不了時再關</small></span></label>
+          <label class="switch"><input type="checkbox" data-key="server.allow_download"><span class="track"></span><span class="lbl">允許播放器下載影片<small>要登入才能下載；關掉後播放器不顯示下載，直接打下載網址也會被拒絕</small></span></label>
         </div>
       </div>
       <div class="card">
@@ -597,7 +613,6 @@ dialog .card-b{max-height:70vh;overflow:auto}
           <label class="field"><span>路徑替換</span><textarea id="rules" rows="3" placeholder="/mnt/115 => http://alist:5244/d/115"></textarea><small>一行一條，格式：原本開頭 =&gt; 替換成</small></label>
           <label class="field" style="max-width:280px"><span>看不出格式時預設的影片格式</span><input type="text" data-key="redirect.default_container"></label>
           <label class="switch"><input type="checkbox" data-key="redirect.resolve_redirects"><span class="track"></span><span class="lbl">由伺服器先跟著上游的重導向走到底<small>再把最終網址給播放器</small></span></label>
-          <label class="switch"><input type="checkbox" data-key="redirect.require_auth"><span class="track"></span><span class="lbl">播放網址要求登入<small>和官方 Emby 一樣，建議開著；關掉的話，知道項目編號的人不用登入就能拿到 115 直鏈。某個播放器播不了時再關</small></span></label>
         </div>
       </div>
       <div class="card" id="zhCard">
@@ -755,7 +770,7 @@ async function login() {
 }
 async function logoutWeb() { try { await api('/Sessions/Logout', {method: 'POST'}); } catch (e) {} token = ''; localStorage.removeItem('mi302'); show('login'); }
 
-const PAGES = {overview: () => loadOverview(), libraries: () => loadLibs(), '115': () => load115(false), moviepilot: () => loadMP(), users: () => loadUsers(), logs: () => loadLogs(true), settings: () => { loadBackups(); pollPeople(); }};
+const PAGES = {overview: () => loadOverview(), libraries: () => loadLibs(), '115': () => load115(false), tools: () => loadTools(), moviepilot: () => loadMP(), users: () => loadUsers(), logs: () => loadLogs(true), settings: () => { loadBackups(); pollPeople(); }};
 function route() {
   let tab = (location.hash || '#overview').slice(1);
   if (!PAGES[tab]) tab = 'overview';
@@ -828,7 +843,20 @@ function renderSteps() {
 
 // ---- 媒體庫 ----
 let libs = [], libsShape = null;
-function loadLibs() { libs = structuredClone(cfg.libraries); dirtyLibs(false); renderLibs(); refreshScan(); restoreMiPrefs(); pollMI(); pollIntro(); }
+function loadLibs() { libs = structuredClone(cfg.libraries); dirtyLibs(false); renderLibs(); refreshScan(); }
+// 「整理」分頁：媒體資訊、片頭片尾、重複檔案一次只顯示一個，記住上次看的
+const TOOLS = {mi: () => { restoreMiPrefs(); pollMI(); }, intro: () => pollIntro(), dup: () => loadDupes()};
+function loadTools() {
+  let t = 'mi';
+  try { t = localStorage.getItem('mi302.tool') || 'mi'; } catch (e) {}
+  showTool(TOOLS[t] ? t : 'mi');
+}
+function showTool(t) {
+  for (const b of document.querySelectorAll('#toolTabs button')) b.classList.toggle('on', b.dataset.tool === t);
+  for (const c of document.querySelectorAll('#tab-tools .card.tool')) c.classList.toggle('hidden', c.dataset.tool !== t);
+  try { localStorage.setItem('mi302.tool', t); } catch (e) {}
+  TOOLS[t]();
+}
 function dirtyLibs(on) { $('libBar').classList.toggle('hidden', !on); }
 // 掃描狀態裡數量以外的部分；沒變就只改數字，不必整張卡重畫（封面會閃）
 function libShape(status) { return JSON.stringify((status?.libraries || []).map(({count, ...rest}) => rest)); }
@@ -1064,7 +1092,7 @@ function miBlocked() {
   const s = S.mi;
   if (!s) return '讀取中';
   if (!s.ffprobe) return '找不到 ffprobe';
-  if (!s.enabled) return '先開啟下面的「批次探測」並儲存';
+  if (!s.enabled) return '先在下面的「設定」裡開啟「批次探測」並儲存';
   if (s.result.running) return '正在提取，等這一批做完';
   return '';
 }
@@ -1232,7 +1260,6 @@ const APP_NAME = {alipaymini: '支付寶小程式', wechatmini: '微信小程式
   ios: '115（iOS）', android: '115（Android）', web: '網頁版'};
 async function load115(refresh) {
   pollSync(true);
-  if (!refresh) loadDupes();
   try { S.p115 = await api('/p115/status' + (refresh ? '?refresh=1' : '')); }
   catch (e) { $('acct').innerHTML = `<p class="notice bad">${esc(e.message)}</p>`; return; }
   if (S.p115.open.app_id && !appid.value) appid.value = S.p115.open.app_id;
@@ -1406,7 +1433,7 @@ async function pollSync(first) {
 }
 async function rewriteStrm() {
   const base = S.sync?.base_url || $('base').textContent;
-  if (!await ask({title: '把現有的 strm 都改成 ' + base + '？', text: '只改同步任務資料夾裡 Mi302 產生的 strm，只動本機檔案、不連 115；媒體資訊照用，不必重新掃描。要換成別的網址，先到「進階設定」改「strm 裡的伺服器網址」。', ok: '改寫'})) return;
+  if (!await ask({title: '把現有的 strm 都改成 ' + base + '？', text: '只改同步任務資料夾裡 Mi302 產生的 strm，只動本機檔案、不連 115；媒體資訊照用，不必重新掃描。要換成別的網址，先在下面的「同步選項」改「strm 裡的伺服器網址」。', ok: '改寫'})) return;
   let r;
   try { r = await api('/p115/strm/rewrite', {method: 'POST'}); } catch (e) { toast(e.message, 'bad'); return; }
   toast(r.started ? '開始改寫現有的 strm' : '已經在改寫中');
