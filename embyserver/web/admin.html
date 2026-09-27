@@ -88,7 +88,11 @@ textarea{resize:vertical;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,
 .side nav a{display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:9px;color:var(--muted);font-weight:500;white-space:nowrap}
 .side nav a:hover{background:var(--panel2);color:var(--fg)}
 .side nav a.on{background:var(--accent-soft);color:var(--accent)}
-.side .foot{margin-top:auto}
+.side .foot{margin-top:auto;display:flex;flex-direction:column;gap:6px}
+.side .star{display:flex;align-items:center;gap:8px;padding:8px 12px;border-radius:9px;border:1px solid var(--line);color:var(--muted);font-size:13.5px;font-weight:500}
+.side .star:hover{background:var(--panel2);color:var(--fg)}
+.i.gold,.gold{color:#d9a21b}.side .star .gold{margin-left:auto;fill:currentColor}
+.auth-foot{text-align:center;font-size:13px;color:var(--muted);display:flex;gap:6px;justify-content:center;align-items:center}
 main{min-width:0;padding:28px 32px 80px}
 .page{max-width:1040px;margin:0 auto}
 .page-h{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;margin-bottom:20px;flex-wrap:wrap}
@@ -213,7 +217,8 @@ dialog .card-b{max-height:70vh;overflow:auto}
   .side nav{flex-direction:row;overflow-x:auto;scrollbar-width:none;flex:1}
   .side nav::-webkit-scrollbar{display:none}
   .side nav a{padding:8px 10px}
-  .side .foot{margin:0}.side .foot span{display:none}
+  .side .foot{margin:0;flex-direction:row;align-items:center;gap:2px}.side .foot span{display:none}
+  .side .star{border:0;padding:8px}.side .star .gold{display:none}
   main{padding:18px 16px 70px}
   .grid2{grid-template-columns:1fr}
   .stats{grid-template-columns:repeat(2,minmax(0,1fr))}
@@ -246,6 +251,8 @@ dialog .card-b{max-height:70vh;overflow:auto}
   <symbol id="i-play" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M10 9l5 3-5 3z"/></symbol>
   <symbol id="i-doc" viewBox="0 0 24 24"><path d="M6 3h8l5 5v13H6z"/><path d="M14 3v5h5M9 12h7M9 16h7"/></symbol>
   <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></symbol>
+  <symbol id="i-github" viewBox="0 0 16 16"><path fill="currentColor" stroke="none" d="M8 0c4.42 0 8 3.58 8 8a8.013 8.013 0 0 1-5.45 7.59c-.4.08-.55-.17-.55-.38 0-.27.01-1.13.01-2.2 0-.75-.25-1.23-.54-1.48 1.78-.2 3.65-.88 3.65-3.95 0-.88-.31-1.59-.82-2.15.08-.2.36-1.02-.08-2.12 0 0-.67-.22-2.2.82-.64-.18-1.32-.27-2-.27-.68 0-1.36.09-2 .27-1.53-1.03-2.2-.82-2.2-.82-.44 1.1-.16 1.92-.08 2.12-.51.56-.82 1.28-.82 2.15 0 3.06 1.86 3.75 3.64 3.95-.23.2-.44.55-.51 1.07-.46.21-1.61.55-2.33-.66-.15-.24-.6-.83-1.23-.82-.67.01-.27.38.01.53.34.19.73.9.82 1.13.16.45.68 1.31 2.69.94 0 .67.01 1.3.01 1.49 0 .21-.15.45-.55.38A7.995 7.995 0 0 1 0 8c0-4.42 3.58-8 8-8Z"/></symbol>
+  <symbol id="i-star" viewBox="0 0 24 24"><path d="M12 3.2l2.7 5.5 6 .9-4.35 4.25 1.03 6-5.38-2.83-5.38 2.83 1.03-6L3.3 9.6l6-.9z"/></symbol>
   <symbol id="i-logo" viewBox="0 0 32 32"><rect width="32" height="32" rx="9" fill="var(--accent)" stroke="none"/><path d="M12 9.5l10.5 6.5L12 22.5z" fill="#fff" stroke="none"/></symbol>
 </svg>
 
@@ -267,6 +274,7 @@ dialog .card-b{max-height:70vh;overflow:auto}
       <label class="field"><span>再輸入一次密碼</span><input id="sPw2" type="password" autocomplete="new-password"></label>
       <p id="sMsg" class="notice bad hidden"></p>
       <button class="btn primary full">建立並登入</button>
+      <p class="auth-foot"><svg class="i"><use href="#i-github"/></svg><a href="https://github.com/MiCat-S/Mi302" target="_blank" rel="noopener">Mi302 在 GitHub</a>・覺得好用請點個 Star</p>
     </div>
   </form>
 </div>
@@ -279,6 +287,7 @@ dialog .card-b{max-height:70vh;overflow:auto}
       <p id="lMsg" class="notice bad hidden"></p>
       <button class="btn primary full">登入</button>
       <p class="hint" style="text-align:center">用管理員帳號登入</p>
+      <p class="auth-foot"><svg class="i"><use href="#i-github"/></svg><a href="https://github.com/MiCat-S/Mi302" target="_blank" rel="noopener">Mi302 在 GitHub</a>・覺得好用請點個 Star</p>
     </div>
   </form>
 </div>
@@ -296,7 +305,9 @@ dialog .card-b{max-height:70vh;overflow:auto}
       <a href="#logs" data-tab="logs"><svg class="i"><use href="#i-doc"/></svg><span>日誌</span></a>
       <a href="#settings" data-tab="settings"><svg class="i"><use href="#i-sliders"/></svg><span>設定</span></a>
     </nav>
-    <div class="foot"><button class="btn ghost full" onclick="logoutWeb()" title="登出"><svg class="i"><use href="#i-logout"/></svg><span>登出</span></button></div>
+    <div class="foot">
+      <a class="star" href="https://github.com/MiCat-S/Mi302" target="_blank" rel="noopener" title="Mi302 在 GitHub 上，覺得好用請點個 Star"><svg class="i"><use href="#i-github"/></svg><span>GitHub 點個 Star</span><svg class="i gold"><use href="#i-star"/></svg></a>
+      <button class="btn ghost full" onclick="logoutWeb()" title="登出"><svg class="i"><use href="#i-logout"/></svg><span>登出</span></button></div>
   </aside>
 
   <main>
@@ -697,6 +708,18 @@ dialog .card-b{max-height:70vh;overflow:auto}
           <div id="bkList" class="list"><p class="hint">讀取中…</p></div>
           <details class="more"><summary>怎麼還原</summary><div class="in hint stack">
             <p>1. 停止 Mi302。2. 把要還原的 <code>.db</code> 複製成資料夾裡的 <code>library.db</code>，並刪掉 <code>library.db-wal</code>、<code>library.db-shm</code>。3. 需要的話把同時間的 <code>.yaml</code> 換成 <code>config.yaml</code>。4. 啟動 Mi302。</p></div></details>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-h"><div class="t"><svg class="i"><use href="#i-github"/></svg><h2>關於 Mi302</h2></div></div>
+        <div class="card-b stack">
+          <p>Mi302 的原始碼公開在 GitHub。覺得好用的話，請到 GitHub 點個 Star，讓更多人看到；遇到問題或有建議，歡迎開 Issue。</p>
+          <div class="row wrap">
+            <a class="btn primary" href="https://github.com/MiCat-S/Mi302" target="_blank" rel="noopener"><svg class="i"><use href="#i-star"/></svg>到 GitHub 點 Star</a>
+            <a class="btn" href="https://github.com/MiCat-S/Mi302/issues" target="_blank" rel="noopener">回報問題</a>
+            <a class="btn ghost" href="https://github.com/MiCat-S/Mi302/wiki" target="_blank" rel="noopener"><svg class="i"><use href="#i-doc"/></svg>說明文件</a>
+          </div>
+          <p class="hint">授權：PolyForm Noncommercial 1.0.0。個人、家庭、學習研究、非營利組織都可以免費使用和修改，<b>不能用在商業用途</b>（例如拿來賣、做成收費服務）。<a href="https://github.com/MiCat-S/Mi302/blob/main/LICENSE.md" target="_blank" rel="noopener">授權全文</a></p>
         </div>
       </div>
       <div class="savebar"><span class="hint grow">儲存會寫進設定檔</span><button class="btn primary" onclick="saveFields($('tab-settings'), true)">儲存設定</button></div>
