@@ -20,6 +20,7 @@ from ..moviepilot import library_series
 from ..p115 import P115Error
 from ..p115_open import P115OpenError
 from ..probe_select import ProbeFilter, missing_paths, missing_titles, title_names
+from ..reorganize import ReorgError, candidates as reorg_candidates
 from ..settings import SettingsError
 from .common import q, q_int, state
 
@@ -627,6 +628,57 @@ async def moviepilot_fill(request: Request, ctx: AuthContext = Depends(require_a
         raise HTTPException(status_code=400, detail="沒有可以送的劇：要先刮削過、有 tmdbid")
     started = mp.fill_in_background(shows, "manual")
     return {"started": started, "result": mp.fill_result.as_dict()}
+
+
+# ---------------- 交給 MoviePilot 整理集號不對的劇 ----------------
+
+
+@router.get("/web/api/moviepilot/reorganize")
+def reorganize_list(request: Request, ctx: AuthContext = Depends(require_admin)):
+    """集號從檔名猜的、或認不出來的集，一季一列；附上目前的整理工作和缺什麼設定。"""
+    st = state(request)
+    offset, limit = max(q_int(request, "offset") or 0, 0), min(max(q_int(request, "limit") or 20, 1), 200)
+    items, total = reorg_candidates(st.db, q(request, "q") or "", offset, limit)
+    return {"items": items, "total": total, "job": st.reorganizer.job.as_dict(), "ready": st.reorganizer.ready()}
+
+
+@router.get("/web/api/moviepilot/reorganize/plan")
+def reorganize_plan(request: Request, ctx: AuthContext = Depends(require_admin)):
+    """一季要送哪些 115 檔案、分成幾批、每批的集數定位模板。會列 115 的資料夾，可能要幾秒。"""
+    st = state(request)
+    try:
+        return st.reorganizer.plan(q_int(request, "series") or 0, q_int(request, "season") or 0)
+    except ReorgError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@router.post("/web/api/moviepilot/reorganize/preview")
+async def reorganize_preview(request: Request, ctx: AuthContext = Depends(require_admin)):
+    """請 MoviePilot 只算不做：{series_id, season, tmdbid, target: auto|parent, scrape, groups: [{key, template, enabled}]}。"""
+    st = state(request)
+    body = await _body(request)
+    if not st.reorganizer.ready()["login"]:
+        raise HTTPException(status_code=400, detail="MoviePilot 的手動整理只接受帳號登入，請在「MoviePilot 帳號密碼」填好再儲存")
+    try:
+        return await run_in_threadpool(
+            st.reorganizer.preview, int(body.get("series_id") or 0), int(body.get("season") or 0),
+            str(body.get("tmdbid") or ""), str(body.get("target") or "auto"), bool(body.get("scrape", True)),
+            [g for g in body.get("groups") or [] if isinstance(g, dict)],
+        )
+    except ReorgError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@router.post("/web/api/moviepilot/reorganize/execute")
+async def reorganize_execute(request: Request, ctx: AuthContext = Depends(require_admin)):
+    """照預覽執行：{"token": 預覽代碼}。只送預覽成功的檔案，在背景跑，進度看 GET /web/api/moviepilot/reorganize。"""
+    st = state(request)
+    body = await _body(request)
+    try:
+        st.reorganizer.execute_in_background(str(body.get("token") or ""))
+    except ReorgError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {"job": st.reorganizer.job.as_dict()}
 
 
 # ---------------- 日誌 ----------------

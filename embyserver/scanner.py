@@ -106,14 +106,29 @@ def _number(text: str) -> int:
     return total + cur
 
 
-def parse_episode(stem: str) -> Tuple[Optional[int], Optional[int]]:
-    for pat in EPISODE_PATTERNS:
+def episode_match(stem: str) -> Optional[Tuple["re.Match", int]]:
+    """檔名裡的集號：(比對結果, 第幾種寫法，EPISODE_PATTERNS 的索引)；認不出來回傳 None。"""
+    for index, pat in enumerate(EPISODE_PATTERNS):
         m = pat.search(stem)
         if m:
-            gd = m.groupdict()
-            season = int(gd["season"]) if gd.get("season") else None
-            return season, _number(gd["episode"])
-    return None, None
+            return m, index
+    return None
+
+
+STANDARD_EPISODE = {0, 1}  # SxxEyy、1x02：標準寫法，季和集都寫明了
+
+
+def episode_numbers(found: Optional[Tuple["re.Match", int]]) -> Tuple[Optional[int], Optional[int]]:
+    """episode_match 的結果換成 (季, 集)。"""
+    if not found:
+        return None, None
+    gd = found[0].groupdict()
+    season = int(gd["season"]) if gd.get("season") else None
+    return season, _number(gd["episode"])
+
+
+def parse_episode(stem: str) -> Tuple[Optional[int], Optional[int]]:
+    return episode_numbers(episode_match(stem))
 
 
 def parse_season_dir(name: str) -> Optional[int]:
@@ -740,7 +755,8 @@ class Scanner:
         seasons: Dict[int, int] = {}
         latest = None
         for path, dir_season in episodes:
-            s, e = parse_episode(path.stem)
+            found = episode_match(path.stem)
+            s, e = episode_numbers(found)
             ep_nfo = parse_nfo(path.with_suffix(".nfo"))
             season_no = ep_nfo.get("parent_index_number", dir_season if dir_season is not None else s)
             if season_no is None:
@@ -749,6 +765,10 @@ class Scanner:
                 seasons[season_no] = self._add_season(lib_id, series_id, folder, path.parent, season_no)
             season_id = seasons[season_no]
             ep_no = ep_nfo.get("index_number", e)
+            # 集號從哪裡來：nfo、標準檔名（S01E02）、其他檔名寫法（10.xxx、第10集，是猜的）、認不出來。
+            # 網頁上「交給 MoviePilot 整理」列的是最後兩種
+            ep_from = ("nfo" if "index_number" in ep_nfo else "none" if e is None
+                       else "sxe" if found[1] in STANDARD_EPISODE else "name")
             ep_name = ep_nfo.get("name") or (f"第 {ep_no} 集" if ep_no is not None else path.stem)
             try:
                 st = path.stat()
@@ -765,6 +785,7 @@ class Scanner:
                 "container": self._container_for(path),
                 "size": None if path.suffix.lower() == ".strm" else st.st_size,
                 "index_number": ep_no,
+                "ep_from": ep_from,
                 "parent_index_number": season_no,
                 "series_id": series_id,
                 "season_id": season_id,

@@ -49,6 +49,9 @@ LOGIN_API = "/api/v1/login/access-token"
 SUBSCRIBE_API = "/api/v1/subscribe/"
 SUBSCRIBE_SEARCH_API = "/api/v1/subscribe/search/{sid}"
 TMDB_EPISODES_API = "/api/v1/tmdb/{tmdbid}/{season}"
+# 手動整理（在 115 上改名、搬家、刮削）和推薦集數定位模板；兩個都只接受帳號登入
+TRANSFER_API = "/api/v1/transfer/manual"
+EPISODE_FORMAT_API = "/api/v1/transfer/episode-format/recommend"
 MAX_CONCURRENCY = 8
 # 送過卻沒有劇照的集（TMDB 沒有這集的圖），這段時間內手動刮削不再重送
 NO_IMAGE_RETRY_SECONDS = 30 * 86400
@@ -490,6 +493,46 @@ class MoviePilot:
         if "已存在" in message:  # 舊版：媒体库中已存在
             return "complete", message, None
         return "failed", message or "MoviePilot 沒有說明原因", None
+
+    # ---------------- 手動整理 ----------------
+
+    def transfer(
+        self, fileitems: List[dict], tmdbid: str, season: int, episode_format: Optional[str], scrape: bool,
+        target_path: Optional[str], preview: bool, timeout: Optional[float] = None,
+    ) -> List[dict]:
+        """請 MoviePilot 整理這些 115 上的集（一次一批、同一個集數定位模板）。
+
+        preview=True 只預覽新路徑；否則真的在 115 上移動、改名（和刮削）。target_path 是空的時候
+        照 MoviePilot 的目錄設定放；有給就放在那個資料夾底下（不另加類型、類別資料夾）。
+        回傳每個檔案的結果：source、target、success、message、episode、state（實際執行時）。
+        """
+        body = {
+            "fileitems": fileitems,
+            "media_source": "themoviedb", "media_id": str(tmdbid), "tmdbid": int(tmdbid),  # V3 看前兩個，V2 看 tmdbid
+            "type_name": "电视剧", "season": season, "transfer_type": "move", "scrape": scrape, "preview": preview,
+        }
+        if episode_format:
+            body["episode_format"] = episode_format
+        if target_path:
+            body.update(target_storage="u115", target_path=target_path,
+                        library_type_folder=False, library_category_folder=False)
+        res = self._request("POST", TRANSFER_API, body, timeout=timeout, query={"background": "false"})
+        data = res.get("data") if isinstance(res, dict) else None
+        items = data.get("items") if isinstance(data, dict) else None
+        if not isinstance(items, list) or not items:
+            raise MoviePilotError(str((res or {}).get("message") or "MoviePilot 沒有回傳整理結果"))
+        return [i for i in items if isinstance(i, dict)]
+
+    def recommend_format(self, fileitems: List[dict]) -> Tuple[Optional[str], str]:
+        """請 MoviePilot 依檔名推薦集數定位模板；回傳 (模板, 說明)，推薦不出來時模板是 None。"""
+        try:
+            res = self._request("POST", EPISODE_FORMAT_API, {"fileitems": fileitems}, timeout=60)
+        except MoviePilotError as exc:
+            return None, str(exc)
+        data = res.get("data") if isinstance(res, dict) else None
+        if isinstance(res, dict) and res.get("success") and isinstance(data, dict) and data.get("episode_format"):
+            return str(data["episode_format"]), str(data.get("rule_name") or data.get("reason") or "")
+        return None, str((res or {}).get("message") or "MoviePilot 推薦不出集數定位模板")
 
     def search_subscription(self, sid: int) -> str:
         """請 MoviePilot 馬上搜尋這條訂閱（V3 是 POST，V2 是 GET）；回傳它的說明。"""

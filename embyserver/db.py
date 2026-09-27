@@ -219,7 +219,10 @@ class Database:
             self.conn.commit()
 
     # 舊資料庫缺的欄位：CREATE TABLE IF NOT EXISTS 不會幫已存在的表加欄位
-    COLUMNS = {"items": {"search_text": "TEXT"}}
+    # ep_from：集號從哪裡來（nfo、sxe = 標準檔名 S01E02、name = 其他檔名寫法（猜的）、none = 認不出來）
+    COLUMNS = {"items": {"search_text": "TEXT", "ep_from": "TEXT"}}
+    # 用到上面這些欄位的索引，欄位補上之後才能建
+    COLUMN_INDEXES = ["CREATE INDEX IF NOT EXISTS idx_items_epfrom ON items(ep_from)"]
 
     def _ensure_columns(self) -> None:
         for table, cols in self.COLUMNS.items():
@@ -227,6 +230,8 @@ class Database:
             for name, kind in cols.items():
                 if name not in have:
                     self.conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {kind}")
+        for sql in self.COLUMN_INDEXES:
+            self.conn.execute(sql)
 
     def execute(self, sql: str, params: Iterable[Any] = ()) -> sqlite3.Cursor:
         with self.lock:

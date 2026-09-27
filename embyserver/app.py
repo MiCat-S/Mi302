@@ -22,6 +22,7 @@ from .db import Database
 from .dupes import DupeFinder
 from .intro import IntroLearner
 from .moviepilot import MoviePilot, library_series
+from .reorganize import Reorganizer
 from .p115 import P115Service
 from .people import PeopleStore, PersonNames
 from .prober import MediaProber
@@ -121,6 +122,7 @@ def create_app(config: Config, db_path: Optional[str] = None, scan_on_start: boo
         port=config.server.port,
     )
     app.state.dupes = DupeFinder(db, app.state.p115, app.state.strm_sync, scanner)  # 115 上的重複檔案
+    app.state.reorganizer = Reorganizer(db, app.state.strm_sync, app.state.moviepilot)  # 集號不對的劇交給 MoviePilot 整理
 
     app.add_middleware(
         CORSMiddleware,
