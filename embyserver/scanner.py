@@ -402,6 +402,7 @@ class Scanner:
         self.media_info.prune()
         self.people.prune()
         self.db.execute("DELETE FROM intro_obs WHERE item_id NOT IN (SELECT id FROM items)")
+        self.db.execute("DELETE FROM intro_manual WHERE season_id NOT IN (SELECT id FROM items)")
         # 項目刪掉了，它上傳的圖片也刪掉，免得之後新項目用到同一個 id 時誤用
         with self._custom_lock:
             custom = list(self._custom_images())

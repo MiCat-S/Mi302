@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from typing import Iterable, List, Mapping, Optional, Tuple
 
 from .db import Database
-from .textutil import cjk_count, pinyin_full, simplified
+from .textutil import title_match
 
 # 先做哪些：(網頁上的名稱, 片名清單的排序, 探測順序)。v 的欄位見 _VIDEOS
 ORDERS = {
@@ -101,13 +101,9 @@ class ProbeFilter:
             conds.append("year <= ?")
             params.append(self.year_to)
         if self.query:
-            # 和播放器的搜尋一樣：原名、簡體、全拼、首字母；兩個字以上的中文再用拼音比
-            like = ["title LIKE ?", "original_title LIKE ?", "search_text LIKE ?"]
-            params += [f"%{self.query}%", f"%{self.query}%", f"%{simplified(self.query).lower()}%"]
-            if cjk_count(self.query) >= 2:
-                like.append("search_text LIKE ?")
-                params.append(f"%{pinyin_full(self.query)}%")
-            conds.append("(" + " OR ".join(like) + ")")
+            sql, more = title_match(self.query, "title", "original_title", "search_text")
+            conds.append(sql)
+            params += more
         return " AND ".join(conds), params
 
     def describe(self) -> str:

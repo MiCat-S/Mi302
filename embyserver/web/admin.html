@@ -344,8 +344,10 @@ dialog .card-b{max-height:70vh;overflow:auto}
       <div class="card" id="introCard" style="margin-top:16px">
         <div class="card-h"><div class="t"><svg class="i"><use href="#i-play"/></svg><h2>片頭片尾</h2></div><button class="btn ghost" onclick="clearIntro()">清除全部</button></div>
         <div class="card-b stack">
-          <p class="hint">從播放行為學：有人在開頭跳過一段、在片尾切下一集，就記成這一季的片頭片尾，播放器（Emby 系列、SenPlayer 等認 Emby 章節標記的，以及認 Jellyfin Intro Skipper 的）會顯示「跳過片頭」。不碰 115、不讀影片。同一季其他集自動套用，多人多集取中位數。</p>
+          <p class="hint">從播放行為學：有人在開頭跳過一段、在片尾切下一集，就記成這一季的片頭片尾，播放器（Emby 系列、SenPlayer 等認 Emby 章節標記的，以及認 Jellyfin Intro Skipper 的）會顯示「跳過片頭」。不碰 115、不讀影片。同一季其他集自動套用，多人多集取中位數。學得不準或想先設好的，可以搜尋劇名、按「編輯」手動設定某一季（或標成沒有片頭）；手動設定的優先，不再照播放行為。</p>
           <div id="introStat"><p class="hint">讀取中…</p></div>
+          <div class="logbar"><input id="introQ" type="search" placeholder="搜尋劇名（還沒學到的劇也找得到）" oninput="clearTimeout(introQT); introQT = setTimeout(() => loadIntroSeasons(1), 300)"></div>
+          <div id="introList" class="list"></div>
           <label class="switch"><input type="checkbox" data-key="server.intro_skip" onchange="putSettings({server: {intro_skip: this.checked}}).then(() => { toast('已儲存'); pollIntro(); }).catch(e => { toast('儲存失敗：' + e.message, 'bad'); fillFields(); })"><span class="track"></span><span class="lbl">學片頭片尾並給播放器</span></label>
         </div>
       </div>
@@ -878,19 +880,117 @@ function scanNow() { scanReq({}, '全部媒體庫'); }
 async function pollIntro() {
   let s;
   try { s = await api('/web/api/intro/status'); } catch (e) { $('introStat').innerHTML = `<p class="notice bad">${esc(e.message)}</p>`; return; }
-  const sec = n => n >= 60 ? `${Math.floor(n / 60)} 分 ${n % 60} 秒` : `${n} 秒`;
-  let h = `<div class="chips">${chip(s.seasons, '學到的季', true)}${chip(s.episodes, '有紀錄的集')}</div>`;
-  if (s.recent.length) {
-    h += '<div class="list" style="margin-top:12px">' + s.recent.map(r => `<div class="li"><div class="main"><b>${esc(r.series || '?')}</b> <span class="hint">第 ${r.season} 季</span>
-      <div class="sub">${r.intro ? `片頭 ${sec(r.intro[0])} → ${sec(r.intro[1])}` : '還沒學到片頭'}${r.credits_tail != null ? `・片尾在結尾前 ${sec(r.credits_tail)}` : ''}・${r.episodes} 集有紀錄・${ago(r.last_at)}</div></div></div>`).join('') + '</div>';
-  } else if (s.enabled) {
-    h += '<p class="hint" style="margin-top:8px">還沒學到任何片頭。用播放器看劇時，在開頭手動跳過片頭、片尾切下一集，就會記下來。</p>';
+  let h = `<div class="chips">${chip(s.seasons, '學到的季', true)}${chip(s.episodes, '有紀錄的集')}${chip(s.manual || 0, '手動設定的季')}</div>`;
+  if (!s.seasons && !s.manual && s.enabled) {
+    h += '<p class="hint" style="margin-top:8px">還沒學到任何片頭。用播放器看劇時，在開頭手動跳過片頭、片尾切下一集，就會記下來；也可以在下面搜尋劇名手動設定。</p>';
   }
   setHtml($('introStat'), h);
+  loadIntroSeasons();
 }
 async function clearIntro() {
-  if (!await ask({title: '清掉所有學到的片頭片尾？', text: '之後看劇時會重新學。', ok: '清除', danger: true})) return;
+  if (!await ask({title: '清掉所有學到的片頭片尾？', text: '手動設定的不會清掉。之後看劇時會重新學。', ok: '清除', danger: true})) return;
   try { const r = await api('/web/api/intro/clear', {method: 'POST', body: '{}'}); toast('已清除 ' + r.removed + ' 筆'); } catch (e) { toast(e.message, 'bad'); }
+  pollIntro();
+}
+
+// 片頭片尾的季清單：沒搜尋時列有紀錄或手動設定的季；搜尋時列符合的劇的每一季。一次 20 季
+let introPage = 1, introSeq = 0, introQT = null;
+const INTRO_PAGE = 20;
+const introSec = n => n >= 60 ? `${Math.floor(n / 60)} 分${n % 60 ? ' ' + n % 60 + ' 秒' : ''}` : `${n} 秒`;
+function durText(n) {
+  // 秒 → 分:秒（一小時以上是 時:分:秒），給輸入框用
+  if (n == null) return '';
+  const pad = x => String(x).padStart(2, '0');
+  return n >= 3600 ? `${Math.floor(n / 3600)}:${pad(Math.floor(n % 3600 / 60))}:${pad(n % 60)}` : `${Math.floor(n / 60)}:${pad(n % 60)}`;
+}
+function parseDur(text) {
+  // 「1:30」「1:02:03」或秒數「90」→ 秒；看不懂回傳 NaN
+  const t = String(text || '').trim().replace(/：/g, ':');
+  if (!/^\d+(\.\d+)?(:\d+(\.\d+)?){0,2}$/.test(t)) return NaN;
+  return t.split(':').map(Number).reduce((a, b) => a * 60 + b, 0);
+}
+function introDesc(it) {
+  const m = it.manual || {};
+  const intro = m.intro_mode === 'none' ? '沒有片頭（手動）'
+    : it.intro ? `片頭 ${introSec(it.intro[0])} → ${introSec(it.intro[1])}（${m.intro_mode === 'manual' ? '手動' : '學到'}）` : '還沒學到片頭';
+  let credits = '';
+  if (m.credits_mode === 'none') credits = '沒有片尾（手動）';
+  else if (m.credits_mode === 'manual') credits = `片尾在結尾前 ${introSec(m.credits_tail)}（手動${it.runtime ? '' : '，還不知道片長，播放器拿不到'}）`;
+  else if (it.credits_tail != null) credits = `片尾在結尾前 ${introSec(it.credits_tail)}（學到）`;
+  return [intro, credits, it.learned ? `${it.learned} 集有紀錄` : '', it.last_at ? ago(it.last_at) : ''].filter(Boolean).join('・');
+}
+async function loadIntroSeasons(page) {
+  introPage = Math.max(1, page || introPage);
+  const box = $('introList'), seq = ++introSeq, q = $('introQ').value.trim();
+  let r;
+  try { r = await api(`/web/api/intro/seasons?q=${encodeURIComponent(q)}&offset=${(introPage - 1) * INTRO_PAGE}&limit=${INTRO_PAGE}`); }
+  catch (e) { if (seq === introSeq) box.innerHTML = `<p class="notice bad">${esc(e.message)}</p>`; return; }
+  if (seq !== introSeq) return;
+  const pages = Math.max(1, Math.ceil(r.total / INTRO_PAGE));
+  if (introPage > pages) return loadIntroSeasons(pages);
+  box.innerHTML = q && !r.items.length ? '<p class="hint">沒有符合的劇</p>' : '';
+  for (const it of r.items) box.appendChild(introRow(it));
+  const nav = pages > 1
+    ? `<button class="btn sm"${introPage <= 1 ? ' disabled' : ''} onclick="loadIntroSeasons(${introPage - 1})">上一頁</button><button class="btn sm"${introPage >= pages ? ' disabled' : ''} onclick="loadIntroSeasons(${introPage + 1})">下一頁</button>` : '';
+  if (pages > 1) box.insertAdjacentHTML('beforeend', `<div class="row" style="padding-top:12px"><span class="hint grow">第 ${introPage} / ${pages} 頁，共 ${r.total} 季</span>${nav}</div>`);
+}
+function introRow(it) {
+  const row = document.createElement('div'); row.className = 'li top';
+  row.innerHTML = `<div class="main"><div class="row wrap"><b>${esc(it.series || '?')}</b><span class="hint">${it.season === 0 ? '特別篇' : '第 ' + it.season + ' 季'}</span>` +
+    `${it.year ? `<span class="hint">${it.year}</span>` : ''}${it.manual ? '<span class="pill accent">手動</span>' : ''}</div>
+    <div class="sub">${esc(introDesc(it))}</div><div class="js-edit"></div></div><button class="btn sm js-open">編輯</button>`;
+  row.querySelector('.js-open').onclick = () => toggleIntroEdit(row, it);
+  return row;
+}
+function toggleIntroEdit(row, it) {
+  const box = row.querySelector('.js-edit');
+  if (box.innerHTML) { box.innerHTML = ''; return; }
+  const m = it.manual || {}, auto = it.auto || {};
+  const im = m.intro_mode || 'auto', cm = m.credits_mode || 'auto';
+  // 還沒手動設定時，用學到的值當起點，改一點就好
+  const iv = m.intro || it.intro || auto.intro, ct = m.credits_tail ?? it.credits_tail ?? auto.credits_tail;
+  const opt = (v, label, cur) => `<option value="${v}"${v === cur ? ' selected' : ''}>${label}</option>`;
+  box.innerHTML = `<div class="stack" style="margin-top:10px">
+    <div class="logbar"><span class="hint">片頭</span><select class="js-im">${opt('auto', '自動（照播放行為學）', im)}${opt('manual', '手動設定', im)}${opt('none', '這一季沒有片頭', im)}</select>
+      <input class="js-is" placeholder="開始，例如 0:05" value="${iv ? durText(iv[0]) : ''}" style="width:8.5em"><span class="hint">到</span>
+      <input class="js-ie" placeholder="結束，例如 1:35" value="${iv ? durText(iv[1]) : ''}" style="width:8.5em"></div>
+    <div class="logbar"><span class="hint">片尾</span><select class="js-cm">${opt('auto', '自動（照播放行為學）', cm)}${opt('manual', '手動設定', cm)}${opt('none', '這一季沒有片尾', cm)}</select>
+      <span class="hint">從結尾前</span><input class="js-ct" placeholder="例如 1:30" value="${ct != null ? durText(ct) : ''}" style="width:7em"><span class="hint">開始</span></div>
+    <p class="hint">時間寫成「分:秒」（例如 1:30）或秒數。${it.runtime ? '這一季第 1 集長 ' + durText(it.runtime) + '。' : '還不知道這一季的片長，手動的片尾要等有片長才給得出去。'}</p>
+    <label class="switch"><input type="checkbox" class="js-all"><span class="track"></span><span class="lbl">這部劇的每一季都用這個設定</span></label>
+    <div class="row wrap"><button class="btn primary sm js-save">儲存</button><button class="btn sm js-cancel">取消</button><span class="grow"></span>${it.learned ? '<button class="btn ghost sm js-clear">清除這一季學到的紀錄</button>' : ''}</div>
+  </div>`;
+  const $$ = sel => box.querySelector(sel);
+  const sync = () => {
+    $$('.js-is').disabled = $$('.js-ie').disabled = $$('.js-im').value !== 'manual';
+    $$('.js-ct').disabled = $$('.js-cm').value !== 'manual';
+  };
+  $$('.js-im').onchange = sync; $$('.js-cm').onchange = sync; sync();
+  $$('.js-cancel').onclick = () => { box.innerHTML = ''; };
+  $$('.js-save').onclick = () => saveIntro(box, it);
+  if (it.learned) $$('.js-clear').onclick = async () => {
+    if (!await ask({title: `清掉「${it.series}」第 ${it.season} 季學到的紀錄？`, text: '手動設定不會清掉。之後看這一季時會重新學。', ok: '清除', danger: true})) return;
+    try { const r = await api('/web/api/intro/clear', {method: 'POST', body: JSON.stringify({season_id: it.season_id})}); toast('已清除 ' + r.removed + ' 筆'); } catch (e) { toast(e.message, 'bad'); }
+    pollIntro();
+  };
+}
+async function saveIntro(box, it) {
+  const $$ = sel => box.querySelector(sel);
+  const body = {intro: {mode: $$('.js-im').value}, credits: {mode: $$('.js-cm').value}, all_seasons: $$('.js-all').checked};
+  if (body.intro.mode === 'manual') {
+    const start = parseDur($$('.js-is').value), end = parseDur($$('.js-ie').value);
+    if (!(start >= 0 && end > start)) { toast('片頭的開始要早於結束，時間寫成「分:秒」', 'bad'); return; }
+    Object.assign(body.intro, {start, end});
+  }
+  if (body.credits.mode === 'manual') {
+    const tail = parseDur($$('.js-ct').value);
+    if (!(tail > 0)) { toast('片尾要填從結尾前多久開始，例如 1:30', 'bad'); return; }
+    body.credits.tail = tail;
+  }
+  try {
+    const r = await api(`/web/api/intro/seasons/${it.season_id}`, {method: 'PUT', body: JSON.stringify(body)});
+    toast(r.updated > 1 ? `已儲存（${r.updated} 季）` : '已儲存');
+  } catch (e) { toast(e.message, 'bad'); return; }
   pollIntro();
 }
 

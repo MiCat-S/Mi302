@@ -9,7 +9,7 @@
 from __future__ import annotations
 
 import re
-from typing import Optional
+from typing import List, Optional, Tuple
 
 from pypinyin import Style, lazy_pinyin
 from zhconv import convert
@@ -61,3 +61,15 @@ def search_text(name: Optional[str], original: Optional[str] = None) -> str:
 
 def cjk_count(text: Optional[str]) -> int:
     return len(CJK_RE.findall(text or ""))
+
+
+def title_match(term: str, name_col: str, original_col: str, search_col: str) -> Tuple[str, List[str]]:
+    """搜尋片名的 SQL 條件和參數：原名、簡繁體、拼音全拼、首字母都認；兩個字以上的中文再用拼音比
+    （繁體轉簡體有時用字不同，拼音一定一樣）。三個欄位是片名、原名、search_text。"""
+    term = term.strip()
+    conds = [f"{name_col} LIKE ?", f"{original_col} LIKE ?", f"{search_col} LIKE ?"]
+    params = [f"%{term}%", f"%{term}%", f"%{simplified(term).lower()}%"]
+    if cjk_count(term) >= 2:
+        conds.append(f"{search_col} LIKE ?")
+        params.append(f"%{pinyin_full(term)}%")
+    return "(" + " OR ".join(conds) + ")", params

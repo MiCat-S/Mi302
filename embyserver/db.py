@@ -135,6 +135,18 @@ CREATE TABLE IF NOT EXISTS intro_obs (
     PRIMARY KEY (item_id, user_id, kind)
 );
 
+-- 手動設定的片頭片尾，每一季一列；設了的季不用學到的值。
+-- mode：auto = 照播放行為學、manual = 用這裡的值、none = 這一季沒有；時間都是 ticks，片尾記「從結尾前多久開始」
+CREATE TABLE IF NOT EXISTS intro_manual (
+    season_id INTEGER PRIMARY KEY,
+    intro_mode TEXT NOT NULL DEFAULT 'auto',
+    intro_start INTEGER,
+    intro_end INTEGER,
+    credits_mode TEXT NOT NULL DEFAULT 'auto',
+    credits_tail INTEGER,
+    at INTEGER NOT NULL
+);
+
 -- 送去 MoviePilot 刮削後有 nfo 卻沒有劇照的集（多半是 TMDB 沒有這集的圖），一段時間內不再重送
 CREATE TABLE IF NOT EXISTS mp_no_image (
     path TEXT PRIMARY KEY,

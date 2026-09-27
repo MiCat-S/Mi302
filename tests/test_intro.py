@@ -186,3 +186,85 @@ def test_short_episodes_use_a_quarter(tmp_path: Path):
     p.progress(e2, 1300, after=0)
     p.progress(e2, 1310, stopped=True)  # 21:50 停：片尾
     assert markers(c, p.h, e2)["CreditsStart"] == 1310
+
+
+def test_manual_settings_override_learning_and_search(tmp_path: Path):
+    app, c = build(tmp_path)
+    show = tmp_path / "tv" / "Show (2020)"
+    for n in (1, 2):
+        (show / "Season 2").mkdir(exist_ok=True)
+        (show / "Season 2" / f"S02E0{n}.strm").write_text("http://x/b.mkv")
+        (show / "Season 2" / f"S02E0{n}.nfo").write_text(
+            f"<episodedetails><season>2</season><episode>{n}</episode><runtime>40</runtime></episodedetails>", encoding="utf-8")
+    other = tmp_path / "tv" / "庆余年 (2019)"
+    other.mkdir()
+    (other / "S01E01.strm").write_text("http://x/c.mkv")
+    app.state.scanner.scan_all()
+    db = app.state.db
+    series = db.one("SELECT id FROM items WHERE type='Series' AND name='Show'")["id"]
+    ep = {(r["parent_index_number"], r["index_number"]): str(r["id"]) for r in db.query(
+        "SELECT id, parent_index_number, index_number FROM items WHERE type='Episode' AND series_id=?", (series,))}
+    s1, s2 = (db.one("SELECT id FROM items WHERE type='Season' AND series_id=? AND index_number=?", (series, n))["id"] for n in (1, 2))
+    p = Player(app, c)
+    p.progress(ep[1, 1], 0, after=0)
+    p.progress(ep[1, 1], 10)
+    p.progress(ep[1, 1], 100)  # 學到第 1 季片頭 10–100 秒
+
+    def seasons(**params):
+        return c.get("/web/api/intro/seasons", params=params, headers=p.h).json()
+
+    def put(season_id, body):
+        return c.put(f"/web/api/intro/seasons/{season_id}", json=body, headers=p.h)
+
+    r = seasons()
+    assert r["total"] == 1 and r["items"][0]["season_id"] == s1
+    assert (r["items"][0]["intro"], r["items"][0]["manual"], r["items"][0]["learned"]) == ([10, 100], None, 1)
+    # 搜尋：沒學到的季也列出來，拼音首字母也認
+    assert [(i["series"], i["season"], i["intro"]) for i in seasons(q="qyn")["items"]] == [("庆余年", 1, None)]
+    assert [i["season"] for i in seasons(q="show")["items"]] == [1, 2]
+
+    # 手動設定：片頭 5–80 秒、片尾在結尾前 60 秒；之後學到的不再影響
+    assert put(s1, {"intro": {"mode": "manual", "start": 5, "end": 80}, "credits": {"mode": "manual", "tail": 60}}).json() == {"updated": 1}
+    assert markers(c, p.h, ep[1, 2]) == {"IntroStart": 5, "IntroEnd": 80, "CreditsStart": 2340}
+    ts = c.get(f"/Episode/{ep[1, 2]}/IntroTimestamps", headers=p.h).json()
+    assert (ts["IntroStart"], ts["IntroEnd"]) == (5.0, 80.0)
+    p.progress(ep[1, 2], 0, after=0)
+    p.progress(ep[1, 2], 20)
+    p.progress(ep[1, 2], 150)
+    assert markers(c, p.h, ep[1, 2])["IntroEnd"] == 80
+    item = seasons()["items"][0]
+    assert (item["intro"], item["credits_tail"], item["auto"]["intro"]) == ([5, 80], 60, [10, 100])  # 清單用第 1 集算
+    assert item["manual"] == {"intro_mode": "manual", "intro": [5, 80], "credits_mode": "manual", "credits_tail": 60}
+    assert c.get("/web/api/intro/status", headers=p.h).json()["manual"] == 1
+
+    # 這一季沒有片頭：不給跳過片頭；片尾改回照學的（還沒學到）
+    put(s1, {"intro": {"mode": "none"}, "credits": {"mode": "auto"}})
+    assert markers(c, p.h, ep[1, 1]) == {}
+    assert c.get(f"/Episode/{ep[1, 1]}/IntroTimestamps", headers=p.h).status_code == 404
+
+    # 同一部劇的每一季都用同一個設定
+    assert put(s1, {"intro": {"mode": "manual", "start": 3, "end": 60}, "all_seasons": True}).json() == {"updated": 2}
+    assert markers(c, p.h, ep[2, 1]) == {"IntroStart": 3, "IntroEnd": 60}
+
+    # 清除學到的紀錄不動手動設定；兩個都改回自動就回到學的值
+    c.post("/web/api/intro/clear", json={}, headers=p.h)
+    assert markers(c, p.h, ep[1, 1])["IntroEnd"] == 60
+    p.progress(ep[1, 1], 0, after=0)
+    p.progress(ep[1, 1], 10)
+    p.progress(ep[1, 1], 100)
+    put(s1, {"intro": {"mode": "auto"}, "credits": {"mode": "auto"}})
+    assert markers(c, p.h, ep[1, 1]) == {"IntroStart": 10, "IntroEnd": 100}
+    assert db.one("SELECT COUNT(*) AS c FROM intro_manual WHERE season_id=?", (s1,))["c"] == 0
+
+    # 不合理的值
+    assert put(s1, {"intro": {"mode": "manual", "start": 90, "end": 30}}).status_code == 400
+    assert put(s1, {"credits": {"mode": "manual", "tail": 0}}).status_code == 400
+    assert put(s1, {"intro": {"mode": "maybe"}}).status_code == 400
+    assert put(s1, {"intro": {"mode": "manual", "start": "a", "end": 3}}).status_code == 400
+    assert put(999999, {"intro": {"mode": "none"}}).status_code == 404
+
+    # 季從媒體庫消失：手動設定跟著清掉
+    import shutil
+    shutil.rmtree(show / "Season 2")
+    app.state.scanner.scan_all()
+    assert db.one("SELECT COUNT(*) AS c FROM intro_manual WHERE season_id=?", (s2,))["c"] == 0

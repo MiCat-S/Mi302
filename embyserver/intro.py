@@ -10,6 +10,9 @@
   記下位置；同一季套用「距離結尾多久」的中位數。
 - 每個使用者對每一集只留最後一次紀錄，多人多集時取中位數，偶爾亂跳不會蓋掉。
 
+也可以在網頁上手動設定某一季的片頭、片尾（或標成這一季沒有）；設了的部分不用學到的值，學的紀錄照留，
+改回「自動」就恢復。
+
 給播放器的格式（三種都給，播放器認哪種用哪種）：
 - Emby：項目的 Chapters 裡加 MarkerType 為 IntroStart／IntroEnd／CreditsStart 的章節。
 - Jellyfin Intro Skipper 外掛：GET /Episode/{id}/IntroTimestamps（/v1）、/Episode/{id}/Timestamps。
@@ -25,6 +28,7 @@ import time
 from typing import Callable, Dict, List, Optional, Tuple
 
 from .db import Database
+from .textutil import title_match
 
 log = logging.getLogger(__name__)
 
@@ -38,6 +42,8 @@ CREDITS_WINDOW = 5 * 60 * TICK  # 片尾區：最後 5 分鐘
 MIN_CREDITS_JUMP = 60 * TICK  # 片尾區裡往前跳 60 秒以上：跳過 ED（後面可能還有預告，不一定跳到結尾）
 MIN_CREDITS_TICKS = 20 * TICK  # 距離結尾至少 20 秒才算片尾（不然是播完了）
 ZONE = 0.25  # 短的集改用前 25%、後 25%：24 分鐘的動畫是前 6 分鐘、後 5 分鐘
+MODES = ("auto", "manual", "none")  # 手動設定：照學的、用設定的值、這一季沒有
+MAX_MANUAL_TICKS = 60 * 60 * TICK  # 手動設定的時間上限：片頭結束、片尾長度都不超過一小時
 SESSION_TTL = 6 * 3600
 MAX_SESSIONS = 2000
 
@@ -116,9 +122,26 @@ class IntroLearner:
     # ---------------- 用 ----------------
 
     def marks_for(self, item) -> dict:
-        """這一集的片頭 (start, end) 和片尾 start（ticks）；沒有的鍵不出現。"""
+        """這一集的片頭 (start, end) 和片尾 start（ticks）；沒有的鍵不出現。手動設定優先於學到的值。"""
         if not self.enabled or item["type"] != "Episode":
             return {}
+        manual = self.manual(item["season_id"])
+        out = self.learned_for(item)
+        if not manual:
+            return out
+        if manual["intro_mode"] == "manual":
+            out["intro"] = (manual["intro_start"], manual["intro_end"])
+        elif manual["intro_mode"] == "none":
+            out.pop("intro", None)
+        runtime = int(item["runtime_ticks"] or 0)
+        if manual["credits_mode"] == "manual" and runtime > manual["credits_tail"]:
+            out["credits"] = runtime - manual["credits_tail"]
+        elif manual["credits_mode"] != "auto":
+            out.pop("credits", None)  # 標成沒有片尾，或不知道片長、算不出從哪裡開始
+        return out
+
+    def learned_for(self, item) -> dict:
+        """只看學到的：這一集自己的紀錄，沒有就用同一季其他集的中位數。"""
         out: dict = {}
         own = self.db.query("SELECT kind, start_ticks, end_ticks FROM intro_obs WHERE item_id=?", (item["id"],))
         intro = [(r["start_ticks"], r["end_ticks"]) for r in own if r["kind"] == "intro"]
@@ -187,6 +210,95 @@ class IntroLearner:
 
     # ---------------- 網頁 ----------------
 
+    # ---------------- 手動設定 ----------------
+
+    def manual(self, season_id: Optional[int]):
+        if not season_id:
+            return None
+        return self.db.one("SELECT * FROM intro_manual WHERE season_id=?", (int(season_id),))
+
+    def set_manual(self, season_id: int, intro_mode: str = "auto", intro_start: float = 0, intro_end: float = 0,
+                   credits_mode: str = "auto", credits_tail: float = 0) -> None:
+        """手動設定一季（時間用秒）。片頭、片尾都是 auto 時刪掉設定，改回照學的。值不合理時丟 ValueError。"""
+        if intro_mode not in MODES or credits_mode not in MODES:
+            raise ValueError("模式只能是 auto、manual 或 none")
+        start, end, tail = (int(round(float(v or 0) * TICK)) for v in (intro_start, intro_end, credits_tail))
+        if intro_mode == "manual" and not (0 <= start < end <= MAX_MANUAL_TICKS):
+            raise ValueError("片頭的開始要早於結束，而且都在 60 分鐘內")
+        if credits_mode == "manual" and not (0 < tail <= MAX_MANUAL_TICKS):
+            raise ValueError("片尾要填結尾前多久開始，1 秒到 60 分鐘")
+        if intro_mode == "auto" and credits_mode == "auto":
+            self.db.execute("DELETE FROM intro_manual WHERE season_id=?", (season_id,))
+            return
+        self.db.execute(
+            "INSERT INTO intro_manual(season_id, intro_mode, intro_start, intro_end, credits_mode, credits_tail, at) "
+            "VALUES(?,?,?,?,?,?,?) ON CONFLICT(season_id) DO UPDATE SET intro_mode=excluded.intro_mode, "
+            "intro_start=excluded.intro_start, intro_end=excluded.intro_end, credits_mode=excluded.credits_mode, "
+            "credits_tail=excluded.credits_tail, at=excluded.at",
+            (season_id, intro_mode, start if intro_mode == "manual" else None, end if intro_mode == "manual" else None,
+             credits_mode, tail if credits_mode == "manual" else None, int(time.time())),
+        )
+
+    def sibling_seasons(self, season_id: int) -> List[int]:
+        """同一部劇的所有季（含自己）。"""
+        row = self.db.one("SELECT series_id FROM items WHERE id=? AND type='Season'", (season_id,))
+        if not row:
+            return []
+        return [r["id"] for r in self.db.query("SELECT id FROM items WHERE type='Season' AND series_id=?", (row["series_id"],))]
+
+    def seasons(self, query: str = "", limit: int = 20, offset: int = 0) -> dict:
+        """網頁上的清單：沒有搜尋時列有學到紀錄或手動設定的季（最近有動靜的先）；搜尋時列符合的劇的每一季。"""
+        where, params = ["se.type='Season'"], []
+        obs = "SELECT {} FROM intro_obs o JOIN items e ON e.id=o.item_id WHERE e.season_id=se.id"
+        if query.strip():
+            sql, more = title_match(query, "s.name", "s.original_title", "s.search_text")
+            where.append(sql)
+            params += more
+            order = "s.sort_name, s.id, se.index_number"
+        else:
+            where.append(f"(m.season_id IS NOT NULL OR EXISTS ({obs.format('1')}))")
+            order = f"MAX(COALESCE(m.at, 0), COALESCE(({obs.format('MAX(o.at)')}), 0)) DESC, se.id"
+        base = (f"FROM items se JOIN items s ON s.id=se.series_id LEFT JOIN intro_manual m ON m.season_id=se.id "
+                f"WHERE {' AND '.join(where)}")
+        total = self.db.one(f"SELECT COUNT(*) AS c {base}", params)["c"]
+        rows = self.db.query(
+            f"SELECT se.id AS season_id, se.series_id, s.name AS series, s.year, se.index_number AS season, "
+            f"(SELECT COUNT(*) FROM items e WHERE e.season_id=se.id AND e.type='Episode') AS episodes, "
+            f"({obs.format('COUNT(DISTINCT o.item_id)')}) AS learned, ({obs.format('MAX(o.at)')}) AS last_at "
+            f"{base} ORDER BY {order} LIMIT ? OFFSET ?", (*params, limit, offset),
+        )
+        return {"items": [self._season_view(r) for r in rows], "total": total}
+
+    def _season_view(self, r) -> dict:
+        """一季在網頁上的樣子：現在給播放器的值（手動優先）、學到的值（給編輯時當起點），以及手動設定。"""
+        sec = lambda t: round(t / TICK) if t is not None else None  # noqa: E731
+        sample = self.db.one(
+            "SELECT * FROM items WHERE season_id=? AND type='Episode' ORDER BY index_number LIMIT 1", (r["season_id"],)
+        )
+        runtime = int(sample["runtime_ticks"] or 0) if sample else 0
+
+        def view(marks: dict) -> dict:
+            intro = marks.get("intro")
+            credits = marks.get("credits")
+            return {"intro": [sec(intro[0]), sec(intro[1])] if intro else None,
+                    "credits_tail": sec(runtime - credits) if credits is not None and runtime else None}
+
+        manual = self.manual(r["season_id"])
+        return {
+            "season_id": r["season_id"], "series_id": r["series_id"], "series": r["series"], "year": r["year"],
+            "season": r["season"], "episodes": r["episodes"], "learned": r["learned"], "last_at": r["last_at"],
+            "runtime": sec(runtime) if runtime else None,
+            **(view(self.marks_for(sample)) if sample else {"intro": None, "credits_tail": None}),
+            "auto": view(self.learned_for(sample)) if sample else {"intro": None, "credits_tail": None},
+            "manual": {
+                "intro_mode": manual["intro_mode"], "intro": [sec(manual["intro_start"]), sec(manual["intro_end"])]
+                if manual["intro_mode"] == "manual" else None,
+                "credits_mode": manual["credits_mode"], "credits_tail": sec(manual["credits_tail"]),
+            } if manual else None,
+        }
+
+    # ---------------- 網頁 ----------------
+
     def status(self, limit: int = 20) -> dict:
         one = lambda sql: self.db.one(sql)["c"]  # noqa: E731
         rows = self.db.query(
@@ -210,10 +322,12 @@ class IntroLearner:
             "enabled": self.enabled,
             "episodes": one("SELECT COUNT(DISTINCT item_id) AS c FROM intro_obs"),
             "seasons": one("SELECT COUNT(DISTINCT i.season_id) AS c FROM intro_obs o JOIN items i ON i.id=o.item_id"),
+            "manual": one("SELECT COUNT(*) AS c FROM intro_manual"),
             "recent": seasons,
         }
 
     def clear(self, season_id: Optional[int] = None) -> int:
+        """清掉學到的紀錄（手動設定不動）。"""
         if season_id:
             return self.db.execute(
                 "DELETE FROM intro_obs WHERE item_id IN (SELECT id FROM items WHERE season_id=?)", (season_id,)
@@ -222,3 +336,4 @@ class IntroLearner:
 
     def prune(self) -> None:
         self.db.execute("DELETE FROM intro_obs WHERE item_id NOT IN (SELECT id FROM items)")
+        self.db.execute("DELETE FROM intro_manual WHERE season_id NOT IN (SELECT id FROM items)")

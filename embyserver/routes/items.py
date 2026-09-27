@@ -14,7 +14,7 @@ from fastapi.responses import FileResponse, RedirectResponse
 from ..auth import AuthContext, now_iso, require_admin, require_user
 from ..dto import episode_fallback_image, item_dto, query_result, user_data_dto
 from ..scanner import image_ext
-from ..textutil import cjk_count, pinyin_full, simplified
+from ..textutil import title_match
 from .common import q, q_bool, q_int, q_list, state
 
 log = logging.getLogger(__name__)
@@ -259,13 +259,9 @@ def _query_items(request: Request, ctx: AuthContext) -> dict:
 
     term = q(request, "SearchTerm")
     if term:
-        # 原名、簡體、拼音全拼、首字母都認；兩個字以上的中文再用拼音比，繁體轉簡體對不上時也找得到
-        conds = ["i.name LIKE ?", "i.original_title LIKE ?", "i.search_text LIKE ?"]
-        params += [f"%{term}%", f"%{term}%", f"%{simplified(term.strip()).lower()}%"]
-        if cjk_count(term) >= 2:
-            conds.append("i.search_text LIKE ?")
-            params.append(f"%{pinyin_full(term)}%")
-        where.append("(" + " OR ".join(conds) + ")")
+        sql, more = title_match(term, "i.name", "i.original_title", "i.search_text")
+        where.append(sql)
+        params += more
     starts = q(request, "NameStartsWith")
     if starts:
         where.append("i.sort_name LIKE ?")
