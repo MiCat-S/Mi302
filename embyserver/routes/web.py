@@ -539,6 +539,20 @@ async def dupes_scan(request: Request, ctx: AuthContext = Depends(require_admin)
     return {"started": st.dupes.scan_in_background(paths)}
 
 
+@router.post("/web/api/dupes/prefer")
+async def dupes_prefer(request: Request, ctx: AuthContext = Depends(require_admin)):
+    """不同版本建議保留哪種解析度：{"prefer": "1080" | "2160" | "highest"}；已找到的結果當場重算。"""
+    body = await _body(request)
+    st = state(request)
+    try:
+        await run_in_threadpool(st.dupes.set_prefer, str(body.get("prefer") or ""))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    return st.dupes.summary()
+
+
 @router.get("/web/api/dupes/groups")
 def dupes_groups(request: Request, ctx: AuthContext = Depends(require_admin)):
     """重複的組，可以省最多空間的在前面；kind=exact（完全相同，預設）或 versions（不同版本），

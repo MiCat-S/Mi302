@@ -205,6 +205,8 @@ def test_versions_are_grouped_and_deleted_only_when_picked(tmp_path: Path):
     assert not job.errors
     s = c.get("/web/api/dupes", headers=h).json()
     assert s["versions"]["groups"] == 2 and s["versions"]["files"] == 4
+    # 這個測試照「解析度最高」建議（預設是 1080P 優先，見下一個測試）；換偏好時已找到的結果當場重算
+    assert c.post("/web/api/dupes/prefer", json={"prefer": "highest"}, headers=h).json()["prefer"] == "highest"
 
     r = c.get("/web/api/dupes/groups", params={"kind": "versions"}, headers=h).json()
     by_title = {g["title"]: g for g in r["items"]}
@@ -236,6 +238,54 @@ def test_versions_are_grouped_and_deleted_only_when_picked(tmp_path: Path):
     s = c.get("/web/api/dupes", headers=h).json()
     assert s["versions"]["groups"] == 1  # 電影那一組還在
     assert c.get("/web/api/dupes/groups", params={"kind": "versions", "q": "Old Movie"}, headers=h).json()["total"] == 1
+
+
+def test_res_rank_prefers_1080_then_higher_then_lower():
+    from embyserver.dupes import res_rank
+
+    order = lambda prefer: sorted([720, 2160, None, 1080, 480], key=lambda r: res_rank(r, prefer))  # noqa: E731
+    assert order("1080") == [1080, 2160, 720, 480, None]  # 沒有 1080P 再 4K，再沒有就留剩下最高的
+    assert order("2160") == [2160, 1080, 720, 480, None]
+    assert order("highest") == [2160, 1080, 720, 480, None]
+
+
+def test_version_suggestion_follows_preference(tmp_path: Path):
+    from embyserver.dupes import PREFER_APPLIED_KEY, DupeFinder
+    from embyserver.mediainfo import MediaInfoStore
+
+    app, fake, media, c, h = build_versions(tmp_path)
+    # 那一集的 1080p 檔名看不出解析度，靠媒體資訊（寬 1920）；看不出解析度的排最後
+    MediaInfoStore(app.state.db).put(str(media / "劇集" / "Dark" / "Dark.S01E01.strm"), {"source": {"MediaStreams": [
+        {"Type": "Video", "Width": 1920, "Height": 1080}]}}, 0, "ffprobe")
+    c.post("/web/api/dupes/scan", json={}, headers=h)
+    assert not wait_job(app).errors
+    db = app.state.db
+
+    def kept():
+        r = c.get("/web/api/dupes/groups", params={"kind": "versions"}, headers=h).json()
+        return {g["title"]: next(m["file_id"] for m in g["members"] if m["keep"]) for g in r["items"]}
+
+    # 預設 1080P 優先：那一集留 1080p；電影沒有 1080p，留 4K（另一份看不出解析度）
+    assert c.get("/web/api/dupes", headers=h).json()["prefer"] == "1080"
+    assert kept() == {"Dark S01E01": 2, "Old Movie (2001)": 13}
+    r = c.post("/web/api/dupes/delete", json={"kind": "versions", "use_suggestions": True, "dry_run": True}, headers=h).json()
+    assert (r["count"], r["size"]) == (2, 4_900_000_000)  # 全部照建議勾選：刪 2160p 那集和看不出解析度的電影
+    assert c.post("/web/api/dupes/prefer", json={"prefer": "2160"}, headers=h).status_code == 200
+    assert kept() == {"Dark S01E01": 12, "Old Movie (2001)": 13}
+    assert c.post("/web/api/dupes/prefer", json={"prefer": "720"}, headers=h).status_code == 400
+
+    # 舊版照「最高解析度」算好的結果：升級後第一次啟動照新的偏好（預設 1080P）重算
+    db.set_meta("dupes_prefer", "")
+    db.set_meta(PREFER_APPLIED_KEY, "")
+    DupeFinder(db, app.state.p115, app.state.strm_sync, app.state.scanner)
+    assert kept() == {"Dark S01E01": 2, "Old Movie (2001)": 13} and db.get_meta(PREFER_APPLIED_KEY) == "1080"
+
+    # 找重複或刪除進行中不能換
+    app.state.dupes._lock.acquire()
+    try:
+        assert c.post("/web/api/dupes/prefer", json={"prefer": "highest"}, headers=h).status_code == 409
+    finally:
+        app.state.dupes._lock.release()
 
 
 def test_versions_need_known_matching_episode_numbers(tmp_path: Path):

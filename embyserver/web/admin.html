@@ -496,6 +496,9 @@ dialog .card-b{max-height:70vh;overflow:auto}
           <p class="hint" id="dupKindHint"></p>
           <div class="logbar"><input id="dupQ" type="search" placeholder="搜尋檔名或路徑" oninput="clearTimeout(dupQT); dupQT = setTimeout(() => loadDupGroups(1), 300)"></div>
           <div class="row wrap dupbar">
+            <label class="row hidden" id="dupPreferRow" style="gap:6px"><span class="hint">建議保留</span>
+              <select id="dupPrefer" style="width:auto;padding:5px 8px;font-size:13px" onchange="setDupPrefer(this.value)">
+                <option value="1080">1080P（沒有再 4K）</option><option value="2160">4K（沒有再 1080P）</option><option value="highest">解析度最高的</option></select></label>
             <button class="btn sm" onclick="dupSelectAll(true)">全部照建議勾選</button><button class="btn sm" onclick="dupSelectAll(false)">全部取消勾選</button>
             <span class="hint grow" id="dupSelInfo"></span>
             <button class="btn danger js-dupdel" onclick="deleteDupes()"><svg class="i"><use href="#i-trash"/></svg><span class="js-dupdel-label">刪除勾選的</span></button></div>
@@ -1679,15 +1682,24 @@ let dupSelT = null, dupSelSeq = 0;
 const DUP_PAGE = 20;
 const DUP_HINT = {
   exact: '每組建議保留一份：本機有 strm 的優先，其次最早上傳的；其餘預先勾選。',
-  versions: '檔案內容不同，所以預設都不勾，由你挑。建議保留解析度最高的，一樣時保留檔案最大的；畫質看已經提取的媒體資訊，沒有的從檔名猜。分段檔（CD1）、一個檔案好幾集、加長版這類不同剪輯不會列在一起；不知道第幾集的、檔名集號和媒體庫對不上的也不列。',
+  versions: '檔案內容不同，所以預設都不勾，由你挑。建議保留哪一份照下面選的解析度（預設 1080P，沒有再 4K，再沒有就留剩下最高的），一樣時保留檔案最大的；要照建議一次勾好每一組，按「全部照建議勾選」。畫質看已經提取的媒體資訊，沒有的從檔名猜，看不出解析度的排最後。分段檔（CD1）、一個檔案好幾集、加長版這類不同剪輯不會列在一起；不知道第幾集的、檔名集號和媒體庫對不上的也不列。',
 };
 function setDupKind(kind) {
   dupKind = kind;
   for (const b of document.querySelectorAll('#dupTabs button')) b.classList.toggle('on', b.dataset.kind === kind);
   $('dupKindHint').textContent = DUP_HINT[kind];
   $('dupQ').placeholder = kind === 'versions' ? '搜尋片名、檔名或路徑' : '搜尋檔名或路徑';
+  $('dupPreferRow').classList.toggle('hidden', kind !== 'versions');
   if (S.dupes) pollDupes();
   loadDupGroups(1);
+}
+const DUP_PREFER = {'1080': '1080P（沒有再 4K）', '2160': '4K（沒有再 1080P）', highest: '解析度最高的'};
+async function setDupPrefer(value) {
+  // 換「建議保留」的解析度：伺服器當場重算每一組的建議，清單和勾選數量跟著更新
+  try { S.dupes = await api('/web/api/dupes/prefer', {method: 'POST', body: JSON.stringify({prefer: value})}); }
+  catch (e) { toast(e.message, 'bad'); $('dupPrefer').value = S.dupes?.prefer || '1080'; return; }
+  toast(`已改成建議保留${DUP_PREFER[value]}；按「全部照建議勾選」就一次勾好每一組`);
+  pollDupes(); loadDupGroups(dupPage);
 }
 function dupSelectAll(on) {
   // 全部照建議勾選、或全部取消勾選（包含還沒翻到的頁面）
@@ -1711,12 +1723,14 @@ function refreshDupSelection() {
     for (const b of document.querySelectorAll('.js-dupdel')) b.disabled = running || !r.count;
   }, 250);
 }
-function loadDupes() { $('dupKindHint').textContent = DUP_HINT[dupKind]; pollDupes(); loadDupGroups(1); loadDupLog(); }
+function loadDupes() { $('dupKindHint').textContent = DUP_HINT[dupKind]; $('dupPreferRow').classList.toggle('hidden', dupKind !== 'versions'); pollDupes(); loadDupGroups(1); loadDupLog(); }
 async function pollDupes() {
   clearTimeout(dupTimer);
   let s;
   try { s = await api('/web/api/dupes'); } catch (e) { setHtml($('dupStat'), `<p class="notice bad">${esc(e.message)}</p>`); return; }
   S.dupes = s;
+  if (document.activeElement !== $('dupPrefer')) $('dupPrefer').value = s.prefer || '1080';
+  $('dupPrefer').disabled = s.job.running;
   const j = s.job, roots = dupRoot ? [dupRoot] : s.default_roots;
   let h = `<p class="hint">範圍：${roots.length ? roots.map(r => `<code>${esc(r)}</code>`).join('、') : '還沒有同步任務，請按「改選 115 目錄…」'}` +
     (dupRoot ? '（自己選的，<a href="#115" onclick="dupRoot = null; pollDupes(); return false">改回同步任務的目錄</a>）' : roots.length ? '（同步任務的目錄）' : '') + '</p>';

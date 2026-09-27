@@ -6,7 +6,8 @@
 - 不同版本（versions）：媒體庫裡同一部電影（tmdbid，沒有就片名＋年份）或同一部劇的同一集，檔案卻不同，
   例如 1080p 和 2160p。只看同步任務裡、有 strm 的檔案。不知道第幾集的、檔名集號和媒體庫對不上的不比；
   分段檔（CD1、Part 2）、一個檔案好幾集的不算；
-  導演剪輯版、加長版這類版本名不同的分開算。建議保留解析度最高的，一樣時保留檔案最大的；預設不勾，由使用者挑。
+  導演剪輯版、加長版這類版本名不同的分開算。建議保留哪一份看使用者選的偏好（預設 1080P 優先，沒有再 4K，
+  再沒有就留剩下最高的），解析度一樣時保留檔案最大的；預設不勾，由使用者挑。改偏好時已找到的結果當場重算。
 
 刪除：送進 115 回收站（在 115 還原得回來），每組至少留一份。本機的 strm 和同名的中繼資料跟著刪，
 觀看紀錄轉到保留的那份，再重新掃描受影響的劇或電影。刪過的記在 dup_deleted，方便到回收站找回。
@@ -38,6 +39,28 @@ SCAN_META_KEY = "dupes_scan"
 VERSIONS_RULE = "2"
 VERSIONS_RULE_KEY = "dupes_versions_rule"
 VERSIONS_OUTDATED_KEY = "dupes_versions_outdated"
+# 不同版本建議保留哪種解析度：1080 = 1080P 優先（沒有再 4K）、2160 = 4K 優先（沒有再 1080P）、highest = 最高的
+PREFER_KEY = "dupes_prefer"
+PREFER_APPLIED_KEY = "dupes_prefer_applied"  # 資料庫裡的建議是照哪個偏好算的
+PREFERS = ("1080", "2160", "highest")
+DEFAULT_PREFER = "1080"
+
+
+def res_rank(res: Optional[int], prefer: str) -> Tuple[int, int]:
+    """解析度的排序鍵（小的優先）：偏好的解析度 → 比它高的（由低到高）→ 比它低的（由高到低）→ 看不出來的。"""
+    if not res:
+        return (3, 0)
+    if prefer not in ("1080", "2160"):
+        return (0, -res)
+    want = int(prefer)
+    if res == want:
+        return (0, 0)
+    return (1, res) if res > want else (2, -res)
+
+
+def version_order(prefer: str):
+    """同一組不同版本的排序：第一個是建議保留的。解析度照偏好，一樣時檔案大的，再一樣時早上傳的。"""
+    return lambda res, size, mtime, fid: (*res_rank(res, prefer), -(size or 0), mtime or 0, fid)
 DELETE_BATCH = 100  # 一次請求送幾個檔案進回收站
 
 # 檔名裡看得出來的畫質（沒有媒體資訊時用）
@@ -126,6 +149,8 @@ class DupeFinder:
                 db.set_meta(VERSIONS_OUTDATED_KEY, "1")
                 log.info("不同版本的判斷規則更新了，清掉舊的結果，請重新找重複")
             db.set_meta(VERSIONS_RULE_KEY, VERSIONS_RULE)
+        if db.get_meta(PREFER_APPLIED_KEY) != self.prefer():
+            self._resuggest()  # 舊結果是照「解析度最高」算的，或偏好在別處改過
 
     # ---------------- 範圍與狀態 ----------------
 
@@ -156,11 +181,47 @@ class DupeFinder:
                 "SELECT COUNT(*) AS files, COUNT(DISTINCT grp) AS groups, "
                 "COALESCE(SUM(CASE WHEN keep THEN 0 ELSE size END), 0) AS reclaimable FROM dup_versions")),
             "versions_outdated": bool(self.db.get_meta(VERSIONS_OUTDATED_KEY)),  # 規則更新後清掉了，要重新找
+            "prefer": self.prefer(),  # 不同版本建議保留哪種解析度
             "default_roots": self.default_roots(),
         }
 
     def busy(self) -> bool:
         return self._lock.locked()
+
+    # ---------------- 建議保留哪個版本 ----------------
+
+    def prefer(self) -> str:
+        value = self.db.get_meta(PREFER_KEY)
+        return value if value in PREFERS else DEFAULT_PREFER
+
+    def set_prefer(self, prefer: str) -> None:
+        """換偏好，已找到的不同版本當場重算建議；找重複或刪除進行中不能換。"""
+        if prefer not in PREFERS:
+            raise ValueError("不認得的偏好")
+        if not self._lock.acquire(blocking=False):
+            raise RuntimeError("正在找重複或刪除，等它完成再換")
+        try:
+            self.db.set_meta(PREFER_KEY, prefer)
+            self._resuggest()
+        finally:
+            self._lock.release()
+
+    def _resuggest(self) -> None:
+        """照現在的偏好重新挑每一組建議保留的版本（畫質在找重複時已經存下來，不用再問 115）。"""
+        prefer = self.prefer()
+        order = version_order(prefer)
+        groups: Dict[str, List[tuple]] = {}
+        for r in self.db.query("SELECT file_id, grp, size, mtime, quality FROM dup_versions"):
+            try:
+                res = (json.loads(r["quality"] or "{}") or {}).get("res")
+            except ValueError:
+                res = None
+            groups.setdefault(r["grp"], []).append((order(res, r["size"], r["mtime"], r["file_id"]), r["file_id"]))
+        updates = [(int(i == 0), fid) for members in groups.values() for i, (_, fid) in enumerate(sorted(members))]
+        with self.db.lock:
+            self.db.conn.executemany("UPDATE dup_versions SET keep=? WHERE file_id=?", updates)
+            self.db.conn.commit()
+        self.db.set_meta(PREFER_APPLIED_KEY, prefer)
 
     # ---------------- 找重複 ----------------
 
@@ -230,6 +291,7 @@ class DupeFinder:
             self.db.set_meta(SCAN_META_KEY, json.dumps({"at": int(time.time()), "roots": roots, "files": len(files)},
                                                        ensure_ascii=False))
             self.db.set_meta(VERSIONS_OUTDATED_KEY, "")
+            self.db.set_meta(PREFER_APPLIED_KEY, self.prefer())
             log.info("找重複：%s 看了 %s 支影片，完全相同的 %s 支、不同版本的 %s 支",
                      "、".join(roots), len(files), len(rows), len(versions))
         except P115Error as exc:
@@ -303,13 +365,14 @@ class DupeFinder:
             titles.setdefault(key, title)
             groups.setdefault(key, []).append((it, info, hit[1]))
         store = MediaInfoStore(self.db)
+        order = version_order(self.prefer())
         rows: List[tuple] = []
         for key, members in groups.items():
             if len(members) < 2 or len({(m[1]["sha1"], m[1]["size"]) for m in members}) < 2:
                 continue  # 只有一份，或全都一模一樣（那是「完全相同」）
             scored = [(it, info, path, quality(store.get(it["path"]), info["name"])) for it, info, path in members]
-            # 建議保留：解析度最高的，一樣時檔案最大的，再一樣時最早上傳的
-            scored.sort(key=lambda m: (-(m[3]["res"] or 0), -(m[1]["size"] or 0), m[1]["mtime"] or 0, m[1]["id"]))
+            # 建議保留：照偏好的解析度（預設 1080P 優先，沒有再 4K），一樣時檔案最大的，再一樣時最早上傳的
+            scored.sort(key=lambda m: order(m[3]["res"], m[1]["size"], m[1]["mtime"], m[1]["id"]))
             for i, (it, info, path, q) in enumerate(scored):
                 rows.append((info["id"], key, titles[key], it["id"], info["name"], path, it["path"], info["size"],
                              info["mtime"], info["sha1"], json.dumps(q, ensure_ascii=False), int(i == 0)))
