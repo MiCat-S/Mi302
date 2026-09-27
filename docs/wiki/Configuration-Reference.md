@@ -149,8 +149,8 @@ Options for syncing into strm files. On the **Sync options** card (同步選項)
 | `min_size_mb` | `0` | Videos smaller than this many MB get no strm file; 0 = no limit | 115 Cloud → Sync options → **Skip videos smaller than (MB)** (略過小於這個大小的影片（MB）) |
 | `download_metadata` | `true` | Also download nfo files, images and subtitles from 115 | 115 Cloud → Sync options → **Also download nfo, posters and subtitles from 115** (一併下載 115 上的 nfo、海報、字幕) |
 | `delete_stale` | `false` | When a video is deleted on 115 or moved out of the synced folder, delete its local strm file and scraped metadata too | 115 Cloud → Sync options → **Follow deletions** (跟著刪) |
-| `base_url` | empty | Server address written into strm files; empty = the address you used to open the web page | Advanced settings → 115 and strm → **Server URL in strm files** (strm 裡的伺服器網址) |
-| `include_name` | `false` | Append `?/original-file-name` to strm URLs, for humans | Advanced settings → 115 and strm → **Append the original file name to strm URLs** (strm 網址後附上原檔名) |
+| `base_url` | empty | Server address written into strm files; empty = the address you used to open the web page. Changing it rewrites the existing strm files in the background (local files only) | Advanced settings → 115 and strm → **Server URL in strm files** (strm 裡的伺服器網址) |
+| `include_name` | `false` | Append `?/original-file-name` to strm URLs, for humans; changing it rewrites the existing strm files | Advanced settings → 115 and strm → **Append the original file name to strm URLs** (strm 網址後附上原檔名) |
 | `request_delay` | `0.2` | Seconds to wait before each request when listing 115 folders one by one or looking up a folder path | Advanced settings → 115 and strm → **Seconds to wait before listing each 115 folder** (每列一個 115 目錄前等待的秒數) |
 | `scan_after_sync` | `true` | Rescan the changed places after a sync | Advanced settings → 115 and strm → **Rescan libraries after sync** (同步完自動重新掃描媒體庫) |
 | `tasks` | `[]` | Sync tasks, see below | 115 Cloud → **Sync tasks** (同步任務) |

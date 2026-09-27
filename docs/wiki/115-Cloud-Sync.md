@@ -110,7 +110,9 @@ Mi302 picks the address in this order:
 
 The address in use is shown on the **Sync** card (同步) as "server address in strm" (strm 內的伺服器位址). Behind a reverse proxy, or for access from outside your network, set the public address. See [Playback](Playback).
 
-After changing the server URL or the file-name option, run a **Full sync** (全量同步) once. Incremental sync only touches files that changed on 115; full sync rewrites every strm file. The pickcode does not change, so existing media info is kept.
+After you change the server URL or the file-name option and save, Mi302 rewrites the existing strm files in the background, and the save message says so. This only reads and writes local files: it makes no requests to 115 and needs no sync or rescan. The pickcode does not change, so existing media info is kept. Only strm files that Mi302 created inside the sync task folders are changed; strm files from other tools (other URLs, local paths) are left alone.
+
+Next to the address on the **Sync** card there is **Rewrite existing strm to this address** (把現有 strm 改成這個網址), to run it by hand at any time, for example when the setting is empty and you opened the admin page from a new address. The line below it shows how many files the last rewrite changed.
 
 When a file on 115 is replaced (another file in the same place, so the pickcode changes), sync rewrites the strm file and deletes the old `X-mediainfo.json` so it gets probed again. See [Media Info](Media-Info).
 

@@ -153,7 +153,7 @@ The **115 and strm** card (115 與 strm) on the **Advanced settings** tab has **
 
 When Mi302 plays a strm itself, it only extracts the pickcode and ignores the host, so remote playback works without changing this setting. You only need to set your public address when other programs read these strm files directly (for example another Emby server, or a player that opens the strm files over SMB) and must reach Mi302 from outside.
 
-After changing it, run a **Full sync** (全量同步) once. A full sync rewrites every strm whose content changed; an incremental sync only touches files that changed on 115.
+Set it to the reverse proxy's public address (a sub-path works, for example `https://example.com/mi302`) and save; the existing strm files are then rewritten in the background. That only touches local files, makes no requests to 115 and needs no sync; see [115 Cloud Sync](115-Cloud-Sync). The reverse proxy must pass requests starting with `/d/` to Mi302 unchanged and keep the player's User-Agent (115 direct links are bound to it; Nginx and Caddy keep it by default). During playback Mi302 still fetches a 115 direct link and redirects the player to it, so the video does not go through the proxy.
 
 ### Security
 
