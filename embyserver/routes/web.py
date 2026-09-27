@@ -530,16 +530,20 @@ async def dupes_scan(request: Request, ctx: AuthContext = Depends(require_admin)
 
 @router.get("/web/api/dupes/groups")
 def dupes_groups(request: Request, ctx: AuthContext = Depends(require_admin)):
-    """重複的組，可以省最多空間的在前面；q 比對檔名和路徑，offset、limit 分頁。"""
+    """重複的組，可以省最多空間的在前面；kind=exact（完全相同，預設）或 versions（不同版本），
+    q 比對檔名和路徑（不同版本也比對片名），offset、limit 分頁。"""
     offset = max(q_int(request, "offset", 0) or 0, 0)
     limit = min(max(q_int(request, "limit", 20) or 20, 1), 100)
-    return state(request).dupes.groups(q(request, "q") or "", offset, limit)
+    kind = "versions" if q(request, "kind") == "versions" else "exact"
+    return state(request).dupes.groups(q(request, "q") or "", offset, limit, kind)
 
 
 @router.post("/web/api/dupes/delete")
 async def dupes_delete(request: Request, ctx: AuthContext = Depends(require_admin)):
-    """刪重複：預設照建議刪；{"overrides": {"檔案 id": true/false}} 逐個改，{"sha1", "size"} 只處理那一組。
+    """刪重複：{"overrides": {"檔案 id": true/false}} 逐個指定要不要刪，沒指定的照預設。
 
+    kind=exact（完全相同，預設）：預設照建議刪；{"sha1", "size"} 只處理那一組。
+    kind=versions（不同版本）：預設不刪，{"use_suggestions": true} 才照建議；{"grp"} 只處理那一組。
     送進 115 回收站，每組至少留一份；本機 strm 跟著刪、觀看紀錄轉到保留的那份。在背景跑。
     {"dry_run": true} 只算會刪幾個、多大，不刪（網頁確認框用）。
     """
@@ -559,8 +563,11 @@ async def dupes_delete(request: Request, ctx: AuthContext = Depends(require_admi
         raise HTTPException(status_code=400, detail="刪除 115 上的檔案要用掃碼登入（cookie）")
     if st.dupes.busy():
         raise HTTPException(status_code=409, detail="正在找重複或刪重複，等它做完")
+    kind = "versions" if body.get("kind") == "versions" else "exact"
+    grp = str(body["grp"]) if body.get("grp") else None
     try:
-        plan = await run_in_threadpool(st.dupes.plan, overrides, body.get("sha1"), size)
+        plan = await run_in_threadpool(st.dupes.plan, overrides, body.get("sha1"), size, kind, grp,
+                                       bool(body.get("use_suggestions")))
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     if body.get("dry_run"):

@@ -164,6 +164,24 @@ CREATE TABLE IF NOT EXISTS dup_files (
 );
 CREATE INDEX IF NOT EXISTS idx_dup_group ON dup_files(sha1, size);
 
+-- 同一部片的不同版本（畫質、字幕組、編碼不同）：同一部電影（tmdbid，或片名＋年份）或同一集，檔案不同。
+-- grp 是分組的鍵，title 是顯示的片名；quality 是 JSON（解析度、HDR、編碼、音軌、字幕）；keep = 建議保留
+CREATE TABLE IF NOT EXISTS dup_versions (
+    file_id INTEGER PRIMARY KEY,
+    grp TEXT NOT NULL,
+    title TEXT NOT NULL,
+    item_id INTEGER,
+    name TEXT NOT NULL,
+    path TEXT,
+    local TEXT,
+    size INTEGER,
+    mtime INTEGER,
+    sha1 TEXT,
+    quality TEXT,
+    keep INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_dupv_grp ON dup_versions(grp);
+
 -- 刪掉的重複檔案（在 115 回收站找回用）
 CREATE TABLE IF NOT EXISTS dup_deleted (
     file_id INTEGER,

@@ -139,3 +139,97 @@ def test_override_and_single_group(tmp_path: Path):
     app.state.p115.logout()
     assert c.post("/web/api/dupes/delete", json={}, headers=h).status_code == 400
     assert c.post("/web/api/dupes/scan", json={}, headers=h).status_code == 400
+
+
+def build_versions(tmp_path: Path):
+    """同一集的 1080p 和 2160p、同一部電影的兩個版本，加上不該算的：加長版、分段檔、一個檔案兩集。"""
+    fake = Fake115()
+    fake.dirs.update({104: ("Old Movie 4K", 101), 105: ("Old Movie Extended", 101)})
+    fake.file(1)["sha"] = SHA_MOVIE
+    fake.file(2)["sha"] = SHA_EP
+    fake.files += [
+        {"fid": 12, "cid": 103, "n": "Dark.S01E01.2160p.HDR.mkv", "pc": "h" * 17, "s": 4_000_000_000, "te": T0 + 70, "sha": "D" * 40},
+        {"fid": 13, "cid": 104, "n": "Old.Movie.2001.2160p.mkv", "pc": "i" * 17, "s": 3_000_000_000, "te": T0 + 80, "sha": "E" * 40},
+        {"fid": 14, "cid": 105, "n": "Old.Movie.2001.Extended.1080p.mkv", "pc": "j" * 17, "s": 1_000_000_000, "te": T0 + 90, "sha": "F" * 40},
+        {"fid": 15, "cid": 103, "n": "Dark.S01E02-E03.mkv", "pc": "k" * 17, "s": 900_000_000, "te": T0 + 91, "sha": "1" * 40},
+        {"fid": 16, "cid": 103, "n": "Dark.S01E02.mkv", "pc": "l" * 17, "s": 800_000_000, "te": T0 + 92, "sha": "2" * 40},
+    ]
+    media = tmp_path / "media"
+    app = create_app(config_from_dict({
+        "server": {"data_dir": str(tmp_path / "data")},
+        "users": [{"name": "admin", "password": "pw", "admin": True}],
+        "libraries": [
+            {"name": "電影", "type": "movies", "paths": [str(media / "電影")]},
+            {"name": "劇集", "type": "tvshows", "paths": [str(media / "劇集")]},
+        ],
+        "p115": {"cookies": "UID=1", "strm": {"tasks": [{"remote": "/影視", "local": str(media)}], "request_delay": 0,
+                                               "scan_after_sync": False}},
+    }), scan_on_start=False)
+    svc = P115Service(app.state.db, initial_cookies="UID=1", transport=httpx.MockTransport(fake.handler))
+    for holder in (app.state, app.state.strm_sync, app.state.dupes, app.state.prober, app.state.redirector):
+        holder.p115 = svc
+    svc.download_url = lambda pc, ua="": f"https://cdn.115.test/{pc}"
+    svc.export_poll = 0
+    app.state.strm_sync.run(FULL)
+    # 兩部電影都寫上同一個 tmdbid（MoviePilot 刮削後的樣子）
+    for folder in (media / "電影", media / "電影" / "Old Movie 4K", media / "電影" / "Old Movie Extended"):
+        for strm in folder.glob("*.strm"):
+            strm.with_suffix(".nfo").write_text(
+                "<movie><title>Old Movie</title><year>2001</year><uniqueid type='tmdb'>555</uniqueid></movie>", encoding="utf-8")
+    app.state.scanner.scan_all()
+    c = TestClient(app)
+    h = {"X-Emby-Token": c.post("/Users/AuthenticateByName", json={"Username": "admin", "Pw": "pw"}).json()["AccessToken"]}
+    return app, fake, media, c, h
+
+
+def test_versions_are_grouped_and_deleted_only_when_picked(tmp_path: Path):
+    from embyserver.mediainfo import MediaInfoStore
+
+    app, fake, media, c, h = build_versions(tmp_path)
+    db = app.state.db
+    # 1080p 那一集有媒體資訊（寬 1920），2160p 那一集只能從檔名看
+    ep1080 = media / "劇集" / "Dark" / "Dark.S01E01.strm"
+    MediaInfoStore(db).put(str(ep1080), {"source": {"MediaStreams": [
+        {"Type": "Video", "Width": 1920, "Height": 1080, "Codec": "h264", "VideoRange": "SDR"},
+        {"Type": "Audio", "Codec": "aac", "ChannelLayout": "stereo"}, {"Type": "Subtitle"}]}}, 0, "ffprobe")
+    uid = db.one("SELECT id FROM users")["id"]
+    ep_item = db.one("SELECT id FROM items WHERE path=?", (str(ep1080),))["id"]
+    db.execute("INSERT INTO user_data(user_id, item_id, played, position_ticks, last_played) VALUES(?,?,0,600000000,'2026-09-02')",
+               (uid, ep_item))
+
+    c.post("/web/api/dupes/scan", json={}, headers=h)
+    job = wait_job(app)
+    assert not job.errors
+    s = c.get("/web/api/dupes", headers=h).json()
+    assert s["versions"]["groups"] == 2 and s["versions"]["files"] == 4
+
+    r = c.get("/web/api/dupes/groups", params={"kind": "versions"}, headers=h).json()
+    by_title = {g["title"]: g for g in r["items"]}
+    assert set(by_title) == {"Dark S01E01", "Old Movie (2001)"}  # 加長版、分段、一檔兩集都不算
+    ep = by_title["Dark S01E01"]
+    assert [(m["file_id"], m["keep"]) for m in ep["members"]] == [(12, True), (2, False)]  # 2160p 建議保留
+    q12, q2 = ep["members"][0]["quality"], ep["members"][1]["quality"]
+    assert (q12["res"], q12["hdr"], q12["from"]) == (2160, "HDR", "filename")
+    assert (q2["res"], q2["codec"], q2["audio"], q2["subtitles"], q2["from"]) == (1080, "H264", "AAC stereo", 1, "mediainfo")
+    assert ep["members"][1]["watched"]
+    movie = by_title["Old Movie (2001)"]
+    assert [m["file_id"] for m in movie["members"]] == [13, 1]  # 解析度高的在前
+
+    # 不同版本預設不勾：不勾就什麼都不刪
+    assert c.post("/web/api/dupes/delete", json={"kind": "versions", "dry_run": True}, headers=h).json()["count"] == 0
+    r = c.post("/web/api/dupes/delete", json={"kind": "versions", "use_suggestions": True, "dry_run": True}, headers=h).json()
+    assert (r["count"], r["size"]) == (2, 1_800_000_000)
+    r = c.post("/web/api/dupes/delete", json={"kind": "versions", "overrides": {"12": True, "2": True}}, headers=h)
+    assert r.status_code == 400 and "至少要留一份" in r.text
+
+    # 只刪那一集的 1080p：觀看進度轉到 2160p
+    r = c.post("/web/api/dupes/delete", json={"kind": "versions", "grp": ep["grp"], "use_suggestions": True}, headers=h).json()
+    assert (r["started"], r["count"]) == (True, 1)
+    job = wait_job(app)
+    assert not job.errors and fake.deleted[-1:] == ["2"]
+    assert not ep1080.exists() and (media / "劇集" / "Dark" / "Dark.S01E01.2160p.HDR.strm").exists()
+    kept = db.one("SELECT id FROM items WHERE path=?", (str(media / "劇集" / "Dark" / "Dark.S01E01.2160p.HDR.strm"),))["id"]
+    assert db.one("SELECT position_ticks FROM user_data WHERE user_id=? AND item_id=?", (uid, kept))["position_ticks"] == 600000000
+    s = c.get("/web/api/dupes", headers=h).json()
+    assert s["versions"]["groups"] == 1  # 電影那一組還在
+    assert c.get("/web/api/dupes/groups", params={"kind": "versions", "q": "Old Movie"}, headers=h).json()["total"] == 1

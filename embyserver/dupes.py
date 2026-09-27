@@ -1,10 +1,14 @@
-"""115 上內容完全相同的影片：找出來、建議保留哪一份、刪掉多的（刪重複的第一階段）。
+"""115 上重複的影片：找出來、建議保留哪一份、刪掉多的。
 
-- 找：列出範圍內所有檔案（預設是同步任務的 115 目錄，也可以另選），只看影片；SHA1 和大小都一樣的是同一組。
-  115 列檔案時本來就附上每個檔案的 SHA1，四萬多個檔案大約四十次請求。
-- 建議保留：本機有 strm 的那份優先（刮削資料、觀看紀錄都在它身上），其次最早上傳的。
-- 刪：送進 115 回收站（在 115 還原得回來），每組至少留一份。本機的 strm 和同名的中繼資料跟著刪，
-  觀看紀錄轉到保留的那份，再重新掃描受影響的劇或電影。刪過的記在 dup_deleted，方便到回收站找回。
+兩種重複，一次「找重複」同時找：
+- 完全相同（exact）：SHA1 和大小都一樣。115 列檔案時本來就附上 SHA1，四萬多個檔案大約四十次請求。
+  建議保留本機有 strm 的那份（刮削資料、觀看紀錄都在它身上），其次最早上傳的；其餘預先勾選。
+- 不同版本（versions）：媒體庫裡同一部電影（tmdbid，沒有就片名＋年份）或同一部劇的同一集，檔案卻不同，
+  例如 1080p 和 2160p。只看同步任務裡、有 strm 的檔案。分段檔（CD1、Part 2）、一個檔案好幾集的不算；
+  導演剪輯版、加長版這類版本名不同的分開算。建議保留解析度最高的，一樣時保留檔案最大的；預設不勾，由使用者挑。
+
+刪除：送進 115 回收站（在 115 還原得回來），每組至少留一份。本機的 strm 和同名的中繼資料跟著刪，
+觀看紀錄轉到保留的那份，再重新掃描受影響的劇或電影。刪過的記在 dup_deleted，方便到回收站找回。
 """
 
 from __future__ import annotations
@@ -12,6 +16,7 @@ from __future__ import annotations
 import json
 import logging
 import posixpath
+import re
 import threading
 import time
 from dataclasses import asdict, dataclass, field
@@ -20,13 +25,65 @@ from typing import Dict, List, Optional, Set, Tuple
 
 from .db import Database
 from .filetypes import VIDEO_EXTS
+from .mediainfo import MediaInfoStore
 from .p115 import P115Error, P115Service
+from .textutil import simplified
 
 log = logging.getLogger(__name__)
 
 SCAN_META_KEY = "dupes_scan"
 DELETE_BATCH = 100  # 一次請求送幾個檔案進回收站
-MAX_ERRORS = 20
+
+# 檔名裡看得出來的畫質（沒有媒體資訊時用）
+RES_RE = re.compile(r"(?<![0-9])(2160|1080|720|576|480)[pi](?![0-9])|(?<![a-z])(4k|uhd)(?![a-z])", re.I)
+DV_RE = re.compile(r"(?<![a-z])(dv|dovi|dolby[ ._-]?vision)(?![a-z])", re.I)
+HDR_RE = re.compile(r"(?<![a-z])(hdr10\+|hdr10|hdr)(?![a-z0-9])", re.I)
+CODEC_RE = {"HEVC": re.compile(r"x265|h\.?265|hevc", re.I), "H264": re.compile(r"x264|h\.?264|avc", re.I),
+            "AV1": re.compile(r"(?<![a-z])av1(?![a-z0-9])", re.I)}
+# 分段檔：CD1、Disc 2、Part 3……同一部片的不同段，不是重複
+PART_RE = re.compile(r"(?:^|[ ._\-\[(])(?:cd|dvd|disc|disk|part|pt)[ ._-]?\d{1,2}(?=[ ._\-\])]|$)", re.I)
+# 一個檔案好幾集：E01E02、E01-E02、E01-02
+MULTI_EP_RE = re.compile(r"[Ee]\d{1,4}[ ._]?[-~]?[ ._]?[Ee]\d{1,4}|[Ee]\d{1,3}-\d{1,3}(?![0-9p])")
+# 版本名不同的是不同剪輯，分開算
+EDITION_RE = re.compile(
+    r"director'?s[ ._-]?cut|extended|unrated|uncut|theatrical|imax|remaster(?:ed)?|criterion|"
+    r"导演剪辑|導演剪輯|加长|加長|未删减|未刪減|完整版|特别版|特別版", re.I)
+
+
+def _norm(text: str) -> str:
+    return re.sub(r"[\W_]+", "", simplified(text or "").lower())
+
+
+def quality(info: Optional[dict], name: str) -> dict:
+    """一個版本的畫質：先看媒體資訊，沒有的部分從檔名猜。res 是解析度等級（2160、1080……），寬銀幕看寬度。"""
+    q: dict = {"res": None, "hdr": None, "codec": None, "audio": None, "audios": 0, "subtitles": 0,
+               "from": "mediainfo" if info else "filename"}
+    if info:
+        streams = info["source"].get("MediaStreams") or []
+        video = next((st for st in streams if st.get("Type") == "Video"), None)
+        if video:
+            w, h = int(video.get("Width") or 0), int(video.get("Height") or 0)
+            q["res"] = 2160 if w >= 3200 else 1080 if w >= 1800 else 720 if w >= 1200 else (h or None)
+            ext, vr = video.get("ExtendedVideoType"), video.get("VideoRange")
+            q["hdr"] = ext if ext and ext != "None" else (vr if vr and vr != "SDR" else None)
+            q["codec"] = (video.get("Codec") or "").upper() or None
+        audios = [st for st in streams if st.get("Type") == "Audio"]
+        q["audios"] = len(audios)
+        if audios:
+            a = audios[0]
+            channels = a.get("ChannelLayout") or (f"{a['Channels']}ch" if a.get("Channels") else "")
+            q["audio"] = " ".join(x for x in ((a.get("Codec") or "").upper(), channels) if x) or None
+        q["subtitles"] = sum(1 for st in streams if st.get("Type") == "Subtitle")
+    if not q["res"]:
+        m = RES_RE.search(name)
+        if m:
+            q["res"] = 2160 if m.group(2) else int(m.group(1))
+    if not q["hdr"]:
+        hdr = HDR_RE.search(name)
+        q["hdr"] = "DolbyVision" if DV_RE.search(name) else (hdr.group(1).upper() if hdr else None)
+    if not q["codec"]:
+        q["codec"] = next((c for c, rx in CODEC_RE.items() if rx.search(name)), None)
+    return q
 
 
 @dataclass
@@ -82,6 +139,9 @@ class DupeFinder:
             "groups": stats["groups"],
             "files": stats["files"],
             "reclaimable": stats["reclaimable"],  # 照建議刪掉可以省下的位元組
+            "versions": dict(self.db.one(  # 不同版本：幾組、幾個檔案、照建議刪可以省多少
+                "SELECT COUNT(*) AS files, COUNT(DISTINCT grp) AS groups, "
+                "COALESCE(SUM(CASE WHEN keep THEN 0 ELSE size END), 0) AS reclaimable FROM dup_versions")),
             "default_roots": self.default_roots(),
         }
 
@@ -139,16 +199,24 @@ class DupeFinder:
                 for i, (info, path, local) in enumerate(located):
                     rows.append((info["id"], info["sha1"], info["size"], info["name"], info["pickcode"],
                                  info["parent_id"], path, local, info["mtime"], int(i == 0)))
+            job.current = "比對同一部片的不同版本"
+            versions = self._find_versions(files)
             with self.db.lock:
                 self.db.conn.execute("DELETE FROM dup_files")
                 self.db.conn.executemany(
                     "INSERT INTO dup_files(file_id, sha1, size, name, pickcode, parent_id, path, local, mtime, keep) "
                     "VALUES(?,?,?,?,?,?,?,?,?,?)", rows,
                 )
+                self.db.conn.execute("DELETE FROM dup_versions")
+                self.db.conn.executemany(
+                    "INSERT INTO dup_versions(file_id, grp, title, item_id, name, path, local, size, mtime, sha1, quality, keep) "
+                    "VALUES(?,?,?,?,?,?,?,?,?,?,?,?)", versions,
+                )
                 self.db.conn.commit()
             self.db.set_meta(SCAN_META_KEY, json.dumps({"at": int(time.time()), "roots": roots, "files": len(files)},
                                                        ensure_ascii=False))
-            log.info("找重複：%s 看了 %s 支影片，%s 支有重複", "、".join(roots), len(files), len(rows))
+            log.info("找重複：%s 看了 %s 支影片，完全相同的 %s 支、不同版本的 %s 支",
+                     "、".join(roots), len(files), len(rows), len(versions))
         except P115Error as exc:
             job.errors.append(str(exc))
             log.warning("找重複失敗：%s", exc)
@@ -161,6 +229,71 @@ class DupeFinder:
             job.finished = time.time()
             self._lock.release()
         return job
+
+    def _find_versions(self, files: Dict[int, dict]) -> List[tuple]:
+        """同一部電影或同一集、檔案卻不同的：只看同步任務裡有 strm 的（媒體庫認得出是哪一部）。"""
+        local_of: Dict[str, Tuple[int, str]] = {}  # 本機 strm → (115 檔案 id, 115 路徑)
+        for task in self.strm_sync.tasks:
+            root = Path(task.local).expanduser()
+            remote = "/" + task.remote.strip("/")
+            for r in self.db.query("SELECT file_id, path FROM p115_index WHERE task=? AND is_dir=0",
+                                   (f"{task.remote}\n{task.local}",)):
+                info = files.get(r["file_id"])
+                if info:
+                    local_of[str(root / r["path"])] = (
+                        r["file_id"], posixpath.join(remote, posixpath.dirname(r["path"]), info["name"]))
+        if not local_of:
+            return []
+        groups: Dict[str, List[tuple]] = {}
+        titles: Dict[str, str] = {}
+        for it in self.db.query(
+            "SELECT i.id, i.type, i.path, i.name, i.year, i.provider_ids, i.series_id, i.parent_index_number, "
+            "i.index_number, s.name AS series FROM items i LEFT JOIN items s ON s.id=i.series_id "
+            "WHERE i.type IN ('Movie','Episode') AND i.is_strm=1"
+        ):
+            hit = local_of.get(it["path"])
+            if not hit:
+                continue
+            info = files[hit[0]]
+            name = info["name"]
+            if PART_RE.search(name):
+                continue
+            if it["type"] == "Episode":
+                if it["index_number"] is None or not it["series_id"] or MULTI_EP_RE.search(name):
+                    continue
+                season = it["parent_index_number"] or 0
+                key = f"ep:{it['series_id']}:{season}:{it['index_number']}"
+                title = f"{it['series'] or '?'} S{season:02d}E{it['index_number']:02d}"
+            else:
+                try:
+                    tmdb = (json.loads(it["provider_ids"] or "{}") or {}).get("Tmdb")
+                except ValueError:
+                    tmdb = None
+                if tmdb:
+                    key = f"movie:tmdb:{tmdb}"
+                elif it["name"] and it["year"]:
+                    key = f"movie:name:{_norm(it['name'])}|{it['year']}"
+                else:
+                    continue
+                title = f"{it['name']} ({it['year']})" if it["year"] else it["name"]
+            edition = EDITION_RE.search(name)
+            if edition:
+                key += "|" + _norm(edition.group())
+                title += f"（{edition.group()}）"
+            titles.setdefault(key, title)
+            groups.setdefault(key, []).append((it, info, hit[1]))
+        store = MediaInfoStore(self.db)
+        rows: List[tuple] = []
+        for key, members in groups.items():
+            if len(members) < 2 or len({(m[1]["sha1"], m[1]["size"]) for m in members}) < 2:
+                continue  # 只有一份，或全都一模一樣（那是「完全相同」）
+            scored = [(it, info, path, quality(store.get(it["path"]), info["name"])) for it, info, path in members]
+            # 建議保留：解析度最高的，一樣時檔案最大的，再一樣時最早上傳的
+            scored.sort(key=lambda m: (-(m[3]["res"] or 0), -(m[1]["size"] or 0), m[1]["mtime"] or 0, m[1]["id"]))
+            for i, (it, info, path, q) in enumerate(scored):
+                rows.append((info["id"], key, titles[key], it["id"], info["name"], path, it["path"], info["size"],
+                             info["mtime"], info["sha1"], json.dumps(q, ensure_ascii=False), int(i == 0)))
+        return rows
 
     def _locate(self, info: dict, folders: Dict[int, Optional[str]]) -> Tuple[str, Optional[str]]:
         """115 上的完整路徑，以及本機的 strm（在同步任務裡、而且檔案還在時）。"""
@@ -187,8 +320,10 @@ class DupeFinder:
 
     # ---------------- 清單 ----------------
 
-    def groups(self, query: str = "", offset: int = 0, limit: int = 20) -> dict:
-        """一組一組列出來，可以省最多空間的在前面；query 比對檔名和路徑。"""
+    def groups(self, query: str = "", offset: int = 0, limit: int = 20, kind: str = "exact") -> dict:
+        """一組一組列出來，可以省最多空間的在前面；query 比對檔名和路徑（不同版本也比對片名）。"""
+        if kind == "versions":
+            return self._version_groups(query, offset, limit)
         where, params = "", []
         if query.strip():
             where = "WHERE sha1 IN (SELECT sha1 FROM dup_files WHERE name LIKE ? OR path LIKE ?)"
@@ -204,6 +339,23 @@ class DupeFinder:
                 "SELECT * FROM dup_files WHERE sha1=? AND size=? ORDER BY keep DESC, mtime, file_id", (k["sha1"], k["size"])
             )
             items.append({"sha1": k["sha1"], "size": k["size"], "count": k["n"], "members": [self._member(m) for m in members]})
+        return {"items": items, "total": total}
+
+    def _version_groups(self, query: str, offset: int, limit: int) -> dict:
+        where, params = "", []
+        if query.strip():
+            where = "WHERE grp IN (SELECT grp FROM dup_versions WHERE title LIKE ? OR name LIKE ? OR path LIKE ?)"
+            params = [f"%{query.strip()}%"] * 3
+        total = self.db.one(f"SELECT COUNT(*) AS c FROM (SELECT 1 FROM dup_versions {where} GROUP BY grp)", params)["c"]
+        keys = self.db.query(
+            f"SELECT grp, MIN(title) AS title, COUNT(*) AS n, SUM(size) - MAX(size) AS saving FROM dup_versions {where} "
+            "GROUP BY grp ORDER BY saving DESC, grp LIMIT ? OFFSET ?", (*params, limit, offset),
+        )
+        items = []
+        for k in keys:
+            members = self.db.query("SELECT * FROM dup_versions WHERE grp=? ORDER BY keep DESC, size DESC, file_id", (k["grp"],))
+            items.append({"grp": k["grp"], "title": k["title"], "count": k["n"], "members": [
+                {**self._member(m), "size": m["size"], "quality": json.loads(m["quality"] or "{}")} for m in members]})
         return {"items": items, "total": total}
 
     def _member(self, m) -> dict:
@@ -224,24 +376,50 @@ class DupeFinder:
 
     # ---------------- 刪重複 ----------------
 
-    def plan(self, overrides: Dict[int, bool], sha1: Optional[str] = None, size: Optional[int] = None) -> List[dict]:
-        """要刪哪些：預設照建議（不是建議保留的都刪），overrides 可以逐個改（file_id → 要不要刪）。
+    def plan(self, overrides: Dict[int, bool], sha1: Optional[str] = None, size: Optional[int] = None,
+             kind: str = "exact", grp: Optional[str] = None, use_suggestions: bool = False) -> List[dict]:
+        """要刪哪些：overrides 逐個指定（file_id → 要不要刪），沒指定的照預設。
 
-        給了 sha1、size 時只看那一組。每一組至少要留一份，不然丟 ValueError。
+        完全相同的預設照建議刪（不是建議保留的都刪）；不同版本的預設不刪，use_suggestions 為真時才照建議。
+        給了 sha1＋size（完全相同）或 grp（不同版本）時只看那一組。每一組至少要留一份，不然丟 ValueError。
         """
-        if sha1:
-            rows = self.db.query("SELECT * FROM dup_files WHERE sha1=? AND size=? ORDER BY file_id", (sha1, int(size or 0)))
+        if kind == "versions":
+            if grp:
+                rows = self.db.query("SELECT * FROM dup_versions WHERE grp=? ORDER BY file_id", (grp,))
+            else:
+                rows = self.db.query("SELECT * FROM dup_versions ORDER BY grp, file_id")
+
+            def key(r):
+                return r["grp"]
+
+            def default(r):
+                return use_suggestions and not r["keep"]
+
+            def label(r):
+                return r["title"]
         else:
-            rows = self.db.query("SELECT * FROM dup_files ORDER BY sha1, size, file_id")
-        groups: Dict[Tuple[str, int], List] = {}
+            if sha1:
+                rows = self.db.query("SELECT * FROM dup_files WHERE sha1=? AND size=? ORDER BY file_id", (sha1, int(size or 0)))
+            else:
+                rows = self.db.query("SELECT * FROM dup_files ORDER BY sha1, size, file_id")
+
+            def key(r):
+                return (r["sha1"], r["size"])
+
+            def default(r):
+                return not r["keep"]
+
+            def label(r):
+                return r["name"]
+        groups: Dict[object, List] = {}
         for r in rows:
-            groups.setdefault((r["sha1"], r["size"]), []).append(r)
+            groups.setdefault(key(r), []).append(r)
         chosen: List[dict] = []
         for members in groups.values():
-            picked = [m for m in members if overrides.get(m["file_id"], not m["keep"])]
+            picked = [m for m in members if overrides.get(m["file_id"], default(m))]
             if len(picked) == len(members):
-                raise ValueError(f"「{members[0]['name']}」這一組每一份都勾了，至少要留一份")
-            chosen += [dict(m) for m in picked]
+                raise ValueError(f"「{label(members[0])}」這一組每一份都勾了，至少要留一份")
+            chosen += [{**dict(m), "kind": kind} for m in picked]
         return chosen
 
     def delete_in_background(self, plan: List[dict]) -> bool:
@@ -294,10 +472,14 @@ class DupeFinder:
         """115 上已經刪了：觀看紀錄轉到保留的那份、刪本機 strm、記下刪了什麼、從清單拿掉。"""
         for r in batch:
             if r["local"]:
-                copies = self.db.query(
-                    "SELECT file_id, local FROM dup_files WHERE sha1=? AND size=? AND local IS NOT NULL "
-                    "ORDER BY keep DESC, mtime", (r["sha1"], r["size"]),
-                )
+                if r.get("kind") == "versions":
+                    copies = self.db.query(
+                        "SELECT file_id, local FROM dup_versions WHERE grp=? AND local IS NOT NULL ORDER BY keep DESC, size DESC",
+                        (r["grp"],))
+                else:
+                    copies = self.db.query(
+                        "SELECT file_id, local FROM dup_files WHERE sha1=? AND size=? AND local IS NOT NULL "
+                        "ORDER BY keep DESC, mtime", (r["sha1"], r["size"]))
                 keeper = next((c for c in copies if c["file_id"] not in planned), None)  # 同一組裡不刪的那份
                 if keeper:
                     self._move_user_data(r["local"], keeper["local"])
@@ -306,11 +488,13 @@ class DupeFinder:
         with self.db.lock:
             c = self.db.conn
             c.executemany("INSERT INTO dup_deleted(file_id, sha1, size, name, path, at) VALUES(?,?,?,?,?,?)",
-                          [(r["file_id"], r["sha1"], r["size"], r["name"], r["path"], now) for r in batch])
+                          [(r["file_id"], r.get("sha1") or "", r["size"], r["name"], r["path"], now) for r in batch])
+            # 兩種清單都拿掉（同一個檔案可能兩邊都有），只剩一份的組不算重複了
             c.executemany("DELETE FROM dup_files WHERE file_id=?", [(r["file_id"],) for r in batch])
-            # 只剩一份的組不算重複了
+            c.executemany("DELETE FROM dup_versions WHERE file_id=?", [(r["file_id"],) for r in batch])
             c.execute("DELETE FROM dup_files WHERE sha1 || ':' || size IN "
                       "(SELECT sha1 || ':' || size FROM dup_files GROUP BY sha1, size HAVING COUNT(*) < 2)")
+            c.execute("DELETE FROM dup_versions WHERE grp IN (SELECT grp FROM dup_versions GROUP BY grp HAVING COUNT(*) < 2)")
             c.commit()
         return removed
 
