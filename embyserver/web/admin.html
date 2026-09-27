@@ -215,6 +215,13 @@ dialog .card-b{max-height:70vh;overflow:auto}
 </svg>
 
 <!-- 首次設定、登入 -->
+<div id="boot" class="auth">
+  <div class="card"><div class="card-b stack">
+    <div class="brand"><svg><use href="#i-logo"/></svg><b>Mi302</b></div>
+    <p id="bootMsg" class="hint">載入中…</p>
+    <button id="bootRetry" class="btn hidden" onclick="boot()">立即重試</button>
+  </div></div>
+</div>
 <div id="setup" class="auth hidden">
   <form class="card" onsubmit="doSetup();return false">
     <div class="card-b stack">
@@ -630,7 +637,7 @@ async function api(path, opt = {}) {
   if (!r.ok) throw new Error(await r.text() || r.status);
   return r.status === 204 ? null : r.json();
 }
-function show(id) { for (const s of ['setup', 'login', 'main']) $(s).classList.toggle('hidden', s !== id); }
+function show(id) { for (const s of ['boot', 'setup', 'login', 'main']) $(s).classList.toggle('hidden', s !== id); }
 const ESC = {'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'};
 function esc(s) { return String(s ?? '').replace(/[&<>"']/g, c => ESC[c]); }
 function setHtml(el, html) { if (el._html !== html) { el._html = html; el.innerHTML = html; } }  // 內容沒變就不重畫
@@ -679,12 +686,34 @@ function ago(ts) {
 }
 
 // ---- 登入 ----
+// 打開網頁時先問伺服器要不要建立管理員、登入是否還有效。連不上（重新啟動中、反向代理回 502、
+// 伺服器忙到 15 秒沒回應）時顯示原因並自動重試，不能留一片空白
+let bootTimer = null, bootTries = 0;
 async function boot() {
-  const s = await (await fetch('/web/api/setup')).json();
+  clearTimeout(bootTimer);
+  let s;
+  try {
+    // 舊瀏覽器沒有 AbortSignal.timeout 就不限時
+    const r = await fetch('/web/api/setup', {cache: 'no-store', signal: AbortSignal.timeout ? AbortSignal.timeout(15000) : undefined});
+    if (!r.ok) throw new Error(`伺服器回應 ${r.status}`);
+    s = await r.json();
+  } catch (e) { return bootFailed(e); }
   if (s.needed) return show('setup');
   if (!token) return show('login');
-  try { cfg = await api('/web/api/settings'); } catch (e) { return show('login'); }
+  try { cfg = await api('/web/api/settings'); }
+  catch (e) { return token ? bootFailed(e) : undefined; }  // token 被清掉是 401，api() 已經改顯示登入
+  bootTries = 0;
   show('main'); route();
+}
+function bootFailed(e) {
+  const wait = Math.min(30, 3 * 2 ** Math.min(bootTries++, 3));  // 3、6、12、24、30 秒後再試
+  const why = e.name === 'TimeoutError' ? '伺服器 15 秒沒有回應' : e.message || String(e);
+  $('bootMsg').textContent = `連不上 Mi302（${why}），${wait} 秒後自動重試。剛重新啟動的話等一下就好。`;
+  $('bootMsg').className = 'notice warn';
+  $('bootRetry').classList.remove('hidden');
+  if (!$('main').classList.contains('hidden')) return toast('連不上 Mi302：' + why, 'bad');  // 已經在用了：只提示
+  show('boot');
+  bootTimer = setTimeout(boot, wait * 1000);
 }
 const AUTH_HEADER = 'MediaBrowser Client="Mi302 Web", Device="Browser", DeviceId="mi302web", Version="1"';
 async function doSetup() {

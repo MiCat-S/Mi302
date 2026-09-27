@@ -28,6 +28,7 @@
 | f658b66 | 下載功能加開關 server.allow_download（預設開；關掉後 CanDownload、EnableContentDownloading 回 false，下載網址 403） |
 | 05e4ed1 | 播放網址預設要求登入（redirect.require_auth 預設 true）。查證過：Emby 官方文件標明串流要登入、4.7 起不分內外網都擋；Emby Web、Kodi 把 token 放查詢參數，Infuse 放 X-Emby-Authorization 標頭，兩種都認。「很多播放器不帶 token」是第一版沒依據的假設，已從程式和說明拿掉 |
 | f2b3743 | MoviePilot 刮削：媒體庫底下有分類資料夾（电视剧/国产剧/庆余年 (2019)）時送對那一部劇，不再把整個分類當成一部劇；和掃描器共用 `scanner.series_folder` |
+| （本次） | 白屏：片頭片尾的季清單在四萬多集的媒體庫要 18 秒、期間佔住資料庫，整個網頁和播放器都卡住；改成只查有紀錄的季、加上 items(season_id) 索引後不到 0.01 秒。網頁打開時先顯示「載入中」，連不上或 15 秒沒回應時顯示原因並自動重試 |
 | 506e2af | 媒體資訊可以挑著提取：搜尋片名、媒體庫、電影或劇集、年份範圍篩選；先做哪些（最近加入、年份新舊、評分、片名）；這次最多幾支；每一部可以單獨提取。「整庫探測」開關改名「批次探測」 |
 | b3697ab | README 改成繁中、简中、English 三份概覽；詳細說明拆成 12 頁 × 3 語的 wiki，原始檔在 `docs/wiki`，用 `docs/publish-wiki.sh` 發布 |
 | 73cf045 | 片頭片尾範圍照查證資料改：片頭起點前 10 分鐘內、一次跳 15 秒–3 分鐘；片尾最後 5 分鐘，片尾區裡往前跳 60 秒以上也算；短的集用前後 25%（24 分鐘動畫＝前 6 分鐘、後 5 分鐘），不用判斷是不是動畫。依據：AniSkip 27 部動畫統計、TheIntroDB 影集統計、廣電《電視劇母版製作規範》、Emby／Intro Skipper／神醫助手的預設 |
@@ -87,7 +88,7 @@
 1. **舊 Docker 安裝搬遷會弄丟埠號和媒體路徑。** `install.sh` 的 `load_env` 讀了 `MI302_PORT` 卻沒用，`MI302_MEDIA` 沒讀；改用 Python 後埠號變 8096，媒體庫和任務路徑還是容器裡的 `/media/...`，全部顯示資料夾不存在，而 `save_env` 又把這兩個值寫掉。沿用舊埠號；`MI302_MEDIA` 不是 `/media` 時改寫設定檔裡的 `/media` 前綴，至少要醒目提醒。（文件部分已處理：wiki「安裝」照實際情況寫了搬遷步驟。）
 2. **115 裝置類型下拉選單會把設定清空。** admin.html 進階設定的 `p115.app` 只有 7 個選項，設定值不在其中時，儲存會送空字串，之後掃碼登入失敗。未知的值補一個 option，或 `selectedIndex === -1` 時不送。
 3. **卡片上的開關會還原同頁沒存的輸入。** `putSettings` 之後 `fillFields()` 重填整頁，只應刷新這次送出的欄位。
-4. **伺服器重啟中打開網頁一片空白。** `boot()` 沒有錯誤處理。
+4. ~~**伺服器重啟中打開網頁一片空白。**~~ 已修（見下方已完成）。
 5. **macOS 找不到 brew 裝的 ffprobe。** launchd plist 沒設 PATH，`/opt/homebrew/bin` 不在預設路徑裡。在 plist 加 PATH，或安裝時把 `command -v ffprobe` 寫進 `mediainfo.ffprobe`。
 6. **macOS 上 `mi302` 指令建不起來時 README 沒說怎麼辦。** `/usr/local/bin` 是 root 擁有時會失敗；可以改試 `/opt/homebrew/bin`、`~/.local/bin`。（wiki「安裝」已寫替代方式。）
 7. **日誌頁說「最近 3000 筆」，實際 `LOG_MAX = 1000`。**

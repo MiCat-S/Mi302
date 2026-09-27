@@ -256,7 +256,9 @@ class IntroLearner:
             params += more
             order = "s.sort_name, s.id, se.index_number"
         else:
-            where.append(f"(m.season_id IS NOT NULL OR EXISTS ({obs.format('1')}))")
+            # 先從兩張小表挑出有紀錄或手動設定的季，不要對媒體庫裡每一季逐一去查（幾千季時要十幾秒，期間資料庫被佔住）
+            where.append("se.id IN (SELECT e.season_id FROM intro_obs o JOIN items e ON e.id=o.item_id "
+                         "UNION SELECT season_id FROM intro_manual)")
             order = f"MAX(COALESCE(m.at, 0), COALESCE(({obs.format('MAX(o.at)')}), 0)) DESC, se.id"
         base = (f"FROM items se JOIN items s ON s.id=se.series_id LEFT JOIN intro_manual m ON m.season_id=se.id "
                 f"WHERE {' AND '.join(where)}")

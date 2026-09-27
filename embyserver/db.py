@@ -69,6 +69,7 @@ CREATE TABLE IF NOT EXISTS items (
 CREATE INDEX IF NOT EXISTS idx_items_parent ON items(parent_id);
 CREATE INDEX IF NOT EXISTS idx_items_library ON items(library_id);
 CREATE INDEX IF NOT EXISTS idx_items_series ON items(series_id);
+CREATE INDEX IF NOT EXISTS idx_items_season ON items(season_id);
 CREATE INDEX IF NOT EXISTS idx_items_type ON items(type);
 
 CREATE TABLE IF NOT EXISTS user_data (

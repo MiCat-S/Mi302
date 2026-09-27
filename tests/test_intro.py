@@ -268,3 +268,40 @@ def test_manual_settings_override_learning_and_search(tmp_path: Path):
     shutil.rmtree(show / "Season 2")
     app.state.scanner.scan_all()
     assert db.one("SELECT COUNT(*) AS c FROM intro_manual WHERE season_id=?", (s2,))["c"] == 0
+
+
+def test_season_list_stays_fast_on_a_big_library(tmp_path: Path):
+    """幾萬集的媒體庫：片頭片尾的季清單不能對每一季逐一查（以前 4 萬多集要十幾秒，期間整個資料庫被佔住，網頁白屏）。"""
+    import time
+    import types
+
+    from embyserver.db import Database
+    from embyserver.intro import IntroLearner
+
+    db = Database(str(tmp_path / "big.db"))
+    rows, nid = [], 1
+    for s in range(1200):
+        series = nid
+        rows.append((series, "Series", f"劇{s}", None, None, None))
+        nid += 1
+        for season in (1, 2):
+            season_id = nid
+            rows.append((season_id, "Season", f"第 {season} 季", series, None, season))
+            nid += 1
+            for e in range(1, 13):
+                rows.append((nid, "Episode", f"第 {e} 集", series, season_id, e))
+                nid += 1
+    with db.lock:
+        db.conn.executemany(
+            "INSERT INTO items(id, type, name, path, series_id, season_id, index_number) VALUES(?,?,?,?,?,?,?)",
+            [(i, t, n, f"/tv/{i}", ser if t != "Series" else None, sea, idx) for i, t, n, ser, sea, idx in rows])
+        db.conn.execute("INSERT INTO intro_obs VALUES(?,?,?,?,?,?)", (nid - 1, "u", "intro", 10 * TICK, 90 * TICK, 1))
+        db.conn.commit()
+    intro = IntroLearner(db, types.SimpleNamespace(server=types.SimpleNamespace(intro_skip=True)))
+    started = time.perf_counter()
+    r = intro.seasons()
+    assert time.perf_counter() - started < 1.0
+    assert r["total"] == 1 and r["items"][0]["learned"] == 1
+    plan = " ".join(row[3] for row in db.conn.execute(
+        "EXPLAIN QUERY PLAN SELECT * FROM items WHERE season_id=? AND type='Episode' ORDER BY index_number LIMIT 1", (3,)))
+    assert "idx_items_season" in plan
