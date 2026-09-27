@@ -1,7 +1,7 @@
 """用 ffprobe 探測 strm 指向的影片，寫出 X-mediainfo.json 並存進資料庫。
 
 做法參考 xiao-vvv/emby-mediainfo（MIT）：
-- 取直鏈和 ffprobe 用同一個 UA（115 的直鏈綁定 UA），而且用一般瀏覽器的 UA：115Browser 的 UA 會被 CDN 要 cookie。
+- 取直鏈和 ffprobe 用同一個 UA（115 的直鏈通常綁定取得時的 UA），而且用一般瀏覽器的 UA：115Browser 的 UA 會被 CDN 要 cookie。
 - ffprobe 加 -multiple_requests 1：一個檔案要分段讀幾十次，重用同一條連線，少觸發 115 CDN 限流。
 - 115 同時最多 3 條連線；取直鏈有全域間隔（用單調時鐘，系統時間往回跳也不會卡住）；
   被限流就熔斷（P115Service.breaker），剩下的這次先不做。

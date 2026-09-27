@@ -3,7 +3,7 @@
 流程參考 DDSRem-Dev/MoviePilot-Plugins 的 p115strmhelper：
 - 掃碼登入：qrcodeapi.115.com 取 token → 輪詢狀態 → 換取 cookie
 - 取直鏈：proapi.115.com/android/2.0/ufile/download，請求與回應以 115 的 RSA 方案加解密。
-  直鏈綁定 User-Agent，所以要用播放器自己的 UA 去取，並依 (pickcode, UA) 快取。
+  直鏈通常綁定取得時的 User-Agent（115 沒有文件；OpenList 等工具都這樣處理），所以用播放器自己的 UA 去取，並依 (pickcode, UA) 快取。
 """
 
 from __future__ import annotations
@@ -36,7 +36,7 @@ BROWSER_UA = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/124.0 Safari/537.36 115Browser/27.0"
 )
-# 自己下載 115 上的檔案（目錄樹、nfo、海報）時用的 UA。直鏈綁定 UA；115 的 CDN 對自稱 115Browser 的
+# 自己下載 115 上的檔案（目錄樹、nfo、海報）時用的 UA。直鏈通常綁定取得時的 UA；115 的 CDN 對自稱 115Browser 的
 # 請求會要求 cookie（回 403 no cookie value），一般瀏覽器 UA 就不會，所以先用這個，失敗再換
 PLAIN_UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
 DOWNLOAD_UAS = (PLAIN_UA, BROWSER_UA)
@@ -671,7 +671,7 @@ class P115Service:
             raise
 
     def file_headers(self, url: str, user_agent: str = PLAIN_UA) -> dict:
-        """自己下載 115 檔案時的標頭：直鏈綁定 UA；cookie 只給主機名稱帶 115 的網域（115.com、115cdn.net）。"""
+        """自己下載 115 檔案時的標頭：直鏈通常綁定 UA，要用取得時的 UA 下載；cookie 只給主機名稱帶 115 的網域（115.com、115cdn.net）。"""
         headers = {"User-Agent": user_agent}
         if self.cookies and "115" in (urlsplit(url).hostname or ""):
             headers["Cookie"] = self.cookies
@@ -680,7 +680,7 @@ class P115Service:
     def _fetch_export_file(self, pick_code: str) -> bytes:
         """下載剛導出的目錄樹檔。
 
-        直鏈綁定 User-Agent；檔案剛建立，CDN 可能還沒同步；115Browser 的 UA 沒帶 cookie 會被拒絕。
+        直鏈通常綁定取得時的 User-Agent；檔案剛建立，CDN 可能還沒同步；115Browser 的 UA 沒帶 cookie 會被拒絕。
         所以失敗時換 UA、稍等再試，並把 115 回了什麼記下來，方便對照。
         """
         reasons: List[str] = []

@@ -83,7 +83,7 @@ Only one run happens at a time, and the buttons are disabled while it runs. When
 ### What probing one item does
 
 1. Reads the strm file (after applying `redirect.path_rules`).
-2. For a 115 strm, fetches one direct link from 115. 115 binds direct links to the User-Agent, so the link fetch and ffprobe use the same ordinary browser User-Agent. ffprobe reuses one connection while reading, which triggers 115's CDN rate limiting less often.
+2. For a 115 strm, fetches one direct link from 115. 115 direct links are usually tied to the User-Agent that requested them, so the link fetch and ffprobe use the same ordinary browser User-Agent. ffprobe reuses one connection while reading, which triggers 115's CDN rate limiting less often.
 3. If the strm holds another URL (for example alist), ffprobe reads that URL directly. If it holds a local path, or the item is a local video, ffprobe reads the local file. Neither case fetches a 115 direct link or counts towards the hourly cap.
 4. ffprobe reads only the header, usually a few MB.
 5. The result is written as `X-mediainfo.json` next to the strm file and stored in the database. Chapters come from the video if it has any; otherwise, as in Emby, one chapter is generated every 5 minutes. If the media folder is read-only, the result is kept in the database only.

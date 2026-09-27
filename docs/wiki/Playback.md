@@ -15,14 +15,16 @@ This page explains what happens when a player presses play, which strm contents 
 
 A library can also hold regular video files instead of strm files. Mi302 serves those itself, with Range support (so seeking works), and that traffic does pass through Mi302.
 
-## 115 direct links are tied to the User-Agent
+## 115 direct links and the User-Agent
 
-A 115 direct link only works with the User-Agent that requested it. That is why Mi302 requests it with the player's User-Agent and redirects the player, instead of downloading on the player's behalf.
+A 115 direct link is usually tied to the User-Agent that requested it: opening it with a different UA can be refused by 115's CDN (403). 115 does not document this; it is how several 115 tools work and what users report, see the references at the end of this section. That is why Mi302 requests the link with the player's own User-Agent and redirects the player, instead of downloading on the player's behalf. If a link turns out not to be tied to the UA, playback works the same way.
 
 - Links are cached per (pickcode, User-Agent) until 5 minutes before the expiry time in the link, or for 10 minutes if no expiry can be read.
 - Concurrent requests for the same file and User-Agent share a single request to 115.
 - If the 115 open platform is authorised, it is tried first and QR-code login is the fallback, see [115 Cloud Sync](115-Cloud-Sync).
 - If 115 fails: when the strm points back to Mi302 itself (same host as the address the player used, or not a URL at all), the player gets a 502 with the reason; when it points to another host, Mi302 redirects to the URL in the strm instead.
+
+References: [115-helper](https://github.com/Asathorrr/115-helper) (fixes Aria2's UA automatically to avoid 403), [nodekit #761](https://github.com/bgpeer/nodekit/pull/761) (playback failed when the UA differed), [OpenList's 115 driver](https://github.com/OpenListTeam/OpenList/blob/main/drivers/115/driver.go) (requests links with the client's UA). One source says the opposite: [115driver #98](https://github.com/SheltonZhu/115driver/pull/98) reports that share links fetched with a 115 client UA are not tied to the UA.
 
 ## strm contents Mi302 understands
 
@@ -153,7 +155,7 @@ The **115 and strm** card (115 與 strm) on the **Advanced settings** tab has **
 
 When Mi302 plays a strm itself, it only extracts the pickcode and ignores the host, so remote playback works without changing this setting. You only need to set your public address when other programs read these strm files directly (for example another Emby server, or a player that opens the strm files over SMB) and must reach Mi302 from outside.
 
-Set it to the reverse proxy's public address (a sub-path works, for example `https://example.com/mi302`) and save; the existing strm files are then rewritten in the background. That only touches local files, makes no requests to 115 and needs no sync; see [115 Cloud Sync](115-Cloud-Sync). The reverse proxy must pass requests starting with `/d/` to Mi302 unchanged and keep the player's User-Agent (115 direct links are bound to it; Nginx and Caddy keep it by default). During playback Mi302 still fetches a 115 direct link and redirects the player to it, so the video does not go through the proxy.
+Set it to the reverse proxy's public address (a sub-path works, for example `https://example.com/mi302`) and save; the existing strm files are then rewritten in the background. That only touches local files, makes no requests to 115 and needs no sync; see [115 Cloud Sync](115-Cloud-Sync). The reverse proxy must pass requests starting with `/d/` to Mi302 unchanged and keep the player's User-Agent (115 direct links are usually tied to it, see above; Nginx and Caddy keep it by default). During playback Mi302 still fetches a 115 direct link and redirects the player to it, so the video does not go through the proxy.
 
 ### Security
 
