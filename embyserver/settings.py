@@ -252,7 +252,9 @@ def refresh(st) -> None:
         after_change(st, before)
 
 
-def after_change(st, libraries_before: list) -> None:
+def after_change(st, libraries_before: list) -> List[str]:
+    """設定改了之後跟著要做的事；回傳要告訴使用者的說明。"""
+    notes: List[str] = []
     logs.set_level(st.config.server.log_level)
     # P115Service 建立時複製了這兩個值，要同步過去
     st.p115.app = st.config.p115.app
@@ -263,3 +265,6 @@ def after_change(st, libraries_before: list) -> None:
         # 只掃新增或改過的媒體庫；刪掉的媒體庫，它的項目在掃描時一起移除
         changed = [lib["name"] for lib in after if lib not in libraries_before]
         threading.Thread(target=st.scanner.scan_libraries, args=(changed,), daemon=True).start()
+    if st.strm_sync.follow_format():
+        notes.append("現有的 strm 正在背景改成新的網址")
+    return notes

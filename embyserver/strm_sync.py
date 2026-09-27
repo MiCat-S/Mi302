@@ -24,13 +24,14 @@ import json
 import logging
 import os
 import posixpath
+import re
 import shutil
 import threading
 import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Callable, Dict, Iterable, List, Optional, Set, Tuple
-from urllib.parse import quote
+from urllib.parse import quote, unquote
 
 import httpx
 
@@ -86,6 +87,29 @@ class SyncResult:
         d["new_files"] = len(self.new_files)
         d["replaced"] = len(self.replaced)
         d["changed"] = len(self.changed)
+        return d
+
+
+# Mi302 產生的 strm：{伺服器網址}/d/{pickcode}.{副檔名}，可能再附 ?/{原檔名}；伺服器網址可以帶路徑（反向代理的子路徑）
+OWN_STRM_RE = re.compile(r"^https?://\S+?/d/([A-Za-z0-9]{17})(\.[A-Za-z0-9]{1,5})?(?:\?/(.*))?$")
+
+
+@dataclass
+class RewriteResult:
+    """把現有 strm 改成新的伺服器網址（或附不附原檔名）的結果。"""
+
+    running: bool = False
+    started: float = 0.0
+    finished: float = 0.0
+    base_url: str = ""  # 改成哪個網址
+    rewritten: int = 0
+    unchanged: int = 0
+    skipped: int = 0  # 不是 Mi302 產生的 strm（別的工具的網址、本機路徑），不動
+    errors: List[str] = field(default_factory=list)
+
+    def as_dict(self) -> dict:
+        d = asdict(self)
+        d["errors"] = self.errors[:20]
         return d
 
 
@@ -311,6 +335,9 @@ class StrmSync:
         self._lock = threading.Lock()
         self._http = httpx.Client(timeout=60, follow_redirects=True)
         self._stop = threading.Event()
+        self.rewrite_result = RewriteResult()
+        self._rewriting = threading.Lock()
+        self._format = (cfg.base_url, cfg.include_name)  # 現有 strm 用的格式；設定改了就改寫
         self._dirs: Dict[int, Optional[str]] = {}  # 這次同步查過的 115 目錄路徑；None = 已不存在
         self._latest: Optional[Tuple[int, int]] = None
         self._life_enabled = False
@@ -336,6 +363,75 @@ class StrmSync:
             or self.p115.db.get_meta(SERVER_URL_META_KEY)
             or f"http://127.0.0.1:{self.port}"
         )
+
+    # ---------------- 改寫現有 strm ----------------
+
+    def follow_format(self) -> bool:
+        """設定裡的 strm 伺服器網址或「附上原檔名」改了：在背景把現有的 strm 一起改過去。"""
+        now = (self.cfg.base_url, self.cfg.include_name)
+        if now == self._format:
+            return False
+        self._format = now
+        return self.rewrite_in_background()
+
+    def rewrite_in_background(self) -> bool:
+        if self._rewriting.locked():
+            return False
+        self.rewrite_result = RewriteResult(running=True, started=time.time(), base_url=self.base_url)
+        threading.Thread(target=self.rewrite_strm, daemon=True).start()
+        return True
+
+    def rewrite_strm(self) -> RewriteResult:
+        """把各同步任務資料夾裡 Mi302 產生的 strm 改成目前的伺服器網址和格式。
+
+        只讀寫本機檔案、不連 115：pickcode 和副檔名照舊，所以媒體資訊照用，也不必重新掃描。
+        別的工具產生的 strm（其他網址、本機路徑）不動；那些要換開頭的話用 redirect.path_rules。
+        正在同步時等它做完再改，免得兩邊同時寫同一個檔案。
+        """
+        with self._rewriting:
+            r = self.rewrite_result
+            if not r.running:
+                r = self.rewrite_result = RewriteResult(running=True, started=time.time())
+            with self._lock:
+                r.base_url = self.base_url
+                try:
+                    for task in self.tasks:
+                        local = Path(task.local).expanduser()
+                        for dirpath, _, filenames in os.walk(local):
+                            for name in filenames:
+                                if name.lower().endswith(".strm"):
+                                    self._rewrite_one(Path(dirpath) / name, r)
+                finally:
+                    r.running = False
+                    r.finished = time.time()
+            log.info("現有 strm 改成 %s：改了 %s 個，不用改 %s 個，不是 Mi302 的 %s 個，失敗 %s 個",
+                     r.base_url, r.rewritten, r.unchanged, r.skipped, len(r.errors))
+            return r
+
+    def _rewrite_one(self, path: Path, r: RewriteResult) -> None:
+        try:
+            old = path.read_text(encoding="utf-8").strip()
+        except OSError as exc:
+            r.errors.append(f"{path.name}：{exc}")
+            return
+        m = OWN_STRM_RE.match(old)
+        if not m:
+            r.skipped += 1
+            return
+        pickcode, ext, named = m.group(1).lower(), m.group(2) or "", m.group(3)
+        # 原檔名：附在網址後面的那一段；沒有的話，strm 的檔名本來就是原檔名換掉副檔名
+        file_name = unquote(named) if named else path.stem + ext
+        new = strm_content(self.cfg, pickcode, file_name, self.base_url)
+        if new == old:
+            r.unchanged += 1
+            return
+        try:
+            tmp = path.with_name(path.name + ".tmp")
+            tmp.write_text(new, encoding="utf-8")
+            os.replace(tmp, path)
+            r.rewritten += 1
+        except OSError as exc:
+            r.errors.append(f"{path.name}：{exc}")
 
     def remember_base_url(self, url: str) -> None:
         url = url.rstrip("/")

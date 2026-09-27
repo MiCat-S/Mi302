@@ -112,13 +112,13 @@ async def put_settings(request: Request, ctx: AuthContext = Depends(require_admi
 
     def apply():
         settings.save(st.db, st.config, body)  # 寫設定檔
-        settings.after_change(st, before)
+        return settings.after_change(st, before)
 
     try:
-        await run_in_threadpool(apply)
+        notes = await run_in_threadpool(apply)
     except SettingsError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
-    return _settings_view(request)
+    return {**_settings_view(request), "notes": notes}  # notes：存完之後在背景做的事，網頁上提示
 
 
 # ---------------- 媒體庫掃描 ----------------

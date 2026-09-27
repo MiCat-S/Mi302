@@ -399,7 +399,8 @@ dialog .card-b{max-height:70vh;overflow:auto}
           <div class="row"><button class="btn primary" onclick="syncStrm('incremental')">增量同步</button><button class="btn" onclick="syncStrm('full')">全量同步</button></div></div>
         <div class="card-b stack">
           <div class="js-sync"></div>
-          <p class="hint">strm 內的伺服器位址：<code id="base"></code></p>
+          <div class="row wrap"><span class="hint grow">strm 內的伺服器位址：<code id="base"></code></span><button class="btn sm" onclick="rewriteStrm()">把現有 strm 改成這個網址</button></div>
+          <p class="hint" id="rewriteStat" hidden></p>
           <details class="more"><summary>增量和全量有什麼不同？</summary><div class="in hint stack">
             <p><b>增量</b>：讀 115 的生活事件（操作紀錄），處理上次同步之後的上傳、移動、改名、刪除；移動和改名時，本機的 strm 連同刮好的 nfo、海報一起搬。再依修改時間補抓沒有產生事件的上傳（例如離線下載）。速度快，適合常常跑。</p>
             <p><b>全量</b>：用 115 的「導出目錄樹」重新比對整個目錄，查漏補缺，預設每週自動跑一次。</p>
@@ -541,7 +542,7 @@ dialog .card-b{max-height:70vh;overflow:auto}
       <div class="card">
         <div class="card-h"><div class="t"><h2>115 與 strm</h2></div></div>
         <div class="card-b stack">
-          <label class="field"><span>strm 裡的伺服器網址</span><input type="text" data-key="p115.strm.base_url" placeholder="例如 https://emby.example.com"><small>留空 = 自動使用你開這個網頁的網址。從外網連線時填對外網址，再同步一次。</small></label>
+          <label class="field"><span>strm 裡的伺服器網址</span><input type="text" data-key="p115.strm.base_url" placeholder="例如 https://emby.example.com"><small>留空 = 自動使用你開這個網頁的網址。放在反向代理後面時填對外的網址。儲存後，現有的 strm 會在背景一起改成新網址（只改本機檔案，不連 115）。</small></label>
           <div class="fields">
             <label class="field"><span>掃碼登入佔用的 115 裝置類型</span>
               <select data-key="p115.app">
@@ -556,7 +557,7 @@ dialog .card-b{max-height:70vh;overflow:auto}
             <label class="field"><span>每列一個 115 目錄前等待的秒數</span><input type="number" step="0.1" min="0" data-key="p115.strm.request_delay"><small>太快可能被 115 限制</small></label>
             <label class="field"><span>115 開放平台 AppID</span><input type="text" data-key="p115.open_app_id"><small>沒有申請過就留空</small></label>
           </div>
-          <label class="switch"><input type="checkbox" data-key="p115.strm.include_name"><span class="track"></span><span class="lbl">strm 網址後附上原檔名<small>方便人工辨識，伺服器會忽略這一段</small></span></label>
+          <label class="switch"><input type="checkbox" data-key="p115.strm.include_name"><span class="track"></span><span class="lbl">strm 網址後附上原檔名<small>方便人工辨識，伺服器會忽略這一段；儲存後現有的 strm 會一起改</small></span></label>
           <label class="switch"><input type="checkbox" data-key="p115.strm.scan_after_sync"><span class="track"></span><span class="lbl">同步完自動重新掃描媒體庫</span></label>
         </div>
       </div>
@@ -740,7 +741,7 @@ async function saveFields(scope, withRules) {
   const body = {};
   for (const el of scope.querySelectorAll('[data-key]')) setKey(body, el.dataset.key, el.type === 'checkbox' ? el.checked : el.value);
   if (withRules) setKey(body, 'redirect.path_rules', parseRules($('rules').value));
-  try { await putSettings(body); toast('已儲存'); } catch (e) { toast('儲存失敗：' + e.message, 'bad'); }
+  try { await putSettings(body); toast(cfg.notes?.length ? '已儲存；' + cfg.notes.join('；') : '已儲存'); } catch (e) { toast('儲存失敗：' + e.message, 'bad'); }
 }
 function parseRules(text) { return text.split('\n').map(l => l.split('=>')).filter(x => x.length === 2).map(([f, t]) => ({from: f.trim(), to: t.trim()})); }
 function emptyState(title, text, link, label) {
@@ -1213,12 +1214,25 @@ async function pollSync(first) {
   S.sync = s;
   if (first || !s.result.running) renderTasks(s.tasks);
   $('base').textContent = s.base_url;
+  const rw = s.rewrite || {};
+  $('rewriteStat').hidden = !(rw.running || rw.finished);
+  $('rewriteStat').textContent = rw.running ? '正在把現有的 strm 改成新網址…'
+    : `上次改寫 strm（${ago(rw.finished)}，改成 ${rw.base_url}）：改了 ${rw.rewritten} 個，本來就是新網址的 ${rw.unchanged} 個` +
+      `${rw.skipped ? '，不是 Mi302 產生的 ' + rw.skipped + ' 個沒動' : ''}${rw.errors?.length ? '，失敗 ' + rw.errors.length + ' 個（' + rw.errors[0] + '）' : ''}`;
   const html = syncHtml(s);
   for (const el of document.querySelectorAll('.js-sync')) setHtml(el, html);
   const done = syncWatch && !s.result.running && s.result.started === syncWatch;
   if (done) { syncWatch = 0; toast(s.result.errors.length ? '同步完成，有 ' + s.result.errors.length + ' 個錯誤' : '同步完成', s.result.errors.length ? 'bad' : ''); }
   if (s.result.started !== syncWatch) syncWatch = 0;  // 已經換成別次同步
-  if (s.result.running) syncTimer = setTimeout(() => pollSync(false), 2000);
+  if (s.result.running || rw.running) syncTimer = setTimeout(() => pollSync(false), 2000);
+}
+async function rewriteStrm() {
+  const base = S.sync?.base_url || $('base').textContent;
+  if (!await ask({title: '把現有的 strm 都改成 ' + base + '？', text: '只改同步任務資料夾裡 Mi302 產生的 strm，只動本機檔案、不連 115；媒體資訊照用，不必重新掃描。要換成別的網址，先到「進階設定」改「strm 裡的伺服器網址」。', ok: '改寫'})) return;
+  let r;
+  try { r = await api('/p115/strm/rewrite', {method: 'POST'}); } catch (e) { toast(e.message, 'bad'); return; }
+  toast(r.started ? '開始改寫現有的 strm' : '已經在改寫中');
+  pollSync(true);
 }
 
 // ---- MoviePilot ----

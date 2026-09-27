@@ -161,7 +161,15 @@ def p115_strm_status(request: Request, ctx: AuthContext = Depends(require_admin)
         "libraries": [{"name": lib.name, "type": lib.type, "paths": lib.paths} for lib in st.config.libraries],
         "base_url": st.strm_sync.base_url,
         "result": st.strm_sync.result.as_dict(),
+        "rewrite": st.strm_sync.rewrite_result.as_dict(),
     }
+
+
+@router.post("/p115/strm/rewrite")
+def p115_strm_rewrite(request: Request, ctx: AuthContext = Depends(require_admin)):
+    """把現有的 strm 改成目前的伺服器網址（只改本機檔案，不連 115），在背景做。"""
+    st = state(request)
+    return {"started": st.strm_sync.rewrite_in_background(), "rewrite": st.strm_sync.rewrite_result.as_dict()}
 
 
 @router.put("/p115/strm/tasks")
