@@ -1,1 +1,1 @@
-[Mi302](https://github.com/MiCat-S/Mi302) · 這些頁面的原始檔在倉庫的 [`docs/wiki`](https://github.com/MiCat-S/Mi302/tree/main/docs/wiki) · 这些页面的源文件在仓库的 `docs/wiki` · Source files live in `docs/wiki` in the repository
+[Mi302](https://github.com/MiCat-S/Mi302)（覺得好用請點個 ⭐ Star／Star it if you like it）· 授權 License：[PolyForm Noncommercial 1.0.0](https://github.com/MiCat-S/Mi302/blob/main/LICENSE.md)，不能商用／no commercial use · 這些頁面的原始檔在倉庫的 [`docs/wiki`](https://github.com/MiCat-S/Mi302/tree/main/docs/wiki) · 这些页面的源文件在仓库的 `docs/wiki` · Source files live in `docs/wiki` in the repository

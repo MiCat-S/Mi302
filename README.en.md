@@ -85,6 +85,17 @@ After a one-line install, manage Mi302 with `mi302`:
 | `mi302 update` | Update to the latest version; settings and data are kept |
 | `mi302 reset-password admin <new password>` | Reset a forgotten password |
 
+## License
+
+Mi302 is licensed under the [PolyForm Noncommercial License 1.0.0](LICENSE.md). **Commercial use is not allowed.**
+
+- Allowed: personal and household use; study, research and testing; use by noncommercial organisations. You may modify the code and share it, as long as you pass on these terms and the `Required Notice` line at the top of `LICENSE.md`.
+- Not allowed: any commercial use, such as selling Mi302 or a modified version, offering it as a paid product or service, bundling it with paid software or devices, or using it for profit in a company. For a commercial license, contact the author on [GitHub](https://github.com/MiCat-S/Mi302/issues) first.
+- This is a source-available license, not an OSI-approved open-source license.
+- Third-party packages keep their own licenses, and code adapted from other projects keeps its original copyright notice (see Credits below).
+
+If Mi302 is useful to you, please give it a ⭐ Star on [GitHub](https://github.com/MiCat-S/Mi302) so more people can find it.
+
 ## Credits
 
 - The 302 playback flow follows the `embyreverseproxy` plugin in [DDSRem-Dev/MoviePilot-Plugins](https://github.com/DDSRem-Dev/MoviePilot-Plugins).

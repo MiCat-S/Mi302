@@ -85,6 +85,17 @@ curl -fsSL https://raw.githubusercontent.com/MiCat-S/Mi302/main/install.sh | bas
 | `mi302 update` | 更新到最新版，配置和数据不动 |
 | `mi302 reset-password admin 新密码` | 忘记密码时重置 |
 
+## 授权
+
+Mi302 采用 [PolyForm Noncommercial License 1.0.0](LICENSE.md)，**不能用于商业用途**。
+
+- 可以：个人、家庭自用，学习、研究、测试，非营利组织使用；可以修改代码，也可以分享给别人，分享时要附上这份授权和 `LICENSE.md` 开头的 `Required Notice` 那一行。
+- 不可以：任何商业用途，例如拿 Mi302 或修改后的版本来卖、做成收费的产品或服务、放进收费的软件包或设备，或在公司里用来营利。需要商业授权的话，请先到 [GitHub](https://github.com/MiCat-S/Mi302/issues) 联系作者。
+- 这是“源码公开”的授权，不是 OSI 定义的开源授权。
+- 程序用到的第三方库遵循它们自己的授权；改写自其他项目的部分保留了原本的版权声明（见下方致谢）。
+
+觉得好用的话，到 [GitHub](https://github.com/MiCat-S/Mi302) 点个 ⭐ Star，让更多人看到。
+
 ## 致谢
 
 - 302 播放流程参考 [DDSRem-Dev/MoviePilot-Plugins](https://github.com/DDSRem-Dev/MoviePilot-Plugins) 的 `embyreverseproxy` 插件。
