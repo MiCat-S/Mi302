@@ -522,7 +522,7 @@ dialog .card-b{max-height:70vh;overflow:auto}
           <label class="field"><span>路徑對應</span><textarea id="mpMap" rows="2" placeholder="/media => /mnt/media"></textarea>
             <small>一行一條：Mi302 的路徑 =&gt; MoviePilot 的路徑。兩邊看到的路徑一樣（例如裝在同一台機器）就不用填。不一樣的例子：Mi302 在 Parallels 虛擬機裡看到 /media/psf/Vo，MoviePilot 裝在 Mac 上看到 /Volumes/Vo，就填 /media/psf/Vo =&gt; /Volumes/Vo。</small></label>
           <label class="switch"><input type="checkbox" data-key="moviepilot.scrape_after_sync"><span class="track"></span><span class="lbl">同步產生新的 strm 後自動送去刮削</span></label>
-          <details class="more"><summary>MoviePilot 帳號密碼（補全缺集需要；舊版刮削 API 也需要）</summary><div class="in stack">
+          <details class="more"><summary>MoviePilot 帳號密碼（補全缺集、整理集號需要；舊版刮削 API 也需要）</summary><div class="in stack">
             <p class="hint">「補全缺集」建訂閱的 API 只接受帳號登入。舊版的刮削 API 不接受 API 令牌，測試連線出現「拒絕存取」時也要填。</p>
             <div class="fields">
               <label class="field"><span>MoviePilot 帳號</span><input type="text" data-key="moviepilot.username" autocomplete="off"></label>
@@ -558,7 +558,7 @@ dialog .card-b{max-height:70vh;overflow:auto}
       <div class="card">
         <div class="card-h"><div class="t"><svg class="i"><use href="#i-tool"/></svg><h2>集號不對的劇：交給 MoviePilot 整理</h2></div></div>
         <div class="card-b stack">
-          <p class="hint">這些集的集號不是從 nfo 讀到的（nfo 沒有集號，或刮削時沒認出來寫成 -1），檔名又不是 S01E02 這種標準寫法，是 Mi302 從「10.xxx」「第10集」這類寫法猜的，或根本認不出來。交給 MoviePilot 整理：它在 115 上把檔案改成自己命名設定的標準名稱（例如「劇名 - S01E10 - 集名」）並刮削，Mi302 再同步過來。<b>會真的改 115 上的檔名和位置</b>，所以一定先預覽，看過每個檔案的新路徑再執行。需要上面的 MoviePilot 帳號密碼，MoviePilot 的 115 網盤也要登入同一個帳號。</p>
+          <p class="hint">這些集的集號不是從 nfo 讀到的（nfo 沒有集號，或刮削時沒認出來寫成 -1），檔名又不是 S01E02 這種標準寫法，是 Mi302 從「10.xxx」「第10集」這類寫法猜的，或根本認不出來。交給 MoviePilot 整理：它在 115 上把檔案改成自己命名設定的標準名稱（例如「劇名 - S01E10 - 集名」）並刮削，Mi302 再同步過來。<b>會真的改 115 上的檔名和位置</b>，所以一定先預覽，看過每個檔案的新路徑再執行。需要 MoviePilot v2.11.1-1 以上（更舊的不支援預覽）和上面的 MoviePilot 帳號密碼（要是管理員），MoviePilot 的 115 網盤也要登入同一個帳號。</p>
           <div id="reoReady"></div>
           <div id="reoJob"></div>
           <div class="logbar"><input id="reoQ" type="search" placeholder="搜尋劇名" oninput="clearTimeout(reoQT); reoQT = setTimeout(() => loadReorg(1), 300)"></div>

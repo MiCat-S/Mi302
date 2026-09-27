@@ -10,7 +10,8 @@ Mi302 再用增量同步把本機的 strm 跟著搬過去。以後哪個工具�
 2. 計畫（plan）：每一集對應到 115 上的哪個檔案。依 Mi302 在檔名裡找到集號的位置，產生 MoviePilot 的
    「集數定位」模板（「10.潘玮柏…」是 {ep}.{a}、「03-比赛…」是 {ep}-{a}），寫法一樣的放同一批；
    EP02、第十二集這類 MoviePilot 自己認得的不給模板；認不出集號的請 MoviePilot 推薦。
-3. 預覽（preview）：請 MoviePilot 只算不做，列出每個檔案的新路徑。Mi302 另外檢查它認的集號和檔名的
+3. 預覽（preview）：先確認 MoviePilot 是 v2.11.1-1 以上（更舊的不認預覽，會直接整理），
+   再請它只算不做，列出每個檔案的新路徑。Mi302 另外檢查它認的集號和檔名的
    一不一樣、會不會搬到別的劇集資料夾、會不會搬出同步目錄（搬出去的不能執行，否則會從媒體庫消失）。
 4. 執行（execute）：只送預覽成功的檔案，參數必須和預覽時一模一樣（用預覽代碼對應，半小時內有效）。
    完成後刪掉本機寫著 -1 的舊 nfo（免得同步時它跟著 strm 搬到新名字），等一下再跑增量同步。
@@ -282,6 +283,10 @@ class Reorganizer:
         tmdbid = str(tmdbid or "").strip()
         if not tmdbid.isdigit():
             raise ReorgError("請填 TMDB 編號（數字）")
+        try:
+            self.mp.check_transfer_preview()  # 舊版 MoviePilot 會把預覽當成真的整理
+        except MoviePilotError as exc:
+            raise ReorgError(str(exc))
         plan = self._plans.get((series_id, season))
         if not plan:
             self.plan(series_id, season)

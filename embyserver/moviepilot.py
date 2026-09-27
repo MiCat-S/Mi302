@@ -25,6 +25,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -52,6 +53,15 @@ TMDB_EPISODES_API = "/api/v1/tmdb/{tmdbid}/{season}"
 # 手動整理（在 115 上改名、搬家、刮削）和推薦集數定位模板；兩個都只接受帳號登入
 TRANSFER_API = "/api/v1/transfer/manual"
 EPISODE_FORMAT_API = "/api/v1/transfer/episode-format/recommend"
+SYSTEM_ENV_API = "/api/v1/system/env"  # 系統設定，裡面有版本號（要管理員帳號）
+# 手動整理的預覽模式從 v2.11.1-1 開始；更舊的版本不認 preview，「預覽」會變成真的整理
+PREVIEW_MIN_VERSION = (2, 11, 1, 1)
+
+
+def parse_version(text: str) -> Optional[Tuple[int, int, int, int]]:
+    """「v3.0.9」「v2.11.1-1」→ (3, 0, 9, 0)、(2, 11, 1, 1)；看不懂回傳 None。"""
+    m = re.match(r"^v?(\d+)\.(\d+)\.(\d+)(?:-(\d+))?", str(text or "").strip())
+    return (int(m.group(1)), int(m.group(2)), int(m.group(3)), int(m.group(4) or 0)) if m else None
 MAX_CONCURRENCY = 8
 # 送過卻沒有劇照的集（TMDB 沒有這集的圖），這段時間內手動刮削不再重送
 NO_IMAGE_RETRY_SECONDS = 30 * 86400
@@ -143,6 +153,7 @@ class MoviePilot:
         self._fill_lock = threading.Lock()
         self._transport = transport
         self._jwt: Optional[str] = None
+        self._preview_ok_at = 0.0  # 上次確認 MoviePilot 夠新、支援整理預覽的時間
 
     @property
     def enabled(self) -> bool:
@@ -522,6 +533,27 @@ class MoviePilot:
         if not isinstance(items, list) or not items:
             raise MoviePilotError(str((res or {}).get("message") or "MoviePilot 沒有回傳整理結果"))
         return [i for i in items if isinstance(i, dict)]
+
+    def check_transfer_preview(self) -> None:
+        """確認 MoviePilot 支援整理預覽，不支援就丟出 MoviePilotError。十分鐘內確認過就不再問。
+
+        舊版的手動整理 API 會忽略 preview 直接整理，所以版本查不到也當成不支援。
+        """
+        if time.time() - self._preview_ok_at < 600:
+            return
+        need = "v2.11.1-1"
+        try:
+            res = self._request("GET", SYSTEM_ENV_API, timeout=15)
+        except MoviePilotError as exc:
+            raise MoviePilotError(f"查不到 MoviePilot 的版本（{exc}）。舊版的整理不支援預覽、會直接執行，"
+                                  f"所以確認版本之前不預覽；整理需要 MoviePilot {need} 以上，帳號要是管理員")
+        data = res.get("data") if isinstance(res, dict) else None
+        version = str(data.get("VERSION") or "") if isinstance(data, dict) else ""
+        parsed = parse_version(version)
+        if not parsed or parsed < PREVIEW_MIN_VERSION:
+            raise MoviePilotError(f"MoviePilot {version or '版本不明'} 太舊：手動整理的預覽從 {need} 開始，"
+                                  "更舊的版本會忽略預覽直接整理。請先升級 MoviePilot")
+        self._preview_ok_at = time.time()
 
     def recommend_format(self, fileitems: List[dict]) -> Tuple[Optional[str], str]:
         """請 MoviePilot 依檔名推薦集數定位模板；回傳 (模板, 說明)，推薦不出來時模板是 None。"""

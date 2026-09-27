@@ -50,6 +50,7 @@ class FakeMP:
         self.calls = []
         self.outside = set()  # 這些檔名預覽時放到同步目錄外面
         self.wrong_ep = {}  # 檔名 → 故意認錯的集號
+        self.version = "v3.0.9"
 
     def episode(self, item, template):
         if template:
@@ -65,6 +66,8 @@ class FakeMP:
             return httpx.Response(403, json={"detail": "需要登入"})
         body = json.loads(request.content or b"{}")
         self.calls.append((path, body))
+        if path == "/api/v1/system/env":
+            return httpx.Response(200, json={"success": True, "data": {"VERSION": self.version}})
         if path == "/api/v1/transfer/episode-format/recommend":
             return httpx.Response(200, json={"success": False, "message": "样本不足"})
         if path != "/api/v1/transfer/manual":
@@ -229,6 +232,26 @@ def test_list_plan_preview_execute(tmp_path: Path):
     assert [(i["episodes"], i["unknown"]) for i in left] == [(2, 1)]
     # 同一個預覽代碼只能用一次
     assert c.post("/web/api/moviepilot/reorganize/execute", json={"token": pv["token"]}, headers=h).status_code == 400
+
+
+def test_old_moviepilot_is_never_asked_to_preview(tmp_path: Path):
+    """v2.11.1-1 以前的 MoviePilot 不認 preview，會直接整理：版本太舊或查不到都不送。"""
+    from embyserver.moviepilot import parse_version
+
+    assert parse_version("v3.0.9") == (3, 0, 9, 0) and parse_version("v2.11.1-1") == (2, 11, 1, 1)
+    assert parse_version("dev") is None
+    app, fake, mp, media, c, h = build(tmp_path)
+    row = c.get("/web/api/moviepilot/reorganize", headers=h).json()["items"][0]
+    plan = c.get("/web/api/moviepilot/reorganize/plan", params={"series": row["series_id"], "season": 1}, headers=h).json()
+    body = {"series_id": row["series_id"], "season": 1, "tmdbid": "103863",
+            "groups": [{"key": g["key"], "template": g["template"], "enabled": True} for g in plan["groups"]]}
+    for version in ("v2.11.1", "", "dev"):
+        mp.version, mp.calls = version, []
+        r = c.post("/web/api/moviepilot/reorganize/preview", json=body, headers=h)
+        assert r.status_code == 400 and ("太舊" in r.text), r.text
+        assert not [p for p, _ in mp.calls if p == "/api/v1/transfer/manual"]
+    mp.version = "v2.11.1-1"
+    assert c.post("/web/api/moviepilot/reorganize/preview", json=body, headers=h).status_code == 200
 
 
 def test_preview_needs_moviepilot_login(tmp_path: Path):
