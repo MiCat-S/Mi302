@@ -1,8 +1,13 @@
 """用 ffprobe 探測 strm 指向的影片，寫出 X-mediainfo.json 並存進資料庫。
 
 做法參考 xiao-vvv/emby-mediainfo（MIT）：
-- 取直鏈和 ffprobe 用同一個 UA（115 的直鏈通常綁定取得時的 UA），而且用一般瀏覽器的 UA：115Browser 的 UA 會被 CDN 要 cookie。
-- ffprobe 加 -multiple_requests 1：一個檔案要分段讀幾十次，重用同一條連線，少觸發 115 CDN 限流。
+- 取直鏈用一般瀏覽器的 UA（115 的直鏈通常綁定取得時的 UA；115Browser 的 UA 會被 CDN 要 cookie）。
+- 網路上的影片不讓 ffprobe 自己去讀：它會開好幾條連線來回跳著讀（mp4 的 moov 常在檔尾），115 的 CDN
+  常常拒絕，結果是「moov atom not found」「Invalid data found」。改成 Mi302 用一條連線、一段一段讀
+  需要的部分（檔頭幾 MB；mp4 照 box 找到 moov；其他格式讀檔尾一段），帶著取直鏈的 UA 和 cookie，
+  寫進和原檔一樣大的稀疏暫存檔（沒讀的地方不佔空間），ffprobe 讀這個本機檔。
+  115 回的不是影片（錯誤網頁、空的）時，錯誤訊息直接寫出 115 回了什麼。
+- 伺服器不支援分段讀取（Range）時，才照舊讓 ffprobe 直接讀網址。
 - 115 同時最多 3 條連線；取直鏈有全域間隔（用單調時鐘，系統時間往回跳也不會卡住）；
   被限流就熔斷（P115Service.breaker），剩下的這次先不做。
 - 錯誤訊息裡的直鏈網址抹掉，不寫進日誌。
@@ -15,7 +20,9 @@ import logging
 import os
 import re
 import shutil
+import struct
 import subprocess
+import tempfile
 import threading
 import time
 from collections import deque
@@ -24,6 +31,8 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Callable, Iterable, List, Optional, Tuple
 from urllib.parse import urlsplit
+
+import httpx
 
 from .config import Config, MediaInfoConfig
 from .db import Database
@@ -39,6 +48,11 @@ QUEUE_MAX = 500  # 打開即探測的佇列上限；一次打開很多集時，�
 RETRY_AFTER = 3600  # 打開即探測失敗的，一小時內不再排
 FFPROBE_ARGS = ["-threads", "0", "-v", "error", "-print_format", "json", "-show_streams", "-show_chapters", "-show_format"]
 MAX_ERRORS = 50
+# 網路上的影片由 Mi302 讀這幾段給 ffprobe（見模組說明）
+HEAD_BYTES = 6 << 20  # 檔頭；ffprobe 預設最多分析 5 MB
+TAIL_BYTES = 2 << 20  # 檔尾（mkv 的 Cues、Tags，ts 的最後時間戳，avi 的索引）
+MOOV_MAX = 64 << 20  # mp4 的 moov 超過這麼大就不讀
+MP4_BOXES = {b"ftyp", b"styp", b"moov", b"mdat", b"free", b"skip", b"wide", b"pnot", b"uuid", b"sidx", b"moof"}
 
 
 class ProbeSkip(Exception):
@@ -74,12 +88,123 @@ class ProbeResult:
         return asdict(self)
 
 
-def _clean_error(stderr: bytes, url: str) -> str:
-    """ffprobe 的錯誤訊息：抹掉網址，只留最後幾行真正的原因（403、逾時、解碼錯誤）。"""
-    text = stderr.decode("utf-8", "replace").replace(url, "<url>")
+def _clean_error(stderr: bytes, url: str, shown: str = "") -> str:
+    """ffprobe 的錯誤訊息：抹掉網址（或暫存檔路徑），只留最後幾行真正的原因（403、逾時、解碼錯誤）。"""
+    text = stderr.decode("utf-8", "replace").replace(url, shown or "<url>")
     text = re.sub(r"https?://\S+", "<url>", text)
     lines = [line.strip() for line in text.splitlines() if line.strip()]
     return " | ".join(lines[-3:])[-300:] or "沒有錯誤訊息"
+
+
+class _Remote:
+    """用一條連線、一段一段讀網路上的檔案（HTTP Range）。記下檔案大小、類型、伺服器有沒有照 Range 回。"""
+
+    def __init__(self, client: httpx.Client, url: str, headers: dict, p115: P115Service):
+        self.client, self.url, self.headers, self.p115 = client, url, headers, p115
+        self.total: Optional[int] = None
+        self.ranged = True
+        self.content_type = ""
+
+    def read(self, start: int, end: int) -> bytes:
+        """讀 [start, end]（含兩端）。伺服器不照 Range 回、又不是從頭讀時回傳空的。"""
+        want = end - start + 1
+        try:
+            with self.client.stream("GET", self.url, headers={**self.headers, "Range": f"bytes={start}-{end}"}) as resp:
+                if resp.status_code in (405, 429):
+                    self.p115.breaker.inspect(status=resp.status_code)
+                    raise P115Throttled(self.p115.breaker.message())
+                if resp.status_code not in (200, 206):
+                    body = resp.read()[:400]
+                    raise RuntimeError(f"115 回 HTTP {resp.status_code}{_snippet(body)}")
+                self.content_type = resp.headers.get("content-type", "")
+                if resp.status_code == 206:
+                    m = re.search(r"/(\d+)\s*$", resp.headers.get("content-range", ""))
+                    self.total = int(m.group(1)) if m else self.total
+                else:
+                    self.ranged = False
+                    length = resp.headers.get("content-length")
+                    self.total = int(length) if length and length.isdigit() else self.total
+                    if start > 0:
+                        return b""
+                buf = bytearray()
+                for chunk in resp.iter_bytes():
+                    buf += chunk
+                    if len(buf) >= want:
+                        break
+                return bytes(buf[:want])
+        except httpx.HTTPError as exc:
+            raise RuntimeError(f"讀 115 上的檔案失敗：{type(exc).__name__}") from None
+
+
+def _snippet(body: bytes) -> str:
+    """115 回的內容（錯誤網頁、JSON）挑前面一段文字，方便看出原因。"""
+    text = re.sub(r"<[^>]+>", " ", body.decode("utf-8", "replace"))
+    text = re.sub(r"\s+", " ", text).strip()
+    return f"：{text[:120]}" if text else ""
+
+
+def _not_media(head: bytes, content_type: str) -> Optional[str]:
+    """115 回的不是影片（錯誤網頁、JSON、空的）時回傳說明。"""
+    if not head:
+        return "115 回了空的內容，不是影片"
+    kind = content_type.split(";")[0].strip().lower()
+    first = head[:64].lstrip()[:1]
+    if kind.startswith("text/") or kind in ("application/json", "application/xml") or first in (b"<", b"{"):
+        return f"115 回的不是影片（{kind or '沒有類型'}）{_snippet(head[:400])}"
+    return None
+
+
+def _mp4_moov(remote: "_Remote", head: bytes, total: int) -> List[Tuple[int, bytes]]:
+    """mp4 照頂層 box 一個一個往後找 moov（影片索引）；整個在檔頭裡就不用另外讀。找不到就是檔案沒傳完整。"""
+    offset = 0
+    for _ in range(32):
+        if offset >= total:
+            break
+        if offset + 16 <= len(head):
+            size, box = _box(head, offset, total - offset)
+        elif total - offset <= MOOV_MAX:
+            # 剩下的不大（通常就是檔尾的 moov）：一次讀完，在裡面找
+            rest = remote.read(offset, total - 1)
+            if _has_box(rest, b"moov"):
+                return [(offset, rest)]
+            break
+        else:
+            size, box = _box(remote.read(offset, offset + 15), 0, total - offset)
+        if size < 8:
+            break
+        if box == b"moov":
+            if offset + size <= len(head):
+                return []
+            if size > MOOV_MAX:
+                raise RuntimeError(f"mp4 的 moov 有 {size >> 20} MB，太大了不讀")
+            return [(offset, remote.read(offset, offset + size - 1))]
+        offset += size
+    raise RuntimeError("mp4 檔裡找不到 moov（影片索引），檔案可能沒有傳完整，播放器多半也放不了")
+
+
+def _box(data: bytes, offset: int, left: int) -> Tuple[int, bytes]:
+    """頂層 box 的大小和類型；大小 0 表示到檔尾，1 表示後面接 64 位元的大小。"""
+    if len(data) < offset + 8:
+        return 0, b""
+    size, box = struct.unpack(">I4s", data[offset:offset + 8])
+    if size == 1:
+        size = struct.unpack(">Q", data[offset + 8:offset + 16])[0] if len(data) >= offset + 16 else 0
+    elif size == 0:
+        size = left
+    return size, box
+
+
+def _has_box(data: bytes, want: bytes) -> bool:
+    """data 從頭開始是一串頂層 box，裡面有沒有 want。"""
+    offset = 0
+    while offset + 8 <= len(data):
+        size, box = _box(data, offset, len(data) - offset)
+        if box == want:
+            return True
+        if size < 8:
+            return False
+        offset += size
+    return False
 
 
 class MediaProber:
@@ -96,6 +221,7 @@ class MediaProber:
         self._fetches: deque = deque()  # 最近一小時向 115 取直鏈的時間（單調時鐘）
         self.waiting_until = 0.0  # 到了每小時上限、要等到的時間（給網頁顯示）
         self.runner: Callable = subprocess.run  # 測試時換掉
+        self.http_transport: Optional[httpx.BaseTransport] = None  # 讀網路上的影片用；測試時換成假的
         self.clock: Callable[[], float] = time.monotonic
         self._wake = threading.Event()
         self.sleep: Callable[[float], None] = self._nap  # 測試時換成不真的等的假時鐘
@@ -237,29 +363,71 @@ class MediaProber:
             return target, None, target
         raise ProbeSkip("strm 裡不是網址，也不是存在的檔案")
 
-    def probe_one(self, path: Path, cancel: Optional[threading.Event] = None) -> dict:
-        exe = self.available()
-        if not exe:
-            raise ProbeAbort("找不到 ffprobe，請先安裝 ffmpeg")
-        url, ua, hint = self._source(path, cancel)
+    def _ffprobe(self, exe: str, target: str, ua: Optional[str], shown: str = "") -> dict:
+        """跑 ffprobe，回傳它的 JSON；target 是網址或本機檔。錯誤訊息裡的 target 換成 shown（抹掉網址）。"""
         cmd = [exe]
         if ua:
             cmd += ["-user_agent", ua]
-        if url.startswith(("http://", "https://")):
+        if target.startswith(("http://", "https://")):
             cmd += ["-multiple_requests", "1"]
-        cmd += FFPROBE_ARGS + ["-i", url]
+        cmd += FFPROBE_ARGS + ["-i", target]
         try:
             proc = self.runner(cmd, capture_output=True, timeout=self.cfg.timeout)
         except subprocess.TimeoutExpired:
             raise RuntimeError(f"ffprobe 超過 {self.cfg.timeout} 秒沒有讀完")
         if proc.returncode != 0 or not proc.stdout.strip():
-            raise RuntimeError(f"ffprobe 失敗：{_clean_error(proc.stderr or b'', url)}")
+            raise RuntimeError(f"ffprobe 失敗：{_clean_error(proc.stderr or b'', target, shown)}")
         try:
             probe = json.loads(proc.stdout.decode("utf-8", "replace"))
         except ValueError:
             raise RuntimeError("ffprobe 的輸出不是 JSON")
         if not probe.get("streams"):
             raise RuntimeError("ffprobe 沒有讀到任何串流")
+        return probe
+
+    def _probe_remote(self, exe: str, url: str, ua: str, hint: str) -> dict:
+        """網路上的影片：Mi302 用一條連線讀需要的幾段，寫進稀疏暫存檔給 ffprobe 讀（見模組說明）。"""
+        headers = self.p115.file_headers(url, ua)  # 取直鏈的 UA；115 的網域再帶 cookie
+        timeout = httpx.Timeout(max(10.0, float(self.cfg.timeout or 60)), connect=15.0)
+        with httpx.Client(timeout=timeout, follow_redirects=True, transport=self.http_transport) as client:
+            remote = _Remote(client, url, headers, self.p115)
+            head = remote.read(0, HEAD_BYTES - 1)
+            problem = _not_media(head, remote.content_type)
+            if problem:
+                raise RuntimeError(problem)
+            total = remote.total
+            if not remote.ranged or not total:
+                # 不支援分段讀取：只能讓 ffprobe 自己讀網址
+                return self._ffprobe(exe, url, ua)
+            pieces = [(0, head)]
+            if total > len(head):
+                if head[4:8] in MP4_BOXES:
+                    pieces += _mp4_moov(remote, head, total)
+                else:
+                    start = max(len(head), total - TAIL_BYTES)
+                    pieces.append((start, remote.read(start, total - 1)))
+        name = Path(hint).name or "video"
+        with tempfile.TemporaryDirectory(prefix="mi302-probe-") as tmp:
+            local = Path(tmp) / ("probe" + Path(name).suffix.lower())
+            with open(local, "wb") as f:
+                f.truncate(total)  # 稀疏檔：沒寫的地方不佔空間
+                for offset, data in pieces:
+                    f.seek(offset)
+                    f.write(data)
+            try:
+                return self._ffprobe(exe, str(local), None, shown=name)
+            except RuntimeError as exc:
+                raise RuntimeError(f"{exc}（檔頭 {head[:8].hex()}，共 {total} 位元組）") from None
+
+    def probe_one(self, path: Path, cancel: Optional[threading.Event] = None) -> dict:
+        exe = self.available()
+        if not exe:
+            raise ProbeAbort("找不到 ffprobe，請先安裝 ffmpeg")
+        url, ua, hint = self._source(path, cancel)
+        if url.startswith(("http://", "https://")):
+            probe = self._probe_remote(exe, url, ua or PLAIN_UA, hint)
+        else:
+            probe = self._ffprobe(exe, url, None)
         sidecar = build_sidecar(probe, hint)
         info = parse_sidecar(sidecar)
         mtime = 0.0

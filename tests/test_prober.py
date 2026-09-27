@@ -1,11 +1,13 @@
 """媒體資訊探測：取直鏈、跑 ffprobe、寫出 X-mediainfo.json；限速、熔斷、各種失敗。"""
 
 import json
+import re
 import subprocess
 import sys
 import time
 from pathlib import Path
 
+import httpx
 from fastapi.testclient import TestClient
 
 from embyserver.app import create_app
@@ -14,6 +16,40 @@ from embyserver.mediainfo import sidecar_path
 from embyserver.p115 import PLAIN_UA
 
 from test_mediainfo import PROBE
+
+
+class FakeCDN:
+    """網路上的影片：照 Range 回一段；沒指定內容的地方填 0x11（和稀疏檔沒讀到的 0 分得出來）。"""
+
+    def __init__(self, size=1_000_000, head=b"\x1a\x45\xdf\xa3", parts=None, ranged=True, status=None, body=None,
+                 content_type="video/x-matroska"):
+        self.size, self.parts, self.ranged, self.status, self.body = size, dict(parts or {}), ranged, status, body
+        self.parts.setdefault(0, head)
+        self.content_type = content_type
+        self.requests = []
+
+    def data(self, start, end):
+        out = bytearray(b"\x11" * (end - start + 1))
+        for offset, blob in self.parts.items():
+            lo, hi = max(start, offset), min(end, offset + len(blob) - 1)
+            if lo <= hi:
+                out[lo - start:hi - start + 1] = blob[lo - offset:hi - offset + 1]
+        return bytes(out)
+
+    def __call__(self, request: httpx.Request) -> httpx.Response:
+        self.requests.append(request)
+        if "broken" in request.url.path:
+            return httpx.Response(403, text="<html><body>403 Forbidden</body></html>")
+        if self.status:
+            return httpx.Response(self.status, text=self.body or "")
+        if self.body is not None:
+            return httpx.Response(200, text=self.body, headers={"Content-Type": "text/html; charset=utf-8"})
+        m = re.match(r"bytes=(\d+)-(\d+)", request.headers.get("range", ""))
+        if not self.ranged or not m:
+            return httpx.Response(200, content=self.data(0, self.size - 1), headers={"Content-Type": self.content_type})
+        start, end = int(m.group(1)), min(int(m.group(2)), self.size - 1)
+        return httpx.Response(206, content=self.data(start, end), headers={
+            "Content-Type": self.content_type, "Content-Range": f"bytes {start}-{end}/{self.size}"})
 
 
 def make(tmp_path: Path, logged_in=True, **mi):
@@ -33,12 +69,14 @@ def make(tmp_path: Path, logged_in=True, **mi):
 
     def runner(cmd, capture_output, timeout):
         cmds.append(cmd)
-        url = cmd[-1]
-        if "broken" in url:
-            return subprocess.CompletedProcess(cmd, 1, b"", f"[https @ 0x1] HTTP error 403 Forbidden\n{url}: Server returned 403".encode())
+        target = cmd[-1]
+        if not target.startswith("http"):  # 本機稀疏檔：記下 ffprobe 讀到的內容
+            prober.seen = Path(target).read_bytes()
         return subprocess.CompletedProcess(cmd, 0, json.dumps(PROBE).encode(), b"")
 
     prober.runner = runner
+    prober.cdn = FakeCDN()
+    prober.http_transport = httpx.MockTransport(lambda r: prober.cdn(r))
     return app, prober, links, cmds
 
 
@@ -58,11 +96,13 @@ def test_probe_115_strm_writes_sidecar(tmp_path: Path):
     app.state.scanner.scan_all()
     r = prober.run(None, "manual")
     assert (r.total, r.done, r.failed) == (1, 1, 0)
-    # 取直鏈和 ffprobe 用同一個 UA；重用連線
+    # 取直鏈和讀檔用同一個 UA；Mi302 自己讀（帶 cookie），ffprobe 讀本機的稀疏檔
     assert links == [("abcdefghijklmnopq", PLAIN_UA)]
+    req = prober.cdn.requests[0]
+    assert str(req.url) == "https://cdn.115.test/abcdefghijklmnopq?t=1" and req.headers["range"] == "bytes=0-6291455"
+    assert req.headers["user-agent"] == PLAIN_UA and req.headers["cookie"] == "UID=1"
     cmd = cmds[0]
-    assert cmd[cmd.index("-user_agent") + 1] == PLAIN_UA and "-multiple_requests" in cmd
-    assert cmd[-1] == "https://cdn.115.test/abcdefghijklmnopq?t=1"
+    assert "-user_agent" not in cmd and not cmd[-1].startswith("http") and len(prober.seen) == 1_000_000
     side = json.loads(sidecar_path(movie).read_text())
     assert side[0]["MediaSourceInfo"]["MediaStreams"][0]["Width"] == 3840
     assert app.state.prober.store.get(str(movie))["source"]["Container"] == "mkv"
@@ -84,9 +124,10 @@ def test_missing_order_skips_and_failures(tmp_path: Path):
     assert todo[-1] == str(old)  # 新的先做
     r = prober.run(None, "manual")
     assert (r.total, r.done, r.failed, r.skipped) == (4, 2, 1, 1)
-    assert links == []  # 不是 115 的網址直接給 ffprobe
+    assert links == []  # 不是 115 的網址不用取直鏈
+    assert all("cookie" not in req.headers for req in prober.cdn.requests)  # 不是 115 的網域不帶 cookie
     err = next(e for e in r.errors if e.startswith("Broken"))
-    assert "403" in err and "cdn.example.com" not in err  # 錯誤訊息抹掉網址
+    assert "HTTP 403" in err and "403 Forbidden" in err and "cdn.example.com" not in err  # 錯誤訊息抹掉網址
 
 
 def test_breaker_and_login_abort_the_batch(tmp_path: Path):
@@ -386,3 +427,72 @@ def test_hourly_cap_change_or_stop_wakes_a_waiting_batch(tmp_path: Path):
     assert prober.cancel_batch()
     t.join(5)
     assert not t.is_alive() and prober.result.stopped and prober.result.done == 2 and prober.waiting_until == 0
+
+
+
+def _one(tmp_path, cdn, name="A (2020)", ext="mkv"):
+    app, prober, links, cmds = make(tmp_path)
+    prober.cdn = cdn
+    strm(tmp_path, name, f"http://mi302:8096/d/abcdefghijklmnopq.{ext}")
+    app.state.scanner.scan_all()
+    return app, prober, prober.run(None, "manual"), cmds
+
+
+def test_mp4_with_moov_at_the_end_is_read_by_boxes(tmp_path: Path):
+    """moov 在檔尾的 mp4：照 box 找過去，只讀檔頭和 moov；其他地方在暫存檔裡是 0（沒下載）。"""
+    import struct
+    size = 9_000_000
+    moov = struct.pack(">I4s", 1000, b"moov") + b"m" * 992
+    ftyp = struct.pack(">I4s", 24, b"ftyp") + b"isom" + b"\x00" * 12
+    mdat = struct.pack(">I4s", size - 24 - 1000, b"mdat")
+    cdn = FakeCDN(size=size, head=ftyp + mdat, parts={size - 1000: moov}, content_type="video/mp4")
+    app, prober, r, cmds = _one(tmp_path, cdn, ext="mp4")
+    assert (r.done, r.failed) == (1, 0), r.errors
+    assert [q.headers["range"] for q in cdn.requests] == ["bytes=0-6291455", f"bytes={size - 1000}-{size - 1}"]
+    seen = prober.seen
+    assert len(seen) == size and seen[size - 1000:] == moov and seen[:32] == ftyp + mdat
+    assert seen[7_000_000:7_000_100] == b"\x00" * 100  # 中間沒讀
+
+
+def test_mkv_reads_head_and_tail(tmp_path: Path):
+    size = 20_000_000
+    cdn = FakeCDN(size=size, parts={size - 10: b"CUES-TAIL!"})
+    app, prober, r, cmds = _one(tmp_path, cdn)
+    assert (r.done, r.failed) == (1, 0), r.errors
+    tail = size - (2 << 20)
+    assert [q.headers["range"] for q in cdn.requests] == ["bytes=0-6291455", f"bytes={tail}-{size - 1}"]
+    assert prober.seen[-10:] == b"CUES-TAIL!" and prober.seen[10_000_000:10_000_010] == b"\x00" * 10
+
+
+def test_error_page_instead_of_video_is_reported(tmp_path: Path):
+    cdn = FakeCDN(body="<html><head><title>115</title></head><body>访问过于频繁，请稍后再试</body></html>")
+    app, prober, r, cmds = _one(tmp_path, cdn)
+    assert r.failed == 1 and cmds == []  # 不跑 ffprobe
+    assert "115 回的不是影片（text/html）" in r.errors[0] and "访问过于频繁" in r.errors[0]
+    assert "cdn.115.test" not in r.errors[0]
+
+
+def test_truncated_mp4_without_moov(tmp_path: Path):
+    import struct
+    size = 9_000_000
+    head = struct.pack(">I4s", 24, b"ftyp") + b"isom" + b"\x00" * 12 + struct.pack(">I4s", size + 5000, b"mdat")
+    app, prober, r, cmds = _one(tmp_path, FakeCDN(size=size, head=head, content_type="video/mp4"), ext="mp4")
+    assert r.failed == 1 and "找不到 moov" in r.errors[0] and "沒有傳完整" in r.errors[0] and cmds == []
+
+
+def test_server_without_range_falls_back_to_ffprobe_url(tmp_path: Path):
+    app, prober, r, cmds = _one(tmp_path, FakeCDN(ranged=False))
+    assert r.done == 1
+    cmd = cmds[0]
+    assert cmd[-1] == "https://cdn.115.test/abcdefghijklmnopq?t=1" and "-multiple_requests" in cmd
+    assert cmd[cmd.index("-user_agent") + 1] == PLAIN_UA
+
+
+def test_cdn_throttling_stops_the_batch(tmp_path: Path):
+    app, prober, links, cmds = make(tmp_path, concurrency=1)
+    prober.cdn = FakeCDN(status=429, body="too many requests")
+    for i in range(3):
+        strm(tmp_path, f"M{i}", f"http://mi302/d/{'abcdefghijklmnop' + str(i)}.mkv")
+    r = prober.run(None, "manual")
+    assert r.done == 0 and "限流" in " ".join(r.errors) and len(prober.cdn.requests) == 1  # 第一次就停
+    assert app.state.p115.breaker.tripped
