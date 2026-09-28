@@ -31,6 +31,18 @@ code{font:13px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;background:v
 .row{display:flex;gap:8px;align-items:center}
 .wrap{flex-wrap:wrap}
 .stack>*+*{margin-top:12px}
+/* 小工具：間距、寬度、文字顏色（取代行內 style，所以和行內 style 一樣優先：!important） */
+.mt2{margin-top:2px!important}.mt4{margin-top:4px!important}.mt6{margin-top:6px!important}.mt8{margin-top:8px!important}.mt10{margin-top:10px!important}.mt12{margin-top:12px!important}.mt14{margin-top:14px!important}.mt16{margin-top:16px!important}
+.mb8{margin-bottom:8px!important}.mb12{margin-bottom:12px!important}.mb16{margin-bottom:16px!important}.my8{margin:8px 0!important}.m18{margin:18px!important}.pt10{padding-top:10px!important}.p0{padding:0!important}
+.w-auto{width:auto!important}.w6{width:6.5em!important}.w7{width:7em!important}.w75{width:7.5em!important}.w85{width:8.5em!important}.maxw280{max-width:280px!important}.maxw320{max-width:320px!important}
+.gap6{gap:6px!important}.gap14{gap:14px!important}.fe{justify-content:flex-end!important}.center{text-align:center!important}
+.t-warn{color:var(--warn)!important}.t-bad{color:var(--danger)!important}.brk{word-break:break-all!important}.pre{white-space:pre-wrap!important;word-break:break-all!important}
+.sp>*+*{margin-left:1em}  /* 同一行用空隙隔開的幾段文字（不用全形空白） */
+/* 看起來像連結的按鈕：滑鼠和鍵盤都點得到 */
+.link{font:inherit;color:var(--accent);background:none;border:0;padding:0;cursor:pointer;text-align:left}
+.link:hover{text-decoration:underline}
+.doc{white-space:nowrap}  /* 說明文字結尾連到 wiki 的「說明」 */
+.pager{padding-top:12px}
 
 /* 按鈕與表單 */
 .btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;font:inherit;font-size:14px;font-weight:500;padding:8px 14px;border-radius:9px;border:1px solid var(--line);background:var(--panel);color:var(--fg);cursor:pointer;white-space:nowrap;transition:background .15s,border-color .15s}
@@ -136,7 +148,7 @@ details.more>summary::before{content:"›";display:inline-block;transition:trans
 details.more[open]>summary::before{transform:rotate(90deg)}
 details.more>summary::-webkit-details-marker{display:none}
 details.more>.in{margin-top:12px}
-.steps{counter-reset:s;display:grid;gap:10px}
+.steps{display:grid;gap:10px}
 .step{display:flex;gap:12px;align-items:center}
 .step .num{width:26px;height:26px;border-radius:50%;display:grid;place-items:center;font-size:13px;font-weight:650;background:var(--panel2);border:1px solid var(--line);flex:none}
 .step.done .num{background:var(--ok-soft);color:var(--ok);border-color:transparent}
@@ -175,9 +187,9 @@ dialog.wide{width:min(720px,calc(100vw - 32px))}
 .reo-to{font-size:13px;word-break:break-all}
 /* 瀏覽 115 */
 .crumbs{display:flex;flex-wrap:wrap;gap:2px 4px;align-items:center;font-size:13.5px}
-.crumbs a{cursor:pointer}.crumbs .sep{color:var(--muted)}
+.crumbs .sep{color:var(--muted)}
 #b115List .li{padding:8px 0}
-#b115List .dir{cursor:pointer;color:var(--fg)}#b115List .dir:hover{color:var(--accent)}
+#b115List .dir{color:var(--fg);max-width:100%}#b115List .dir:hover{color:var(--accent);text-decoration:none}
 #b115List .other{color:var(--muted);font-size:13px}
 .logbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;justify-content:flex-start}
 .logbar select{width:auto}.logbar input[type=search]{flex:1 1 180px;width:auto}
@@ -202,8 +214,8 @@ dialog.wide{width:min(720px,calc(100vw - 32px))}
 dialog{border:1px solid var(--line);border-radius:14px;padding:0;width:min(520px,calc(100vw - 32px));background:var(--panel);color:var(--fg);box-shadow:0 20px 50px rgba(0,0,0,.25)}
 dialog::backdrop{background:rgba(10,12,16,.45)}
 dialog .card-b{max-height:70vh;overflow:auto}
-#pickList>div{display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:8px;cursor:pointer}
-#pickList>div:hover{background:var(--panel2)}
+#pickList>button{display:flex;align-items:center;gap:10px;width:100%;padding:9px 10px;border:0;border-radius:8px;background:none;color:inherit;font:inherit;text-align:left;cursor:pointer}
+#pickList>button:hover,#pickList>button:focus-visible{background:var(--panel2)}
 #pickList svg{color:var(--muted)}
 #toasts{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);display:grid;gap:8px;z-index:50;width:min(420px,calc(100vw - 32px))}
 .toast{padding:10px 14px;border-radius:10px;background:var(--fg);color:var(--bg);font-size:14px;box-shadow:0 8px 24px rgba(0,0,0,.2);animation:tin .2s ease-out}
@@ -227,7 +239,7 @@ dialog .card-b{max-height:70vh;overflow:auto}
   .libgrid{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.lib .b,.lib .f{padding-left:10px;padding-right:10px}}
 </style></head><body>
 
-<svg style="display:none">
+<svg class="hidden" aria-hidden="true">
   <symbol id="i-grid" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></symbol>
   <symbol id="i-film" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 4v16M17 4v16M3 9h4M3 15h4M17 9h4M17 15h4"/></symbol>
   <symbol id="i-tv" viewBox="0 0 24 24"><rect x="3" y="7" width="18" height="13" rx="2"/><path d="M8 3l4 4 4-4"/></symbol>
@@ -260,7 +272,7 @@ dialog .card-b{max-height:70vh;overflow:auto}
 <div id="boot" class="auth">
   <div class="card"><div class="card-b stack">
     <div class="brand"><svg><use href="#i-logo"/></svg><b>Mi302</b></div>
-    <p id="bootMsg" class="hint">載入中…</p>
+    <p id="bootMsg" class="hint" aria-live="polite">載入中…</p>
     <button id="bootRetry" class="btn hidden" onclick="boot()">立即重試</button>
   </div></div>
 </div>
@@ -268,11 +280,11 @@ dialog .card-b{max-height:70vh;overflow:auto}
   <form class="card" onsubmit="doSetup();return false">
     <div class="card-b stack">
       <div class="brand"><svg><use href="#i-logo"/></svg><b>Mi302</b></div>
-      <div><h1 style="font-size:18px">歡迎！先建立管理員帳號</h1><p class="hint" style="margin-top:4px">這組帳號用來登入這個管理網頁，也可以直接在播放器裡登入。</p></div>
+      <div><h1 style="font-size:18px">歡迎！先建立管理員帳號</h1><p class="hint mt4">這組帳號用來登入這個管理網頁，也可以直接在播放器裡登入。</p></div>
       <label class="field"><span>帳號</span><input id="sName" type="text" value="admin" autocomplete="username"></label>
       <label class="field"><span>密碼</span><input id="sPw" type="password" autocomplete="new-password"></label>
       <label class="field"><span>再輸入一次密碼</span><input id="sPw2" type="password" autocomplete="new-password"></label>
-      <p id="sMsg" class="notice bad hidden"></p>
+      <p id="sMsg" aria-live="polite" class="notice bad hidden"></p>
       <button class="btn primary full">建立並登入</button>
       <p class="auth-foot"><svg class="i"><use href="#i-github"/></svg><a href="https://github.com/MiCat-S/Mi302" target="_blank" rel="noopener">Mi302 在 GitHub</a>・覺得好用請點個 Star</p>
     </div>
@@ -284,9 +296,9 @@ dialog .card-b{max-height:70vh;overflow:auto}
       <div class="brand"><svg><use href="#i-logo"/></svg><b>Mi302</b></div>
       <label class="field"><span>帳號</span><input id="u" type="text" autocomplete="username"></label>
       <label class="field"><span>密碼</span><input id="p" type="password" autocomplete="current-password"></label>
-      <p id="lMsg" class="notice bad hidden"></p>
+      <p id="lMsg" aria-live="polite" class="notice bad hidden"></p>
       <button class="btn primary full">登入</button>
-      <p class="hint" style="text-align:center">用管理員帳號登入</p>
+      <p class="hint center">用管理員帳號登入</p>
       <p class="auth-foot"><svg class="i"><use href="#i-github"/></svg><a href="https://github.com/MiCat-S/Mi302" target="_blank" rel="noopener">Mi302 在 GitHub</a>・覺得好用請點個 Star</p>
     </div>
   </form>
@@ -295,26 +307,26 @@ dialog .card-b{max-height:70vh;overflow:auto}
 <div id="main" class="app hidden">
   <aside class="side">
     <div class="brand"><svg><use href="#i-logo"/></svg><div><b>Mi302</b><small id="srvName"></small></div></div>
-    <nav>
-      <a href="#overview" data-tab="overview"><svg class="i"><use href="#i-grid"/></svg><span>概覽</span></a>
-      <a href="#libraries" data-tab="libraries"><svg class="i"><use href="#i-film"/></svg><span>媒體庫</span></a>
-      <a href="#115" data-tab="115"><svg class="i"><use href="#i-cloud"/></svg><span>115 網盤</span></a>
-      <a href="#tools" data-tab="tools"><svg class="i"><use href="#i-tool"/></svg><span>整理</span></a>
-      <a href="#moviepilot" data-tab="moviepilot"><svg class="i"><use href="#i-spark"/></svg><span>MoviePilot</span></a>
-      <a href="#users" data-tab="users"><svg class="i"><use href="#i-users"/></svg><span>使用者</span></a>
-      <a href="#logs" data-tab="logs"><svg class="i"><use href="#i-doc"/></svg><span>日誌</span></a>
-      <a href="#settings" data-tab="settings"><svg class="i"><use href="#i-sliders"/></svg><span>設定</span></a>
+    <nav role="tablist" aria-label="分頁">
+      <a href="#overview" data-tab="overview" id="nav-overview" role="tab" aria-controls="tab-overview" aria-selected="false" aria-label="概覽"><svg class="i"><use href="#i-grid"/></svg><span>概覽</span></a>
+      <a href="#libraries" data-tab="libraries" id="nav-libraries" role="tab" aria-controls="tab-libraries" aria-selected="false" aria-label="媒體庫"><svg class="i"><use href="#i-film"/></svg><span>媒體庫</span></a>
+      <a href="#115" data-tab="115" id="nav-115" role="tab" aria-controls="tab-115" aria-selected="false" aria-label="115 網盤"><svg class="i"><use href="#i-cloud"/></svg><span>115 網盤</span></a>
+      <a href="#tools" data-tab="tools" id="nav-tools" role="tab" aria-controls="tab-tools" aria-selected="false" aria-label="整理"><svg class="i"><use href="#i-tool"/></svg><span>整理</span></a>
+      <a href="#moviepilot" data-tab="moviepilot" id="nav-moviepilot" role="tab" aria-controls="tab-moviepilot" aria-selected="false" aria-label="MoviePilot"><svg class="i"><use href="#i-spark"/></svg><span>MoviePilot</span></a>
+      <a href="#users" data-tab="users" id="nav-users" role="tab" aria-controls="tab-users" aria-selected="false" aria-label="使用者"><svg class="i"><use href="#i-users"/></svg><span>使用者</span></a>
+      <a href="#logs" data-tab="logs" id="nav-logs" role="tab" aria-controls="tab-logs" aria-selected="false" aria-label="日誌"><svg class="i"><use href="#i-doc"/></svg><span>日誌</span></a>
+      <a href="#settings" data-tab="settings" id="nav-settings" role="tab" aria-controls="tab-settings" aria-selected="false" aria-label="設定"><svg class="i"><use href="#i-sliders"/></svg><span>設定</span></a>
     </nav>
     <div class="foot">
-      <a class="star" href="https://github.com/MiCat-S/Mi302" target="_blank" rel="noopener" title="Mi302 在 GitHub 上，覺得好用請點個 Star"><svg class="i"><use href="#i-github"/></svg><span>GitHub 點個 Star</span><svg class="i gold"><use href="#i-star"/></svg></a>
-      <button class="btn ghost full" onclick="logoutWeb()" title="登出"><svg class="i"><use href="#i-logout"/></svg><span>登出</span></button></div>
+      <a class="star" href="https://github.com/MiCat-S/Mi302" target="_blank" rel="noopener" title="Mi302 在 GitHub 上，覺得好用請點個 Star" aria-label="Mi302 在 GitHub，點個 Star"><svg class="i"><use href="#i-github"/></svg><span>GitHub 點個 Star</span><svg class="i gold"><use href="#i-star"/></svg></a>
+      <button class="btn ghost full" onclick="logoutWeb()" title="登出" aria-label="登出"><svg class="i"><use href="#i-logout"/></svg><span>登出</span></button></div>
   </aside>
 
   <main>
     <div id="fileErr" class="banner hidden"><svg class="i"><use href="#i-alert"/></svg><span></span></div>
 
     <!-- 概覽 -->
-    <section id="tab-overview" class="page hidden">
+    <section id="tab-overview" class="page hidden" role="tabpanel" aria-labelledby="nav-overview">
       <div class="page-h">
         <div><h1>概覽</h1><p class="sub">伺服器、115 同步與刮削的狀態。</p></div>
         <button class="btn" onclick="loadOverview()"><svg class="i"><use href="#i-refresh"/></svg>重新整理</button>
@@ -337,7 +349,7 @@ dialog .card-b{max-height:70vh;overflow:auto}
         <div class="card">
           <div class="card-h"><div class="t"><svg class="i"><use href="#i-sync"/></svg><h2>115 同步</h2></div>
             <div class="row"><button class="btn sm primary" onclick="syncStrm('incremental')">增量同步</button><button class="btn sm" onclick="syncStrm('full')">全量</button></div></div>
-          <div class="card-b stack"><div class="js-sync"><p class="hint">讀取中…</p></div><p class="hint" id="ovSched"></p></div>
+          <div class="card-b stack"><div class="js-sync"><p class="hint">讀取中…</p></div><p class="hint sp" id="ovSched"></p></div>
         </div>
         <div class="card">
           <div class="card-h"><div class="t"><svg class="i"><use href="#i-spark"/></svg><h2>MoviePilot 刮削</h2></div><a href="#moviepilot" class="btn sm ghost">設定</a></div>
@@ -347,7 +359,7 @@ dialog .card-b{max-height:70vh;overflow:auto}
           <div class="card-h"><div class="t"><svg class="i"><use href="#i-play"/></svg><h2>在播放器裡連線</h2></div></div>
           <div class="card-b stack">
             <p class="hint">在 Infuse、VidHub、SenPlayer、Emby 等播放器新增 Emby 伺服器：</p>
-            <dl class="kv"><dt>地址</dt><dd><div class="row"><code class="js-origin"></code><button class="btn sm ghost icon js-copy-origin" title="複製"><svg class="i"><use href="#i-copy"/></svg></button></div></dd>
+            <dl class="kv"><dt>地址</dt><dd><div class="row"><code class="js-origin"></code><button class="btn sm ghost icon" data-act="copyOrigin" title="複製" aria-label="複製伺服器地址"><svg class="i"><use href="#i-copy"/></svg></button></div></dd>
               <dt>帳號</dt><dd>在「使用者」頁建立的帳號</dd></dl>
           </div>
         </div>
@@ -355,9 +367,9 @@ dialog .card-b{max-height:70vh;overflow:auto}
     </section>
 
     <!-- 媒體庫 -->
-    <section id="tab-libraries" class="page hidden">
+    <section id="tab-libraries" class="page hidden" role="tabpanel" aria-labelledby="nav-libraries">
       <div class="page-h">
-        <div><h1>媒體庫</h1><p class="sub">播放器首頁看到的分類。點一格可以改名稱、類型、資料夾和封面。每個媒體庫可以有多個資料夾，底下有「国产剧」「日番」這類分類資料夾時，選上層資料夾就好，會自動往下找；想讓每個子資料夾各自成為一個媒體庫，用「從資料夾批量新增」。</p></div>
+        <div><h1>媒體庫</h1><p class="sub">播放器首頁看到的分類，點一格可以改名稱、類型、資料夾和封面。有「国产剧」「日番」這類分類資料夾時選上層資料夾就好，會自動往下找。 <a class="doc" href="https://github.com/MiCat-S/Mi302/wiki/媒體庫與掃描" target="_blank" rel="noopener">說明</a></p></div>
         <div class="row wrap"><div id="scanSt" class="hint"></div><button class="btn" onclick="scanFolder()"><svg class="i"><use href="#i-folder"/></svg>掃描資料夾…</button><button class="btn" onclick="scanNow()"><svg class="i"><use href="#i-refresh"/></svg>全部重新掃描</button></div>
       </div>
       <div id="libs" class="libgrid"></div>
@@ -365,7 +377,7 @@ dialog .card-b{max-height:70vh;overflow:auto}
     </section>
 
     <!-- 115 -->
-    <section id="tab-115" class="page hidden">
+    <section id="tab-115" class="page hidden" role="tabpanel" aria-labelledby="nav-115">
       <div class="page-h">
         <div><h1>115 網盤</h1><p class="sub">登入 115、選擇要產生 strm 的目錄，播放時 302 到 115 直鏈。</p></div>
       </div>
@@ -374,17 +386,17 @@ dialog .card-b{max-height:70vh;overflow:auto}
           <div class="row"><button class="btn sm ghost" onclick="load115(true)"><svg class="i"><use href="#i-refresh"/></svg>重新整理</button></div></div>
         <div class="card-b">
           <div id="acct"><p class="hint">讀取中…</p></div>
-          <div class="row wrap" style="margin-top:16px">
+          <div class="row wrap mt16">
             <button class="btn primary" id="qrBtn" onclick="startQr()"><svg class="i"><use href="#i-qr"/></svg>掃碼登入</button>
             <button class="btn danger hidden" id="logoutBtn" onclick="logout115()">登出 115</button>
           </div>
           <div id="qrBox" class="qr hidden"><div id="qr"></div><div class="grow"><b>用手機 115 App 掃描</b><p id="qrst" class="hint"></p></div></div>
-          <div class="stack" style="margin-top:16px">
+          <div class="stack mt16">
             <details class="more"><summary>改用貼上 cookie</summary><div class="in stack">
               <label class="field"><span>115 cookie</span><textarea id="ck" rows="3" placeholder="UID=…; CID=…; SEID=…"></textarea></label>
               <div><button class="btn" onclick="saveCookie()">儲存 cookie</button></div></div></details>
             <details class="more" id="p115Adv"><summary>進階：掃碼佔用的裝置類型、115 開放平台</summary><div class="in stack">
-              <label class="field" style="max-width:320px"><span>掃碼登入佔用的 115 裝置類型</span>
+              <label class="field maxw320"><span>掃碼登入佔用的 115 裝置類型</span>
                 <select data-key="p115.app">
                   <option value="alipaymini">支付寶小程式（預設）</option>
                   <option value="wechatmini">微信小程式</option>
@@ -428,7 +440,7 @@ dialog .card-b{max-height:70vh;overflow:auto}
           <details class="more"><summary>增量和全量有什麼不同？</summary><div class="in hint stack">
             <p><b>增量</b>：讀 115 的生活事件（操作紀錄），處理上次同步之後的上傳、移動、改名、刪除；移動和改名時，本機的 strm 連同刮好的 nfo、海報一起搬。再依修改時間補抓沒有產生事件的上傳（例如離線下載）。速度快，適合常常跑。</p>
             <p><b>全量</b>：用 115 的「導出目錄樹」重新比對整個目錄，查漏補缺，預設每週自動跑一次。</p>
-            <p>任務第一次增量同步、或太久沒同步超出 115 保留的事件範圍時，會自動改跑全量。</p></div></details>
+            <p>任務第一次增量同步、或太久沒同步超出 115 保留的事件範圍時，會自動改跑全量。 <a class="doc" href="https://github.com/MiCat-S/Mi302/wiki/115-網盤與同步#增量同步與全量同步" target="_blank" rel="noopener">說明</a></p></div></details>
         </div>
       </div>
 
@@ -436,7 +448,7 @@ dialog .card-b{max-height:70vh;overflow:auto}
         <div class="card-h"><div class="t"><svg class="i"><use href="#i-folder"/></svg><h2>瀏覽 115</h2></div>
           <button class="btn" id="b115Start" onclick="browse115Start()">開始瀏覽</button></div>
         <div class="card-b stack">
-          <p class="hint">看 115 上的資料夾裡有什麼，影片標出在 Mi302 媒體庫裡被認成哪一集或哪部電影。覺得哪個資料夾不對，按「交給 MoviePilot 整理…」，一樣先預覽，看過新位置再執行。每打開一個資料夾會列一次 115 的目錄。</p>
+          <p class="hint">看 115 上的資料夾裡有什麼，影片標出在 Mi302 媒體庫裡被認成哪一集或哪部電影。認錯的資料夾可以按「交給 MoviePilot 整理…」，先預覽再執行。 <a class="doc" href="https://github.com/MiCat-S/Mi302/wiki/115-網盤與同步#瀏覽-115" target="_blank" rel="noopener">說明</a></p>
           <div id="b115Job"></div>
           <div id="b115Crumbs" class="crumbs"></div>
           <div id="b115Bar" class="row wrap hidden"><span class="hint grow" id="b115Info"></span>
@@ -450,7 +462,7 @@ dialog .card-b{max-height:70vh;overflow:auto}
         <div class="card-h"><div class="t"><svg class="i"><use href="#i-trash"/></svg><h2>115 回收站</h2></div>
           <div class="row"><button class="btn" onclick="loadRecycle(0)">查看</button><button class="btn danger" id="rbClean" onclick="cleanRecycle()" disabled>清空回收站…</button></div></div>
         <div class="card-b stack">
-          <p class="hint">115 上刪掉的檔案（包括 Mi302 刪重複檔案時送進去的）會先留在回收站，在 115 還能還原。清空之後永久刪除，救不回來。有 115 開放平台授權時用開放平台清空；只有掃碼登入時，要填 115 的安全密鑰（6 位數字；在 115「帳號安全 → 安全密鑰」可以關掉清空回收站要密鑰）。</p>
+          <p class="hint">115 上刪掉的檔案（包括 Mi302 刪重複檔案時送進去的）先留在這裡，在 115 還能還原。清空就永久刪除；只用掃碼登入時要填 115 的安全密鑰。 <a class="doc" href="https://github.com/MiCat-S/Mi302/wiki/115-網盤與同步#115-回收站" target="_blank" rel="noopener">說明</a></p>
           <div id="rbInfo"></div>
           <div id="rbList" class="list"></div>
         </div>
@@ -476,26 +488,26 @@ dialog .card-b{max-height:70vh;overflow:auto}
     </section>
 
     <!-- 整理 -->
-    <section id="tab-tools" class="page hidden">
+    <section id="tab-tools" class="page hidden" role="tabpanel" aria-labelledby="nav-tools">
       <div class="page-h">
         <div><h1>整理</h1><p class="sub">補齊媒體資訊、校正片頭片尾、刪掉 115 上重複的影片。</p></div>
       </div>
-      <div class="seg" id="toolTabs" style="margin-bottom:16px"><button data-tool="mi" class="on" onclick="showTool('mi')">媒體資訊</button><button data-tool="intro" onclick="showTool('intro')">片頭片尾</button><button data-tool="dup" onclick="showTool('dup')">重複檔案</button></div>
-      <div class="card tool" id="miCard" data-tool="mi">
+      <div class="seg mb16" id="toolTabs" role="tablist" aria-label="整理的項目"><button data-tool="mi" class="on" role="tab" aria-selected="true" onclick="showTool('mi')">媒體資訊</button><button data-tool="intro" role="tab" aria-selected="false" onclick="showTool('intro')">片頭片尾</button><button data-tool="dup" role="tab" aria-selected="false" onclick="showTool('dup')">重複檔案</button></div>
+      <div class="card tool" id="miCard" data-tool="mi" role="tabpanel">
         <div class="card-h"><div class="t"><svg class="i"><use href="#i-film"/></svg><h2>媒體資訊</h2></div></div>
         <div class="card-b stack">
-          <p class="hint">解析度、HDR、音軌、字幕軌和章節，播放器靠它標出 4K、HDR，播放前讓人選音軌和字幕。影片旁邊有 X-mediainfo.json（神醫助手、emby-mediainfo 產生的都行）就直接讀；開啟探測後，Mi302 用 ffprobe 讀 115 上的影片檔頭產生，每一項要取一次直鏈、讀幾 MB。</p>
+          <p class="hint">解析度、HDR、音軌和字幕軌，播放器靠它標出 4K、HDR，讓人選音軌和字幕。影片旁邊有 X-mediainfo.json 就直接讀，沒有的可以在這裡用 ffprobe 從 115 提取（每支要取一次直鏈、讀幾 MB）。 <a class="doc" href="https://github.com/MiCat-S/Mi302/wiki/媒體資訊與探測" target="_blank" rel="noopener">說明</a></p>
           <div id="miStat"><p class="hint">讀取中…</p></div>
           <div class="stack" id="miPick">
             <b>挑選要提取的影片</b>
-            <div class="logbar"><input id="miQ" type="search" placeholder="搜尋片名" oninput="clearTimeout(miQT); miQT = setTimeout(() => loadMiTitles(1), 300)">
+            <div class="logbar"><input id="miQ" type="search" placeholder="搜尋片名" oninput="soon('miQ', () => loadMiTitles(1))">
               <select id="miLib" onchange="loadMiTitles(1)"><option value="">全部媒體庫</option></select>
               <select id="miKind" onchange="loadMiTitles(1)"><option value="">電影和劇集</option><option value="movie">只看電影</option><option value="series">只看劇集</option></select>
-              <input id="miYearFrom" type="number" min="1900" max="2100" placeholder="年份從" style="width:7.5em" onchange="loadMiTitles(1)">
-              <input id="miYearTo" type="number" min="1900" max="2100" placeholder="到" style="width:7.5em" onchange="loadMiTitles(1)"></div>
+              <input class="w75" id="miYearFrom" type="number" min="1900" max="2100" placeholder="年份從" onchange="loadMiTitles(1)">
+              <input class="w75" id="miYearTo" type="number" min="1900" max="2100" placeholder="到" onchange="loadMiTitles(1)"></div>
             <div class="logbar">
               <select id="miOrder" onchange="saveMiPrefs(); loadMiTitles(1)"><option value="added">最近加入的先做</option><option value="year_desc">年份新的先做</option><option value="year_asc">年份舊的先做</option><option value="rating">評分高的先做</option><option value="name">照片名</option></select>
-              <span class="hint">這次最多</span><input id="miLimit" type="number" min="0" value="100" style="width:6.5em" oninput="saveMiPrefs(); miSummary(); queueRetarget()"><span class="hint">支（0 = 全部）</span>
+              <span class="hint">這次最多</span><input class="w6" id="miLimit" type="number" min="0" value="100" oninput="saveMiPrefs(); miSummary(); queueRetarget()"><span class="hint">支（0 = 全部）</span>
               <button class="btn primary" id="miBtn" onclick="probeMI()">開始提取</button></div>
             <p class="hint" id="miSum"></p>
             <div id="miTitles" class="list"></div>
@@ -514,30 +526,30 @@ dialog .card-b{max-height:70vh;overflow:auto}
         </div>
       </div>
 
-      <div class="card tool hidden" id="introCard" data-tool="intro">
+      <div class="card tool hidden" id="introCard" data-tool="intro" role="tabpanel">
         <div class="card-h"><div class="t"><svg class="i"><use href="#i-play"/></svg><h2>片頭片尾</h2></div><button class="btn ghost" onclick="clearIntro()">清除全部</button></div>
         <div class="card-b stack">
-          <p class="hint">從播放行為學：有人在開頭跳過一段、在片尾切下一集，就記成這一季的片頭片尾，播放器（Emby 系列、SenPlayer 等認 Emby 章節標記的，以及認 Jellyfin Intro Skipper 的）會顯示「跳過片頭」。不碰 115、不讀影片。同一季其他集自動套用，多人多集取中位數。學得不準或想先設好的，可以搜尋劇名、按「編輯」手動設定某一季（或標成沒有片頭）；手動設定的優先，不再照播放行為。</p>
+          <p class="hint">從播放行為學：有人在開頭跳過一段、在片尾切下一集，就記成這一季的片頭片尾，播放器會顯示「跳過片頭」。學得不準的可以搜尋劇名、按「編輯」手動設定，手動的優先。 <a class="doc" href="https://github.com/MiCat-S/Mi302/wiki/片頭片尾跳過" target="_blank" rel="noopener">說明</a></p>
           <div id="introStat"><p class="hint">讀取中…</p></div>
-          <div class="logbar"><input id="introQ" type="search" placeholder="搜尋劇名（還沒學到的劇也找得到）" oninput="clearTimeout(introQT); introQT = setTimeout(() => loadIntroSeasons(1), 300)"></div>
+          <div class="logbar"><input id="introQ" type="search" placeholder="搜尋劇名（還沒學到的劇也找得到）" oninput="soon('introQ', () => loadIntroSeasons(1))"></div>
           <div id="introList" class="list"></div>
           <details class="more"><summary>設定</summary><div class="in">
-          <label class="switch"><input type="checkbox" data-key="server.intro_skip" onchange="putSettings({server: {intro_skip: this.checked}}).then(() => { toast('已儲存'); pollIntro(); }).catch(e => { toast('儲存失敗：' + e.message, 'bad'); fillFields(); })"><span class="track"></span><span class="lbl">學片頭片尾並給播放器<small>關掉後不再學、也不給播放器；學到的紀錄和手動設定都留著</small></span></label>
+          <label class="switch"><input type="checkbox" data-key="server.intro_skip" onchange="saveToggle(this, pollIntro)"><span class="track"></span><span class="lbl">學片頭片尾並給播放器<small>關掉後不再學、也不給播放器；學到的紀錄和手動設定都留著</small></span></label>
           </div></details>
         </div>
       </div>
 
-      <div class="card tool hidden" id="dupCard" data-tool="dup">
+      <div class="card tool hidden" id="dupCard" data-tool="dup" role="tabpanel">
         <div class="card-h"><div class="t"><svg class="i"><use href="#i-copy"/></svg><h2>重複檔案</h2></div>
           <div class="row"><button class="btn" onclick="pickDupRoot()">改選 115 目錄…</button><button class="btn primary" id="dupScanBtn" onclick="scanDupes()">找重複</button></div></div>
         <div class="card-b stack">
-          <p class="hint">一次找兩種：「完全相同」是內容一模一樣（SHA1 一樣）的檔案；「不同版本」是同一部電影或同一集、檔案不同（例如 1080p 和 2160p）。刪除會送進 115 回收站，需要時可以在 115 還原；本機的 strm 跟著刪，觀看紀錄轉到保留的那份。</p>
+          <p class="hint">找出 115 上內容完全相同的檔案，和同一部片的不同版本（例如 1080p 和 2160p）。刪除會送進 115 回收站，本機的 strm 跟著刪，觀看紀錄轉到保留的那份。 <a class="doc" href="https://github.com/MiCat-S/Mi302/wiki/115-網盤與同步#重複檔案" target="_blank" rel="noopener">說明</a></p>
           <div id="dupStat"><p class="hint">讀取中…</p></div>
-          <div class="seg" id="dupTabs"><button data-kind="exact" class="on" onclick="setDupKind('exact')">完全相同</button><button data-kind="versions" onclick="setDupKind('versions')">不同版本</button></div>
+          <div class="seg" id="dupTabs" role="tablist" aria-label="重複的種類"><button data-kind="exact" class="on" role="tab" aria-selected="true" onclick="setDupKind('exact')">完全相同</button><button data-kind="versions" role="tab" aria-selected="false" onclick="setDupKind('versions')">不同版本</button></div>
           <p class="hint" id="dupKindHint"></p>
-          <div class="logbar"><input id="dupQ" type="search" placeholder="搜尋檔名或路徑" oninput="clearTimeout(dupQT); dupQT = setTimeout(() => loadDupGroups(1), 300)"></div>
+          <div class="logbar"><input id="dupQ" type="search" placeholder="搜尋檔名或路徑" oninput="soon('dupQ', () => loadDupGroups(1))"></div>
           <div class="row wrap dupbar">
-            <label class="row hidden" id="dupPreferRow" style="gap:6px"><span class="hint">建議保留</span>
+            <label class="row hidden gap6" id="dupPreferRow"><span class="hint">建議保留</span>
               <select id="dupPrefer" style="width:auto;padding:5px 8px;font-size:13px" onchange="setDupPrefer(this.value)">
                 <option value="1080">1080P（沒有再 4K）</option><option value="2160">4K（沒有再 1080P）</option><option value="highest">解析度最高的</option></select></label>
             <button class="btn sm" onclick="dupSelectAll(true)">全部照建議勾選</button><button class="btn sm" onclick="dupSelectAll(false)">全部取消勾選</button>
@@ -551,7 +563,7 @@ dialog .card-b{max-height:70vh;overflow:auto}
     </section>
 
     <!-- MoviePilot -->
-    <section id="tab-moviepilot" class="page hidden">
+    <section id="tab-moviepilot" class="page hidden" role="tabpanel" aria-labelledby="nav-moviepilot">
       <div class="page-h">
         <div><h1>MoviePilot</h1><p class="sub">Mi302 不自己刮削：同步產生新的 strm 後交給 MoviePilot 查影片資料，把 nfo 和海報寫到同一個資料夾，Mi302 再重新掃描。</p></div>
       </div>
@@ -564,7 +576,7 @@ dialog .card-b{max-height:70vh;overflow:auto}
             <label class="field"><span>同時刮削幾項</span><input type="number" min="1" max="8" data-key="moviepilot.concurrency"><small>1–8，預設 3；太多可能被 TMDB 限速</small></label>
           </div>
           <label class="field"><span>路徑對應</span><textarea id="mpMap" rows="2" placeholder="/media => /mnt/media"></textarea>
-            <small>一行一條：Mi302 的路徑 =&gt; MoviePilot 的路徑。兩邊看到的路徑一樣（例如裝在同一台機器）就不用填。不一樣的例子：Mi302 在 Parallels 虛擬機裡看到 /media/psf/Vo，MoviePilot 裝在 Mac 上看到 /Volumes/Vo，就填 /media/psf/Vo =&gt; /Volumes/Vo。</small></label>
+            <small>一行一條：Mi302 的路徑 =&gt; MoviePilot 的路徑。兩邊看到的路徑一樣（例如裝在同一台機器）就不用填。 <a class="doc" href="https://github.com/MiCat-S/Mi302/wiki/MoviePilot-整合#路徑對應" target="_blank" rel="noopener">說明</a></small></label>
           <label class="switch"><input type="checkbox" data-key="moviepilot.scrape_after_sync"><span class="track"></span><span class="lbl">同步產生新的 strm 後自動送去刮削</span></label>
           <details class="more"><summary>MoviePilot 帳號密碼（補全缺集、整理集號需要；舊版刮削 API 也需要）</summary><div class="in stack">
             <p class="hint">「補全缺集」建訂閱的 API 只接受帳號登入。舊版的刮削 API 不接受 API 令牌，測試連線出現「拒絕存取」時也要填。</p>
@@ -572,40 +584,40 @@ dialog .card-b{max-height:70vh;overflow:auto}
               <label class="field"><span>MoviePilot 帳號</span><input type="text" data-key="moviepilot.username" autocomplete="off"></label>
               <label class="field"><span>MoviePilot 密碼</span><input type="password" data-key="moviepilot.password" autocomplete="new-password"></label>
             </div></div></details>
-          <p id="mpMsg" class="notice hidden"></p>
+          <p id="mpMsg" aria-live="polite" class="notice hidden"></p>
         </div>
-        <div class="card-f"><button class="btn primary" onclick="saveMP()">儲存</button><button class="btn" onclick="testMP()">測試連線</button></div>
+        <div class="card-f"><button class="btn primary" onclick="saveMP()">儲存</button><button class="btn" onclick="testMP(this)">測試連線</button></div>
       </div>
       <div class="card">
         <div class="card-h"><div class="t"><svg class="i"><use href="#i-film"/></svg><h2>刮削</h2></div><button class="btn" onclick="scrapeMP()">刮削缺少資料的項目</button></div>
         <div class="card-b stack">
           <div class="js-mp"></div>
-          <p class="hint">把媒體庫裡還沒有 nfo 的影片、以及有 nfo 卻沒有劇照的集送去 MoviePilot。劇集沒有 tvshow.nfo 時整部劇一起刮削；已經刮削過的劇會帶上 tmdbid，MoviePilot 不必再搜尋。</p>
+          <p class="hint">把媒體庫裡還沒有 nfo 的影片、以及有 nfo 卻沒有劇照的集送去 MoviePilot 刮削。 <a class="doc" href="https://github.com/MiCat-S/Mi302/wiki/MoviePilot-整合#送出規則" target="_blank" rel="noopener">說明</a></p>
         </div>
       </div>
       <div class="card">
         <div class="card-h"><div class="t"><svg class="i"><use href="#i-tv"/></svg><h2>補全缺集</h2></div><button class="btn" onclick="fillAll()">全部補全</button></div>
         <div class="card-b stack">
-          <p class="hint">先向 MoviePilot 查 TMDB 上每一季已經播出的集（沒有播出日期、又在媒體庫最後一集之後的不算），對照 Mi302 裡已有的集號；真的缺集的季才建訂閱，並請 MoviePilot 馬上搜尋。已播出的都有就不建訂閱。要先把 Mi302 加成 MoviePilot 的媒體伺服器（見下方），並填上面的 MoviePilot 帳號密碼。</p>
+          <p class="hint">對照 TMDB 上已經播出的集，真的缺集的季才向 MoviePilot 建訂閱並馬上搜尋。要先把 Mi302 加成 MoviePilot 的媒體伺服器（見下方），並填上面的 MoviePilot 帳號密碼。 <a class="doc" href="https://github.com/MiCat-S/Mi302/wiki/MoviePilot-整合#補全缺集" target="_blank" rel="noopener">說明</a></p>
           <div id="fill"></div>
-          <div class="logbar"><input id="seriesQ" type="search" placeholder="搜尋劇名" oninput="clearTimeout(seriesQT); seriesQT = setTimeout(() => loadSeries(1), 300)">
+          <div class="logbar"><input id="seriesQ" type="search" placeholder="搜尋劇名" oninput="soon('seriesQ', () => loadSeries(1))">
             <select id="seriesYear" onchange="loadSeries(1)"><option value="">全部年份</option></select>
             <select id="seriesLimit" onchange="loadSeries(1)"><option value="20">每頁 20 部</option><option value="50">每頁 50 部</option><option value="100">每頁 100 部</option><option value="200">每頁 200 部</option></select>
-            <label class="switch" style="padding:0"><input type="checkbox" id="seriesGaps" onchange="loadSeries(1)"><span class="track"></span><span class="lbl">只看集號有空洞的</span></label></div>
+            <label class="switch p0"><input type="checkbox" id="seriesGaps" onchange="loadSeries(1)"><span class="track"></span><span class="lbl">只看集號有空洞的</span></label></div>
           <div id="series" class="list"><p class="hint">讀取中…</p></div>
           <p class="hint">「集號有空洞」只是提示（例如有第 2、4 集沒有第 3 集）；最後幾集沒下到、整季沒有的情況，MoviePilot 對照 TMDB 一樣會算出來。沒有 tmdbid 的劇要先刮削。</p>
           <details class="more"><summary>設定</summary><div class="in">
-          <label class="switch"><input type="checkbox" data-key="moviepilot.fill_after_full_sync" onchange="putSettings({moviepilot: {fill_after_full_sync: this.checked}}).then(() => toast('已儲存')).catch(e => { toast('儲存失敗：' + e.message, 'bad'); fillFields(); })"><span class="track"></span><span class="lbl">全量同步後自動補全<small>每次全量同步、刮削完之後，把所有有 tmdbid 的劇送一次</small></span></label>
+          <label class="switch"><input type="checkbox" data-key="moviepilot.fill_after_full_sync" onchange="saveToggle(this)"><span class="track"></span><span class="lbl">全量同步後自動補全<small>每次全量同步、刮削完之後，把所有有 tmdbid 的劇送一次</small></span></label>
           </div></details>
         </div>
       </div>
       <div class="card">
         <div class="card-h"><div class="t"><svg class="i"><use href="#i-tool"/></svg><h2>集號不對的劇：交給 MoviePilot 整理</h2></div></div>
         <div class="card-b stack">
-          <p class="hint">這些集的集號不是從 nfo 讀到的（nfo 沒有集號，或刮削時沒認出來寫成 -1），檔名又不是 S01E02 這種標準寫法，是 Mi302 從「10.xxx」「第10集」這類寫法猜的，或根本認不出來。交給 MoviePilot 整理：它在 115 上把檔案改成自己命名設定的標準名稱（例如「劇名 - S01E10 - 集名」）並刮削，Mi302 再同步過來。<b>會真的改 115 上的檔名和位置</b>，所以一定先預覽，看過每個檔案的新路徑再執行。需要 MoviePilot v2.11.1-1 以上（更舊的不支援預覽）和上面的 MoviePilot 帳號密碼（要是管理員），MoviePilot 的 115 網盤也要登入同一個帳號。</p>
+          <p class="hint">這些集的集號是 Mi302 從「10.xxx」「第10集」這類檔名猜的，或認不出來。交給 MoviePilot 在 115 上改成標準檔名並刮削，<b>會真的改 115 上的檔名和位置</b>，所以一定先預覽再執行。 <a class="doc" href="https://github.com/MiCat-S/Mi302/wiki/MoviePilot-整合#整理集號不對的劇" target="_blank" rel="noopener">說明</a></p>
           <div id="reoReady"></div>
           <div id="reoJob"></div>
-          <div class="logbar"><input id="reoQ" type="search" placeholder="搜尋劇名" oninput="clearTimeout(reoQT); reoQT = setTimeout(() => loadReorg(1), 300)"></div>
+          <div class="logbar"><input id="reoQ" type="search" placeholder="搜尋劇名" oninput="soon('reoQ', () => loadReorg(1))"></div>
           <div id="reoList" class="list"><p class="hint">讀取中…</p></div>
         </div>
       </div>
@@ -613,16 +625,16 @@ dialog .card-b{max-height:70vh;overflow:auto}
         <div class="card-h"><div class="t"><svg class="i"><use href="#i-key"/></svg><h2>讓 MoviePilot 把 Mi302 當成 Emby</h2></div></div>
         <div class="card-b stack">
           <p class="hint">MoviePilot 可以把 Mi302 加成媒體伺服器，用來判斷片子是否已經有了、整理完自動通知 Mi302 重新掃描。在 MoviePilot 的「設定 → 媒體伺服器」新增一個 Emby：</p>
-          <dl class="kv"><dt>地址</dt><dd><div class="row"><code class="js-origin"></code><button class="btn sm ghost icon js-copy-origin" title="複製"><svg class="i"><use href="#i-copy"/></svg></button></div></dd>
+          <dl class="kv"><dt>地址</dt><dd><div class="row"><code class="js-origin"></code><button class="btn sm ghost icon" data-act="copyOrigin" title="複製" aria-label="複製伺服器地址"><svg class="i"><use href="#i-copy"/></svg></button></div></dd>
             <dt>API 金鑰</dt><dd>在下面建立一把，複製過去</dd></dl>
           <div id="keys" class="list"></div>
-          <div class="inline"><input id="keyName" type="text" placeholder="用途，例如 MoviePilot"><button class="btn" onclick="addKey()"><svg class="i"><use href="#i-plus"/></svg>建立 API 金鑰</button></div>
+          <div class="inline"><input id="keyName" type="text" placeholder="用途，例如 MoviePilot"><button class="btn" onclick="addKey(this)"><svg class="i"><use href="#i-plus"/></svg>建立 API 金鑰</button></div>
         </div>
       </div>
     </section>
 
     <!-- 使用者 -->
-    <section id="tab-users" class="page hidden">
+    <section id="tab-users" class="page hidden" role="tabpanel" aria-labelledby="nav-users">
       <div class="page-h">
         <div><h1>使用者</h1><p class="sub">這些帳號可以在播放器裡登入；管理員才能進這個網頁。</p></div>
       </div>
@@ -641,9 +653,9 @@ dialog .card-b{max-height:70vh;overflow:auto}
     </section>
 
     <!-- 日誌 -->
-    <section id="tab-logs" class="page hidden">
+    <section id="tab-logs" class="page hidden" role="tabpanel" aria-labelledby="nav-logs">
       <div class="page-h">
-        <div><h1>日誌</h1><p class="sub">同步、刮削、播放和錯誤的紀錄，最新的在最上面。這裡顯示最近 3000 筆，完整紀錄在日誌檔 <code id="logFile"></code>。</p></div>
+        <div><h1>日誌</h1><p class="sub">同步、刮削、播放和錯誤的紀錄，最新的在最上面。這裡顯示最近 <span id="logMax">1000</span> 筆，完整紀錄在日誌檔 <code id="logFile"></code>。</p></div>
         <button class="btn" onclick="downloadLog()"><svg class="i"><use href="#i-download"/></svg>下載日誌檔</button>
       </div>
       <div class="card">
@@ -652,12 +664,12 @@ dialog .card-b{max-height:70vh;overflow:auto}
             <option value="DEBUG">全部</option><option value="INFO" selected>一般</option>
             <option value="WARNING">警告和錯誤</option><option value="ERROR">只看錯誤</option>
           </select>
-          <input id="logQ" type="search" placeholder="搜尋，例如片名、115、MoviePilot" oninput="clearTimeout(logQT); logQT = setTimeout(() => loadLogs(true), 300)">
-          <label class="switch" style="padding:0"><input type="checkbox" id="logLive" checked onchange="loadLogs(false)"><span class="track"></span><span class="lbl">自動更新</span></label>
+          <input id="logQ" type="search" placeholder="搜尋，例如片名、115、MoviePilot" oninput="soon('logQ', () => loadLogs(true))">
+          <label class="switch p0"><input type="checkbox" id="logLive" checked onchange="loadLogs(false)"><span class="track"></span><span class="lbl">自動更新</span></label>
         </div>
         <div id="logList" class="logs"></div>
         <div class="card-f">
-          <label class="switch grow" style="padding:0"><input type="checkbox" id="logDebug" onchange="setLogLevel(this.checked)"><span class="track"></span>
+          <label class="switch grow p0"><input type="checkbox" id="logDebug" onchange="setLogLevel(this.checked)"><span class="track"></span>
             <span class="lbl">詳細模式<small>另外記錄每個播放器請求。播放器連不上、播不了的時候打開，找完原因再關掉</small></span></label>
           <span id="logFiles" class="hint"></span>
         </div>
@@ -665,7 +677,7 @@ dialog .card-b{max-height:70vh;overflow:auto}
     </section>
 
     <!-- 設定 -->
-    <section id="tab-settings" class="page hidden">
+    <section id="tab-settings" class="page hidden" role="tabpanel" aria-labelledby="nav-settings">
       <div class="page-h">
         <div><h1>設定</h1><p class="sub">設定都存在設定檔 <code id="cfgPath"></code>，儲存時自動寫入（舊檔留成 .bak）。直接改檔案也可以，重新整理網頁就會套用。</p></div>
       </div>
@@ -688,7 +700,7 @@ dialog .card-b{max-height:70vh;overflow:auto}
         <div class="card-h"><div class="t"><h2>其他工具產生的 strm</h2></div><span class="hint">strm 內容不是 Mi302 產生的（例如 alist 網址或本機路徑）時才需要</span></div>
         <div class="card-b stack">
           <label class="field"><span>路徑替換</span><textarea id="rules" rows="3" placeholder="/mnt/115 => http://alist:5244/d/115"></textarea><small>一行一條，格式：原本開頭 =&gt; 替換成</small></label>
-          <label class="field" style="max-width:280px"><span>看不出格式時預設的影片格式</span><input type="text" data-key="redirect.default_container"></label>
+          <label class="field maxw280"><span>看不出格式時預設的影片格式</span><input type="text" data-key="redirect.default_container"></label>
           <label class="switch"><input type="checkbox" data-key="redirect.resolve_redirects"><span class="track"></span><span class="lbl">由伺服器先跟著上游的重導向走到底<small>再把最終網址給播放器</small></span></label>
         </div>
       </div>
@@ -704,10 +716,10 @@ dialog .card-b{max-height:70vh;overflow:auto}
         <div class="card-h"><div class="t"><svg class="i"><use href="#i-download"/></svg><h2>備份</h2></div><button class="btn" id="bkBtn" onclick="backupNow()">立即備份</button></div>
         <div class="card-b stack">
           <p class="hint">每天自動備份資料庫（使用者、觀看紀錄、115 登入狀態、同步索引、媒體資訊）和設定檔，放在 <code id="bkDir"></code>。備份含 115 登入資訊和密碼雜湊，下載後請妥善保管。</p>
-          <label class="field" style="max-width:280px"><span>保留幾份</span><input type="number" min="0" max="90" data-key="server.backup_keep"><small>0 = 不自動備份（手動備份仍留最新 7 份）</small></label>
+          <label class="field maxw280"><span>保留幾份</span><input type="number" min="0" max="90" data-key="server.backup_keep"><small>0 = 不自動備份（手動備份仍留最新 7 份）</small></label>
           <div id="bkList" class="list"><p class="hint">讀取中…</p></div>
           <details class="more"><summary>怎麼還原</summary><div class="in hint stack">
-            <p>1. 停止 Mi302。2. 把要還原的 <code>.db</code> 複製成資料夾裡的 <code>library.db</code>，並刪掉 <code>library.db-wal</code>、<code>library.db-shm</code>。3. 需要的話把同時間的 <code>.yaml</code> 換成 <code>config.yaml</code>。4. 啟動 Mi302。</p></div></details>
+            <p>1. 停止 Mi302。2. 把要還原的 <code>.db</code> 複製成資料夾裡的 <code>library.db</code>，並刪掉 <code>library.db-wal</code>、<code>library.db-shm</code>。3. 需要的話把同時間的 <code>.yaml</code> 換成 <code>config.yaml</code>。4. 啟動 Mi302。 <a class="doc" href="https://github.com/MiCat-S/Mi302/wiki/備份與還原#還原" target="_blank" rel="noopener">說明</a></p></div></details>
         </div>
       </div>
       <div class="card">
@@ -727,17 +739,17 @@ dialog .card-b{max-height:70vh;overflow:auto}
   </main>
 </div>
 
-<dialog id="picker">
+<dialog id="picker" aria-labelledby="pickTitle">
   <div class="card-h"><div class="t"><svg class="i"><use href="#i-folder"/></svg><h2 id="pickTitle">選擇資料夾</h2></div></div>
   <div class="card-b stack">
     <div class="inline"><input id="pickPath" type="text"><button class="btn" onclick="pickGo(pickPath.value)">前往</button></div>
-    <p id="pickMsg" class="notice bad hidden"></p>
+    <p id="pickMsg" aria-live="polite" class="notice bad hidden"></p>
     <div id="pickList"></div>
   </div>
-  <div class="card-f" style="justify-content:flex-end"><button class="btn" onclick="picker.close()">取消</button><button class="btn primary" onclick="pickDone()">選這個資料夾</button></div>
+  <div class="card-f fe"><button class="btn" onclick="picker.close()">取消</button><button class="btn primary" onclick="pickDone()">選這個資料夾</button></div>
 </dialog>
 
-<dialog id="libDlg" class="wide">
+<dialog id="libDlg" class="wide" aria-labelledby="ldTitle">
   <div class="card-h"><div class="t"><svg class="i"><use href="#i-film"/></svg><h2 id="ldTitle">編輯媒體庫</h2></div></div>
   <div class="card-b stack">
     <div class="fields">
@@ -746,28 +758,28 @@ dialog .card-b{max-height:70vh;overflow:auto}
     </div>
     <div>
       <div class="row"><b class="grow">資料夾</b><button class="btn sm" onclick="libDlgAddPath()"><svg class="i"><use href="#i-plus"/></svg>加入資料夾</button></div>
-      <div id="ldPaths" class="list" style="margin-top:10px"></div>
+      <div id="ldPaths" class="list mt10"></div>
     </div>
     <div id="ldCover"></div>
-    <p id="ldMsg" class="notice bad hidden"></p>
+    <p id="ldMsg" aria-live="polite" class="notice bad hidden"></p>
   </div>
   <div class="card-f"><button class="btn danger" id="ldDel" onclick="deleteLibDlg()"><svg class="i"><use href="#i-trash"/></svg>刪除媒體庫</button><span class="grow"></span>
     <button class="btn" onclick="libDlg.close()">取消</button><button class="btn primary" id="ldSave" onclick="saveLibDlg()">儲存並掃描</button></div>
 </dialog>
 
-<dialog id="bulkDlg" class="wide">
-  <div class="card-h"><div class="t"><svg class="i"><use href="#i-folder"/></svg><h2>從資料夾批量新增</h2></div></div>
+<dialog id="bulkDlg" class="wide" aria-labelledby="blkTitle">
+  <div class="card-h"><div class="t"><svg class="i"><use href="#i-folder"/></svg><h2 id="blkTitle">從資料夾批量新增</h2></div></div>
   <div class="card-b stack">
     <p class="hint">選一個上層資料夾，底下每個子資料夾各建一個媒體庫。類型是看裡面的檔案猜的，可以改。名稱改成一樣的會合成一個媒體庫；和現有的媒體庫同名，就加進那個媒體庫。</p>
     <div class="inline"><input id="blkPath" type="text" placeholder="/media" onkeydown="if (event.key === 'Enter') bulkLoad()"><button class="btn" onclick="bulkPick()">選擇…</button><button class="btn" onclick="bulkLoad()">讀取</button></div>
-    <p id="blkMsg" class="notice hidden"></p>
+    <p id="blkMsg" aria-live="polite" class="notice hidden"></p>
     <div id="blkBar" class="row wrap hidden"><button class="btn sm" onclick="bulkAll(true)">全選</button><button class="btn sm" onclick="bulkAll(false)">全不選</button><span class="hint grow" id="blkInfo"></span></div>
     <div id="blkList" class="list"></div>
   </div>
   <div class="card-f"><span class="grow"></span><button class="btn" onclick="bulkDlg.close()">取消</button><button class="btn primary" id="blkOk" onclick="bulkSave()" disabled>新增並掃描</button></div>
 </dialog>
 
-<dialog id="reoDlg" class="wide">
+<dialog id="reoDlg" class="wide" aria-labelledby="reoTitle">
   <div class="card-h"><div class="t"><svg class="i"><use href="#i-tool"/></svg><h2 id="reoTitle">交給 MoviePilot 整理</h2></div></div>
   <div class="card-b stack">
     <div id="reoPlan"></div>
@@ -782,30 +794,30 @@ dialog .card-b{max-height:70vh;overflow:auto}
       <label class="switch"><input type="checkbox" id="reoScrape" checked onchange="reoDirty()"><span class="track"></span><span class="lbl">整理後刮削<small>MoviePilot 把 nfo 和劇照寫到 115，Mi302 同步時下載（要開 115 同步的「一併下載 115 上的 nfo、海報、字幕」）</small></span></label>
       <div id="reoGroups"></div>
     </div>
-    <p id="reoMsg" class="notice hidden"></p>
+    <p id="reoMsg" aria-live="polite" class="notice hidden"></p>
     <div id="reoResult"></div>
   </div>
   <div class="card-f"><span class="hint grow" id="reoInfo"></span><button class="btn" onclick="reoDlg.close()">關閉</button>
     <button class="btn" id="reoPreviewBtn" onclick="reoPreview()" disabled>預覽</button><button class="btn danger solid" id="reoRunBtn" onclick="reoExecute()" disabled>執行整理</button></div>
 </dialog>
 
-<dialog id="modal">
+<dialog id="modal" aria-labelledby="mTitle">
   <form method="dialog">
     <div class="card-b stack">
       <h2 id="mTitle"></h2>
       <p id="mText" class="hint"></p>
       <input id="mInput" class="hidden">
     </div>
-    <div class="card-f" style="justify-content:flex-end"><button class="btn" value="cancel">取消</button><button class="btn primary" id="mOk" value="ok">確定</button></div>
+    <div class="card-f fe"><button class="btn" value="cancel">取消</button><button class="btn primary" id="mOk" value="ok">確定</button></div>
   </form>
 </dialog>
 
-<div id="toasts"></div>
+<div id="toasts" role="status" aria-live="polite"></div>
 
 <script>
 let token = localStorage.getItem('mi302') || '';
 let cfg = null, tasks = [];
-const S = {};  // 最近一次讀到的狀態：p115、sync、mp、scan
+const S = {};  // 最近一次讀到的狀態：p115、sync、mp、scan、mi、dupes、reo（整理工作）
 const $ = id => document.getElementById(id);
 const H = () => ({'X-Emby-Token': token, 'Content-Type': 'application/json'});
 async function api(path, opt = {}) {
@@ -819,6 +831,48 @@ const ESC = {'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
 function esc(s) { return String(s ?? '').replace(/[&<>"']/g, c => ESC[c]); }
 function setHtml(el, html) { if (el._html !== html) { el._html = html; el.innerHTML = html; } }  // 內容沒變就不重畫
 const icon = name => `<svg class="i"><use href="#i-${name}"/></svg>`;
+function chip(n, l, hl) { return `<div class="chip ${hl && n ? 'hl' : ''}"><div class="n">${n}</div><div class="l">${esc(l)}</div></div>`; }
+const failHtml = e => `<p class="notice bad">${esc(e?.message || e)}</p>`;  // 讀取失敗的提示，各處同一種寫法
+
+// 計時器都放在 timers 裡，同一個 key 只留最後一個（連點兩下也不會有兩條輪詢）
+const timers = {};
+function cancel(key) { clearTimeout(timers[key]); delete timers[key]; }
+// ms 之後做一次；同一個 key 還沒做的會被取代（搜尋框停手再查、二維碼每 1.5 秒問一次）
+function soon(key, fn, ms = 300) { cancel(key); timers[key] = setTimeout(() => { delete timers[key]; fn(); }, ms); }
+function later(key, fn, ms = 2000) {
+  // 輪詢：ms 之後再問一次；分頁在背景（document.hidden）時不打伺服器，只延後再看
+  cancel(key);
+  const tick = () => { if (document.hidden) timers[key] = setTimeout(tick, ms); else { delete timers[key]; fn(); } };
+  timers[key] = setTimeout(tick, ms);
+}
+// 分頁列：「第 N / M 頁，共 X 項」和上一頁、下一頁。只有一頁時不畫；always 為真時照樣顯示總數
+function pager(box, {page, pages, onPage, total = null, unit = '', always = false}) {
+  if (pages <= 1 && !(always && total)) return;
+  const text = [pages > 1 ? `第 ${page} / ${pages} 頁` : '', total != null ? `共 ${total} ${unit}` : ''].filter(Boolean).join('，');
+  const bar = document.createElement('div'); bar.className = 'row pager';
+  bar.innerHTML = `<span class="hint grow">${esc(text)}</span>` + (pages > 1 ? '<button class="btn sm">上一頁</button><button class="btn sm">下一頁</button>' : '');
+  const [prev, next] = bar.querySelectorAll('button');
+  if (prev) {
+    prev.disabled = page <= 1; next.disabled = page >= pages;
+    prev.onclick = () => onPage(page - 1); next.onclick = () => onPage(page + 1);
+  }
+  box.appendChild(bar);
+}
+async function downloadBlob(resp, filename) {
+  // 把回應存成檔案（備份、日誌）；fetch 才帶得了登入 token，所以不能直接開網址
+  if (!resp.ok) { toast('下載失敗：' + (await resp.text() || resp.status), 'bad'); return; }
+  const url = URL.createObjectURL(await resp.blob());
+  const a = document.createElement('a'); a.href = url; a.download = filename; document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+// 動態產生的按鈕、連結用 data-act 說要做什麼，參數放在 data-*（路徑、名稱有引號也不會壞），全頁共用一個 click 監聽
+const ACTS = {};
+document.addEventListener('click', e => {
+  const el = e.target.closest('[data-act]');
+  if (!el || el.disabled || !ACTS[el.dataset.act]) return;
+  e.preventDefault();
+  ACTS[el.dataset.act](el, e);
+});
 function toast(text, kind = '') {
   const t = document.createElement('div'); t.className = 'toast ' + kind; t.textContent = text;
   $('toasts').appendChild(t); setTimeout(() => t.remove(), kind === 'bad' ? 6000 : 2600);
@@ -865,9 +919,9 @@ function ago(ts) {
 // ---- 登入 ----
 // 打開網頁時先問伺服器要不要建立管理員、登入是否還有效。連不上（重新啟動中、反向代理回 502、
 // 伺服器忙到 15 秒沒回應）時顯示原因並自動重試，不能留一片空白
-let bootTimer = null, bootTries = 0;
+let bootTries = 0;
 async function boot() {
-  clearTimeout(bootTimer);
+  cancel('boot');
   let s;
   try {
     // 舊瀏覽器沒有 AbortSignal.timeout 就不限時
@@ -890,7 +944,7 @@ function bootFailed(e) {
   $('bootRetry').classList.remove('hidden');
   if (!$('main').classList.contains('hidden')) return toast('連不上 Mi302：' + why, 'bad');  // 已經在用了：只提示
   show('boot');
-  bootTimer = setTimeout(boot, wait * 1000);
+  soon('boot', boot, wait * 1000);
 }
 const AUTH_HEADER = 'MediaBrowser Client="Mi302 Web", Device="Browser", DeviceId="mi302web", Version="1"';
 async function doSetup() {
@@ -915,7 +969,10 @@ const PAGES = {overview: () => loadOverview(), libraries: () => loadLibs(), '115
 function route() {
   let tab = (location.hash || '#overview').slice(1);
   if (!PAGES[tab]) tab = 'overview';
-  for (const a of document.querySelectorAll('nav a[data-tab]')) a.classList.toggle('on', a.dataset.tab === tab);
+  for (const a of document.querySelectorAll('nav a[data-tab]')) {
+    a.classList.toggle('on', a.dataset.tab === tab);
+    a.setAttribute('aria-selected', a.dataset.tab === tab);
+  }
   for (const s of document.querySelectorAll('section.page')) s.classList.toggle('hidden', s.id !== 'tab-' + tab);
   document.title = document.querySelector(`nav a[data-tab="${tab}"] span`).textContent + ' · Mi302';
   fillFields();
@@ -923,27 +980,39 @@ function route() {
   window.scrollTo(0, 0);
 }
 window.addEventListener('hashchange', () => { if (token && cfg) route(); });
-document.addEventListener('click', e => { if (e.target.closest('.js-copy-origin')) copyText(location.origin); });
+ACTS.copyOrigin = () => copyText(location.origin);
 
 // ---- 表單欄位 data-key="a.b.c" 對應設定 ----
 function getKey(obj, key) { return key.split('.').reduce((o, k) => o?.[k], obj); }
 function setKey(obj, key, v) { const ks = key.split('.'); let o = obj; ks.slice(0, -1).forEach(k => o = o[k] ??= {}); o[ks.at(-1)] = v; }
-function fillFields() {
+function fillFields(only) {
+  // only：剛存的那部分設定（和送出的格式一樣）；給了就只刷新這些欄位，同頁其他還沒存的輸入不動
   for (const el of document.querySelectorAll('[data-key]')) {
+    if (only && getKey(only, el.dataset.key) === undefined) continue;
     const v = getKey(cfg, el.dataset.key);
-    if (el.type === 'checkbox') el.checked = !!v; else el.value = v ?? '';
+    if (el.type === 'checkbox') { el.checked = !!v; continue; }
+    if (el.tagName === 'SELECT' && v != null && v !== '' && ![...el.options].some(o => o.value === String(v))) {
+      el.add(new Option(`${v}（目前的設定）`, v));  // 設定檔裡的值不在選項裡：照樣顯示，存的時候不會被清空
+    }
+    el.value = v ?? '';
   }
   $('srvName').textContent = cfg.server.name;
   $('port').textContent = cfg.port;
   $('cfgPath').textContent = cfg.config_path || '（沒有設定檔）';
   $('fileErr').querySelector('span').textContent = cfg.file_error ? cfg.file_error + '。網頁目前用的是上次讀到的設定，修正設定檔後重新整理網頁。' : '';
   $('fileErr').classList.toggle('hidden', !cfg.file_error);
-  $('rules').value = cfg.redirect.path_rules.map(r => r.from + ' => ' + r.to).join('\n');
+  if (!only || only.redirect?.path_rules) $('rules').value = cfg.redirect.path_rules.map(r => r.from + ' => ' + r.to).join('\n');
   for (const el of document.querySelectorAll('.js-origin')) el.textContent = location.origin;
 }
 async function putSettings(body) {
   cfg = await api('/web/api/settings', {method: 'PUT', body: JSON.stringify(body)});
-  fillFields();
+  fillFields(body);
+}
+async function saveToggle(el, after) {
+  // 卡片上的開關：一改就存這一個設定；失敗就撥回去
+  const body = {}; setKey(body, el.dataset.key, el.checked);
+  try { await putSettings(body); } catch (e) { toast('儲存失敗：' + e.message, 'bad'); el.checked = !el.checked; return; }
+  toast('已儲存'); after?.();
 }
 async function saveFields(scope, withRules) {
   const body = {};
@@ -953,7 +1022,7 @@ async function saveFields(scope, withRules) {
 }
 function parseRules(text) { return text.split('\n').map(l => l.split('=>')).filter(x => x.length === 2).map(([f, t]) => ({from: f.trim(), to: t.trim()})); }
 function emptyState(title, text, link, label) {
-  return `<div class="empty"><b>${esc(title)}</b>${esc(text)}${link ? `<div style="margin-top:10px"><a class="btn sm" href="${link}">${esc(label)}</a></div>` : ''}</div>`;
+  return `<div class="empty"><b>${esc(title)}</b>${esc(text)}${link ? `<div class="mt10"><a class="btn sm" href="${link}">${esc(label)}</a></div>` : ''}</div>`;
 }
 
 // ---- 概覽 ----
@@ -962,10 +1031,10 @@ async function loadOverview() {
     $('stMovies').textContent = c.MovieCount; $('stSeries').textContent = c.SeriesCount; $('stEpisodes').textContent = c.EpisodeCount;
   }).catch(() => {});
   const iv = cfg.p115.strm.interval, fi = cfg.p115.strm.full_interval;
-  $('ovSched').textContent = '自動增量：' + (iv ? '每 ' + iv + ' 分鐘' : '關閉') + '　自動全量：' + (fi ? '每 ' + fi + ' 小時' : '關閉');
+  $('ovSched').innerHTML = `<span>自動增量：${iv ? '每 ' + iv + ' 分鐘' : '關閉'}</span><span>自動全量：${fi ? '每 ' + fi + ' 小時' : '關閉'}</span>`;
   // 各區塊各自載入、各自顯示，不等最慢的（115 帳號要問 115）
   const parts = [refreshScan(), pollSync(true), pollMP(),
-    api('/p115/status').then(s => { S.p115 = s; renderAccount(); }).catch(e => { $('ovAcct').innerHTML = `<p class="notice bad">${esc(e.message)}</p>`; })];
+    api('/p115/status').then(s => { S.p115 = s; renderAccount(); }).catch(e => { $('ovAcct').innerHTML = failHtml(e); })];
   for (const p of parts) p.then(renderSteps, renderSteps);
 }
 function renderSteps() {
@@ -993,7 +1062,7 @@ function loadTools() {
   showTool(TOOLS[t] ? t : 'mi');
 }
 function showTool(t) {
-  for (const b of document.querySelectorAll('#toolTabs button')) b.classList.toggle('on', b.dataset.tool === t);
+  for (const b of document.querySelectorAll('#toolTabs button')) { b.classList.toggle('on', b.dataset.tool === t); b.setAttribute('aria-selected', b.dataset.tool === t); }
   for (const c of document.querySelectorAll('#tab-tools .card.tool')) c.classList.toggle('hidden', c.dataset.tool !== t);
   try { localStorage.setItem('mi302.tool', t); } catch (e) {}
   TOOLS[t]();
@@ -1018,7 +1087,7 @@ function renderLibs() {
         <div class="row"><span class="nm grow js-edit" title="${esc(l.name)}">${esc(l.name)}</span><span class="pill">${tv ? '劇集' : '電影'}</span></div>
         <div class="hint">${st?.id ? `<span class="js-count">${st.count} 個項目</span>・` : '還沒掃描・'}${l.paths.length} 個資料夾</div>
         <div class="pp" title="${esc(l.paths.join('\n'))}"><span dir="ltr">${esc(l.paths[0] || '')}${l.paths.length > 1 ? `（還有 ${l.paths.length - 1} 個）` : ''}</span></div>
-        ${miss ? `<div style="margin-top:4px"><span class="pill warn">${miss} 個資料夾不存在</span></div>` : ''}
+        ${miss ? `<div class="mt4"><span class="pill warn">${miss} 個資料夾不存在</span></div>` : ''}
       </div>
       <div class="f">${st?.id ? `<button class="btn sm js-scan" title="只掃描這個媒體庫">${icon('refresh')}掃描</button>` : ''}<span class="grow"></span><button class="btn sm js-edit">編輯</button></div>`;
     for (const el of tile.querySelectorAll('.js-edit')) el.onclick = () => openLibDlg(i);
@@ -1027,10 +1096,12 @@ function renderLibs() {
   });
   const add = document.createElement('div'); add.className = 'lib add';
   add.innerHTML = `${libs.length ? '' : '<p class="hint">還沒有媒體庫。例如「電影」選 /media/movies，或用批量新增一次建好。</p>'}
-    <button class="btn" onclick="openLibDlg(null)">${icon('plus')}新增媒體庫</button>
-    <button class="btn ghost" onclick="openBulk()">${icon('folder')}從資料夾批量新增</button>`;
+    <button class="btn" data-act="newLib">${icon('plus')}新增媒體庫</button>
+    <button class="btn ghost" data-act="bulkLibs">${icon('folder')}從資料夾批量新增</button>`;
   box.appendChild(add);
 }
+ACTS.newLib = () => openLibDlg(null);
+ACTS.bulkLibs = () => openBulk();
 function parentDir(p) {
   const up = p.replace(/[\\/]+$/, '').replace(/[\\/][^\\/]*$/, '');
   return !up ? '/' : /^[A-Za-z]:$/.test(up) ? up + '\\' : up;
@@ -1055,7 +1126,7 @@ function openLibDlg(i) {
   note($('ldMsg'), '');
   renderLibDlg();
   libDlg.showModal();
-  if (i === null) ldName.focus();
+  ldName.focus();
 }
 function renderLibDlg() {
   if (!libEdit) return;
@@ -1075,7 +1146,7 @@ function renderLibDlg() {
   if (!st?.id) { cov.innerHTML = ''; return; }
   cov.innerHTML = `<div class="cover" style="border-bottom:0;padding-bottom:0">${st.cover ? `<img src="/Items/${st.id}/Images/Primary?tag=${st.cover}&maxWidth=360" alt="">` : '<div class="ph">還沒有封面</div>'}
     <div class="grow" style="min-width:180px"><b>封面</b><p class="hint">${st.custom_cover ? '上傳的封面（例如 MoviePilot 封面插件產生的）' : st.cover ? '媒體庫資料夾裡的 poster／folder／cover 圖' : '可以在這裡上傳，或用 MoviePilot 的媒體庫封面插件產生'}</p>
-      <div class="row" style="margin-top:8px"><button class="btn sm js-up">上傳封面</button>${st.custom_cover ? '<button class="btn sm ghost js-reset">改回預設</button>' : ''}</div></div></div>`;
+      <div class="row mt8"><button class="btn sm js-up">上傳封面</button>${st.custom_cover ? '<button class="btn sm ghost js-reset">改回預設</button>' : ''}</div></div></div>`;
   cov.querySelector('.js-up').onclick = () => uploadCover(st.id);
   const rs = cov.querySelector('.js-reset'); if (rs) rs.onclick = () => resetCover(st.id);
 }
@@ -1112,7 +1183,7 @@ function openBulk() {
   const first = libs.find(l => l.paths.length)?.paths[0];
   blkPath.value = first ? parentDir(first) : '';
   bulkRows = []; $('blkList').innerHTML = ''; note($('blkMsg'), ''); bulkRefresh();
-  bulkDlg.showModal();
+  bulkDlg.showModal(); blkPath.focus();
   if (blkPath.value) bulkLoad(); else bulkPick();
 }
 async function bulkPick() { const p = await pickDir('local', blkPath.value); if (p) { blkPath.value = p; bulkLoad(); } }
@@ -1140,8 +1211,8 @@ function renderBulk() {
     row.innerHTML = `<input type="checkbox" ${r.on ? 'checked' : ''} aria-label="選取">
       <div class="main">
         <div class="row wrap"><input type="text" class="js-name" style="flex:1 1 160px;width:auto" placeholder="媒體庫名稱">
-          <select class="js-type" style="width:auto"><option value="movies">電影</option><option value="tvshows">劇集</option></select></div>
-        <div class="sub" style="margin-top:4px" title="${esc(r.path)}">資料夾 ${esc(r.path.split(/[\\/]/).pop())}・${count}・${esc(r.why)}</div>
+          <select class="js-type w-auto"><option value="movies">電影</option><option value="tvshows">劇集</option></select></div>
+        <div class="sub mt4" title="${esc(r.path)}">資料夾 ${esc(r.path.split(/[\\/]/).pop())}・${count}・${esc(r.why)}</div>
         <div class="sub js-st"></div>
       </div>`;
     const cb = row.querySelector('input[type=checkbox]'), name = row.querySelector('.js-name'), type = row.querySelector('.js-type');
@@ -1179,7 +1250,7 @@ function bulkRefresh() {
     }
     if (err) bad++;
     const st = r.el.querySelector('.js-st');
-    st.textContent = msgs.join('；'); st.style.color = err ? 'var(--danger)' : r.used ? 'var(--warn)' : '';
+    st.textContent = msgs.join('；'); st.classList.toggle('t-bad', err); st.classList.toggle('t-warn', !err && !!r.used);
     r.el.classList.toggle('off', !r.on);
   }
   $('blkBar').classList.toggle('hidden', !bulkRows.length);
@@ -1206,7 +1277,7 @@ async function bulkSave() {
 async function scanReq(body, label) {
   try { await api('/web/api/scan', {method: 'POST', body: JSON.stringify(body)}); }
   catch (e) { toast('無法掃描：' + e.message, 'bad'); return; }
-  toast('開始掃描' + label); setTimeout(refreshScan, 300);
+  toast('開始掃描' + label); later('scan', refreshScan, 300);
 }
 async function scanFolder() {
   const p = await pickDir('local', libs[0]?.paths[0]);
@@ -1227,10 +1298,8 @@ async function resetCover(id) {
   try { await api('/Items/' + id + '/Images/Primary', {method: 'DELETE'}); } catch (e) { toast(e.message, 'bad'); return; }
   toast('已改回預設封面'); refreshScan();
 }
-let scanTimer = null;
 async function refreshScan() {
-  clearTimeout(scanTimer);  // 好幾個地方會叫它，不能各開一條輪詢
-  if (document.hidden && S.scan) { scanTimer = setTimeout(refreshScan, 2000); return; }  // 沒在看就不問伺服器
+  cancel('scan');  // 好幾個地方會叫它，不能各開一條輪詢
   try { S.scan = await api('/web/api/scan'); } catch (e) { return; }
   setHtml($('scanSt'), scanHtml(S.scan));
   if (!$('tab-libraries').classList.contains('hidden')) {
@@ -1238,17 +1307,17 @@ async function refreshScan() {
     if (same) updateLibCounts();
     else { renderLibs(); if (libDlg.open) renderLibDlg(); }  // 封面換了、資料夾不見了：對話框也跟著更新
   }
-  if (S.scan.scanning) scanTimer = setTimeout(refreshScan, 2000);
+  if (S.scan.scanning) later('scan', refreshScan);
 }
 function scanNow() { scanReq({}, '全部媒體庫'); }
 
 // ---- 片頭片尾 ----
 async function pollIntro() {
   let s;
-  try { s = await api('/web/api/intro/status'); } catch (e) { $('introStat').innerHTML = `<p class="notice bad">${esc(e.message)}</p>`; return; }
+  try { s = await api('/web/api/intro/status'); } catch (e) { $('introStat').innerHTML = failHtml(e); return; }
   let h = `<div class="chips">${chip(s.seasons, '學到的季', true)}${chip(s.episodes, '有紀錄的集')}${chip(s.manual || 0, '手動設定的季')}</div>`;
   if (!s.seasons && !s.manual && s.enabled) {
-    h += '<p class="hint" style="margin-top:8px">還沒學到任何片頭。用播放器看劇時，在開頭手動跳過片頭、片尾切下一集，就會記下來；也可以在下面搜尋劇名手動設定。</p>';
+    h += '<p class="hint mt8">還沒學到任何片頭。用播放器看劇時，在開頭手動跳過片頭、片尾切下一集，就會記下來；也可以在下面搜尋劇名手動設定。</p>';
   }
   setHtml($('introStat'), h);
   loadIntroSeasons();
@@ -1260,7 +1329,7 @@ async function clearIntro() {
 }
 
 // 片頭片尾的季清單：沒搜尋時列有紀錄或手動設定的季；搜尋時列符合的劇的每一季。一次 20 季
-let introPage = 1, introSeq = 0, introQT = null;
+let introPage = 1, introSeq = 0;
 const INTRO_PAGE = 20;
 const introSec = n => n >= 60 ? `${Math.floor(n / 60)} 分${n % 60 ? ' ' + n % 60 + ' 秒' : ''}` : `${n} 秒`;
 function durText(n) {
@@ -1290,15 +1359,13 @@ async function loadIntroSeasons(page) {
   const box = $('introList'), seq = ++introSeq, q = $('introQ').value.trim();
   let r;
   try { r = await api(`/web/api/intro/seasons?q=${encodeURIComponent(q)}&offset=${(introPage - 1) * INTRO_PAGE}&limit=${INTRO_PAGE}`); }
-  catch (e) { if (seq === introSeq) box.innerHTML = `<p class="notice bad">${esc(e.message)}</p>`; return; }
+  catch (e) { if (seq === introSeq) box.innerHTML = failHtml(e); return; }
   if (seq !== introSeq) return;
   const pages = Math.max(1, Math.ceil(r.total / INTRO_PAGE));
   if (introPage > pages) return loadIntroSeasons(pages);
   box.innerHTML = q && !r.items.length ? '<p class="hint">沒有符合的劇</p>' : '';
   for (const it of r.items) box.appendChild(introRow(it));
-  const nav = pages > 1
-    ? `<button class="btn sm"${introPage <= 1 ? ' disabled' : ''} onclick="loadIntroSeasons(${introPage - 1})">上一頁</button><button class="btn sm"${introPage >= pages ? ' disabled' : ''} onclick="loadIntroSeasons(${introPage + 1})">下一頁</button>` : '';
-  if (pages > 1) box.insertAdjacentHTML('beforeend', `<div class="row" style="padding-top:12px"><span class="hint grow">第 ${introPage} / ${pages} 頁，共 ${r.total} 季</span>${nav}</div>`);
+  pager(box, {page: introPage, pages, onPage: loadIntroSeasons, total: r.total, unit: '季'});
 }
 function introRow(it) {
   const row = document.createElement('div'); row.className = 'li top';
@@ -1316,12 +1383,12 @@ function toggleIntroEdit(row, it) {
   // 還沒手動設定時，用學到的值當起點，改一點就好
   const iv = m.intro || it.intro || auto.intro, ct = m.credits_tail ?? it.credits_tail ?? auto.credits_tail;
   const opt = (v, label, cur) => `<option value="${v}"${v === cur ? ' selected' : ''}>${label}</option>`;
-  box.innerHTML = `<div class="stack" style="margin-top:10px">
+  box.innerHTML = `<div class="stack mt10">
     <div class="logbar"><span class="hint">片頭</span><select class="js-im">${opt('auto', '自動（照播放行為學）', im)}${opt('manual', '手動設定', im)}${opt('none', '這一季沒有片頭', im)}</select>
-      <input class="js-is" placeholder="開始，例如 0:05" value="${iv ? durText(iv[0]) : ''}" style="width:8.5em"><span class="hint">到</span>
-      <input class="js-ie" placeholder="結束，例如 1:35" value="${iv ? durText(iv[1]) : ''}" style="width:8.5em"></div>
+      <input class="js-is w85" placeholder="開始，例如 0:05" value="${iv ? durText(iv[0]) : ''}"><span class="hint">到</span>
+      <input class="js-ie w85" placeholder="結束，例如 1:35" value="${iv ? durText(iv[1]) : ''}"></div>
     <div class="logbar"><span class="hint">片尾</span><select class="js-cm">${opt('auto', '自動（照播放行為學）', cm)}${opt('manual', '手動設定', cm)}${opt('none', '這一季沒有片尾', cm)}</select>
-      <span class="hint">從結尾前</span><input class="js-ct" placeholder="例如 1:30" value="${ct != null ? durText(ct) : ''}" style="width:7em"><span class="hint">開始</span></div>
+      <span class="hint">從結尾前</span><input class="js-ct w7" placeholder="例如 1:30" value="${ct != null ? durText(ct) : ''}"><span class="hint">開始</span></div>
     <p class="hint">時間寫成「分:秒」（例如 1:30）或秒數。${it.runtime ? '這一季第 1 集長 ' + durText(it.runtime) + '。' : '還不知道這一季的片長，手動的片尾要等有片長才給得出去。'}</p>
     <label class="switch"><input type="checkbox" class="js-all"><span class="track"></span><span class="lbl">這部劇的每一季都用這個設定</span></label>
     <div class="row wrap"><button class="btn primary sm js-save">儲存</button><button class="btn sm js-cancel">取消</button><span class="grow"></span>${it.learned ? '<button class="btn ghost sm js-clear">清除這一季學到的紀錄</button>' : ''}</div>
@@ -1361,10 +1428,8 @@ async function saveIntro(box, it) {
 }
 
 // ---- 媒體資訊 ----
-let miTimer = null;
 async function pollMI() {
-  clearTimeout(miTimer);
-  if (document.hidden && S.mi?.result.running) { miTimer = setTimeout(pollMI, 2000); return; }
+  cancel('mi');
   let s;
   try { s = await api('/web/api/mediainfo/status'); } catch (e) { return; }
   const wasRunning = S.mi?.result.running;
@@ -1372,7 +1437,7 @@ async function pollMI() {
   setHtml($('miStat'), miHtml(s));
   miButtons();
   miSummary();
-  if (s.result.running) miTimer = setTimeout(pollMI, 2000);
+  if (s.result.running) later('mi', pollMI);
   else if (wasRunning || !S.miTitles) loadMiTitles();  // 一批做完，缺的數字變了
 }
 function miBlocked() {
@@ -1390,7 +1455,7 @@ function miButtons() {
 }
 
 // 挑選要提取的影片：篩選、先做哪些、這次最多幾支；清單一次 20 部，照「先做哪些」排
-let miPage = 1, miSeq = 0, miQT = null;
+let miPage = 1, miSeq = 0;
 const MI_PAGE = 20;
 function restoreMiPrefs() {
   try {
@@ -1417,12 +1482,10 @@ function miSummary() {
     (run?.running && run.source === 'manual' ? '正在提取中：改「這次最多」會直接套用到這一批。' : '');
 }
 // 提取中改「這次最多幾支」：停手 0.8 秒後套用到正在跑的這一批（清空輸入框時不動，免得變成全部）
-let miRetargetT = null;
 function queueRetarget() {
   const run = S.mi?.result;
   if (!run?.running || run.source !== 'manual' || $('miLimit').value.trim() === '') return;
-  clearTimeout(miRetargetT);
-  miRetargetT = setTimeout(retargetMI, 800);
+  soon('miRetarget', retargetMI, 800);
 }
 async function retargetMI() {
   const limit = miLimit();
@@ -1432,6 +1495,7 @@ async function retargetMI() {
   toast(`這一批改成${limit ? '最多 ' + limit + ' 支' : '全部符合的'}，共 ${r.total} 支`);
   pollMI();
 }
+ACTS.stopMI = () => stopMI();
 async function stopMI() {
   try {
     const r = await api('/web/api/mediainfo/stop', {method: 'POST'});
@@ -1453,7 +1517,7 @@ async function loadMiTitles(page) {
   const qs = new URLSearchParams({...f, offset: (miPage - 1) * MI_PAGE, limit: MI_PAGE});
   let r;
   try { r = await api('/web/api/mediainfo/titles?' + qs); }
-  catch (e) { if (seq === miSeq) box.innerHTML = `<p class="notice bad">${esc(e.message)}</p>`; return; }
+  catch (e) { if (seq === miSeq) box.innerHTML = failHtml(e); return; }
   if (seq !== miSeq) return;
   S.miTitles = r;
   fillMiLibs(r.libraries || []);
@@ -1471,32 +1535,30 @@ async function loadMiTitles(page) {
     row.querySelector('button').onclick = () => probeMI([t.id], '「' + t.name + '」');
     box.appendChild(row);
   }
-  const nav = pages > 1
-    ? `<button class="btn sm"${miPage <= 1 ? ' disabled' : ''} onclick="loadMiTitles(${miPage - 1})">上一頁</button><button class="btn sm"${miPage >= pages ? ' disabled' : ''} onclick="loadMiTitles(${miPage + 1})">下一頁</button>` : '';
-  if (r.total) box.insertAdjacentHTML('beforeend', `<div class="row" style="padding-top:12px"><span class="hint grow">${pages > 1 ? `第 ${miPage} / ${pages} 頁，` : ''}共 ${r.total} 部還缺</span>${nav}</div>`);
+  pager(box, {page: miPage, pages, onPage: loadMiTitles, total: r.total, unit: '部還缺', always: true});
   miButtons();
 }
 function miHtml(s) {
   const r = s.result;
   let h = `<div class="row wrap"><span class="pill ${s.total && s.have >= s.total ? 'ok' : ''}">${s.have} / ${s.total} 支影片有媒體資訊</span></div>`;
-  if (!s.ffprobe) h += '<p class="notice warn" style="margin-top:10px">找不到 ffprobe，只能讀現成的 X-mediainfo.json。請安裝 ffmpeg（例如 apt install ffmpeg、brew install ffmpeg），或重新執行安裝腳本。</p>';
-  if (s.breaker?.tripped) h += `<p class="notice warn" style="margin-top:10px">${esc(s.breaker.message)}</p>`;
+  if (!s.ffprobe) h += '<p class="notice warn mt10">找不到 ffprobe，只能讀現成的 X-mediainfo.json。請安裝 ffmpeg（例如 apt install ffmpeg、brew install ffmpeg），或重新執行安裝腳本。</p>';
+  if (s.breaker?.tripped) h += `<p class="notice warn mt10">${esc(s.breaker.message)}</p>`;
   const od = s.on_demand || {};
-  if (od.enabled && s.ffprobe && (od.queue || od.done || od.failed)) h += `<p class="hint" style="margin-top:8px">打開即探測：排隊中 ${od.queue}，完成 ${od.done}${od.failed ? '，失敗 ' + od.failed : ''}</p>`;
+  if (od.enabled && s.ffprobe && (od.queue || od.done || od.failed)) h += `<p class="hint mt8">打開即探測：排隊中 ${od.queue}，完成 ${od.done}${od.failed ? '，失敗 ' + od.failed : ''}</p>`;
   const u = s.usage || {};
-  if (u.limit || u.used) h += `<p class="hint" style="margin-top:8px">這一小時向 115 取了 ${u.used} 次直鏈${u.limit ? '，上限 ' + u.limit : ''}${u.slowdown > 1 ? `（熔斷剛恢復，先放慢 ${u.slowdown} 倍）` : ''}${u.waiting_until ? '；已達上限，' + fmtTime(u.waiting_until) + ' 後繼續' : ''}</p>`;
+  if (u.limit || u.used) h += `<p class="hint mt8">這一小時向 115 取了 ${u.used} 次直鏈${u.limit ? '，上限 ' + u.limit : ''}${u.slowdown > 1 ? `（熔斷剛恢復，先放慢 ${u.slowdown} 倍）` : ''}${u.waiting_until ? '；已達上限，' + fmtTime(u.waiting_until) + ' 後繼續' : ''}</p>`;
   if (!r.started) return h;
   if (r.running) {
     const n = r.done + r.failed + r.skipped, pct = r.total ? n / r.total * 100 : 0;
-    const stop = r.stopping ? '<span class="hint">正在停止，手上這幾支做完就停…</span>' : '<button class="btn sm" onclick="stopMI()">停止提取</button>';
-    h += `<div class="row wrap" style="margin:12px 0 8px"><span class="pill accent"><span class="spin"></span>探測中</span><span class="hint grow">${r.label ? esc(r.label) + '　' : ''}${n} / ${r.total}${r.current ? '　' + esc(r.current) : ''}</span>${stop}</div>
+    const stop = r.stopping ? '<span class="hint">正在停止，手上這幾支做完就停…</span>' : '<button class="btn sm" data-act="stopMI">停止提取</button>';
+    h += `<div class="row wrap mt12 mb8"><span class="pill accent"><span class="spin"></span>探測中</span><span class="hint grow sp">${r.label ? `<span>${esc(r.label)}</span>` : ''}<span>${n} / ${r.total}</span>${r.current ? `<span>${esc(r.current)}</span>` : ''}</span>${stop}</div>
       <div class="meter"><div style="width:${pct.toFixed(1)}%"></div></div>`;
   } else {
-    h += `<div class="row wrap" style="margin:12px 0"><span class="pill ${r.errors.length || r.stopped ? 'warn' : 'ok'}">${r.stopped ? '已停止' : r.errors.length ? '有問題' : '完成'}</span>
+    h += `<div class="row wrap mt12 mb12"><span class="pill ${r.errors.length || r.stopped ? 'warn' : 'ok'}">${r.stopped ? '已停止' : r.errors.length ? '有問題' : '完成'}</span>
       <span class="hint">上次探測（${r.source === 'sync' ? '同步後自動' : '手動'}${r.label ? '・' + esc(r.label) : ''}）・${ago(r.finished)}</span></div>
       <div class="chips">${chip(r.total, '要探測')}${chip(r.done, '成功', true)}${chip(r.failed, '失敗')}${chip(r.skipped, '略過')}</div>`;
   }
-  if (r.errors.length) h += `<div class="notice bad" style="margin-top:10px">${r.errors.slice(0, 5).map(esc).join('<br>')}${r.errors.length > 5 ? '<br>…還有 ' + (r.errors.length - 5) + ' 個' : ''}</div>`;
+  if (r.errors.length) h += `<div class="notice bad mt10">${r.errors.slice(0, 5).map(esc).join('<br>')}${r.errors.length > 5 ? '<br>…還有 ' + (r.errors.length - 5) + ' 個' : ''}</div>`;
   return h;
 }
 async function probeMI(ids, label) {
@@ -1519,14 +1581,16 @@ function scanHtml(s) {
 
 // ---- 使用者 ----
 async function loadUsers() {
-  const list = await api('/web/api/users');
-  const box = $('users'); box.innerHTML = '';
+  const box = $('users');
+  let list;
+  try { list = await api('/web/api/users'); } catch (e) { box.innerHTML = failHtml(e); return; }
+  box.innerHTML = '';
   for (const usr of list) {
     const r = document.createElement('div'); r.className = 'li wrap';
     r.innerHTML = `<div class="avatar">${esc(usr.name.slice(0, 1).toUpperCase())}</div>
       <div class="main"><b>${esc(usr.name)}</b> ${usr.admin ? '<span class="pill accent">管理員</span>' : '<span class="pill">一般使用者</span>'}
         <div class="sub">${usr.last_login ? '上次登入 ' + esc(fmtDate(new Date(usr.last_login))) : '還沒登入過'}</div></div>
-      <div class="row"><button class="btn sm">改密碼</button><button class="btn sm">${usr.admin ? '取消管理員' : '設為管理員'}</button><button class="btn sm ghost icon danger" title="刪除">${icon('trash')}</button></div>`;
+      <div class="row"><button class="btn sm">改密碼</button><button class="btn sm">${usr.admin ? '取消管理員' : '設為管理員'}</button><button class="btn sm ghost icon danger" title="刪除" aria-label="刪除使用者 ${esc(usr.name)}">${icon('trash')}</button></div>`;
     const [pw, adm, del] = r.querySelectorAll('button');
     const act = async (fn, msg) => { try { await fn(); toast(msg); loadUsers(); } catch (e) { toast(e.message, 'bad'); } };
     pw.onclick = async () => { const v = await ask({title: '「' + usr.name + '」的新密碼', input: 'password', ok: '更改'}); if (v) act(() => api('/web/api/users/' + usr.id, {method: 'PUT', body: JSON.stringify({password: v})}), '密碼已更改'); };
@@ -1549,7 +1613,7 @@ const APP_NAME = {alipaymini: '支付寶小程式', wechatmini: '微信小程式
 async function load115(refresh) {
   pollSync(true);
   try { S.p115 = await api('/p115/status' + (refresh ? '?refresh=1' : '')); }
-  catch (e) { $('acct').innerHTML = `<p class="notice bad">${esc(e.message)}</p>`; return; }
+  catch (e) { $('acct').innerHTML = failHtml(e); return; }
   if (S.p115.open.app_id && !appid.value) appid.value = S.p115.open.app_id;
   renderAccount();
   if (refresh) toast('已重新檢查 115 狀態');
@@ -1557,13 +1621,13 @@ async function load115(refresh) {
 function accountHead(a) {
   const vip = a.vip || {};
   const vipText = vip.is_forever ? '永久 VIP' : vip.is_vip ? ((vip.level || 'VIP') + (vip.expire ? '，到期 ' + vip.expire : '')) : '非 VIP';
-  let h = `<div class="row" style="gap:14px"><div class="avatar lg">${a.avatar ? `<img src="${esc(a.avatar)}" referrerpolicy="no-referrer" alt="">` : esc((a.user_name || '?').slice(0, 1))}</div>
+  let h = `<div class="row gap14"><div class="avatar lg">${a.avatar ? `<img src="${esc(a.avatar)}" referrerpolicy="no-referrer" alt="">` : esc((a.user_name || '?').slice(0, 1))}</div>
     <div class="grow"><div class="row wrap"><b style="font-size:16px">${esc(a.user_name || '')}</b><span class="pill ${vip.is_vip ? 'ok' : ''}">${esc(vipText)}</span></div>
     <div class="hint">UID ${esc(a.user_id || '')}</div></div></div>`;
   if (a.space && a.space.total) {
     const pct = Math.min(100, a.space.used / a.space.total * 100);
-    h += `<div style="margin-top:14px"><div class="meter"><div style="width:${pct.toFixed(1)}%"></div></div>
-      <div class="row hint" style="margin-top:6px"><span class="grow">已用 ${fmtSize(a.space.used)}（${pct.toFixed(0)}%）</span><span>共 ${fmtSize(a.space.total)}，剩 ${fmtSize(a.space.remain)}</span></div></div>`;
+    h += `<div class="mt14"><div class="meter"><div style="width:${pct.toFixed(1)}%"></div></div>
+      <div class="row hint mt6"><span class="grow">已用 ${fmtSize(a.space.used)}（${pct.toFixed(0)}%）</span><span>共 ${fmtSize(a.space.total)}，剩 ${fmtSize(a.space.remain)}</span></div></div>`;
   }
   return h;
 }
@@ -1574,7 +1638,7 @@ function renderAccount() {
   $('stSpace').textContent = s.logged_in ? space : '未登入';
   $('qrBtn').innerHTML = icon('qr') + (s.logged_in ? '重新掃碼登入' : '掃碼登入');
   // 115 限流或登入失效：背景同步暫停，播放照常
-  const brk = s.breaker?.tripped ? `<p class="notice ${s.breaker.login_bad ? 'bad' : 'warn'}" style="margin-bottom:12px">${esc(s.breaker.message)}${s.breaker.login_bad ? '' : '。播放不受影響。'}</p>` : '';
+  const brk = s.breaker?.tripped ? `<p class="notice ${s.breaker.login_bad ? 'bad' : 'warn'} mb12">${esc(s.breaker.message)}${s.breaker.login_bad ? '' : '。播放不受影響。'}</p>` : '';
   $('qrBtn').className = 'btn ' + (s.logged_in ? '' : 'primary');
   $('logoutBtn').classList.toggle('hidden', !s.logged_in);
   if (!s.logged_in) {
@@ -1584,7 +1648,7 @@ function renderAccount() {
     return;
   }
   let h = a ? accountHead(a) : '';
-  let kv = '<dl class="kv" style="margin-top:16px">';
+  let kv = '<dl class="kv mt16">';
   if (c) {
     const login = s.login || {};
     kv += `<dt>Cookie</dt><dd>${c.valid ? '<span class="pill ok"><span class="dot"></span>有效</span>' : '<span class="pill bad">已失效</span> ' + esc(c.error || '') + '，請重新掃碼'}</dd>`;
@@ -1594,55 +1658,59 @@ function renderAccount() {
     kv += '<dt>Cookie</dt><dd>未登入</dd>';
   }
   if (o.authorized) {
-    kv += `<dt>開放平台</dt><dd>${o.valid === false ? '<span class="pill bad">授權失效</span> ' + esc(o.error || '') : '<span class="pill ok">已授權</span>'}${o.expires_at ? '　token 到期 ' + fmtTime(o.expires_at) + '（會自動續期）' : ''}</dd>`;
+    kv += `<dt>開放平台</dt><dd class="sp">${o.valid === false ? `<span class="pill bad">授權失效</span><span>${esc(o.error || '')}</span>` : '<span class="pill ok">已授權</span>'}` +
+      `${o.expires_at ? `<span>token 到期 ${fmtTime(o.expires_at)}（會自動續期）</span>` : ''}</dd>`;
   }
   kv += `<dt>檢查時間</dt><dd>${fmtTime(s.checked_at)}</dd></dl>`;
   let dev = '';
   if (c && c.devices && c.devices.length) {
-    dev = `<details class="more" style="margin-top:14px"><summary>目前登入這個帳號的裝置（${c.devices.length}）</summary><div class="in list">`;
+    dev = `<details class="more mt14"><summary>目前登入這個帳號的裝置（${c.devices.length}）</summary><div class="in list">`;
     for (const d of c.devices) {
-      dev += `<div class="li"><div class="main"><b>${esc(d.name || d.app)}</b> ${d.current ? '<span class="pill accent">本伺服器</span>' : ''}<div class="sub">${esc([d.ip, d.city, fmtTime(d.time)].filter(Boolean).join('　'))}</div></div></div>`;
+      dev += `<div class="li"><div class="main"><b>${esc(d.name || d.app)}</b> ${d.current ? '<span class="pill accent">本伺服器</span>' : ''}<div class="sub sp">${[d.ip, d.city, fmtTime(d.time)].filter(Boolean).map(x => `<span>${esc(x)}</span>`).join('')}</div></div></div>`;
     }
     dev += '</div></details>';
   }
   $('acct').innerHTML = brk + h + kv + dev;
-  $('ovAcct').innerHTML = brk + (a ? accountHead(a) : '') + (c && !c.valid ? '<p class="notice bad" style="margin-top:12px">115 登入已失效，請重新掃碼。</p>' : '');
+  $('ovAcct').innerHTML = brk + (a ? accountHead(a) : '') + (c && !c.valid ? '<p class="notice bad mt12">115 登入已失效，請重新掃碼。</p>' : '');
 }
-function pollQr(t, statusUrl, img, label, holder, box) {
+// 掃碼登入（qr）和開放平台授權（oqr）各自只有一張有效的二維碼；連點兩下時，舊的那張的輪詢自己停掉
+const QR = {};
+function pollQr(key, t, statusUrl, label, box) {
   const poll = async () => {
-    try {
-      const r = await api(statusUrl + '?uid=' + t.uid + '&time=' + t.time + '&sign=' + t.sign);
-      label.textContent = {waiting: '等待掃描…', scanned: '已掃描，請在手機上確認', success: '成功',
-        expired: '二維碼已過期，請重新產生', canceled: '已取消'}[r.status] || r.status;
-      if (r.status === 'success') { box.classList.add('hidden'); toast('115 登入成功'); load115(); return; }
-      if (r.status === 'expired' || r.status === 'canceled') return;
-    } catch (e) { label.textContent = '錯誤：' + e.message; return; }
-    holder.timer = setTimeout(poll, 1500);
+    if (QR[key] !== t) return;
+    let r;
+    try { r = await api(statusUrl + '?uid=' + t.uid + '&time=' + t.time + '&sign=' + t.sign); }
+    catch (e) { if (QR[key] === t) label.textContent = '錯誤：' + e.message; return; }
+    if (QR[key] !== t) return;
+    label.textContent = {waiting: '等待掃描…', scanned: '已掃描，請在手機上確認', success: '成功',
+      expired: '二維碼已過期，請重新產生', canceled: '已取消'}[r.status] || r.status;
+    if (r.status === 'success') { box.classList.add('hidden'); toast('115 登入成功'); load115(); return; }
+    if (r.status === 'expired' || r.status === 'canceled') return;
+    soon(key, poll, 1500);  // 不用 later：分頁在背景時也要繼續問，不然手機確認了卻沒登入
   };
   poll();
 }
-const qrT = {}, oqrT = {};
-async function startQr() {
-  clearTimeout(qrT.timer);
+async function showQr(key, url, body, holder, label, box, alt) {
+  cancel(key);
   let t;
-  try { t = await api('/p115/qrcode', {method: 'POST'}); } catch (e) { toast('無法產生二維碼：' + e.message, 'bad'); return; }
-  $('qrBox').classList.remove('hidden');
-  qr.innerHTML = '<img src="' + t.qrcode_image + '" alt="115 登入二維碼">'; qrst.textContent = '等待掃描…';
-  pollQr(t, '/p115/qrcode/status', qr, qrst, qrT, $('qrBox'));
+  try { t = await api(url, {method: 'POST', ...(body ? {body: JSON.stringify(body)} : {})}); }
+  catch (e) { toast((key === 'qr' ? '無法產生二維碼：' : '無法產生授權二維碼：') + e.message, 'bad'); return; }
+  QR[key] = t;
+  const img = document.createElement('img'); img.src = t.qrcode_image; img.alt = alt;  // 不拼 HTML 字串
+  holder.replaceChildren(img); label.textContent = '等待掃描…';
+  box.classList.remove('hidden');
+  pollQr(key, t, url + '/status', label, box);
 }
-async function startOpenQr() {
-  clearTimeout(oqrT.timer);
-  let t;
-  try { t = await api('/p115/open/qrcode', {method: 'POST', body: JSON.stringify({app_id: appid.value})}); }
-  catch (e) { toast('無法產生授權二維碼：' + e.message, 'bad'); return; }
-  $('oqrBox').classList.remove('hidden');
-  oqr.innerHTML = '<img src="' + t.qrcode_image + '" alt="開放平台授權二維碼">'; oqrst.textContent = '等待掃描…';
-  pollQr(t, '/p115/open/qrcode/status', oqr, oqrst, oqrT, $('oqrBox'));
+function startQr() { showQr('qr', '/p115/qrcode', null, qr, qrst, $('qrBox'), '115 登入二維碼'); }
+function startOpenQr() { showQr('oqr', '/p115/open/qrcode', {app_id: appid.value}, oqr, oqrst, $('oqrBox'), '開放平台授權二維碼'); }
+async function logoutOpen() {
+  try { await api('/p115/open/logout', {method: 'POST'}); } catch (e) { toast(e.message, 'bad'); return; }
+  toast('已取消開放平台授權'); load115();
 }
-async function logoutOpen() { await api('/p115/open/logout', {method: 'POST'}); toast('已取消開放平台授權'); load115(); }
 async function logout115() {
   if (!await ask({title: '登出 115？', text: '登出後無法同步，也無法播放 115 上的影片，直到重新登入。', ok: '登出', danger: true})) return;
-  await api('/p115/logout', {method: 'POST'}); toast('已登出 115'); load115();
+  try { await api('/p115/logout', {method: 'POST'}); } catch (e) { toast(e.message, 'bad'); return; }
+  toast('已登出 115'); load115();
 }
 async function saveCookie() {
   try { await api('/p115/cookies', {method: 'POST', body: JSON.stringify({cookies: ck.value})}); } catch (e) { toast(e.message, 'bad'); return; }
@@ -1657,8 +1725,8 @@ function renderTasks(list) {
     const when = [st.incremental_at ? '增量 ' + ago(st.incremental_at) : '', st.full_at ? '全量 ' + ago(st.full_at) : ''].filter(Boolean).join('・');
     const r = document.createElement('div'); r.className = 'li';
     r.innerHTML = `<div class="main"><div class="flow"><span class="path">${icon('cloud')}<b>${esc(t.remote)}</b></span><span class="arrow">${icon('arrow')}</span><span class="path">${icon('folder')}<span>${esc(t.local)}</span></span></div>
-      <div class="sub row wrap" style="margin-top:4px">${when ? '上次同步：' + when : '還沒同步過'}${t.in_library ? '' : '<span class="pill warn">不在任何媒體庫裡，播放器看不到</span>'}</div></div>
-      <button class="btn sm ghost icon danger" title="刪除任務">${icon('trash')}</button>`;
+      <div class="sub row wrap mt4">${when ? '上次同步：' + when : '還沒同步過'}${t.in_library ? '' : '<span class="pill warn">不在任何媒體庫裡，播放器看不到</span>'}</div></div>
+      <button class="btn sm ghost icon danger" title="刪除任務" aria-label="刪除任務">${icon('trash')}</button>`;
     r.querySelector('button').onclick = async () => {
       if (await ask({title: '刪除這個同步任務？', text: '已產生的 strm 不會被刪。', ok: '刪除', danger: true})) saveTasks(tasks.filter((_, j) => j !== i));
     };
@@ -1673,19 +1741,19 @@ async function addTask() {
   if (!remote.value.trim() || !local.value.trim()) { toast('115 目錄和本機資料夾都要填', 'bad'); return; }
   if (await saveTasks(tasks.concat([{remote: remote.value.trim(), local: local.value.trim()}]))) remote.value = local.value = '';
 }
+let syncWatch = 0;  // 手動按下的那次同步（開始時間），跑完時提示
 async function syncStrm(mode) {
   let r;
   try { r = await api('/p115/strm/sync?mode=' + mode, {method: 'POST'}); } catch (e) { toast(e.message, 'bad'); return; }
   toast(r.started ? (mode === 'incremental' ? '開始增量同步' : '開始全量同步') : '已經在同步中');
   syncWatch = r.result.started; pollSync(false);
 }
-function chip(n, l, hl) { return `<div class="chip ${hl && n ? 'hl' : ''}"><div class="n">${n}</div><div class="l">${esc(l)}</div></div>`; }
 function syncHtml(s) {
   const r = s.result;
   if (!s.tasks.length) return emptyState('還沒有同步任務', '到「115 網盤」新增「115 目錄 → 本機資料夾」。', '#115', '新增任務');
   if (!r.started) return '<p class="hint">還沒同步過。按「增量同步」開始，第一次會自動先跑全量。</p>';
   const kind = r.mode === 'incremental' ? '增量' : '全量';
-  let h = '<div class="row wrap" style="margin-bottom:12px">';
+  let h = '<div class="row wrap mb12">';
   if (r.running) h += `<span class="pill accent"><span class="spin"></span>${kind}同步中</span>`;
   else h += `<span class="pill ${r.errors.length ? 'warn' : 'ok'}">${r.errors.length ? '有錯誤' : '完成'}</span><span class="hint">上次${kind}同步・${ago(r.finished)}（${fmtTime(r.finished)}）</span>`;
   h += '</div><div class="chips">';
@@ -1694,14 +1762,12 @@ function syncHtml(s) {
   h += '</div>';
   const notes = [...r.notes];
   if (r.fell_back_to_full.length) notes.push('已改跑全量：' + r.fell_back_to_full.join('、'));
-  if (notes.length) h += `<p class="hint" style="margin-top:10px">${esc(notes.join('；'))}</p>`;
-  if (r.errors.length) h += `<div class="notice bad" style="margin-top:10px">${r.errors.slice(0, 5).map(esc).join('<br>')}${r.errors.length > 5 ? '<br>…還有 ' + (r.errors.length - 5) + ' 個' : ''}</div>`;
+  if (notes.length) h += `<p class="hint mt10">${esc(notes.join('；'))}</p>`;
+  if (r.errors.length) h += `<div class="notice bad mt10">${r.errors.slice(0, 5).map(esc).join('<br>')}${r.errors.length > 5 ? '<br>…還有 ' + (r.errors.length - 5) + ' 個' : ''}</div>`;
   return h;
 }
-let syncTimer = null, syncWatch = 0;  // 手動按下的那次同步，跑完時提示
 async function pollSync(first) {
-  clearTimeout(syncTimer);
-  if (document.hidden && !first) { syncTimer = setTimeout(() => pollSync(false), 2000); return; }
+  cancel('sync');
   let s;
   try { s = await api('/p115/strm/status'); } catch (e) { return; }
   S.sync = s;
@@ -1717,7 +1783,7 @@ async function pollSync(first) {
   const done = syncWatch && !s.result.running && s.result.started === syncWatch;
   if (done) { syncWatch = 0; toast(s.result.errors.length ? '同步完成，有 ' + s.result.errors.length + ' 個錯誤' : '同步完成', s.result.errors.length ? 'bad' : ''); }
   if (s.result.started !== syncWatch) syncWatch = 0;  // 已經換成別次同步
-  if (s.result.running || rw.running) syncTimer = setTimeout(() => pollSync(false), 2000);
+  if (s.result.running || rw.running) later('sync', () => pollSync(false));
 }
 async function rewriteStrm() {
   const base = S.sync?.base_url || $('base').textContent;
@@ -1729,12 +1795,12 @@ async function rewriteStrm() {
 }
 
 // ---- 115 上的重複檔案 ----
-let dupTimer = null, dupPage = 1, dupSeq = 0, dupQT = null, dupRoot = null, dupWasRunning = false;
+let dupPage = 1, dupSeq = 0, dupRoot = null;
 let dupKind = 'exact';  // exact = 完全相同、versions = 不同版本
 let dupOverrides = {exact: {}, versions: {}};  // 檔案 id → 要不要刪；只記跟預設不一樣的，沒翻到的頁面照預設
 // 沒逐個改過的檔案要不要照建議勾選：完全相同預設照建議，不同版本預設不勾；「全部照建議勾選／全部取消勾選」切換
 let dupSuggestAll = {exact: true, versions: false};
-let dupSelT = null, dupSelSeq = 0;
+let dupSelSeq = 0;
 const DUP_PAGE = 20;
 const DUP_HINT = {
   exact: '每組建議保留一份：本機有 strm 的優先，其次檔名編號格式完整的（劇集有 S01E02、電影有年份），再來最早上傳的；其餘預先勾選。',
@@ -1742,7 +1808,7 @@ const DUP_HINT = {
 };
 function setDupKind(kind) {
   dupKind = kind;
-  for (const b of document.querySelectorAll('#dupTabs button')) b.classList.toggle('on', b.dataset.kind === kind);
+  for (const b of document.querySelectorAll('#dupTabs button')) { b.classList.toggle('on', b.dataset.kind === kind); b.setAttribute('aria-selected', b.dataset.kind === kind); }
   $('dupKindHint').textContent = DUP_HINT[kind];
   $('dupQ').placeholder = kind === 'versions' ? '搜尋片名、檔名或路徑' : '搜尋檔名或路徑';
   $('dupPreferRow').classList.toggle('hidden', kind !== 'versions');
@@ -1765,8 +1831,7 @@ function dupSelectAll(on) {
 }
 function refreshDupSelection() {
   // 試算現在勾了幾個、多大（含沒翻到的頁面），顯示在按鈕上
-  clearTimeout(dupSelT);
-  dupSelT = setTimeout(async () => {
+  soon('dupSel', async () => {
     const seq = ++dupSelSeq, running = !!S.dupes?.job.running;
     let r;
     try {
@@ -1781,43 +1846,43 @@ function refreshDupSelection() {
 }
 function loadDupes() { $('dupKindHint').textContent = DUP_HINT[dupKind]; $('dupPreferRow').classList.toggle('hidden', dupKind !== 'versions'); pollDupes(); loadDupGroups(1); loadDupLog(); }
 async function pollDupes() {
-  clearTimeout(dupTimer);
+  cancel('dupes');
   let s;
-  try { s = await api('/web/api/dupes'); } catch (e) { setHtml($('dupStat'), `<p class="notice bad">${esc(e.message)}</p>`); return; }
+  try { s = await api('/web/api/dupes'); } catch (e) { setHtml($('dupStat'), failHtml(e)); return; }
+  const wasRunning = S.dupes?.job.running;
   S.dupes = s;
   if (document.activeElement !== $('dupPrefer')) $('dupPrefer').value = s.prefer || '1080';
   $('dupPrefer').disabled = s.job.running;
   const j = s.job, roots = dupRoot ? [dupRoot] : s.default_roots;
   let h = `<p class="hint">範圍：${roots.length ? roots.map(r => `<code>${esc(r)}</code>`).join('、') : '還沒有同步任務，請按「改選 115 目錄…」'}` +
-    (dupRoot ? '（自己選的，<a href="#115" onclick="dupRoot = null; pollDupes(); return false">改回同步任務的目錄</a>）' : roots.length ? '（同步任務的目錄）' : '') + '</p>';
+    (dupRoot ? '（自己選的，<button class="link" data-act="dupRootReset">改回同步任務的目錄</button>）' : roots.length ? '（同步任務的目錄）' : '') + '</p>';
   if (j.running && j.kind === 'scan') {
-    h += `<div class="row" style="margin-top:8px"><span class="pill accent"><span class="spin"></span>找重複中</span><span class="hint">已看 ${j.listed} 個檔案${j.current ? '　' + esc(j.current) : ''}</span></div>`;
+    h += `<div class="row mt8"><span class="pill accent"><span class="spin"></span>找重複中</span><span class="hint sp"><span>已看 ${j.listed} 個檔案</span>${j.current ? `<span>${esc(j.current)}</span>` : ''}</span></div>`;
   } else if (j.running) {
     const pct = j.total ? j.done / j.total * 100 : 0;
-    h += `<div class="row" style="margin:8px 0"><span class="pill accent"><span class="spin"></span>刪除中</span><span class="hint">${j.done} / ${j.total}${j.current ? '　' + esc(j.current) : ''}</span></div><div class="meter"><div style="width:${pct.toFixed(1)}%"></div></div>`;
+    h += `<div class="row my8"><span class="pill accent"><span class="spin"></span>刪除中</span><span class="hint sp"><span>${j.done} / ${j.total}</span>${j.current ? `<span>${esc(j.current)}</span>` : ''}</span></div><div class="meter"><div style="width:${pct.toFixed(1)}%"></div></div>`;
   } else if (s.scanned_at) {
     const v = s.versions || {};
-    h += `<div class="chips" style="margin-top:8px">${chip(s.groups, '組完全相同', true)}${chip(fmtSize(s.reclaimable), '照建議刪可以省')}` +
+    h += `<div class="chips mt8">${chip(s.groups, '組完全相同', true)}${chip(fmtSize(s.reclaimable), '照建議刪可以省')}` +
       `${chip(v.groups || 0, '組不同版本', true)}${chip(fmtSize(v.reclaimable || 0), '照建議刪可以省')}</div>
-      <p class="hint" style="margin-top:6px">上次在 ${ago(s.scanned_at)} 找過（${s.roots.map(esc).join('、')}，看了 ${s.scanned_files} 支影片）。115 上有變動的話，先重新找一次。</p>`;
+      <p class="hint mt6">上次在 ${ago(s.scanned_at)} 找過（${s.roots.map(esc).join('、')}，看了 ${s.scanned_files} 支影片）。115 上有變動的話，先重新找一次。</p>`;
   } else {
-    h += '<p class="hint" style="margin-top:8px">還沒找過。按「找重複」開始，四萬支影片大約只要幾十次請求。</p>';
+    h += '<p class="hint mt8">還沒找過。按「找重複」開始，四萬支影片大約只要幾十次請求。</p>';
   }
   if (!j.running && s.versions_outdated) {
-    h += '<p class="notice warn" style="margin-top:8px">「不同版本」的判斷改過了（以前會把刮削時沒認出集號的不同集當成同一集），舊的結果已經清掉。請按「找重複」重新找一次。</p>';
+    h += '<p class="notice warn mt8">「不同版本」的判斷改過了（以前會把刮削時沒認出集號的不同集當成同一集），舊的結果已經清掉。請按「找重複」重新找一次。</p>';
   }
   if (!j.running && j.kind === 'delete' && j.finished) {
-    h += `<p class="notice ${j.errors.length ? 'bad' : ''}" style="margin-top:8px">上次刪除（${ago(j.finished)}）：${j.done} 個送進 115 回收站，省下 ${fmtSize(j.freed)}${j.errors.length ? '。' + esc(j.errors[0]) : ''}</p>`;
+    h += `<p class="notice ${j.errors.length ? 'bad' : ''} mt8">上次刪除（${ago(j.finished)}）：${j.done} 個送進 115 回收站，省下 ${fmtSize(j.freed)}${j.errors.length ? '。' + esc(j.errors[0]) : ''}</p>`;
   } else if (!j.running && j.errors.length) {
-    h += `<p class="notice bad" style="margin-top:8px">${esc(j.errors[0])}</p>`;
+    h += `<p class="notice bad mt8">${esc(j.errors[0])}</p>`;
   }
   setHtml($('dupStat'), h);
   $('dupScanBtn').disabled = j.running;
   for (const b of document.querySelectorAll('.js-dupdel')) if (j.running) b.disabled = true;
   document.querySelectorAll('#dupList .js-delgroup').forEach(b => { b.disabled = j.running; });
-  if (j.running) dupTimer = setTimeout(pollDupes, 2000);
-  else if (dupWasRunning) { loadDupGroups(1); loadDupLog(); toast(j.kind === 'scan' ? '找重複完成' : '刪除完成', j.errors.length ? 'bad' : ''); }
-  dupWasRunning = j.running;
+  if (j.running) later('dupes', pollDupes);
+  else if (wasRunning) { loadDupGroups(1); loadDupLog(); toast(j.kind === 'scan' ? '找重複完成' : '刪除完成', j.errors.length ? 'bad' : ''); }
 }
 function dupDefault(m) { return dupSuggestAll[dupKind] && !m.keep; }
 function dupWanted(m) { const o = dupOverrides[dupKind]; return m.file_id in o ? o[m.file_id] : dupDefault(m); }
@@ -1826,16 +1891,14 @@ async function loadDupGroups(page) {
   const box = $('dupList'), seq = ++dupSeq, q = $('dupQ').value.trim();
   let r;
   try { r = await api(`/web/api/dupes/groups?kind=${dupKind}&q=${encodeURIComponent(q)}&offset=${(dupPage - 1) * DUP_PAGE}&limit=${DUP_PAGE}`); }
-  catch (e) { if (seq === dupSeq) box.innerHTML = `<p class="notice bad">${esc(e.message)}</p>`; return; }
+  catch (e) { if (seq === dupSeq) box.innerHTML = failHtml(e); return; }
   if (seq !== dupSeq) return;
   const pages = Math.max(1, Math.ceil(r.total / DUP_PAGE));
   if (dupPage > pages) return loadDupGroups(pages);
   const none = dupKind === 'versions' ? '沒有同一部片的不同版本' : '沒有內容完全相同的檔案';
   box.innerHTML = r.items.length ? '' : `<p class="hint">${q ? '沒有符合的' : S.dupes?.scanned_at ? none : ''}</p>`;
   for (const g of r.items) box.appendChild(dupGroup(g));
-  const nav = pages > 1
-    ? `<button class="btn sm"${dupPage <= 1 ? ' disabled' : ''} onclick="loadDupGroups(${dupPage - 1})">上一頁</button><button class="btn sm"${dupPage >= pages ? ' disabled' : ''} onclick="loadDupGroups(${dupPage + 1})">下一頁</button>` : '';
-  if (pages > 1) box.insertAdjacentHTML('beforeend', `<div class="row" style="padding-top:12px"><span class="hint grow">第 ${dupPage} / ${pages} 頁，共 ${r.total} 組</span>${nav}</div>`);
+  pager(box, {page: dupPage, pages, onPage: loadDupGroups, total: r.total, unit: '組'});
   document.querySelectorAll('#dupList .js-delgroup').forEach(b => { b.disabled = !!S.dupes?.job.running; });
   refreshDupSelection();
 }
@@ -1855,13 +1918,13 @@ function dupGroup(g) {
     const pills = (m.keep ? '<span class="pill ok">建議保留</span>' : '') + named + (versions ? qualityPills(m.quality) + `<span class="pill">${fmtSize(m.size)}</span>`
       : (m.local ? '<span class="pill">有 strm</span>' : '<span class="pill">不在同步目錄</span>')) + (m.watched ? '<span class="pill">有觀看紀錄</span>' : '');
     return `<label class="dupm"><input type="checkbox" data-fid="${m.file_id}"${dupWanted(m) ? ' checked' : ''}>` +
-      `<span class="grow"><span class="p">${esc(m.path)}</span><span class="row wrap" style="margin-top:4px">${pills}` +
+      `<span class="grow"><span class="p">${esc(m.path)}</span><span class="row wrap mt4">${pills}` +
       `<span class="hint">${m.mtime ? '上傳於 ' + fmtTime(m.mtime) : ''}${!versions && title ? '・' + esc(title) : ''}</span></span></span></label>`;
   }).join('');
   const head = versions ? `<b>${esc(g.title)}</b><span class="hint">${g.count} 個版本，勾選的會刪</span>`
     : `<b>${esc(g.members[0].name)}</b><span class="pill">${fmtSize(g.size)}</span><span class="hint">${g.count} 份，勾選的會刪</span>`;
   row.innerHTML = `<div class="main"><div class="row wrap">${head}</div>${members}</div>
-    <div class="stack" style="gap:6px">${versions ? '<button class="btn sm js-suggest">照建議勾選</button>' : ''}<button class="btn sm danger js-delgroup">刪這一組勾選的</button></div>`;
+    <div class="stack gap6">${versions ? '<button class="btn sm js-suggest">照建議勾選</button>' : ''}<button class="btn sm danger js-delgroup">刪這一組勾選的</button></div>`;
   const boxes = [...row.querySelectorAll('input[data-fid]')];
   const remember = () => {
     for (const b of boxes) {
@@ -1909,13 +1972,14 @@ async function scanDupes() {
   dupOverrides = {exact: {}, versions: {}}; dupSuggestAll = {exact: true, versions: false};
   pollDupes();
 }
+ACTS.dupRootReset = () => { dupRoot = null; pollDupes(); };
 async function pickDupRoot() { const p = await pickDir('115', dupRoot || '/'); if (p) { dupRoot = p; pollDupes(); } }
 async function loadDupLog() {
   let r;
   try { r = await api('/web/api/dupes/log?limit=50'); } catch (e) { return; }
   setHtml($('dupLog'), r.length
     ? '<div class="list">' + r.map(e => `<div class="li"><div class="main"><span class="p">${esc(e.path)}</span><div class="sub">${fmtSize(e.size)}・${ago(e.at)}</div></div></div>`).join('') +
-      '</div><p class="hint" style="margin-top:8px">要找回的話，到 115 的回收站還原。</p>'
+      '</div><p class="hint mt8">要找回的話，到 115 的回收站還原。</p>'
     : '<p class="hint">還沒有刪過。</p>');
 }
 
@@ -1932,12 +1996,16 @@ async function saveMP(quiet) {
   try { await putSettings(body); $('mpMap').value = mpRulesText(); if (!quiet) toast('已儲存'); pollMP(); return true; }
   catch (e) { toast('儲存失敗：' + e.message, 'bad'); return false; }
 }
-async function testMP() {
+async function testMP(btn) {
   if (!await saveMP(true)) return;
+  btn.disabled = true;
   note($('mpMsg'), '測試中…');
-  const r = await api('/web/api/moviepilot/test', {method: 'POST'});
-  note($('mpMsg'), r.message, r.ok ? '' : 'bad');
-  $('mpPill').innerHTML = r.ok ? '<span class="pill ok"><span class="dot"></span>連線成功</span>' : '<span class="pill bad">連線失敗</span>';
+  try {
+    const r = await api('/web/api/moviepilot/test', {method: 'POST'});
+    note($('mpMsg'), r.message, r.ok ? '' : 'bad');
+    $('mpPill').innerHTML = r.ok ? '<span class="pill ok"><span class="dot"></span>連線成功</span>' : '<span class="pill bad">連線失敗</span>';
+  } catch (e) { note($('mpMsg'), '測試失敗：' + e.message, 'bad'); toast(e.message, 'bad'); }
+  finally { btn.disabled = false; }
 }
 async function scrapeMP() {
   try { await api('/web/api/moviepilot/scrape', {method: 'POST'}); } catch (e) { toast(e.message, 'bad'); return; }
@@ -1950,21 +2018,19 @@ function mpHtml(s) {
   let h = '';
   if (r.running) {
     const n = r.done + r.failed, pct = r.total ? n / r.total * 100 : 0;
-    h += `<div class="row" style="margin-bottom:8px"><span class="pill accent"><span class="spin"></span>刮削中</span><span class="hint">${n} / ${r.total}</span></div>
-      <div class="meter"><div style="width:${pct.toFixed(1)}%"></div></div>${r.current ? `<p class="hint" style="margin-top:6px;word-break:break-all">${esc(r.current)}</p>` : ''}`;
+    h += `<div class="row mb8"><span class="pill accent"><span class="spin"></span>刮削中</span><span class="hint">${n} / ${r.total}</span></div>
+      <div class="meter"><div style="width:${pct.toFixed(1)}%"></div></div>${r.current ? `<p class="hint mt6 brk">${esc(r.current)}</p>` : ''}`;
   } else {
-    h += `<div class="row wrap" style="margin-bottom:12px"><span class="pill ${r.failed ? 'warn' : 'ok'}">${r.failed ? '部分失敗' : '完成'}</span>
+    h += `<div class="row wrap mb12"><span class="pill ${r.failed ? 'warn' : 'ok'}">${r.failed ? '部分失敗' : '完成'}</span>
       <span class="hint">上次刮削（${r.source === 'sync' ? '同步後自動' : '手動'}）・${ago(r.finished)}</span></div>
       <div class="chips">${chip(r.total, '送出')}${chip(r.done, '成功', true)}${chip(r.failed, '失敗')}${r.no_image ? chip(r.no_image, '沒有劇照') : ''}</div>`;
-    if (r.no_image) h += `<p class="hint" style="margin-top:10px">${r.no_image} 集有 nfo 但沒有劇照：多半是 TMDB 沒有這幾集的圖，播放器會改用劇的橫幅圖；30 天內按「刮削缺少資料的項目」不再重送。若是 MoviePilot 日誌有「图片下载失败」，要在 MoviePilot 設定 TMDB 圖片代理。</p>`;
+    if (r.no_image) h += `<p class="hint mt10">${r.no_image} 集有 nfo 但沒有劇照：多半是 TMDB 沒有這幾集的圖，播放器會改用劇的橫幅圖；30 天內按「刮削缺少資料的項目」不再重送。若是 MoviePilot 日誌有「图片下载失败」，要在 MoviePilot 設定 TMDB 圖片代理。</p>`;
   }
-  if (r.errors.length) h += `<div class="notice bad" style="margin-top:10px">${r.errors.slice(0, 3).map(esc).join('<br>')}</div>`;
+  if (r.errors.length) h += `<div class="notice bad mt10">${r.errors.slice(0, 3).map(esc).join('<br>')}</div>`;
   return h;
 }
-let mpTimer = null;
 async function pollMP() {
-  clearTimeout(mpTimer);
-  if (document.hidden && (S.mp?.result.running || S.mp?.fill?.running)) { mpTimer = setTimeout(pollMP, 2000); return; }
+  cancel('mp');
   let s;
   try { s = await api('/web/api/moviepilot/status'); } catch (e) { return; }
   S.mp = s;
@@ -1972,11 +2038,10 @@ async function pollMP() {
   for (const el of document.querySelectorAll('.js-mp')) setHtml(el, html);
   if (!$('mpPill').innerHTML || !s.enabled) $('mpPill').innerHTML = s.enabled ? '<span class="pill">已設定</span>' : '<span class="pill">未設定</span>';
   setHtml($('fill'), fillHtml(s.fill || {}));
-  if (s.result.running || s.fill?.running) mpTimer = setTimeout(pollMP, 2000);
+  if (s.result.running || s.fill?.running) later('mp', pollMP);
 }
 
 // ---- 補全缺集 ----
-let seriesQT = null;
 const ep2 = n => String(n).padStart(2, '0');
 // 連號的集壓成範圍：E27–E61、E86–E94…，最多列 6 段
 function epRanges(nums) {
@@ -2002,7 +2067,7 @@ async function loadSeries(page) {
   const box = $('series'), seq = ++seriesSeq, limit = seriesLimit(), year = $('seriesYear').value;
   let r;
   try { r = await api(`/web/api/series?q=${encodeURIComponent($('seriesQ').value)}&year=${year}&gaps=${$('seriesGaps').checked ? 1 : 0}&offset=${(seriesPage - 1) * limit}&limit=${limit}`); }
-  catch (e) { if (seq === seriesSeq) box.innerHTML = `<p class="notice bad">${esc(e.message)}</p>`; return; }
+  catch (e) { if (seq === seriesSeq) box.innerHTML = failHtml(e); return; }
   if (seq !== seriesSeq) return;
   fillYears(r.years, year);
   try { localStorage.setItem('mi302.seriesLimit', String(limit)); } catch (e) {}
@@ -2018,14 +2083,12 @@ async function loadSeries(page) {
       `<div class="ss"><span class="sn">S${ep2(x.season)}</span><span>${x.count} 集</span><span class="pill warn">缺 ${x.gaps.length} 集</span>` +
       `<span class="eps" title="${esc(x.gaps.map(e => 'E' + ep2(e)).join('、').slice(0, 600))}">${esc(epRanges(x.gaps))}</span></div>`).join('');
     row.innerHTML = `<div class="main"><div class="row wrap"><b>${esc(s.name)}</b>${s.year ? `<span class="hint">${s.year}</span>` : ''}${s.library ? `<span class="pill">${esc(s.library)}</span>` : ''}${s.tmdbid ? '' : '<span class="pill">沒有 tmdbid，要先刮削</span>'}</div>
-      ${complete ? `<div class="sub" style="margin-top:2px">${complete}</div>` : ''}${gapped}${s.seasons.length ? '' : '<div class="sub">沒有集</div>'}</div>
+      ${complete ? `<div class="sub mt2">${complete}</div>` : ''}${gapped}${s.seasons.length ? '' : '<div class="sub">沒有集</div>'}</div>
       <button class="btn sm"${s.tmdbid ? '' : ' disabled'}>補全</button>`;
     row.querySelector('button').onclick = () => fillSeries([s.id], '「' + s.name + '」');
     box.appendChild(row);
   }
-  const nav = pages > 1
-    ? `<button class="btn sm"${seriesPage <= 1 ? ' disabled' : ''} onclick="loadSeries(${seriesPage - 1})">上一頁</button><button class="btn sm"${seriesPage >= pages ? ' disabled' : ''} onclick="loadSeries(${seriesPage + 1})">下一頁</button>` : '';
-  box.insertAdjacentHTML('beforeend', `<div class="row" style="padding-top:12px"><span class="hint grow">${pages > 1 ? `第 ${seriesPage} / ${pages} 頁，` : ''}共 ${r.total} 部</span>${nav}</div>`);
+  pager(box, {page: seriesPage, pages, onPage: loadSeries, total: r.total, unit: '部', always: true});
 }
 async function fillSeries(ids, label) {
   let r;
@@ -2038,16 +2101,16 @@ async function fillAll() {
 }
 function fillHtml(f) {
   if (!f.started) return '';
-  let h = '<div class="row wrap" style="margin-bottom:8px">';
-  if (f.running) h += `<span class="pill accent"><span class="spin"></span>補全中</span><span class="hint">${f.done} / ${f.total}${f.current ? '　' + esc(f.current) : ''}</span>`;
+  let h = '<div class="row wrap mb8">';
+  if (f.running) h += `<span class="pill accent"><span class="spin"></span>補全中</span><span class="hint sp"><span>${f.done} / ${f.total}</span>${f.current ? `<span>${esc(f.current)}</span>` : ''}</span>`;
   else h += `<span class="pill ${f.errors.length ? 'warn' : 'ok'}">${f.errors.length ? '有問題' : '完成'}</span><span class="hint">上次補全（${f.source === 'sync' ? '全量同步後自動' : '手動'}）・${ago(f.finished)}</span>`;
   h += `</div><div class="chips">${chip(f.created, '建訂閱並搜尋', true)}${chip(f.missing || 0, '缺的集數')}${chip(f.complete, '已經齊全')}${chip(f.existing, '之前訂閱過')}${chip(f.skipped, '沒 tmdbid')}${chip(f.failed, '失敗')}</div>`;
-  if (f.details.length) h += `<details class="more" style="margin-top:10px"><summary>每一季的結果（${f.details.length}）</summary><div class="in hint" style="white-space:pre-wrap;word-break:break-all">${esc(f.details.join('\n'))}</div></details>`;
-  if (f.errors.length) h += `<div class="notice bad" style="margin-top:10px">${f.errors.slice(0, 5).map(esc).join('<br>')}</div>`;
+  if (f.details.length) h += `<details class="more mt10"><summary>每一季的結果（${f.details.length}）</summary><div class="in hint pre">${esc(f.details.join('\n'))}</div></details>`;
+  if (f.errors.length) h += `<div class="notice bad mt10">${f.errors.slice(0, 5).map(esc).join('<br>')}</div>`;
   return h;
 }
 // ---- 集號不對的劇：交給 MoviePilot 整理（先預覽再執行）----
-let reoQT = null, reoPage = 1, reoSeq = 0, reoWasRunning = false, reoLast = null;
+let reoPage = 1, reoSeq = 0;
 let reo = {plan: null, token: null, preview: null};
 const REO_PAGE = 20;
 async function loadReorg(page) {
@@ -2055,9 +2118,9 @@ async function loadReorg(page) {
   const seq = ++reoSeq;
   let r;
   try { r = await api(`/web/api/moviepilot/reorganize?q=${encodeURIComponent($('reoQ').value)}&offset=${(reoPage - 1) * REO_PAGE}&limit=${REO_PAGE}`); }
-  catch (e) { if (seq === reoSeq) $('reoList').innerHTML = `<p class="notice bad">${esc(e.message)}</p>`; return; }
+  catch (e) { if (seq === reoSeq) $('reoList').innerHTML = failHtml(e); return; }
   if (seq !== reoSeq) return;
-  reoLast = r;
+  S.reo = r.job;  // 整理工作的狀態，和 S.scan、S.mi 一樣放在 S
   const rd = r.ready, lack = !rd.moviepilot ? '還沒設定 MoviePilot。' : !rd.login ? 'MoviePilot 的手動整理只接受帳號登入，請在上面的「連線」填 MoviePilot 帳號密碼。' : !rd.p115 ? '115 還沒登入，讀不到 115 上的檔案。' : '';
   setHtml($('reoReady'), lack ? `<p class="notice warn">${esc(lack)}</p>` : '');
   setHtml($('reoJob'), reoJobHtml(r.job));
@@ -2068,27 +2131,26 @@ async function loadReorg(page) {
     const row = document.createElement('div'); row.className = 'li';
     const guessed = it.episodes - it.unknown;
     row.innerHTML = `<div class="main"><div class="row wrap"><b>${esc(it.name)}</b>${it.year ? `<span class="hint">${it.year}</span>` : ''}<span class="pill">第 ${it.season} 季</span></div>
-      <div class="sub">這一季 ${it.season_total} 集裡${guessed ? `，${guessed} 集的集號是從檔名猜的` : ''}${it.unknown ? `，<span style="color:var(--warn)">${it.unknown} 集認不出集號</span>` : ''}</div></div>
+      <div class="sub">這一季 ${it.season_total} 集裡${guessed ? `，${guessed} 集的集號是從檔名猜的` : ''}${it.unknown ? `，<span class="t-warn">${it.unknown} 集認不出集號</span>` : ''}</div></div>
       <button class="btn sm"${lack || running ? ' disabled' : ''}>預覽整理…</button>`;
     row.querySelector('button').onclick = () => openReorg(it);
     box.appendChild(row);
   }
   const pages = Math.max(1, Math.ceil(r.total / REO_PAGE));
-  if (pages > 1) box.insertAdjacentHTML('beforeend', `<div class="row" style="padding-top:12px"><span class="hint grow">第 ${reoPage} / ${pages} 頁，共 ${r.total} 季</span>
-    <button class="btn sm"${reoPage <= 1 ? ' disabled' : ''} onclick="loadReorg(${reoPage - 1})">上一頁</button><button class="btn sm"${reoPage >= pages ? ' disabled' : ''} onclick="loadReorg(${reoPage + 1})">下一頁</button></div>`);
+  pager(box, {page: reoPage, pages, onPage: loadReorg, total: r.total, unit: '季'});
   if (running) pollReorgJob();
 }
 const REO_STATE = {completed: '完成', accepted: 'MoviePilot 已接收', failed: '失敗', retry_wait: '等待重試', skipped: '略過', manual_review: '要人工確認'};
 function reoJobHtml(j) {
   if (!j.started) return '';
-  let h = '<div class="row wrap" style="margin-bottom:8px">';
-  if (j.running) h += `<span class="pill accent"><span class="spin"></span>整理中</span><span class="hint">${esc(j.title)}・${j.done + j.failed} / ${j.total}${j.current ? '　' + esc(j.current) : ''}</span>`;
+  let h = '<div class="row wrap mb8">';
+  if (j.running) h += `<span class="pill accent"><span class="spin"></span>整理中</span><span class="hint sp"><span>${esc(j.title)}・${j.done + j.failed} / ${j.total}</span>${j.current ? `<span>${esc(j.current)}</span>` : ''}</span>`;
   else h += `<span class="pill ${j.failed || j.errors.length ? 'warn' : 'ok'}">${j.failed || j.errors.length ? '部分失敗' : '完成'}</span><span class="hint">上次整理：${esc(j.title)}・${ago(j.finished)}</span>`;
   h += `</div><div class="chips">${chip(j.done, '整理好', true)}${chip(j.failed, '失敗')}</div>`;
-  if (!j.running && j.synced) h += `<p class="hint" style="margin-top:8px">${j.synced === 'started' ? '已經開始增量同步 115，本機的 strm 會跟著搬到新名字，再重新掃描。' : '115 同步正在進行，這次的變動會在下一次同步時帶到。'}</p>`;
-  if (j.items.length) h += `<details class="more" style="margin-top:10px"><summary>每個檔案的結果（${j.items.length}）</summary><div class="in list">${j.items.map(i =>
+  if (!j.running && j.synced) h += `<p class="hint mt8">${j.synced === 'started' ? '已經開始增量同步 115，本機的 strm 會跟著搬到新名字，再重新掃描。' : '115 同步正在進行，這次的變動會在下一次同步時帶到。'}</p>`;
+  if (j.items.length) h += `<details class="more mt10"><summary>每個檔案的結果（${j.items.length}）</summary><div class="in list">${j.items.map(i =>
     `<div class="li top"><div class="main"><b>${esc(i.name)}</b>${i.target ? `<div class="reo-to">→ ${esc(i.target)}</div>` : ''}${i.message ? `<div class="sub">${esc(i.message)}</div>` : ''}</div><span class="pill ${i.state === 'completed' || i.state === 'accepted' ? 'ok' : 'warn'}">${esc(REO_STATE[i.state] || i.state)}</span></div>`).join('')}</div></details>`;
-  if (j.errors.length) h += `<div class="notice bad" style="margin-top:10px">${j.errors.slice(0, 3).map(esc).join('<br>')}</div>`;
+  if (j.errors.length) h += `<div class="notice bad mt10">${j.errors.slice(0, 3).map(esc).join('<br>')}</div>`;
   return h;
 }
 function openReorg(it) {
@@ -2113,7 +2175,7 @@ async function openReorgPlan(url, title) {
   $('reoPlan').innerHTML = (folder
     ? `<p class="hint">115 上的位置：<code>${esc(plan.path)}</code>・${count} 支影片${plan.in_sync ? `，其中 ${plan.in_sync} 支在同步目錄裡（媒體庫裡有）` : '，都不在同步目錄裡'}</p>`
     : `<p class="hint">115 上的位置：<code>${esc(plan.remote_series)}</code></p>`) + (plan.missing.length
-    ? `<p class="notice warn" style="margin-top:8px">${plan.missing.length} 集找不到 115 上的檔案，這次不會送：${esc(plan.missing[0].reason)}</p>` : '');
+    ? `<p class="notice warn mt8">${plan.missing.length} 集找不到 115 上的檔案，這次不會送：${esc(plan.missing[0].reason)}</p>` : '');
   $('reoTypeField').classList.toggle('hidden', !folder); $('reoSeasonField').classList.toggle('hidden', !folder);
   $('reoType').value = plan.type || 'auto'; $('reoSeason').value = plan.season ?? '';
   $('reoTmdb').value = plan.tmdbid || '';
@@ -2125,17 +2187,18 @@ async function openReorgPlan(url, title) {
     const d = document.createElement('div'); d.className = 'reog'; d.dataset.key = g.key;
     const first = g.files[0]?.name || '', short = first.length > 18 ? first.slice(0, 18) + '…' : first;
     const label = g.key === 'native' ? 'MoviePilot 自己認得的寫法' : g.key === 'unknown' ? (folder ? '檔名看不出集號' : '認不出集號') : `和「${esc(short)}」同一種寫法`;
-    d.innerHTML = `<label class="switch" style="padding:0"><input type="checkbox" class="js-on"${g.enabled ? ' checked' : ''}><span class="track"></span>
+    d.innerHTML = `<label class="switch p0"><input type="checkbox" class="js-on"${g.enabled ? ' checked' : ''}><span class="track"></span>
         <span class="lbl">${label}（${g.files.length} 個）${g.note ? `<small>${esc(g.note)}</small>` : ''}</span></label>
-      ${g.key === 'native' ? '' : `<label class="field js-tplf" style="margin-top:8px"><span>集數定位</span><input type="text" class="js-tpl" placeholder="{ep}.{a}">
+      ${g.key === 'native' ? '' : `<label class="field js-tplf mt8"><span>集數定位</span><input type="text" class="js-tpl" placeholder="{ep}.{a}">
         <small>{ep} 是集號，{a}、{b} 是任意文字，要對上整個檔名。${g.source === 'mi302' ? 'Mi302 依檔名產生的。' : g.source === 'moviepilot' ? 'MoviePilot 推薦的。' : ''}類型是電影時不用。</small></label>`}
-      <details class="more" style="margin-top:6px"><summary>看檔案</summary><div class="in files">${g.files.map(f => esc(f.name) + (f.episode != null ? `（第 ${f.episode} 集）` : '')).join('<br>')}</div></details>`;
+      <details class="more mt6"><summary>看檔案</summary><div class="in files">${g.files.map(f => esc(f.name) + (f.episode != null ? `（第 ${f.episode} 集）` : '')).join('<br>')}</div></details>`;
     const tpl = d.querySelector('.js-tpl'); if (tpl) { tpl.value = g.template || ''; tpl.oninput = reoDirty; }
     d.querySelector('.js-on').onchange = reoDirty;
     box.appendChild(d);
   }
   reoTypeChanged(true);
   $('reoForm').classList.remove('hidden');
+  [...$('reoForm').querySelectorAll('input, select')].find(el => el.offsetParent)?.focus();  // 第一個看得到的欄位
   $('reoPreviewBtn').disabled = false;
   $('reoInfo').textContent = '先按「預覽」，看過每個檔案的新位置再執行';
 }
@@ -2178,17 +2241,17 @@ async function reoPreview() {
   reo.preview = r; reo.token = r.token;
   const sm = r.summary;
   let h = `<div class="chips">${chip(sm.ok, '可以整理', true)}${chip(sm.warnings, '要看一下')}${chip(sm.failed, '不會送')}</div>`;
-  if (r.notes.length) h += `<p class="notice" style="margin-top:8px">${r.notes.map(esc).join('<br>')}</p>`;
-  h += '<div class="list" style="margin-top:10px">' + r.items.map(i => {
+  if (r.notes.length) h += `<p class="notice mt8">${r.notes.map(esc).join('<br>')}</p>`;
+  h += '<div class="list mt10">' + r.items.map(i => {
     const pills = !i.ok ? '<span class="pill bad">不會送</span>' : i.warnings.length ? '<span class="pill warn">要看一下</span>' : '<span class="pill ok">可以</span>';
     return `<div class="li top"><div class="main"><b>${esc(i.name)}</b>
       ${i.target ? `<div class="reo-to">→ ${esc(i.target)}</div>` : ''}
       <div class="sub">${esc([i.episode != null ? `第 ${i.episode} 集` : i.expected != null ? `檔名是第 ${i.expected} 集` : '', !i.ok ? i.message : ''].filter(Boolean).join('・'))}</div>
-      ${i.warnings.map(w => `<div class="sub" style="color:var(--warn)">${esc(w)}</div>`).join('')}</div>${pills}</div>`;
+      ${i.warnings.map(w => `<div class="sub t-warn">${esc(w)}</div>`).join('')}</div>${pills}</div>`;
   }).join('') + '</div>';
   $('reoResult').innerHTML = h;
   if (r.token) {
-    $('reoRunBtn').disabled = !!reoLast?.job.running; $('reoRunBtn').textContent = `執行整理（${sm.ok} 個）`;
+    $('reoRunBtn').disabled = !!S.reo?.running; $('reoRunBtn').textContent = `執行整理（${sm.ok} 個）`;
     $('reoInfo').textContent = sm.warnings ? `有 ${sm.warnings} 個要看一下，確定沒問題再執行` : '確認新位置沒問題再執行';
   } else {
     $('reoInfo').textContent = '沒有可以整理的檔案，調整設定後再預覽';
@@ -2200,21 +2263,21 @@ async function reoExecute() {
   if (!await ask({title: `在 115 上整理 ${r.summary.ok} 個檔案？`,
     text: `MoviePilot 會在 115 上移動、改名這些檔案${$('reoScrape').checked ? '並刮削' : ''}，照剛才預覽的位置。${skip ? `預覽時不行的 ${skip} 個不會送。` : ''}完成後 Mi302 刪掉本機${reo.plan.mode === 'folder' ? '寫著 -1' : '沒有集號'}的舊 nfo，約 20 秒後同步 115。`,
     ok: '執行整理', danger: true})) return;
-  try { await api('/web/api/moviepilot/reorganize/execute', {method: 'POST', body: JSON.stringify({token: reo.token})}); }
+  try { S.reo = (await api('/web/api/moviepilot/reorganize/execute', {method: 'POST', body: JSON.stringify({token: reo.token})})).job; }
   catch (e) { note($('reoMsg'), e.message, 'bad'); return; }
-  reoDlg.close(); toast('已交給 MoviePilot 整理'); reoWasRunning = true; pollReorgJob();
+  reoDlg.close(); toast('已交給 MoviePilot 整理'); pollReorgJob();
 }
 // 整理的進度：MoviePilot 頁和 115 頁都顯示；做完時重新整理看得到的清單
-let reoJobTimer = null;
 async function pollReorgJob() {
-  clearTimeout(reoJobTimer);
+  cancel('reo');
   let r;
   try { r = await api('/web/api/moviepilot/reorganize?limit=1'); } catch (e) { return; }
+  const wasRunning = S.reo?.running;
+  S.reo = r.job;
   const html = reoJobHtml(r.job);
   setHtml($('reoJob'), html); setHtml($('b115Job'), html);
-  if (r.job.running) { reoWasRunning = true; reoJobTimer = setTimeout(pollReorgJob, 2000); return; }
-  if (reoWasRunning) {
-    reoWasRunning = false;
+  if (r.job.running) { later('reo', pollReorgJob); return; }
+  if (wasRunning) {
     toast('MoviePilot 整理完成', r.job.failed || r.job.errors.length ? 'bad' : '');
     if (!$('tab-moviepilot').classList.contains('hidden')) loadReorg();
   }
@@ -2228,7 +2291,7 @@ async function loadRecycle(offset) {
   box.innerHTML = '<p class="hint row"><span class="spin"></span>讀取 115 回收站…</p>';
   let r;
   try { r = await api(`/web/api/115/recyclebin?offset=${offset}&limit=${RB_PAGE}`); }
-  catch (e) { box.innerHTML = `<p class="notice bad">${esc(e.message)}</p>`; $('rbClean').disabled = true; return; }
+  catch (e) { box.innerHTML = failHtml(e); $('rbClean').disabled = true; return; }
   rb = {offset, count: r.count, via: r.via};
   $('rbInfo').innerHTML = r.count
     ? `<p class="hint">回收站裡有 <b>${r.count}</b> 個項目${r.via === 'open' ? '・會用開放平台清空，不用安全密鑰' : '・清空時要 115 的安全密鑰'}</p>`
@@ -2237,8 +2300,7 @@ async function loadRecycle(offset) {
   box.innerHTML = r.items.map(i => `<div class="li"><div class="main"><b>${esc(i.name)}</b>
     <div class="sub">${[i.size ? fmtSize(i.size) : '', i.dtime ? '刪除於 ' + fmtTime(i.dtime) : '', i.parent ? '原本在 ' + esc(i.parent) : ''].filter(Boolean).join('・')}</div></div></div>`).join('');
   const pages = Math.max(1, Math.ceil(r.count / RB_PAGE)), page = Math.floor(offset / RB_PAGE) + 1;
-  if (pages > 1) box.insertAdjacentHTML('beforeend', `<div class="row" style="padding-top:12px"><span class="hint grow">第 ${page} / ${pages} 頁</span>
-    <button class="btn sm"${page <= 1 ? ' disabled' : ''} onclick="loadRecycle(${offset - RB_PAGE})">上一頁</button><button class="btn sm"${page >= pages ? ' disabled' : ''} onclick="loadRecycle(${offset + RB_PAGE})">下一頁</button></div>`);
+  pager(box, {page, pages, onPage: p => loadRecycle((p - 1) * RB_PAGE)});
 }
 async function cleanRecycle() {
   // 永久刪除：先輸入「清空」，只有 cookie 通道時再問安全密鑰
@@ -2271,24 +2333,25 @@ function browse115Start() {
   const t = (cfg?.p115?.strm?.tasks || [])[0];
   b115Open(null, t ? '/' + String(t.remote).replace(/^\/+|\/+$/g, '') : '/');
 }
+ACTS.b115Path = el => b115Open(null, el.dataset.path);
 async function b115Open(cid, path) {
   const seq = ++b115.seq, box = $('b115List');
   box.innerHTML = '<p class="hint row"><span class="spin"></span>讀取 115…</p>';
   let r;
   try { r = await api('/web/api/115/files?' + (cid != null ? `cid=${cid}&` : '') + 'path=' + encodeURIComponent(path)); }
-  catch (e) { if (seq === b115.seq) box.innerHTML = `<p class="notice bad">${esc(e.message)}</p>`; return; }
+  catch (e) { if (seq === b115.seq) box.innerHTML = failHtml(e); return; }
   if (seq !== b115.seq) return;
   b115.cid = r.cid; b115.path = r.path;
   $('b115Start').textContent = '回到同步目錄';
   // 路徑列：每一層都可以點
   const parts = r.path.split('/').filter(Boolean);
-  let acc = '', crumbs = [`<a onclick="b115Open(null, '/')">115</a>`];
+  let acc = '', crumbs = ['<button class="link" data-act="b115Path" data-path="/">115</button>'];
   parts.forEach((name, i) => {
     acc += '/' + name;
-    crumbs.push('<span class="sep">/</span>' + (i === parts.length - 1 ? `<b>${esc(name)}</b>` : `<a data-path="${esc(acc)}">${esc(name)}</a>`));
+    crumbs.push('<span class="sep">/</span>' + (i === parts.length - 1 ? `<b>${esc(name)}</b>`
+      : `<button class="link" data-act="b115Path" data-path="${esc(acc)}">${esc(name)}</button>`));
   });
   $('b115Crumbs').innerHTML = crumbs.join('');
-  for (const a of $('b115Crumbs').querySelectorAll('a[data-path]')) a.onclick = () => b115Open(null, a.dataset.path);
   const videos = r.files.filter(f => f.video).length;
   $('b115Info').textContent = `${r.dirs.length} 個資料夾、${r.total_files} 個檔案（${videos} 支影片）` + (r.sync_root ? `・在同步目錄 ${r.sync_root} 裡` : '・不在同步目錄裡');
   $('b115Reo').disabled = r.path === '/';
@@ -2296,28 +2359,29 @@ async function b115Open(cid, path) {
   box.innerHTML = '';
   if (r.path !== '/') {
     const up = document.createElement('div'); up.className = 'li';
-    up.innerHTML = `<div class="main path dir">${icon('up')}<span>上一層</span></div>`;
+    up.innerHTML = `<div class="main"><button class="link dir path">${icon('up')}<span>上一層</span></button></div>`;
     up.querySelector('.dir').onclick = () => b115Open(null, parentPath(r.path));
     box.appendChild(up);
   }
   for (const d of r.dirs) {
     const row = document.createElement('div'); row.className = 'li';
     const full = joinPath(r.path, d.name);
-    row.innerHTML = `<div class="main path dir">${icon('folder')}<span>${esc(d.name)}</span></div><button class="btn sm ghost" title="交給 MoviePilot 整理這個資料夾">整理…</button>`;
+    row.innerHTML = `<div class="main"><button class="link dir path">${icon('folder')}<span>${esc(d.name)}</span></button></div>` +
+      '<button class="btn sm ghost js-reo" title="交給 MoviePilot 整理這個資料夾">整理…</button>';
     row.querySelector('.dir').onclick = () => b115Open(d.id, full);
-    row.querySelector('button').onclick = () => openReorgFolder(d.id, full);
+    row.querySelector('.js-reo').onclick = () => openReorgFolder(d.id, full);
     box.appendChild(row);
   }
   for (const f of r.files) {
     const row = document.createElement('div'); row.className = 'li top';
     const meta = `${fmtSize(f.size)}${f.mtime ? '・' + fmtTime(f.mtime) : ''}`;
     row.innerHTML = f.video
-      ? `<div class="main"><b>${esc(f.name)}</b><div class="row wrap" style="margin-top:4px;gap:6px"><span class="hint">${meta}</span>${b115Lib(f, !!r.sync_root)}</div></div>`
+      ? `<div class="main"><b>${esc(f.name)}</b><div class="row wrap mt4 gap6"><span class="hint">${meta}</span>${b115Lib(f, !!r.sync_root)}</div></div>`
       : `<div class="main other">${esc(f.name)}・${meta}</div>`;
     box.appendChild(row);
   }
-  if (r.total_files > r.files.length) box.insertAdjacentHTML('beforeend', `<p class="hint" style="padding-top:10px">還有 ${r.total_files - r.files.length} 個檔案沒列出</p>`);
-  if (!r.dirs.length && !r.files.length) box.insertAdjacentHTML('beforeend', '<p class="hint" style="padding-top:10px">這個資料夾是空的</p>');
+  if (r.total_files > r.files.length) box.insertAdjacentHTML('beforeend', `<p class="hint pt10">還有 ${r.total_files - r.files.length} 個檔案沒列出</p>`);
+  if (!r.dirs.length && !r.files.length) box.insertAdjacentHTML('beforeend', '<p class="hint pt10">這個資料夾是空的</p>');
 }
 function b115Lib(f, inSync) {
   // 這支影片在 Mi302 媒體庫裡被認成什麼
@@ -2331,19 +2395,31 @@ function b115Lib(f, inSync) {
   return `<span class="pill ${src ? '' : 'ok'}">${esc(l.series || '')} ${se}</span>${src}`;
 }
 async function loadKeys() {
-  const list = await api('/web/api/apikeys');
-  const box = $('keys'); box.innerHTML = list.length ? '' : '<p class="hint">還沒有 API 金鑰。</p>';
+  const box = $('keys');
+  let list;
+  try { list = await api('/web/api/apikeys'); } catch (e) { box.innerHTML = failHtml(e); return; }
+  box.innerHTML = list.length ? '' : '<p class="hint">還沒有 API 金鑰。</p>';
   for (const k of list) {
     const r = document.createElement('div'); r.className = 'li';
-    r.innerHTML = `<div class="main"><b>${esc(k.name)}</b><div class="row" style="margin-top:4px"><code>${esc(k.key)}</code></div></div>
-      <button class="btn sm ghost icon" title="複製">${icon('copy')}</button><button class="btn sm ghost icon danger" title="刪除">${icon('trash')}</button>`;
+    r.innerHTML = `<div class="main"><b>${esc(k.name)}</b><div class="row mt4"><code>${esc(k.key)}</code></div></div>
+      <button class="btn sm ghost icon" title="複製" aria-label="複製金鑰 ${esc(k.name)}">${icon('copy')}</button><button class="btn sm ghost icon danger" title="刪除" aria-label="刪除金鑰 ${esc(k.name)}">${icon('trash')}</button>`;
     const [cp, del] = r.querySelectorAll('button');
     cp.onclick = () => copyText(k.key);
-    del.onclick = async () => { if (await ask({title: '刪除「' + k.name + '」？', text: '用這把金鑰的程式會連不上。', ok: '刪除', danger: true})) { await api('/web/api/apikeys/' + k.key, {method: 'DELETE'}); loadKeys(); } };
+    del.onclick = async () => {
+      if (!await ask({title: '刪除「' + k.name + '」？', text: '用這把金鑰的程式會連不上。', ok: '刪除', danger: true})) return;
+      try { await api('/web/api/apikeys/' + k.key, {method: 'DELETE'}); } catch (e) { toast(e.message, 'bad'); return; }
+      loadKeys();
+    };
     box.appendChild(r);
   }
 }
-async function addKey() { await api('/web/api/apikeys', {method: 'POST', body: JSON.stringify({name: keyName.value || 'MoviePilot'})}); keyName.value = ''; toast('已建立 API 金鑰'); loadKeys(); }
+async function addKey(btn) {
+  btn.disabled = true;
+  try { await api('/web/api/apikeys', {method: 'POST', body: JSON.stringify({name: keyName.value || 'MoviePilot'})}); }
+  catch (e) { toast(e.message, 'bad'); return; }
+  finally { btn.disabled = false; }
+  keyName.value = ''; toast('已建立 API 金鑰'); loadKeys();
+}
 
 // ---- 日誌 ----
 const LOG_LV = {DEBUG: '詳細', INFO: '資訊', WARNING: '警告', ERROR: '錯誤', CRITICAL: '嚴重'};
@@ -2351,8 +2427,8 @@ const LOG_SRC = {'embyserver.strm_sync': '115 同步', 'embyserver.p115': '115',
   'embyserver.moviepilot': 'MoviePilot', 'embyserver.scanner': '掃描', 'embyserver.access': '請求',
   'embyserver.routes.playback': '播放', 'embyserver.redirect': '播放', 'embyserver.settings': '設定',
   'embyserver.auth': '登入', 'embyserver.routes.items': '媒體庫', 'embyserver.app': '伺服器', 'uvicorn.error': '伺服器', 'embyserver.logs': '日誌'};
-let logLast = 0, logRows = [], logTimer = null, logQT = null, logSeq = 0;
-const LOG_MAX = 1000;
+let logLast = 0, logRows = [], logSeq = 0;
+const LOG_MAX = 1000;  // 日誌頁最多顯示幾筆（伺服器記憶體裡留 3000 筆）
 function logTime(ts) {
   const d = new Date(ts * 1000), z = n => String(n).padStart(2, '0');
   return `${z(d.getMonth() + 1)}/${z(d.getDate())} ${z(d.getHours())}:${z(d.getMinutes())}:${z(d.getSeconds())}`;
@@ -2374,30 +2450,26 @@ function renderLogs(fresh) {
   if (keep !== null) box.scrollTop = box.scrollHeight - keep;
 }
 async function loadLogs(reset) {
-  clearTimeout(logTimer);
-  if (document.hidden && !reset) { logTimer = setTimeout(() => loadLogs(false), 2000); return; }
+  cancel('logs');
   if (reset) { logLast = 0; logRows = []; }
   const seq = ++logSeq;
   let r;
   try { r = await api(`/web/api/logs?after=${logLast}&level=${logLevel.value}&q=${encodeURIComponent(logQ.value)}&limit=${LOG_MAX}`); }
-  catch (e) { $('logList').innerHTML = `<p class="notice bad" style="margin:18px">${esc(e.message)}</p>`; return; }
+  catch (e) { $('logList').innerHTML = `<div class="m18">${failHtml(e)}</div>`; return; }
   if (seq !== logSeq) return;  // 等回應期間換了條件（搜尋、等級），這份已經過時
   logLast = r.last;
   if (reset) { logRows = r.items.reverse(); renderLogs(); }
   else if (r.items.length) { const fresh = r.items.reverse(); logRows = fresh.concat(logRows).slice(0, LOG_MAX); renderLogs(fresh); }
+  $('logMax').textContent = LOG_MAX;
   $('logFile').textContent = r.file || '（無法寫入日誌檔，只保留在記憶體）';
   $('logDebug').checked = r.log_level === 'debug';
   const old = r.files.slice(1);
-  $('logFiles').innerHTML = old.length ? '舊檔：' + old.map(f => `<a href="#logs" data-log="${esc(f.name)}">${esc(f.name)}</a>（${fmtSize(f.size)}）`).join('、') : '';
-  if ($('logLive').checked && !$('tab-logs').classList.contains('hidden')) logTimer = setTimeout(() => loadLogs(false), 2000);
+  $('logFiles').innerHTML = old.length ? '舊檔：' + old.map(f => `<button class="link" data-act="downloadLog" data-log="${esc(f.name)}">${esc(f.name)}</button>（${fmtSize(f.size)}）`).join('、') : '';
+  if ($('logLive').checked && !$('tab-logs').classList.contains('hidden')) later('logs', () => loadLogs(false));
 }
-document.addEventListener('click', e => { const a = e.target.closest('[data-log]'); if (a) { e.preventDefault(); downloadLog(a.dataset.log); } });
+ACTS.downloadLog = el => downloadLog(el.dataset.log);
 async function downloadLog(name) {
-  const r = await fetch('/web/api/logs/download' + (name ? '?name=' + encodeURIComponent(name) : ''), {headers: H()});
-  if (!r.ok) { toast('下載失敗：' + (await r.text() || r.status), 'bad'); return; }
-  const url = URL.createObjectURL(await r.blob());
-  const a = document.createElement('a'); a.href = url; a.download = name || 'mi302.log'; document.body.appendChild(a); a.click(); a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  downloadBlob(await fetch('/web/api/logs/download' + (name ? '?name=' + encodeURIComponent(name) : ''), {headers: H()}), name || 'mi302.log');
 }
 async function setLogLevel(on) {
   try { await putSettings({server: {log_level: on ? 'debug' : 'info'}}); }
@@ -2408,17 +2480,16 @@ async function setLogLevel(on) {
 }
 
 // ---- 中文化 ----
-let zhTimer = null;
 async function pollPeople() {
-  clearTimeout(zhTimer);
+  cancel('zh');
   let s;
-  try { s = await api('/web/api/people/status'); } catch (e) { $('zhStat').innerHTML = `<p class="notice bad">${esc(e.message)}</p>`; return; }
+  try { s = await api('/web/api/people/status'); } catch (e) { $('zhStat').innerHTML = failHtml(e); return; }
   let h = `<div class="chips">${chip(s.people, '演職人員')}${chip(s.resolved, '有中文名', true)}${chip(s.pending, '還沒查')}${chip(s.none, '查過沒有')}</div>`;
-  h += `<p class="hint" style="margin-top:8px">來源：MoviePilot ${s.from_moviepilot}、Wikidata ${s.from_wikidata}${s.moviepilot ? '' : '。還沒設定 MoviePilot，只能問 Wikidata（覆蓋較窄，國內連線也慢）'}${s.last_run ? '・上次查詢 ' + ago(s.last_run) : ''}${s.running ? '・<span class="pill accent"><span class="spin"></span>查詢中</span>' : ''}</p>`;
-  if (s.last_error) h += `<p class="notice warn" style="margin-top:8px">${esc(s.last_error)}</p>`;
+  h += `<p class="hint mt8">來源：MoviePilot ${s.from_moviepilot}、Wikidata ${s.from_wikidata}${s.moviepilot ? '' : '。還沒設定 MoviePilot，只能問 Wikidata（覆蓋較窄，國內連線也慢）'}${s.last_run ? '・上次查詢 ' + ago(s.last_run) : ''}${s.running ? '・<span class="pill accent"><span class="spin"></span>查詢中</span>' : ''}</p>`;
+  if (s.last_error) h += `<p class="notice warn mt8">${esc(s.last_error)}</p>`;
   setHtml($('zhStat'), h);
   $('zhBtn').disabled = !s.chinese_people || s.running || !s.pending;
-  if (s.running) zhTimer = setTimeout(pollPeople, 3000);
+  if (s.running) later('zh', pollPeople, 3000);
 }
 async function resolvePeople() {
   try { const r = await api('/web/api/people/resolve', {method: 'POST'}); toast(r.started ? '開始查中文名' : '已經在查了'); }
@@ -2429,7 +2500,7 @@ async function resolvePeople() {
 // ---- 備份 ----
 async function loadBackups() {
   let r;
-  try { r = await api('/web/api/backups'); } catch (e) { $('bkList').innerHTML = `<p class="notice bad">${esc(e.message)}</p>`; return; }
+  try { r = await api('/web/api/backups'); } catch (e) { $('bkList').innerHTML = failHtml(e); return; }
   $('bkDir').textContent = r.dir;
   const box = $('bkList'); box.innerHTML = '';
   const dbs = r.items.filter(i => i.kind === 'db');
@@ -2438,7 +2509,7 @@ async function loadBackups() {
     const yaml = r.items.find(i => i.kind === 'yaml' && i.stamp === b.stamp);
     const row = document.createElement('div'); row.className = 'li';
     row.innerHTML = `<div class="main"><b>${esc(fmtTime(b.time))}</b><div class="sub">${esc(b.name)}・${fmtSize(b.size)}${yaml ? '・含設定檔' : ''}</div></div>
-      <button class="btn sm ghost icon" title="下載資料庫">${icon('download')}</button>${yaml ? `<button class="btn sm ghost" title="下載設定檔">yaml</button>` : ''}`;
+      <button class="btn sm ghost icon" title="下載資料庫" aria-label="下載資料庫">${icon('download')}</button>${yaml ? `<button class="btn sm ghost" title="下載設定檔">yaml</button>` : ''}`;
     const [dl, dy] = row.querySelectorAll('button');
     dl.onclick = () => downloadBackup(b.name);
     if (dy) dy.onclick = () => downloadBackup(yaml.name);
@@ -2452,11 +2523,7 @@ async function backupNow() {
   finally { $('bkBtn').disabled = false; }
 }
 async function downloadBackup(name) {
-  const r = await fetch('/web/api/backups/' + encodeURIComponent(name), {headers: H()});
-  if (!r.ok) { toast('下載失敗：' + (await r.text() || r.status), 'bad'); return; }
-  const url = URL.createObjectURL(await r.blob());
-  const a = document.createElement('a'); a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  downloadBlob(await fetch('/web/api/backups/' + encodeURIComponent(name), {headers: H()}), name);
 }
 
 // ---- 資料夾選擇器 ----
@@ -2464,7 +2531,7 @@ let pickKind = 'local', pickResolve = null, pickCur = '';
 function pickDir(kind, start) {
   pickKind = kind;
   $('pickTitle').textContent = kind === '115' ? '選擇 115 目錄' : '選擇伺服器上的資料夾';
-  picker.showModal(); pickGo(start || '');
+  picker.showModal(); pickPath.focus(); pickGo(start || '');
   return new Promise(res => { pickResolve = res; picker.onclose = () => { res(null); }; });
 }
 async function pickGo(path) {
@@ -2474,7 +2541,10 @@ async function pickGo(path) {
   catch (e) { note($('pickMsg'), e.message, 'bad'); $('pickList').innerHTML = ''; return; }
   pickCur = r.path; pickPath.value = r.path;
   const list = $('pickList'); list.innerHTML = '';
-  const entry = (ic, label, target) => { const d = document.createElement('div'); d.innerHTML = icon(ic) + '<span>' + esc(label) + '</span>'; d.onclick = () => pickGo(target); list.appendChild(d); };
+  const entry = (ic, label, target) => {
+    const b = document.createElement('button'); b.type = 'button'; b.innerHTML = icon(ic) + '<span>' + esc(label) + '</span>';
+    b.onclick = () => pickGo(target); list.appendChild(b);
+  };
   if (r.parent) entry('up', '上一層', r.parent);
   const sep = pickKind === 'local' && r.path.includes('\\') ? '\\' : '/';
   for (const d of r.dirs) entry('folder', d, r.path.replace(/[\\/]$/, '') + sep + d);
