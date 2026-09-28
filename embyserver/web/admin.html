@@ -1633,21 +1633,26 @@ function accountHead(a) {
 }
 function renderAccount() {
   const s = S.p115; if (!s) return;
-  const c = s.cookie_info, o = s.open, a = s.account;
+  const c = s.cookie_info, a = s.account;
   const space = a?.space?.total ? Math.round(a.space.used / a.space.total * 100) + '%' : '–';
   $('stSpace').textContent = s.logged_in ? space : '未登入';
   $('qrBtn').innerHTML = icon('qr') + (s.logged_in ? '重新掃碼登入' : '掃碼登入');
-  // 115 限流或登入失效：背景同步暫停，播放照常
-  const brk = s.breaker?.tripped ? `<p class="notice ${s.breaker.login_bad ? 'bad' : 'warn'} mb12">${esc(s.breaker.message)}${s.breaker.login_bad ? '' : '。播放不受影響。'}</p>` : '';
   $('qrBtn').className = 'btn ' + (s.logged_in ? '' : 'primary');
   $('logoutBtn').classList.toggle('hidden', !s.logged_in);
   if (!s.logged_in) {
-    const h = emptyState('還沒登入 115', '按「掃碼登入」，用手機 115 App 掃描確認。');
-    $('acct').innerHTML = h;
+    $('acct').innerHTML = emptyState('還沒登入 115', '按「掃碼登入」，用手機 115 App 掃描確認。');
     $('ovAcct').innerHTML = emptyState('還沒登入 115', '登入後才能從 115 產生 strm。', '#115', '去登入');
     return;
   }
-  let h = a ? accountHead(a) : '';
+  // 115 限流或登入失效：背景同步暫停，播放照常
+  const brk = s.breaker?.tripped ? `<p class="notice ${s.breaker.login_bad ? 'bad' : 'warn'} mb12">${esc(s.breaker.message)}${s.breaker.login_bad ? '' : '。播放不受影響。'}</p>` : '';
+  const head = a ? accountHead(a) : '';
+  $('acct').innerHTML = brk + head + accountKv(s) + accountDevices(c);
+  $('ovAcct').innerHTML = brk + head + (c && !c.valid ? '<p class="notice bad mt12">115 登入已失效，請重新掃碼。</p>' : '');
+}
+function accountKv(s) {
+  // cookie 和開放平台的狀態、登入方式和時間
+  const c = s.cookie_info, o = s.open;
   let kv = '<dl class="kv mt16">';
   if (c) {
     const login = s.login || {};
@@ -1661,17 +1666,14 @@ function renderAccount() {
     kv += `<dt>開放平台</dt><dd class="sp">${o.valid === false ? `<span class="pill bad">授權失效</span><span>${esc(o.error || '')}</span>` : '<span class="pill ok">已授權</span>'}` +
       `${o.expires_at ? `<span>token 到期 ${fmtTime(o.expires_at)}（會自動續期）</span>` : ''}</dd>`;
   }
-  kv += `<dt>檢查時間</dt><dd>${fmtTime(s.checked_at)}</dd></dl>`;
-  let dev = '';
-  if (c && c.devices && c.devices.length) {
-    dev = `<details class="more mt14"><summary>目前登入這個帳號的裝置（${c.devices.length}）</summary><div class="in list">`;
-    for (const d of c.devices) {
-      dev += `<div class="li"><div class="main"><b>${esc(d.name || d.app)}</b> ${d.current ? '<span class="pill accent">本伺服器</span>' : ''}<div class="sub sp">${[d.ip, d.city, fmtTime(d.time)].filter(Boolean).map(x => `<span>${esc(x)}</span>`).join('')}</div></div></div>`;
-    }
-    dev += '</div></details>';
-  }
-  $('acct').innerHTML = brk + h + kv + dev;
-  $('ovAcct').innerHTML = brk + (a ? accountHead(a) : '') + (c && !c.valid ? '<p class="notice bad mt12">115 登入已失效，請重新掃碼。</p>' : '');
+  return kv + `<dt>檢查時間</dt><dd>${fmtTime(s.checked_at)}</dd></dl>`;
+}
+function accountDevices(c) {
+  // 目前登入這個 115 帳號的裝置（摺起來）
+  if (!c?.devices?.length) return '';
+  const rows = c.devices.map(d => `<div class="li"><div class="main"><b>${esc(d.name || d.app)}</b> ${d.current ? '<span class="pill accent">本伺服器</span>' : ''}` +
+    `<div class="sub sp">${[d.ip, d.city, fmtTime(d.time)].filter(Boolean).map(x => `<span>${esc(x)}</span>`).join('')}</div></div></div>`).join('');
+  return `<details class="more mt14"><summary>目前登入這個帳號的裝置（${c.devices.length}）</summary><div class="in list">${rows}</div></details>`;
 }
 // 掃碼登入（qr）和開放平台授權（oqr）各自只有一張有效的二維碼；連點兩下時，舊的那張的輪詢自己停掉
 const QR = {};
@@ -1849,10 +1851,19 @@ async function pollDupes() {
   cancel('dupes');
   let s;
   try { s = await api('/web/api/dupes'); } catch (e) { setHtml($('dupStat'), failHtml(e)); return; }
-  const wasRunning = S.dupes?.job.running;
+  const wasRunning = S.dupes?.job.running, j = s.job;
   S.dupes = s;
   if (document.activeElement !== $('dupPrefer')) $('dupPrefer').value = s.prefer || '1080';
-  $('dupPrefer').disabled = s.job.running;
+  $('dupPrefer').disabled = j.running;
+  setHtml($('dupStat'), dupStatHtml(s));
+  $('dupScanBtn').disabled = j.running;
+  for (const b of document.querySelectorAll('.js-dupdel')) if (j.running) b.disabled = true;
+  document.querySelectorAll('#dupList .js-delgroup').forEach(b => { b.disabled = j.running; });
+  if (j.running) later('dupes', pollDupes);
+  else if (wasRunning) { loadDupGroups(1); loadDupLog(); toast(j.kind === 'scan' ? '找重複完成' : '刪除完成', j.errors.length ? 'bad' : ''); }
+}
+function dupStatHtml(s) {
+  // 範圍、進度（找重複中／刪除中）或上次的結果，加上規則改過、上次刪除的提示
   const j = s.job, roots = dupRoot ? [dupRoot] : s.default_roots;
   let h = `<p class="hint">範圍：${roots.length ? roots.map(r => `<code>${esc(r)}</code>`).join('、') : '還沒有同步任務，請按「改選 115 目錄…」'}` +
     (dupRoot ? '（自己選的，<button class="link" data-act="dupRootReset">改回同步任務的目錄</button>）' : roots.length ? '（同步任務的目錄）' : '') + '</p>';
@@ -1877,12 +1888,7 @@ async function pollDupes() {
   } else if (!j.running && j.errors.length) {
     h += `<p class="notice bad mt8">${esc(j.errors[0])}</p>`;
   }
-  setHtml($('dupStat'), h);
-  $('dupScanBtn').disabled = j.running;
-  for (const b of document.querySelectorAll('.js-dupdel')) if (j.running) b.disabled = true;
-  document.querySelectorAll('#dupList .js-delgroup').forEach(b => { b.disabled = j.running; });
-  if (j.running) later('dupes', pollDupes);
-  else if (wasRunning) { loadDupGroups(1); loadDupLog(); toast(j.kind === 'scan' ? '找重複完成' : '刪除完成', j.errors.length ? 'bad' : ''); }
+  return h;
 }
 function dupDefault(m) { return dupSuggestAll[dupKind] && !m.keep; }
 function dupWanted(m) { const o = dupOverrides[dupKind]; return m.file_id in o ? o[m.file_id] : dupDefault(m); }
@@ -1909,37 +1915,37 @@ function qualityPills(q) {
   return [res, q.hdr, q.codec, q.audio, q.audios > 1 ? q.audios + ' 條音軌' : '', q.subtitles ? q.subtitles + ' 條字幕' : '']
     .filter(Boolean).map(t => `<span class="pill">${esc(t)}</span>`).join('') + (q.from === 'filename' && (res || q.hdr || q.codec) ? '<span class="hint">（看檔名）</span>' : '');
 }
+function dupMemberHtml(m, g, versions) {
+  // 一組裡的一份：勾選框、115 上的路徑、建議保留、畫質或有沒有 strm、觀看紀錄
+  const title = m.series ? `${m.series}・${m.item}` : m.item || '';
+  const named = m.complete === false ? `<span class="pill warn" title="${g.kind === 'movie' ? '電影的檔名要有年份' : '劇集的檔名要有 S01E02 這種季和集都寫明的編號'}">檔名編號不完整</span>` : '';
+  const pills = (m.keep ? '<span class="pill ok">建議保留</span>' : '') + named + (versions ? qualityPills(m.quality) + `<span class="pill">${fmtSize(m.size)}</span>`
+    : (m.local ? '<span class="pill">有 strm</span>' : '<span class="pill">不在同步目錄</span>')) + (m.watched ? '<span class="pill">有觀看紀錄</span>' : '');
+  return `<label class="dupm"><input type="checkbox" data-fid="${m.file_id}"${dupWanted(m) ? ' checked' : ''}>` +
+    `<span class="grow"><span class="p">${esc(m.path)}</span><span class="row wrap mt4">${pills}` +
+    `<span class="hint">${m.mtime ? '上傳於 ' + fmtTime(m.mtime) : ''}${!versions && title ? '・' + esc(title) : ''}</span></span></span></label>`;
+}
 function dupGroup(g) {
   const row = document.createElement('div'); row.className = 'li top';
   const versions = dupKind === 'versions';
-  const members = g.members.map(m => {
-    const title = m.series ? `${m.series}・${m.item}` : m.item || '';
-    const named = m.complete === false ? `<span class="pill warn" title="${g.kind === 'movie' ? '電影的檔名要有年份' : '劇集的檔名要有 S01E02 這種季和集都寫明的編號'}">檔名編號不完整</span>` : '';
-    const pills = (m.keep ? '<span class="pill ok">建議保留</span>' : '') + named + (versions ? qualityPills(m.quality) + `<span class="pill">${fmtSize(m.size)}</span>`
-      : (m.local ? '<span class="pill">有 strm</span>' : '<span class="pill">不在同步目錄</span>')) + (m.watched ? '<span class="pill">有觀看紀錄</span>' : '');
-    return `<label class="dupm"><input type="checkbox" data-fid="${m.file_id}"${dupWanted(m) ? ' checked' : ''}>` +
-      `<span class="grow"><span class="p">${esc(m.path)}</span><span class="row wrap mt4">${pills}` +
-      `<span class="hint">${m.mtime ? '上傳於 ' + fmtTime(m.mtime) : ''}${!versions && title ? '・' + esc(title) : ''}</span></span></span></label>`;
-  }).join('');
   const head = versions ? `<b>${esc(g.title)}</b><span class="hint">${g.count} 個版本，勾選的會刪</span>`
     : `<b>${esc(g.members[0].name)}</b><span class="pill">${fmtSize(g.size)}</span><span class="hint">${g.count} 份，勾選的會刪</span>`;
-  row.innerHTML = `<div class="main"><div class="row wrap">${head}</div>${members}</div>
+  row.innerHTML = `<div class="main"><div class="row wrap">${head}</div>${g.members.map(m => dupMemberHtml(m, g, versions)).join('')}</div>
     <div class="stack gap6">${versions ? '<button class="btn sm js-suggest">照建議勾選</button>' : ''}<button class="btn sm danger js-delgroup">刪這一組勾選的</button></div>`;
   const boxes = [...row.querySelectorAll('input[data-fid]')];
-  const remember = () => {
+  const member = b => g.members.find(x => String(x.file_id) === b.dataset.fid);
+  const remember = () => {  // 只記跟預設不一樣的勾選
     for (const b of boxes) {
-      const m = g.members.find(x => String(x.file_id) === b.dataset.fid);
+      const m = member(b);
       if (b.checked === dupDefault(m)) delete dupOverrides[dupKind][m.file_id]; else dupOverrides[dupKind][m.file_id] = b.checked;
     }
+    refreshDupSelection();
   };
   for (const cb of boxes) cb.onchange = () => {
     if (boxes.every(b => b.checked)) { cb.checked = false; toast('每組至少要留一份', 'bad'); }
-    remember(); refreshDupSelection();
+    remember();
   };
-  if (versions) row.querySelector('.js-suggest').onclick = () => {
-    for (const b of boxes) b.checked = !g.members.find(x => String(x.file_id) === b.dataset.fid).keep;
-    remember(); refreshDupSelection();
-  };
+  if (versions) row.querySelector('.js-suggest').onclick = () => { for (const b of boxes) b.checked = !member(b).keep; remember(); };
   row.querySelector('.js-delgroup').onclick = () => deleteDupes(g);
   return row;
 }
@@ -2161,16 +2167,22 @@ function openReorgFolder(cid, path) {
   openReorgPlan(`/web/api/moviepilot/reorganize/folder?cid=${cid}&path=${encodeURIComponent(path)}`, `交給 MoviePilot 整理：${path}`);
 }
 async function openReorgPlan(url, title) {
+  // 打開整理的對話框：先清空、顯示讀取中 → 取計畫 → 填表單和每一批
   reo = {plan: null, token: null, preview: null};
   $('reoTitle').textContent = title;
   $('reoPlan').innerHTML = '<p class="hint row"><span class="spin"></span>讀取 115 上的檔案…</p>';
   $('reoForm').classList.add('hidden'); $('reoResult').innerHTML = ''; note($('reoMsg'), '');
   $('reoPreviewBtn').disabled = $('reoRunBtn').disabled = true; $('reoRunBtn').textContent = '執行整理'; $('reoInfo').textContent = '';
   reoDlg.showModal();
-  let plan;
-  try { plan = await api(url); }
+  try { reo.plan = await api(url); }
   catch (e) { $('reoPlan').innerHTML = ''; note($('reoMsg'), e.message, 'bad'); return; }
-  reo.plan = plan;
+  renderReorgPlan(reo.plan);
+  $('reoForm').classList.remove('hidden');
+  [...$('reoForm').querySelectorAll('input, select')].find(el => el.offsetParent)?.focus();  // 第一個看得到的欄位
+  $('reoPreviewBtn').disabled = false;
+  $('reoInfo').textContent = '先按「預覽」，看過每個檔案的新位置再執行';
+}
+function renderReorgPlan(plan) {
   const folder = plan.mode === 'folder', count = plan.groups.reduce((n, g) => n + g.files.length, 0);
   $('reoPlan').innerHTML = (folder
     ? `<p class="hint">115 上的位置：<code>${esc(plan.path)}</code>・${count} 支影片${plan.in_sync ? `，其中 ${plan.in_sync} 支在同步目錄裡（媒體庫裡有）` : '，都不在同步目錄裡'}</p>`
@@ -2183,24 +2195,22 @@ async function openReorgPlan(url, title) {
   $('reoTarget').value = 'auto'; $('reoTargetPath').value = plan.remote_parent || ''; $('reoScrape').checked = true;
   reoTargetChanged(true);
   const box = $('reoGroups'); box.innerHTML = '';
-  for (const g of plan.groups) {
-    const d = document.createElement('div'); d.className = 'reog'; d.dataset.key = g.key;
-    const first = g.files[0]?.name || '', short = first.length > 18 ? first.slice(0, 18) + '…' : first;
-    const label = g.key === 'native' ? 'MoviePilot 自己認得的寫法' : g.key === 'unknown' ? (folder ? '檔名看不出集號' : '認不出集號') : `和「${esc(short)}」同一種寫法`;
-    d.innerHTML = `<label class="switch p0"><input type="checkbox" class="js-on"${g.enabled ? ' checked' : ''}><span class="track"></span>
-        <span class="lbl">${label}（${g.files.length} 個）${g.note ? `<small>${esc(g.note)}</small>` : ''}</span></label>
-      ${g.key === 'native' ? '' : `<label class="field js-tplf mt8"><span>集數定位</span><input type="text" class="js-tpl" placeholder="{ep}.{a}">
-        <small>{ep} 是集號，{a}、{b} 是任意文字，要對上整個檔名。${g.source === 'mi302' ? 'Mi302 依檔名產生的。' : g.source === 'moviepilot' ? 'MoviePilot 推薦的。' : ''}類型是電影時不用。</small></label>`}
-      <details class="more mt6"><summary>看檔案</summary><div class="in files">${g.files.map(f => esc(f.name) + (f.episode != null ? `（第 ${f.episode} 集）` : '')).join('<br>')}</div></details>`;
-    const tpl = d.querySelector('.js-tpl'); if (tpl) { tpl.value = g.template || ''; tpl.oninput = reoDirty; }
-    d.querySelector('.js-on').onchange = reoDirty;
-    box.appendChild(d);
-  }
+  for (const g of plan.groups) box.appendChild(reorgGroupBox(g, folder));
   reoTypeChanged(true);
-  $('reoForm').classList.remove('hidden');
-  [...$('reoForm').querySelectorAll('input, select')].find(el => el.offsetParent)?.focus();  // 第一個看得到的欄位
-  $('reoPreviewBtn').disabled = false;
-  $('reoInfo').textContent = '先按「預覽」，看過每個檔案的新位置再執行';
+}
+function reorgGroupBox(g, folder) {
+  // 一批（同一種檔名寫法）：要不要送、集數定位模板、看檔案
+  const d = document.createElement('div'); d.className = 'reog'; d.dataset.key = g.key;
+  const first = g.files[0]?.name || '', short = first.length > 18 ? first.slice(0, 18) + '…' : first;
+  const label = g.key === 'native' ? 'MoviePilot 自己認得的寫法' : g.key === 'unknown' ? (folder ? '檔名看不出集號' : '認不出集號') : `和「${esc(short)}」同一種寫法`;
+  d.innerHTML = `<label class="switch p0"><input type="checkbox" class="js-on"${g.enabled ? ' checked' : ''}><span class="track"></span>
+      <span class="lbl">${label}（${g.files.length} 個）${g.note ? `<small>${esc(g.note)}</small>` : ''}</span></label>
+    ${g.key === 'native' ? '' : `<label class="field js-tplf mt8"><span>集數定位</span><input type="text" class="js-tpl" placeholder="{ep}.{a}">
+      <small>{ep} 是集號，{a}、{b} 是任意文字，要對上整個檔名。${g.source === 'mi302' ? 'Mi302 依檔名產生的。' : g.source === 'moviepilot' ? 'MoviePilot 推薦的。' : ''}類型是電影時不用。</small></label>`}
+    <details class="more mt6"><summary>看檔案</summary><div class="in files">${g.files.map(f => esc(f.name) + (f.episode != null ? `（第 ${f.episode} 集）` : '')).join('<br>')}</div></details>`;
+  const tpl = d.querySelector('.js-tpl'); if (tpl) { tpl.value = g.template || ''; tpl.oninput = reoDirty; }
+  d.querySelector('.js-on').onchange = reoDirty;
+  return d;
 }
 function reoTypeChanged(init) {
   // 電影沒有季和集數定位
@@ -2335,16 +2345,26 @@ function browse115Start() {
 }
 ACTS.b115Path = el => b115Open(null, el.dataset.path);
 async function b115Open(cid, path) {
-  const seq = ++b115.seq, box = $('b115List');
-  box.innerHTML = '<p class="hint row"><span class="spin"></span>讀取 115…</p>';
-  let r;
-  try { r = await api('/web/api/115/files?' + (cid != null ? `cid=${cid}&` : '') + 'path=' + encodeURIComponent(path)); }
-  catch (e) { if (seq === b115.seq) box.innerHTML = failHtml(e); return; }
-  if (seq !== b115.seq) return;
+  // 打開 115 上的一個資料夾：取資料 → 畫路徑列 → 畫清單
+  const r = await loadFolder(cid, path);
+  if (!r) return;
   b115.cid = r.cid; b115.path = r.path;
   $('b115Start').textContent = '回到同步目錄';
-  // 路徑列：每一層都可以點
-  const parts = r.path.split('/').filter(Boolean);
+  renderCrumbs(r.path);
+  renderFolder(r);
+}
+async function loadFolder(cid, path) {
+  // 回應帶序號，點得快時慢的舊回應不會蓋掉新的；讀不到時在清單位置顯示原因，回傳 null
+  const seq = ++b115.seq, box = $('b115List');
+  box.innerHTML = '<p class="hint row"><span class="spin"></span>讀取 115…</p>';
+  try {
+    const r = await api('/web/api/115/files?' + (cid != null ? `cid=${cid}&` : '') + 'path=' + encodeURIComponent(path));
+    return seq === b115.seq ? r : null;
+  } catch (e) { if (seq === b115.seq) box.innerHTML = failHtml(e); return null; }
+}
+function renderCrumbs(path) {
+  // 路徑列：每一層都可以點（最後一層是現在的位置）
+  const parts = path.split('/').filter(Boolean);
   let acc = '', crumbs = ['<button class="link" data-act="b115Path" data-path="/">115</button>'];
   parts.forEach((name, i) => {
     acc += '/' + name;
@@ -2352,25 +2372,17 @@ async function b115Open(cid, path) {
       : `<button class="link" data-act="b115Path" data-path="${esc(acc)}">${esc(name)}</button>`));
   });
   $('b115Crumbs').innerHTML = crumbs.join('');
+}
+function renderFolder(r) {
   const videos = r.files.filter(f => f.video).length;
   $('b115Info').textContent = `${r.dirs.length} 個資料夾、${r.total_files} 個檔案（${videos} 支影片）` + (r.sync_root ? `・在同步目錄 ${r.sync_root} 裡` : '・不在同步目錄裡');
   $('b115Reo').disabled = r.path === '/';
   $('b115Bar').classList.remove('hidden');
-  box.innerHTML = '';
-  if (r.path !== '/') {
-    const up = document.createElement('div'); up.className = 'li';
-    up.innerHTML = `<div class="main"><button class="link dir path">${icon('up')}<span>上一層</span></button></div>`;
-    up.querySelector('.dir').onclick = () => b115Open(null, parentPath(r.path));
-    box.appendChild(up);
-  }
+  const box = $('b115List'); box.innerHTML = '';
+  if (r.path !== '/') box.appendChild(b115DirRow(icon('up'), '上一層', () => b115Open(null, parentPath(r.path))));
   for (const d of r.dirs) {
-    const row = document.createElement('div'); row.className = 'li';
     const full = joinPath(r.path, d.name);
-    row.innerHTML = `<div class="main"><button class="link dir path">${icon('folder')}<span>${esc(d.name)}</span></button></div>` +
-      '<button class="btn sm ghost js-reo" title="交給 MoviePilot 整理這個資料夾">整理…</button>';
-    row.querySelector('.dir').onclick = () => b115Open(d.id, full);
-    row.querySelector('.js-reo').onclick = () => openReorgFolder(d.id, full);
-    box.appendChild(row);
+    box.appendChild(b115DirRow(icon('folder'), d.name, () => b115Open(d.id, full), () => openReorgFolder(d.id, full)));
   }
   for (const f of r.files) {
     const row = document.createElement('div'); row.className = 'li top';
@@ -2382,6 +2394,15 @@ async function b115Open(cid, path) {
   }
   if (r.total_files > r.files.length) box.insertAdjacentHTML('beforeend', `<p class="hint pt10">還有 ${r.total_files - r.files.length} 個檔案沒列出</p>`);
   if (!r.dirs.length && !r.files.length) box.insertAdjacentHTML('beforeend', '<p class="hint pt10">這個資料夾是空的</p>');
+}
+function b115DirRow(ic, name, open, reorg) {
+  // 一列資料夾：名稱是按鈕（點了進去），有 reorg 時旁邊多一個「整理…」
+  const row = document.createElement('div'); row.className = 'li';
+  row.innerHTML = `<div class="main"><button class="link dir path">${ic}<span>${esc(name)}</span></button></div>` +
+    (reorg ? '<button class="btn sm ghost js-reo" title="交給 MoviePilot 整理這個資料夾">整理…</button>' : '');
+  row.querySelector('.dir').onclick = open;
+  if (reorg) row.querySelector('.js-reo').onclick = reorg;
+  return row;
 }
 function b115Lib(f, inSync) {
   // 這支影片在 Mi302 媒體庫裡被認成什麼
