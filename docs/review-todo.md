@@ -38,25 +38,25 @@
 
 ### 一、API 層（routes/、auth.py、dto.py）
 
-1. **async 函式裡做阻塞 I/O。** `routes/web.py` 的 `intro_clear`、`create_api_key`，`routes/items.py` 的 `upload_image`。改成一般 def 或包 `run_in_threadpool`。
-2. **非物件 JSON 造成 500。** `routes/web.py` 的 `_body` 收到 `[1]` 這種內容時，後面 `.get` 會炸。不是 dict 就回 400。
-3. **圖片路由的 `{index}` 宣告成 int。** `/Items/1/Images/Primary/abc` 回 422 JSON，Emby 是純文字 404。改成 str，或拿掉沒用到的參數。
+1. ~~**async 函式裡做阻塞 I/O。** `routes/web.py` 的 `intro_clear`、`create_api_key`，`routes/items.py` 的 `upload_image`。改成一般 def 或包 `run_in_threadpool`。~~（見 review-2026-09-28）
+2. ~~**非物件 JSON 造成 500。** `routes/web.py` 的 `_body` 收到 `[1]` 這種內容時，後面 `.get` 會炸。不是 dict 就回 400。~~（見 review-2026-09-28）
+3. ~~**圖片路由的 `{index}` 宣告成 int。** `/Items/1/Images/Primary/abc` 回 422 JSON，Emby 是純文字 404。改成 str，或拿掉沒用到的參數。~~（見 review-2026-09-28）
 4. **可讀性。**
    - ~~`routes/items.py` 的 genres 裡 `import json as _json`（檔頭已經 import json），`_background` 裡臨時 import threading；`routes/system.py` 的 `library_refresh` 也是。~~（見 review-2026-09-28）
    - ~~`routes/playback.py` 從 items.py 匯入私有的 `_set_user_data`，應搬到共用模組。~~（見 review-2026-09-28）
    - ~~魔術數字：看完門檻 0.9（playback），季×100000+集（items.py 兩處）。~~（見 review-2026-09-28）
-   - `routes/system.py` 的 `OperatingSystem` 寫死 Linux；dto 的劇集 `Status` 寫死 Continuing。
-   - `auth._is_api_key` 每個請求都讀資料庫、解析 JSON；`tokens.last_used` 從不更新。
+   - ~~`routes/system.py` 的 `OperatingSystem` 寫死 Linux；dto 的劇集 `Status` 寫死 Continuing。~~（見 review-2026-09-28）
+   - `auth._is_api_key` 每個請求都讀資料庫、解析 JSON；~~`tokens.last_used` 從不更新~~（見 review-2026-09-28）。
    - settings 的 `*_FIELDS`、config 的 dataclass、`config_file.render` 三處手動列欄位，新欄位要改三處，漏改不會有測試發現。
 
 ### 二、背景服務（intro、backup、people、moviepilot、prober）
 
 1. **JWT 過期時一起重登。** `moviepilot.py` 的 `_request`：最多 8 條刮削執行緒同時拿到 401、同時重新登入。加鎖，「token 還是舊的才重登」。
-2. **MoviePilot 連不上時網頁卡住。** `moviepilot.py` 的 `_request` 沒接 httpx 錯誤，網址填錯時「測試連線」回 500；搭配 admin.html 的 `testMP` 沒有 try/catch，網頁一直顯示「測試中…」。兩邊都要改。
-3. **已快取的直鏈也占探測名額。** `prober.py` 的 `_source` 在取直鏈前就 `_wait_turn()`，剛播過（直鏈在快取裡）的也占掉間隔和每小時名額。先查快取，沒命中才排隊。
+2. ~~**MoviePilot 連不上時網頁卡住。** `moviepilot.py` 的 `_request` 沒接 httpx 錯誤，網址填錯時「測試連線」回 500；搭配 admin.html 的 `testMP` 沒有 try/catch，網頁一直顯示「測試中…」。兩邊都要改。~~（見 review-2026-09-28）
+3. ~~**已快取的直鏈也占探測名額。** `prober.py` 的 `_source` 在取直鏈前就 `_wait_turn()`，剛播過（直鏈在快取裡）的也占掉間隔和每小時名額。先查快取，沒命中才排隊。~~（見 review-2026-09-28）
 4. **TMDB 沒這一季時的誤導訊息。** `moviepilot.py` 的 `tmdb_episodes` 遇到 404 時日誌說「MoviePilot 沒有這個 API，請升級」。404 另外處理成「TMDB 沒有第 N 季」。
 5. **可讀性。**
-   - `moviepilot.py`：~~登入迴圈最後的 `raise MoviePilotError("MoviePilot 登入失敗")` 走不到~~（見 review-2026-09-28）；`library_series` 先 ORDER BY sort_name 又用 `name.lower()` 重排，中文變成按字碼排，應該用 sort_name；`ScrapeResult.errors` 沒上限；`mp_no_image` 從不清；`_fill_season` 對 `info["first"]` 硬取。
+   - `moviepilot.py`：~~登入迴圈最後的 `raise MoviePilotError("MoviePilot 登入失敗")` 走不到~~（見 review-2026-09-28）；`library_series` 先 ORDER BY sort_name 又用 `name.lower()` 重排，中文變成按字碼排，應該用 sort_name；`ScrapeResult.errors` 沒上限；~~`mp_no_image` 從不清~~（見 review-2026-09-28）；`_fill_season` 對 `info["first"]` 硬取。
    - ~~`intro.status` 在 SQL 裡算了沒用到的 first_at、intros、credits。~~（見 review-2026-09-28）
    - ~~`people.py` 和 `intro.py` 各有一個相同的 `one = lambda`，應放到 `Database.scalar()`。~~（見 review-2026-09-28）
    - `people.py`：~~`TOP_ACTORS + 10` 註解說演員，實際也算導演、編劇~~（見 review-2026-09-28）；`PersonNames` 呼叫 MoviePilot 的私有 `_request`；~~UA 寫死 "Mi302/0.1"~~（見 review-2026-09-28）；`parse_people` 迴圈裡定義 closure（ruff B023，行為沒錯，改成傳參數）。
