@@ -2,12 +2,12 @@
 <html lang="zh-Hant"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Mi302</title>
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='9' fill='%233b6fe0'/%3E%3Cpath d='M12 9.5l10.5 6.5L12 22.5z' fill='white'/%3E%3C/svg%3E">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='9' fill='%232f62d4'/%3E%3Cpath d='M12 9.5l10.5 6.5L12 22.5z' fill='white'/%3E%3C/svg%3E">
 <style>
 :root{
   --bg:#f3f4f7;--panel:#fff;--panel2:#f7f8fa;--line:#e2e5ea;--fg:#1a1d23;--muted:#6b7280;
-  --accent:#3b6fe0;--accent-fg:#fff;--accent-soft:#e9effc;
-  --ok:#17803d;--ok-soft:#e5f5eb;--warn:#a85a00;--warn-soft:#fdf1e1;--danger:#c93434;--danger-soft:#fcebeb;
+  --accent:#2f62d4;--accent-fg:#fff;--accent-soft:#e9effc;  /* 藍、綠字在淡底上的對比要到 4.5 */
+  --ok:#157a3a;--ok-soft:#e5f5eb;--warn:#a85a00;--warn-soft:#fdf1e1;--danger:#c93434;--danger-soft:#fcebeb;
   --shadow:0 1px 2px rgba(16,24,40,.05),0 1px 3px rgba(16,24,40,.07);--r:12px;
 }
 @media (prefers-color-scheme:dark){:root{
@@ -521,7 +521,7 @@ dialog .card-b{max-height:70vh;overflow:auto}
           <label class="switch"><input type="checkbox" data-key="mediainfo.on_demand"><span class="track"></span><span class="lbl">打開影片時自動探測<small>播放器打開某部片或某一集時在背景探測它，不等；下次打開就有</small></span></label>
           <label class="switch"><input type="checkbox" data-key="mediainfo.enabled"><span class="track"></span><span class="lbl">批次探測<small>開了才能在上面「挑選要提取的影片」；關閉時仍會讀現成的 X-mediainfo.json</small></span></label>
           <label class="switch"><input type="checkbox" data-key="mediainfo.after_sync"><span class="track"></span><span class="lbl">同步產生新的 strm 後自動探測<small>要開批次探測</small></span></label>
-          <div><button class="btn primary" onclick="saveFields($('miSettings')).then(pollMI)">儲存設定</button></div>
+          <div><button class="btn" onclick="saveFields($('miSettings')).then(pollMI)">儲存設定</button></div>
           </div></details>
         </div>
       </div>
@@ -638,7 +638,7 @@ dialog .card-b{max-height:70vh;overflow:auto}
       <div class="page-h">
         <div><h1>使用者</h1><p class="sub">這些帳號可以在播放器裡登入；管理員才能進這個網頁。</p></div>
       </div>
-      <div class="card"><div class="card-b"><div id="users" class="list"></div></div></div>
+      <div class="card"><div class="card-h"><div class="t"><svg class="i"><use href="#i-users"/></svg><h2>帳號</h2></div></div><div class="card-b"><div id="users" class="list"></div></div></div>
       <form class="card" onsubmit="addUser();return false">
         <div class="card-h"><div class="t"><svg class="i"><use href="#i-plus"/></svg><h2>新增使用者</h2></div></div>
         <div class="card-b stack">
@@ -973,6 +973,7 @@ function route() {
     a.classList.toggle('on', a.dataset.tab === tab);
     a.setAttribute('aria-selected', a.dataset.tab === tab);
   }
+  document.querySelector('nav a.on')?.scrollIntoView({block: 'nearest', inline: 'nearest'});  // 窄螢幕上分頁列會橫向捲動
   for (const s of document.querySelectorAll('section.page')) s.classList.toggle('hidden', s.id !== 'tab-' + tab);
   document.title = document.querySelector(`nav a[data-tab="${tab}"] span`).textContent + ' · Mi302';
   fillFields();
@@ -2017,9 +2018,10 @@ async function scrapeMP() {
   try { await api('/web/api/moviepilot/scrape', {method: 'POST'}); } catch (e) { toast(e.message, 'bad'); return; }
   toast('開始刮削'); pollMP();
 }
-function mpHtml(s) {
+function mpHtml(s, here) {
+  // here：畫在 MoviePilot 頁自己身上（設定就在上面，不用「去設定」）
   const r = s.result;
-  if (!s.enabled) return emptyState('還沒設定 MoviePilot', '填好網址和 API 令牌後，同步出的新片會自動送去刮削。', '#moviepilot', '去設定');
+  if (!s.enabled) return emptyState('還沒設定 MoviePilot', here ? '在上面填好網址和 API 令牌後，同步出的新片會自動送去刮削。' : '填好網址和 API 令牌後，同步出的新片會自動送去刮削。', here ? '' : '#moviepilot', '去設定');
   if (!r.started) return '<p class="hint">還沒有刮削紀錄。</p>';
   let h = '';
   if (r.running) {
@@ -2040,8 +2042,7 @@ async function pollMP() {
   let s;
   try { s = await api('/web/api/moviepilot/status'); } catch (e) { return; }
   S.mp = s;
-  const html = mpHtml(s);
-  for (const el of document.querySelectorAll('.js-mp')) setHtml(el, html);
+  for (const el of document.querySelectorAll('.js-mp')) setHtml(el, mpHtml(s, !!el.closest('#tab-moviepilot')));
   if (!$('mpPill').innerHTML || !s.enabled) $('mpPill').innerHTML = s.enabled ? '<span class="pill">已設定</span>' : '<span class="pill">未設定</span>';
   setHtml($('fill'), fillHtml(s.fill || {}));
   if (s.result.running || s.fill?.running) later('mp', pollMP);
