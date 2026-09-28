@@ -42,9 +42,9 @@
 2. **非物件 JSON 造成 500。** `routes/web.py` 的 `_body` 收到 `[1]` 這種內容時，後面 `.get` 會炸。不是 dict 就回 400。
 3. **圖片路由的 `{index}` 宣告成 int。** `/Items/1/Images/Primary/abc` 回 422 JSON，Emby 是純文字 404。改成 str，或拿掉沒用到的參數。
 4. **可讀性。**
-   - `routes/items.py` 的 genres 裡 `import json as _json`（檔頭已經 import json），`_background` 裡臨時 import threading；`routes/system.py` 的 `library_refresh` 也是。
-   - `routes/playback.py` 從 items.py 匯入私有的 `_set_user_data`，應搬到共用模組。
-   - 魔術數字：看完門檻 0.9（playback），季×100000+集（items.py 兩處）。
+   - ~~`routes/items.py` 的 genres 裡 `import json as _json`（檔頭已經 import json），`_background` 裡臨時 import threading；`routes/system.py` 的 `library_refresh` 也是。~~（見 review-2026-09-28）
+   - ~~`routes/playback.py` 從 items.py 匯入私有的 `_set_user_data`，應搬到共用模組。~~（見 review-2026-09-28）
+   - ~~魔術數字：看完門檻 0.9（playback），季×100000+集（items.py 兩處）。~~（見 review-2026-09-28）
    - `routes/system.py` 的 `OperatingSystem` 寫死 Linux；dto 的劇集 `Status` 寫死 Continuing。
    - `auth._is_api_key` 每個請求都讀資料庫、解析 JSON；`tokens.last_used` 從不更新。
    - settings 的 `*_FIELDS`、config 的 dataclass、`config_file.render` 三處手動列欄位，新欄位要改三處，漏改不會有測試發現。
@@ -56,10 +56,10 @@
 3. **已快取的直鏈也占探測名額。** `prober.py` 的 `_source` 在取直鏈前就 `_wait_turn()`，剛播過（直鏈在快取裡）的也占掉間隔和每小時名額。先查快取，沒命中才排隊。
 4. **TMDB 沒這一季時的誤導訊息。** `moviepilot.py` 的 `tmdb_episodes` 遇到 404 時日誌說「MoviePilot 沒有這個 API，請升級」。404 另外處理成「TMDB 沒有第 N 季」。
 5. **可讀性。**
-   - `moviepilot.py`：登入迴圈最後的 `raise MoviePilotError("MoviePilot 登入失敗")` 走不到；`library_series` 先 ORDER BY sort_name 又用 `name.lower()` 重排，中文變成按字碼排，應該用 sort_name；`ScrapeResult.errors` 沒上限；`mp_no_image` 從不清；`_fill_season` 對 `info["first"]` 硬取。
-   - `intro.status` 在 SQL 裡算了沒用到的 first_at、intros、credits。
-   - `people.py` 和 `intro.py` 各有一個相同的 `one = lambda`，應放到 `Database.scalar()`。
-   - `people.py`：`TOP_ACTORS + 10` 註解說演員，實際也算導演、編劇；`PersonNames` 呼叫 MoviePilot 的私有 `_request`；UA 寫死 "Mi302/0.1"；`parse_people` 迴圈裡定義 closure（ruff B023，行為沒錯，改成傳參數）。
+   - `moviepilot.py`：~~登入迴圈最後的 `raise MoviePilotError("MoviePilot 登入失敗")` 走不到~~（見 review-2026-09-28）；`library_series` 先 ORDER BY sort_name 又用 `name.lower()` 重排，中文變成按字碼排，應該用 sort_name；`ScrapeResult.errors` 沒上限；`mp_no_image` 從不清；`_fill_season` 對 `info["first"]` 硬取。
+   - ~~`intro.status` 在 SQL 裡算了沒用到的 first_at、intros、credits。~~（見 review-2026-09-28）
+   - ~~`people.py` 和 `intro.py` 各有一個相同的 `one = lambda`，應放到 `Database.scalar()`。~~（見 review-2026-09-28）
+   - `people.py`：~~`TOP_ACTORS + 10` 註解說演員，實際也算導演、編劇~~（見 review-2026-09-28）；`PersonNames` 呼叫 MoviePilot 的私有 `_request`；~~UA 寫死 "Mi302/0.1"~~（見 review-2026-09-28）；`parse_people` 迴圈裡定義 closure（ruff B023，行為沒錯，改成傳參數）。
    - `mediainfo.py`：壞掉的 X-mediainfo.json 每次重掃都重新解析、重新警告。寫到一半留下的 `.part` 檔沒清（backup 也是）。
    - `prober.py`：到每小時上限時每分鐘印一次同樣的 INFO。
 
@@ -74,14 +74,14 @@
    - `p115_open.py` 的 `iter_changed_files`、`list_dir` 各自整理欄位，fallback 不一致，抽一個 `_normalize`。
    - UA 空字串時，cookie 通道送空 UA，開放平台換成 OPEN_UA；應在 `download_url` 統一決定。`user_info` 沒帶 UA、`_cookie_profile` 帶 BROWSER_UA。
    - 資料庫已經有 cookie 後，設定檔的 `p115.cookies` 就被忽略，沒有註解說明。
-   - `p115_open.py`：`_call` 最後的 raise 走不到；放棄的二維碼 `_sessions` 不清；`qrcode_status` 換 token 前就 pop 了會話，網路錯一次就要重新掃碼。
+   - `p115_open.py`：~~`_call` 最後的 raise 走不到~~（見 review-2026-09-28）；放棄的二維碼 `_sessions` 不清；`qrcode_status` 換 token 前就 pop 了會話，網路錯一次就要重新掃碼。
    - `redirect.apply_path_rules`：規則 from 是 "/" 時只會比對到 "/" 本身。
 
 ### 四、同步與掃描（strm_sync.py、scanner.py）
 
 1. **大量刪除沒有上限。** 已加「115 一支都沒列出時不刪」，但 115 目錄填到另一個只有幾支影片的資料夾時，還是會刪掉本機大部分 strm。考慮刪除數超過本機 strm 的一半且多於 20 支時不刪、留說明。
 2. **路徑逃逸的保險。** 115 檔名若有 `..`（沒確認 115 允許）會組出任務資料夾外的路徑。在 `_target` 或 `_handle_file` 加一道「結果要在 local 底下」的檢查。
-3. **可讀性。** `_run_full` 自己組 local 和 `_TaskIndex`，其他地方都用 `_Ctx`；`_handle_file` 和 `_place_file` 名稱太像；「列出來的少於九成就改逐層列目錄」的 0.9 沒命名；`parse_nfo` 每個欄位 `text()` 叫兩次；`scanner.image_ext` 夾在常數中間。
+3. **可讀性。** `_run_full` 自己組 local 和 `_TaskIndex`，其他地方都用 `_Ctx`；`_handle_file` 和 `_place_file` 名稱太像；~~「列出來的少於九成就改逐層列目錄」的 0.9 沒命名~~（見 review-2026-09-28）；`parse_nfo` 每個欄位 `text()` 叫兩次；~~`scanner.image_ext` 夾在常數中間~~（見 review-2026-09-28）。
 
 ### 五、管理網頁、安裝腳本、README
 
@@ -103,7 +103,7 @@ wiki 已經照程式實際行為寫；下面是程式本身值得改、或註解
 2. **手改設定檔啟動時不做檢查。** `settings.apply_settings` 的檢查和範圍限制（任務資料夾要絕對路徑、不能互相包含，各數值的上下限）只在網頁儲存或執行中重讀檔案時跑，啟動時讀到的值原樣使用。啟動時跑同一套檢查，有問題寫警告。
 3. **`moviepilot.timeout` 沒有範圍限制。**
 4. **要重新啟動才生效的設定不只 host、port、data_dir。** `users`、`p115.cookies`、`p115.timeout`、`redirect.resolve_timeout` 也只在啟動時讀。改成執行中也能套用，或更新 `config_file.render` 開頭的註解（config.example.yaml 同步）。
-5. **過時的說明文字。** admin.html `fillAll()` 的確認框和 `app.py` `after_sync` 的註解說「已經齊全的季 MoviePilot 會拒絕」；現在 Mi302 自己先查 TMDB，齊全的不建訂閱。
+5. ~~**過時的說明文字。** admin.html `fillAll()` 的確認框和 `app.py` `after_sync` 的註解說「已經齊全的季 MoviePilot 會拒絕」；現在 Mi302 自己先查 TMDB，齊全的不建訂閱。~~（見 review-2026-09-28）
 6. **熔斷恢復後放慢只作用在探測。** `p115.Breaker` 的說明寫「背景工作先放慢」，實際只有 `prober.pace` 用到，同步不會放慢。二選一：同步也放慢，或改說明。
 7. **`request_delay` 的註解不完整。** 除了列每個目錄前，查資料夾路徑（`strm_sync._remote_ancestors`）前也會等。
 8. **`mi302` 指令沒裝成時印的替代指令會重新安裝。** install.sh 的 `manage_cmd` 印出 `bash <資料夾>/install.sh`，不帶子指令執行等於重裝兼更新；應該印成 `bash <資料夾>/install.sh status` 這種帶子指令的寫法。
@@ -113,7 +113,7 @@ wiki 已經照程式實際行為寫；下面是程式本身值得改、或註解
 
 ### 七、測試檔
 
-- 沒用到的 import：`tests/test_incremental.py` 的 json、`tests/test_moviepilot.py` 的 MoviePilotConfig 和 PathRule、`tests/test_people.py` 的 json、`tests/test_web.py` 的 pytest。
+- ~~沒用到的 import：`tests/test_incremental.py` 的 json、`tests/test_moviepilot.py` 的 MoviePilotConfig 和 PathRule、`tests/test_people.py` 的 json、`tests/test_web.py` 的 pytest。~~（見 review-2026-09-28）
 
 ## 建議順序
 
