@@ -86,14 +86,14 @@
 ### 五、管理網頁、安裝腳本、README
 
 1. **舊 Docker 安裝搬遷會弄丟埠號和媒體路徑。** `install.sh` 的 `load_env` 讀了 `MI302_PORT` 卻沒用，`MI302_MEDIA` 沒讀；改用 Python 後埠號變 8096，媒體庫和任務路徑還是容器裡的 `/media/...`，全部顯示資料夾不存在，而 `save_env` 又把這兩個值寫掉。沿用舊埠號；`MI302_MEDIA` 不是 `/media` 時改寫設定檔裡的 `/media` 前綴，至少要醒目提醒。（文件部分已處理：wiki「安裝」照實際情況寫了搬遷步驟。）
-2. **115 裝置類型下拉選單會把設定清空。** admin.html 進階設定的 `p115.app` 只有 7 個選項，設定值不在其中時，儲存會送空字串，之後掃碼登入失敗。未知的值補一個 option，或 `selectedIndex === -1` 時不送。
-3. **卡片上的開關會還原同頁沒存的輸入。** `putSettings` 之後 `fillFields()` 重填整頁，只應刷新這次送出的欄位。
+2. ~~**115 裝置類型下拉選單會把設定清空。** admin.html 進階設定的 `p115.app` 只有 7 個選項，設定值不在其中時，儲存會送空字串，之後掃碼登入失敗。未知的值補一個 option，或 `selectedIndex === -1` 時不送。~~（見 review-2026-09-28）
+3. ~~**卡片上的開關會還原同頁沒存的輸入。** `putSettings` 之後 `fillFields()` 重填整頁，只應刷新這次送出的欄位。~~（見 review-2026-09-28）
 4. ~~**伺服器重啟中打開網頁一片空白。**~~ 已修（見下方已完成）。
 5. **macOS 找不到 brew 裝的 ffprobe。** launchd plist 沒設 PATH，`/opt/homebrew/bin` 不在預設路徑裡。在 plist 加 PATH，或安裝時把 `command -v ffprobe` 寫進 `mediainfo.ffprobe`。
 6. **macOS 上 `mi302` 指令建不起來時 README 沒說怎麼辦。** `/usr/local/bin` 是 root 擁有時會失敗；可以改試 `/opt/homebrew/bin`、`~/.local/bin`。（wiki「安裝」已寫替代方式。）
-7. **日誌頁說「最近 3000 筆」，實際 `LOG_MAX = 1000`。**
-8. **低優先。** `startQr` 連點兩下會有兩個輪詢互相覆蓋；`loadUsers`、`logoutOpen`、`logout115`、`loadKeys`、`addKey` 沒有 try/catch；`qrcode_image` 用 innerHTML 沒 `esc`；非管理員登入網頁時已發的 token 沒登出；`install.sh -y` 遇到埠被占用直接結束、沒說明；舊版目錄 chown 後 git 擁有者不一致，更新時會誤報連不上 GitHub。
-9. **可讀性。** install.sh 的 `TZ`、`TZ_NAME`、`host_tz` 算了沒用，`set_conf` 重複呼叫，`current_port` 是多餘的別名；admin.html 的 `pollQr` 的 img 參數沒用、`.steps{counter-reset}` 沒用、AppID 有兩個輸入框、`syncWatch` 宣告在使用之後。（README 那幾點已隨 README 改寫和 wiki 處理掉。）
+7. ~~**日誌頁說「最近 3000 筆」，實際 `LOG_MAX = 1000`。**~~（見 review-2026-09-28）
+8. **低優先。** ~~`startQr` 連點兩下會有兩個輪詢互相覆蓋；`loadUsers`、`logoutOpen`、`logout115`、`loadKeys`、`addKey` 沒有 try/catch；`qrcode_image` 用 innerHTML 沒 `esc`~~（見 review-2026-09-28）；非管理員登入網頁時已發的 token 沒登出；`install.sh -y` 遇到埠被占用直接結束、沒說明；舊版目錄 chown 後 git 擁有者不一致，更新時會誤報連不上 GitHub。
+9. **可讀性。** install.sh 的 `TZ`、`TZ_NAME`、`host_tz` 算了沒用，`set_conf` 重複呼叫，`current_port` 是多餘的別名；admin.html 的 ~~`pollQr` 的 img 參數沒用、`.steps{counter-reset}` 沒用~~（見 review-2026-09-28）、AppID 有兩個輸入框、~~`syncWatch` 宣告在使用之後~~（見 review-2026-09-28）。（README 那幾點已隨 README 改寫和 wiki 處理掉。）
 
 ### 六、寫 wiki 時發現程式和說明對不上的地方（2026-09-27）
 
