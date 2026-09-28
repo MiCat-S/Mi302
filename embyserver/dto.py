@@ -6,7 +6,7 @@ import hashlib
 import json
 import os
 import sqlite3
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from .db import Database
 from .mediainfo import MediaInfoStore, default_audio_index, primary_video
@@ -36,10 +36,73 @@ def media_source_id(item: sqlite3.Row) -> str:
     return hashlib.md5(f"ms:{item['id']}:{item['path']}".encode()).hexdigest()
 
 
-def user_data_dto(db: Database, user_id: Optional[str], item: sqlite3.Row) -> Dict[str, Any]:
+class Prefetch:
+    """列表一次查好整頁要用的：使用者資料、所屬的劇和季、子項數、沒看過的集數。
+
+    item_dto 帶著它就不必每個項目各查三五次（一頁 100 集原本要三四百次，資料庫是單一連線加鎖，
+    查詢多了會卡住其他請求）。每種資料用 IN (...) 分批查，一批最多 CHUNK 個 id；結果和逐項查完全一樣。
+    """
+
+    CHUNK = 500
+
+    def __init__(self, db: Database, rows: List[sqlite3.Row], user_id: Optional[str]):
+        self.user_id = user_id
+        by_type: Dict[str, List[int]] = {}
+        for r in rows:
+            by_type.setdefault(r["type"], []).append(r["id"])
+        self._user_data: Dict[int, sqlite3.Row] = {}
+        if user_id:
+            for r in self._select(db, "SELECT * FROM user_data WHERE user_id=? AND item_id IN ({})",
+                                  [r["id"] for r in rows], (user_id,)):
+                self._user_data[r["item_id"]] = r
+        related = {r["series_id"] for r in rows if r["type"] in ("Season", "Episode") and r["series_id"]}
+        related |= {r["season_id"] for r in rows if r["type"] == "Episode" and r["season_id"]}
+        self._items = {r["id"]: r for r in self._select(db, "SELECT * FROM items WHERE id IN ({})", sorted(related))}
+        # 子項數：劇、季數的是集；媒體庫和其他資料夾數直接放在底下的項目（和 _child_count 一樣）
+        self._children: Dict[Tuple[str, int], int] = {}
+        self._unplayed: Dict[Tuple[str, int], int] = {}
+        for kind, col in (("Series", "series_id"), ("Season", "season_id")):
+            ids = by_type.get(kind, [])
+            for r in self._select(db, f"SELECT {col} AS k, COUNT(*) AS c FROM items WHERE type='Episode' AND {col} IN ({{}}) "
+                                      f"GROUP BY {col}", ids):
+                self._children[(kind, r["k"])] = r["c"]
+            if user_id:
+                for r in self._select(db, f"SELECT i.{col} AS k, COUNT(*) AS c FROM items i LEFT JOIN user_data u "
+                                          f"ON u.item_id=i.id AND u.user_id=? WHERE i.{col} IN ({{}}) AND i.type='Episode' "
+                                          f"AND COALESCE(u.played,0)=0 GROUP BY i.{col}", ids, (user_id,)):
+                    self._unplayed[(kind, r["k"])] = r["c"]
+        others = [i for kind, ids in by_type.items() if kind in FOLDER_TYPES - {"Series", "Season"} for i in ids]
+        for r in self._select(db, "SELECT parent_id AS k, COUNT(*) AS c FROM items WHERE parent_id IN ({}) AND id<>parent_id "
+                                  "GROUP BY parent_id", others):
+            self._children[("", r["k"])] = r["c"]
+
+    @classmethod
+    def _select(cls, db: Database, sql: str, ids: List[int], before: Tuple = ()) -> List[sqlite3.Row]:
+        out: List[sqlite3.Row] = []
+        for i in range(0, len(ids), cls.CHUNK):
+            chunk = ids[i:i + cls.CHUNK]
+            out += db.query(sql.format(",".join("?" * len(chunk))), (*before, *chunk))
+        return out
+
+    def user_data(self, item_id: int) -> Optional[sqlite3.Row]:
+        return self._user_data.get(item_id)
+
+    def item(self, item_id: int) -> Optional[sqlite3.Row]:
+        return self._items.get(item_id)
+
+    def child_count(self, item: sqlite3.Row) -> int:
+        kind = item["type"] if item["type"] in ("Series", "Season") else ""
+        return self._children.get((kind, item["id"]), 0)
+
+    def unplayed(self, item: sqlite3.Row) -> int:
+        return self._unplayed.get((item["type"], item["id"]), 0)
+
+
+def user_data_dto(db: Database, user_id: Optional[str], item: sqlite3.Row,
+                  prefetch: Optional[Prefetch] = None) -> Dict[str, Any]:
     row = None
     if user_id:
-        row = db.one(
+        row = prefetch.user_data(item["id"]) if prefetch else db.one(
             "SELECT * FROM user_data WHERE user_id=? AND item_id=?", (user_id, item["id"])
         )
     data: Dict[str, Any] = {
@@ -52,19 +115,24 @@ def user_data_dto(db: Database, user_id: Optional[str], item: sqlite3.Row) -> Di
     if row and row["last_played"]:
         data["LastPlayedDate"] = row["last_played"]
     if item["type"] in ("Series", "Season") and user_id:
-        col = "series_id" if item["type"] == "Series" else "season_id"
-        r = db.one(
-            f"SELECT COUNT(*) AS c FROM items i LEFT JOIN user_data u "
-            f"ON u.item_id=i.id AND u.user_id=? WHERE i.{col}=? AND i.type='Episode' "
-            f"AND COALESCE(u.played,0)=0",
-            (user_id, item["id"]),
-        )
-        data["UnplayedItemCount"] = r["c"]
-        data["Played"] = r["c"] == 0 and _child_count(db, item) > 0
+        data["UnplayedItemCount"] = unplayed = prefetch.unplayed(item) if prefetch else _unplayed_count(db, user_id, item)
+        data["Played"] = unplayed == 0 and _child_count(db, item, prefetch) > 0
     return data
 
 
-def _child_count(db: Database, item: sqlite3.Row) -> int:
+def _unplayed_count(db: Database, user_id: str, item: sqlite3.Row) -> int:
+    col = "series_id" if item["type"] == "Series" else "season_id"
+    return db.one(
+        f"SELECT COUNT(*) AS c FROM items i LEFT JOIN user_data u "
+        f"ON u.item_id=i.id AND u.user_id=? WHERE i.{col}=? AND i.type='Episode' "
+        f"AND COALESCE(u.played,0)=0",
+        (user_id, item["id"]),
+    )["c"]
+
+
+def _child_count(db: Database, item: sqlite3.Row, prefetch: Optional[Prefetch] = None) -> int:
+    if prefetch:
+        return prefetch.child_count(item)
     if item["type"] == "Series":
         return db.one("SELECT COUNT(*) AS c FROM items WHERE series_id=? AND type='Episode'", (item["id"],))["c"]
     if item["type"] == "Season":
@@ -154,19 +222,24 @@ def item_dto(
     intro=None,
     with_chapters: bool = False,
     can_download: bool = True,
+    prefetch: Optional[Prefetch] = None,
 ) -> Dict[str, Any]:
-    """一個項目的 BaseItemDto。欄位照區塊組：基本資料 → 圖片 → 所屬的劇／季 → 資料夾 → 使用者資料 → 演職人員 → 媒體資訊。"""
+    """一個項目的 BaseItemDto。欄位照區塊組：基本資料 → 圖片 → 所屬的劇／季 → 資料夾 → 使用者資料 → 演職人員 → 媒體資訊。
+
+    prefetch：列表端點先一次查好整頁的使用者資料、劇和季、子項數（見 Prefetch）；沒給就逐項查。
+    """
     t = item["type"]
+    get_item = prefetch.item if prefetch else db.get_item
     dto = _common_fields(server_id, item, can_download)
     tags = _image_fields(dto, item)
     if t in ("Season", "Episode") and item["series_id"]:
-        _series_fields(db, dto, item, tags)
+        _series_fields(get_item(item["series_id"]), dto, item, tags)
     if t == "Episode" and item["season_id"]:
-        _season_fields(db, dto, item)
+        _season_fields(get_item(item["season_id"]), dto)
     if t in FOLDER_TYPES:
-        _folder_fields(db, dto, item)
+        _folder_fields(db, dto, item, prefetch)
 
-    dto["UserData"] = user_data_dto(db, user_id, item)
+    dto["UserData"] = user_data_dto(db, user_id, item, prefetch)
 
     if with_people and people is not None and t in ("Movie", "Series", "Season", "Episode"):
         dto["People"] = people.for_item(item)
@@ -229,9 +302,8 @@ def _image_fields(dto: Dict[str, Any], item: sqlite3.Row) -> Dict[str, str]:
     return tags
 
 
-def _series_fields(db: Database, dto: Dict[str, Any], item: sqlite3.Row, tags: Dict[str, str]) -> None:
+def _series_fields(series: Optional[sqlite3.Row], dto: Dict[str, Any], item: sqlite3.Row, tags: Dict[str, str]) -> None:
     """季、集所屬的劇：名稱，以及從劇借來的海報、背景、橫幅、標誌。"""
-    series = db.get_item(item["series_id"])
     if not series:
         return
     dto["SeriesId"] = str(series["id"])
@@ -259,15 +331,14 @@ def _series_fields(db: Database, dto: Dict[str, Any], item: sqlite3.Row, tags: D
         dto["ParentLogoImageTag"] = ltag
 
 
-def _season_fields(db: Database, dto: Dict[str, Any], item: sqlite3.Row) -> None:
-    season = db.get_item(item["season_id"])
+def _season_fields(season: Optional[sqlite3.Row], dto: Dict[str, Any]) -> None:
     if season:
         dto["SeasonId"] = str(season["id"])
         dto["SeasonName"] = season["name"]
 
 
-def _folder_fields(db: Database, dto: Dict[str, Any], item: sqlite3.Row) -> None:
-    dto["ChildCount"] = _child_count(db, item)
+def _folder_fields(db: Database, dto: Dict[str, Any], item: sqlite3.Row, prefetch: Optional[Prefetch]) -> None:
+    dto["ChildCount"] = _child_count(db, item, prefetch)
     if item["type"] == "Series":
         dto["RecursiveItemCount"] = dto["ChildCount"]
         # nfo 的 <status>（Continuing／Ended）掃描時沒有讀進資料庫，一律回 Continuing：

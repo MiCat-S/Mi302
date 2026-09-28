@@ -13,7 +13,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import FileResponse, RedirectResponse
 
 from ..auth import AuthContext, now_iso, require_admin, require_user
-from ..dto import episode_fallback_image, item_dto, query_result, user_data_dto
+from ..dto import Prefetch, episode_fallback_image, item_dto, query_result, user_data_dto
 from ..scanner import image_ext
 from ..textutil import title_match
 from .common import q, q_bool, q_int, q_list, set_user_data, state
@@ -44,7 +44,13 @@ SORT_COLUMNS = {
 }
 
 
-def _dto(request: Request, ctx: AuthContext, row, full: bool = False) -> dict:
+def _dtos(request: Request, ctx: AuthContext, rows, full: bool = False) -> List[dict]:
+    """列表：整頁的使用者資料、所屬的劇和季、子項數先一次查好，再一項一項組（見 dto.Prefetch）。"""
+    prefetch = Prefetch(state(request).db, rows, ctx.user_id)
+    return [_dto(request, ctx, r, full, prefetch) for r in rows]
+
+
+def _dto(request: Request, ctx: AuthContext, row, full: bool = False, prefetch: Optional[Prefetch] = None) -> dict:
     st = state(request)
     fields = {f.lower() for f in q_list(request, "Fields")}
     return item_dto(
@@ -60,6 +66,7 @@ def _dto(request: Request, ctx: AuthContext, row, full: bool = False) -> dict:
         intro=st.intro,
         with_chapters="chapters" in fields,
         can_download=st.config.server.allow_download,
+        prefetch=prefetch,
     )
 
 
@@ -86,13 +93,13 @@ def _as_user(request: Request, ctx: AuthContext, user_id: Optional[str]) -> Auth
 
 @router.get("/users/{user_id}/views")
 def user_views(user_id: str, request: Request, ctx: AuthContext = Depends(require_user)):
-    items = [_dto(request, ctx, r) for r in _libraries(request)]
+    items = _dtos(request, ctx, _libraries(request))
     return query_result(items, len(items))
 
 
 @router.get("/library/mediafolders")
 def media_folders(request: Request, ctx: AuthContext = Depends(require_user)):
-    items = [_dto(request, ctx, r) for r in _libraries(request)]
+    items = _dtos(request, ctx, _libraries(request))
     return query_result(items, len(items))
 
 
@@ -233,7 +240,7 @@ def _query_items(request: Request, ctx: AuthContext) -> dict:
         sql += " LIMIT -1 OFFSET ?"
         all_params.append(start)
     rows = st.db.query(sql, all_params)
-    return query_result([_dto(request, ctx, r) for r in rows] + persons, total + len(persons), start)
+    return query_result(_dtos(request, ctx, rows) + persons, total + len(persons), start)
 
 
 def _scope(request: Request, st, types: List[str]) -> Optional[Tuple[List[str], List[Any]]]:
@@ -372,7 +379,7 @@ def latest(user_id: str, request: Request, ctx: AuthContext = Depends(require_us
         "ORDER BY COALESCE(i.date_modified, i.date_created) DESC LIMIT ?",
         params + [limit],
     )
-    return [_dto(request, ctx, r) for r in rows]
+    return _dtos(request, ctx, rows)
 
 
 @router.get("/users/{user_id}/items/resume")
@@ -385,7 +392,7 @@ def resume(user_id: str, request: Request, ctx: AuthContext = Depends(require_us
         "ORDER BY u.last_played DESC LIMIT ?",
         (ctx.user_id, limit),
     )
-    items = [_dto(request, ctx, r) for r in rows]
+    items = _dtos(request, ctx, rows)
     return query_result(items, len(items))
 
 
@@ -447,13 +454,13 @@ def item_get(item_id: str, request: Request, ctx: AuthContext = Depends(require_
 @router.get("/items/{item_id}/ancestors")
 def ancestors(item_id: str, request: Request, ctx: AuthContext = Depends(require_user)):
     st = state(request)
-    out = []
+    rows = []
     row = st.db.get_item(item_id)
     while row and row["parent_id"] and row["parent_id"] != row["id"]:
         row = st.db.get_item(row["parent_id"])
         if row:
-            out.append(_dto(request, ctx, row))
-    return out
+            rows.append(row)
+    return _dtos(request, ctx, rows)
 
 
 # ---------------- 劇集 ----------------
@@ -466,7 +473,7 @@ def seasons(series_id: str, request: Request, ctx: AuthContext = Depends(require
         "SELECT * FROM items WHERE type='Season' AND series_id=? ORDER BY index_number",
         (int(series_id) if series_id.isdigit() else -1,),
     )
-    items = [_dto(request, ctx, r) for r in rows]
+    items = _dtos(request, ctx, rows)
     return query_result(items, len(items))
 
 
@@ -491,7 +498,7 @@ def episodes(series_id: str, request: Request, ctx: AuthContext = Depends(requir
     limit = q_int(request, "Limit")
     sliced = rows[start: start + limit] if limit is not None else rows[start:]
     fields = {f.lower() for f in q_list(request, "Fields")}
-    items = [_dto(request, ctx, r, full="mediasources" in fields) for r in sliced]
+    items = _dtos(request, ctx, sliced, full="mediasources" in fields)
     return query_result(items, len(rows), start)
 
 
@@ -512,7 +519,7 @@ def next_up(request: Request, ctx: AuthContext = Depends(require_user)):
         f"WHERE i.type='Episode' AND u.played=1{extra} GROUP BY i.series_id ORDER BY lp DESC",
         params,
     )
-    out = []
+    rows = []
     for r in last:
         nxt = st.db.one(
             "SELECT * FROM items WHERE type='Episode' AND series_id=? "
@@ -521,9 +528,10 @@ def next_up(request: Request, ctx: AuthContext = Depends(require_user)):
             (r["series_id"], r["k"]),
         )
         if nxt:
-            out.append(_dto(request, ctx, nxt))
-        if len(out) >= limit:
+            rows.append(nxt)
+        if len(rows) >= limit:
             break
+    out = _dtos(request, ctx, rows)
     return query_result(out, len(out))
 
 

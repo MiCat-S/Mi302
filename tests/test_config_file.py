@@ -149,3 +149,43 @@ def test_task_folders_must_be_absolute_and_disjoint():
     with pytest.raises(SettingsError, match="互相包含"):
         _tasks([{"remote": "/a", "local": "/media"}, {"remote": "/b", "local": "/media"}])
     assert len(_tasks([{"remote": "/a", "local": "/media/a"}, {"remote": "/b", "local": "/media/b"}])) == 2
+
+
+def test_field_lists_stay_in_sync():
+    """新欄位要改三處：config 的 dataclass、settings 的 *_FIELDS（網頁能改的）、config_file.render（寫回設定檔）。
+    漏改一處這裡就會紅。網頁故意不開放的欄位列在 WEB_ONLY_IN_FILE。"""
+    from dataclasses import fields
+
+    from embyserver import settings
+    from embyserver.config import (Config, MediaInfoConfig, MoviePilotConfig, P115Config, P115StrmConfig,
+                                   RedirectConfig, ServerConfig)
+
+    sections = {  # 設定檔裡的位置 → (dataclass, 網頁能改的欄位)
+        ("server",): (ServerConfig, settings.SERVER_FIELDS),
+        ("p115",): (P115Config, settings.P115_FIELDS),
+        ("p115", "strm"): (P115StrmConfig, settings.STRM_FIELDS),
+        ("moviepilot",): (MoviePilotConfig, settings.MOVIEPILOT_FIELDS),
+        ("mediainfo",): (MediaInfoConfig, settings.MEDIAINFO_FIELDS),
+        ("redirect",): (RedirectConfig, settings.REDIRECT_FIELDS),
+    }
+    # 網頁不能改、只在設定檔裡的（或網頁用別的方式改的：任務、路徑對應、路徑替換）
+    web_only_in_file = {
+        ("server",): {"host", "port", "data_dir"},
+        ("p115",): {"cookies", "timeout", "strm"},
+        ("p115", "strm"): {"tasks"},
+        ("moviepilot",): {"path_mappings"},
+        ("mediainfo",): set(),
+        ("redirect",): {"path_rules"},
+    }
+    rendered = yaml.safe_load(config_file.render(Config()))
+    for where, (cls, web_fields) in sections.items():
+        names = {f.name for f in fields(cls)}
+        assert len(set(web_fields)) == len(web_fields), where
+        assert set(web_fields) | web_only_in_file[where] == names, (where, names ^ (set(web_fields) | web_only_in_file[where]))
+        section = rendered
+        for key in where:
+            section = section[key]
+        assert set(section) == names, (where, set(section) ^ names)
+    exported = settings.export_settings(Config())
+    assert set(exported["server"]) == set(settings.SERVER_FIELDS)
+    assert set(exported["p115"]["strm"]) == set(settings.STRM_FIELDS) | {"tasks"}
