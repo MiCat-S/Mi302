@@ -150,6 +150,43 @@ def quality(info: Optional[dict], name: str) -> dict:
     return q
 
 
+def _version_key(it, name: str) -> Optional[Tuple[str, str]]:
+    """媒體庫項目 → (分組的鍵, 顯示的片名)；分段檔、一個檔案好幾集、集號不確定的回傳 None（不比）。
+
+    劇集：ep:{劇}:{季}:{集}；電影：movie:tmdb:{tmdbid}，沒有 tmdbid 就用片名＋年份。版本名（導演剪輯版…）另外分組。
+    """
+    if PART_RE.search(name):
+        return None
+    if it["type"] == "Episode":
+        ep, season = it["index_number"], it["parent_index_number"] or 0
+        # 不知道第幾集的（沒寫，或刮削時沒認出來寫成 -1）不能比，否則整季都會變成「同一集」
+        if ep is None or ep < 0 or season < 0 or not it["series_id"] or MULTI_EP_RE.search(name):
+            return None
+        # 115 上的檔名看得出集號、卻和媒體庫對不上：寧可不列，免得刪錯
+        name_season, name_ep = parse_episode(posixpath.splitext(name)[0])
+        if (name_ep is not None and name_ep != ep) or (name_season is not None and name_season != season):
+            return None
+        key = f"ep:{it['series_id']}:{season}:{ep}"
+        title = f"{it['series'] or '?'} S{season:02d}E{it['index_number']:02d}"
+    else:
+        try:
+            tmdb = (json.loads(it["provider_ids"] or "{}") or {}).get("Tmdb")
+        except ValueError:
+            tmdb = None
+        if tmdb:
+            key = f"movie:tmdb:{tmdb}"
+        elif it["name"] and it["year"]:
+            key = f"movie:name:{_norm(it['name'])}|{it['year']}"
+        else:
+            return None
+        title = f"{it['name']} ({it['year']})" if it["year"] else it["name"]
+    edition = EDITION_RE.search(name)
+    if edition:
+        key += "|" + _norm(edition.group())
+        title += f"（{edition.group()}）"
+    return key, title
+
+
 @dataclass
 class DupeJob:
     """找重複或刪重複的進度；網頁每幾秒查一次。"""
@@ -353,15 +390,7 @@ class DupeFinder:
 
     def _find_versions(self, files: Dict[int, dict]) -> List[tuple]:
         """同一部電影或同一集、檔案卻不同的：只看同步任務裡有 strm 的（媒體庫認得出是哪一部）。"""
-        local_of: Dict[str, Tuple[int, str]] = {}  # 本機 strm → (115 檔案 id, 115 路徑)
-        for task in self.strm_sync.tasks:
-            root = Path(task.local).expanduser()
-            remote = remote_root(task)
-            for r in self.db.query("SELECT file_id, path FROM p115_index WHERE task=? AND is_dir=0", (task_key(task),)):
-                info = files.get(r["file_id"])
-                if info:
-                    local_of[str(root / r["path"])] = (
-                        r["file_id"], posixpath.join(remote, posixpath.dirname(r["path"]), info["name"]))
+        local_of = self._synced_files(files)
         if not local_of:
             return []
         groups: Dict[str, List[tuple]] = {}
@@ -375,38 +404,29 @@ class DupeFinder:
             if not hit:
                 continue
             info = files[hit[0]]
-            name = info["name"]
-            if PART_RE.search(name):
+            found = _version_key(it, info["name"])
+            if not found:
                 continue
-            if it["type"] == "Episode":
-                ep, season = it["index_number"], it["parent_index_number"] or 0
-                # 不知道第幾集的（沒寫，或刮削時沒認出來寫成 -1）不能比，否則整季都會變成「同一集」
-                if ep is None or ep < 0 or season < 0 or not it["series_id"] or MULTI_EP_RE.search(name):
-                    continue
-                # 115 上的檔名看得出集號、卻和媒體庫對不上：寧可不列，免得刪錯
-                name_season, name_ep = parse_episode(posixpath.splitext(name)[0])
-                if (name_ep is not None and name_ep != ep) or (name_season is not None and name_season != season):
-                    continue
-                key = f"ep:{it['series_id']}:{season}:{ep}"
-                title = f"{it['series'] or '?'} S{season:02d}E{it['index_number']:02d}"
-            else:
-                try:
-                    tmdb = (json.loads(it["provider_ids"] or "{}") or {}).get("Tmdb")
-                except ValueError:
-                    tmdb = None
-                if tmdb:
-                    key = f"movie:tmdb:{tmdb}"
-                elif it["name"] and it["year"]:
-                    key = f"movie:name:{_norm(it['name'])}|{it['year']}"
-                else:
-                    continue
-                title = f"{it['name']} ({it['year']})" if it["year"] else it["name"]
-            edition = EDITION_RE.search(name)
-            if edition:
-                key += "|" + _norm(edition.group())
-                title += f"（{edition.group()}）"
+            key, title = found
             titles.setdefault(key, title)
             groups.setdefault(key, []).append((it, info, hit[1]))
+        return self._version_rows(groups, titles)
+
+    def _synced_files(self, files: Dict[int, dict]) -> Dict[str, Tuple[int, str]]:
+        """同步任務裡、這次列到的 115 檔案：本機 strm → (115 檔案 id, 115 路徑)。"""
+        local_of: Dict[str, Tuple[int, str]] = {}
+        for task in self.strm_sync.tasks:
+            root = Path(task.local).expanduser()
+            remote = remote_root(task)
+            for r in self.db.query("SELECT file_id, path FROM p115_index WHERE task=? AND is_dir=0", (task_key(task),)):
+                info = files.get(r["file_id"])
+                if info:
+                    local_of[str(root / r["path"])] = (
+                        r["file_id"], posixpath.join(remote, posixpath.dirname(r["path"]), info["name"]))
+        return local_of
+
+    def _version_rows(self, groups: Dict[str, List[tuple]], titles: Dict[str, str]) -> List[tuple]:
+        """每組照偏好排好（第一個建議保留），變成 dup_versions 的列；只有一份或全都一模一樣的組不算。"""
         store = MediaInfoStore(self.db)
         order = version_order(self.prefer())
         rows: List[tuple] = []

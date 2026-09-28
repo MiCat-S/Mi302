@@ -7,7 +7,7 @@ import binascii
 import json
 import logging
 import threading
-from typing import Any, List, Optional
+from typing import Any, List, Optional, Tuple
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import FileResponse, RedirectResponse
@@ -197,51 +197,14 @@ async def library_media_updated(request: Request, ctx: AuthContext = Depends(req
 
 
 def _query_items(request: Request, ctx: AuthContext) -> dict:
+    """/Items 查詢：範圍（ParentId、Ids）→ 篩選 → 排序 → 分頁；IncludeItemTypes 有 Person 時搜到的人接在後面。"""
     st = state(request)
-    where: List[str] = []
-    params: List[Any] = []
-    parent_id = q(request, "ParentId")
-    recursive = bool(q_bool(request, "Recursive"))
     types = [t.lower() for t in q_list(request, "IncludeItemTypes")]
-    exclude = [t.lower() for t in q_list(request, "ExcludeItemTypes")]
-    ids = q_list(request, "Ids")
-
-    if ids:
-        where.append(f"i.id IN ({','.join('?' for _ in ids)})")
-        params += [int(x) if x.isdigit() else -1 for x in ids]
-    elif parent_id:
-        parent = st.db.get_item(parent_id)
-        if not parent:
-            return query_result([], 0)
-        if parent["type"] == "CollectionFolder":
-            if recursive:
-                where.append("i.library_id=? AND i.type<>'CollectionFolder'")
-            else:
-                where.append("i.parent_id=? AND i.type<>'CollectionFolder'")
-            params.append(parent["id"])
-        elif parent["type"] == "Series":
-            if recursive:
-                where.append("i.series_id=?")
-            else:
-                where.append("i.parent_id=?")
-            params.append(parent["id"])
-        else:
-            where.append("i.parent_id=?")
-            params.append(parent["id"])
-    elif not recursive and not types and not q(request, "SearchTerm"):
-        # 沒有 ParentId 又非遞迴：回傳媒體庫本身（Emby 的根目錄行為）
-        where.append("i.type='CollectionFolder'")
-    else:
-        where.append("i.type<>'CollectionFolder'")
-
-    # 某個人參與的作品：PersonIds（人物 id）或 Person（名稱）
-    person_ids = q_list(request, "PersonIds")
-    if not person_ids and q(request, "Person"):
-        person_ids = [st.people.by_name(q(request, "Person")) or "-"]
-    if person_ids:
-        item_ids = st.people.item_ids(person_ids) or [-1]
-        where.append(f"i.id IN ({','.join('?' for _ in item_ids)})")
-        params += item_ids
+    scope = _scope(request, st, types)
+    if scope is None:
+        return query_result([], 0)
+    where, params = scope
+    _person_filter(request, st, where, params)
     persons = []
     if "person" in types:
         # 搜尋時一併找人：搜到的人接在項目後面
@@ -250,6 +213,75 @@ def _query_items(request: Request, ctx: AuthContext) -> dict:
             persons = [d for d in (st.people.person_dto(pid, st.server_id) for pid in st.people.search(term)) if d]
         if not types:
             return query_result(persons, len(persons))
+    _item_filters(request, types, where, params)
+    _user_filters(request, where, params)
+
+    sql_where = " AND ".join(where) or "1=1"
+    base = (
+        "FROM items i LEFT JOIN user_data u ON u.item_id=i.id AND u.user_id=? "
+        f"WHERE {sql_where}"
+    )
+    all_params = [ctx.user_id or ""] + params
+    total = st.db.one(f"SELECT COUNT(*) AS c {base}", all_params)["c"]
+    sql = f"SELECT i.* {base} ORDER BY {_order_by(request)}"
+    start = q_int(request, "StartIndex", 0) or 0
+    limit = q_int(request, "Limit")
+    if limit is not None:
+        sql += " LIMIT ? OFFSET ?"
+        all_params += [limit, start]
+    elif start:
+        sql += " LIMIT -1 OFFSET ?"
+        all_params.append(start)
+    rows = st.db.query(sql, all_params)
+    return query_result([_dto(request, ctx, r) for r in rows] + persons, total + len(persons), start)
+
+
+def _scope(request: Request, st, types: List[str]) -> Optional[Tuple[List[str], List[Any]]]:
+    """查哪些項目：Ids、某個媒體庫／劇／季底下、媒體庫本身；ParentId 找不到時回傳 None（回空的結果）。"""
+    where: List[str] = []
+    params: List[Any] = []
+    parent_id = q(request, "ParentId")
+    recursive = bool(q_bool(request, "Recursive"))
+    ids = q_list(request, "Ids")
+    if ids:
+        where.append(f"i.id IN ({','.join('?' for _ in ids)})")
+        params += [int(x) if x.isdigit() else -1 for x in ids]
+    elif parent_id:
+        parent = st.db.get_item(parent_id)
+        if not parent:
+            return None
+        if parent["type"] == "CollectionFolder":
+            if recursive:
+                where.append("i.library_id=? AND i.type<>'CollectionFolder'")
+            else:
+                where.append("i.parent_id=? AND i.type<>'CollectionFolder'")
+        elif parent["type"] == "Series":
+            where.append("i.series_id=?" if recursive else "i.parent_id=?")
+        else:
+            where.append("i.parent_id=?")
+        params.append(parent["id"])
+    elif not recursive and not types and not q(request, "SearchTerm"):
+        # 沒有 ParentId 又非遞迴：回傳媒體庫本身（Emby 的根目錄行為）
+        where.append("i.type='CollectionFolder'")
+    else:
+        where.append("i.type<>'CollectionFolder'")
+    return where, params
+
+
+def _person_filter(request: Request, st, where: List[str], params: List[Any]) -> None:
+    """某個人參與的作品：PersonIds（人物 id）或 Person（名稱）。"""
+    person_ids = q_list(request, "PersonIds")
+    if not person_ids and q(request, "Person"):
+        person_ids = [st.people.by_name(q(request, "Person")) or "-"]
+    if person_ids:
+        item_ids = st.people.item_ids(person_ids) or [-1]
+        where.append(f"i.id IN ({','.join('?' for _ in item_ids)})")
+        params += item_ids
+
+
+def _item_filters(request: Request, types: List[str], where: List[str], params: List[Any]) -> None:
+    """類型、資料夾與否、搜尋、開頭字母、年份、類型標籤。"""
+    exclude = [t.lower() for t in q_list(request, "ExcludeItemTypes")]
     if types:
         where.append(f"lower(i.type) IN ({','.join('?' for _ in types)})")
         params += types
@@ -259,7 +291,6 @@ def _query_items(request: Request, ctx: AuthContext) -> dict:
     if q_bool(request, "IsFolder") is not None:
         folder_types = "('CollectionFolder','Series','Season','Folder')"
         where.append(("i.type IN " if q_bool(request, "IsFolder") else "i.type NOT IN ") + folder_types)
-
     term = q(request, "SearchTerm")
     if term:
         sql, more = title_match(term, "i.name", "i.original_title", "i.search_text")
@@ -277,6 +308,9 @@ def _query_items(request: Request, ctx: AuthContext) -> dict:
         where.append("i.genres LIKE ?")
         params.append(f'%"{genre}"%')
 
+
+def _user_filters(request: Request, where: List[str], params: List[Any]) -> None:
+    """看過沒看過、收藏、看到一半（查詢的使用者的 user_data，別名 u）。"""
     filters = {f.lower() for f in q_list(request, "Filters")}
     is_played = q_bool(request, "IsPlayed")
     if "isplayed" in filters:
@@ -291,14 +325,9 @@ def _query_items(request: Request, ctx: AuthContext) -> dict:
     if "isresumable" in filters:
         where.append("COALESCE(u.position_ticks,0)>0 AND COALESCE(u.played,0)=0")
 
-    sql_where = " AND ".join(where) or "1=1"
-    base = (
-        "FROM items i LEFT JOIN user_data u ON u.item_id=i.id AND u.user_id=? "
-        f"WHERE {sql_where}"
-    )
-    all_params = [ctx.user_id or ""] + params
-    total = st.db.one(f"SELECT COUNT(*) AS c {base}", all_params)["c"]
 
+def _order_by(request: Request) -> str:
+    """SortBy、SortOrder 換成 ORDER BY；不認得的排序鍵略過，最後一定照 id 排，分頁才穩定。"""
     sort_by = [s.lower() for s in q_list(request, "SortBy")] or ["sortname"]
     orders = [o.lower() for o in q_list(request, "SortOrder")] or ["ascending"]
     order_parts = []
@@ -309,17 +338,7 @@ def _query_items(request: Request, ctx: AuthContext) -> dict:
         direction = orders[min(idx, len(orders) - 1)]
         order_parts.append(f"{col} {'DESC' if direction.startswith('desc') else 'ASC'}")
     order_parts.append("i.id ASC")
-    sql = f"SELECT i.* {base} ORDER BY {', '.join(order_parts)}"
-    start = q_int(request, "StartIndex", 0) or 0
-    limit = q_int(request, "Limit")
-    if limit is not None:
-        sql += " LIMIT ? OFFSET ?"
-        all_params += [limit, start]
-    elif start:
-        sql += " LIMIT -1 OFFSET ?"
-        all_params.append(start)
-    rows = st.db.query(sql, all_params)
-    return query_result([_dto(request, ctx, r) for r in rows] + persons, total + len(persons), start)
+    return ", ".join(order_parts)
 
 
 @router.get("/users/{user_id}/items")

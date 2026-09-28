@@ -51,6 +51,55 @@ def _quiet(path: str) -> bool:
     return path == "/web" or path.startswith("/web/") or (path.startswith("/p115/") and path.endswith("/status"))
 
 
+def _after_sync(app: FastAPI, result) -> None:
+    """115 同步做完之後：探測新檔的媒體資訊、重新掃描變動的地方、送 MoviePilot 刮削、全量後補全缺集。"""
+    config, st = app.state.config, app.state
+    # 新 strm 的媒體資訊在背景探測，和掃描、刮削同時進行（互不相干）
+    # 115 上換掉的檔案（pickcode 變了）舊媒體資訊已作廢，和新檔一起重新探測
+    mi = config.mediainfo
+    todo = result.new_files + result.replaced
+    if todo and mi.enabled and mi.after_sync and st.prober.available():
+        st.prober.run_in_background(todo, "sync")
+    # 先只掃有變動的地方，新片馬上出現；再把新產生的 strm 交給 MoviePilot 刮削，刮好的會再掃一次
+    if config.p115.strm.scan_after_sync and result.changed:
+        st.scanner.scan_paths(result.changed)
+    mp = st.moviepilot
+    if result.new_files and mp.enabled and config.moviepilot.scrape_after_sync:
+        mp.scrape(result.new_files, "sync")
+    if result.mode == FULL and config.moviepilot.fill_after_full_sync and mp.can_subscribe:
+        # 刮削完才有 tmdbid；每一季先向 TMDB 查已播出的集，缺集的季才建訂閱，齊全的不建
+        shows = [s for s in library_series(st.db)[0] if s["tmdbid"]]
+        if shows:
+            mp.fill_in_background(shows, "sync")
+
+
+async def _normalize_path(request: Request, call_next):
+    """路徑去掉 /emby 這類前綴、英文轉小寫、去掉結尾的 /；詳細模式時記下播放器的每個請求。"""
+    path = request.scope["path"]
+    lower = _ascii_lower(path)
+    for prefix in PATH_PREFIXES:
+        if lower == prefix or lower.startswith(prefix + "/"):
+            lower = lower[len(prefix):] or "/"
+            break
+    if len(lower) > 1:
+        lower = lower.rstrip("/")
+    request.scope["path"] = lower
+    started = time.monotonic()
+    response = await call_next(request)
+    if access_log.isEnabledFor(logging.DEBUG) and not _quiet(lower):
+        query = request.scope.get("query_string", b"").decode("latin-1")
+        access_log.debug(
+            "%s %s → %s（%d ms）%s%s",
+            request.method,
+            logs.redact(path + ("?" + query if query else "")),
+            response.status_code,
+            (time.monotonic() - started) * 1000,
+            request.headers.get("user-agent", "")[:80],
+            "　未實作或找不到" if response.status_code == 404 else "",
+        )
+    return response
+
+
 def create_app(config: Config, db_path: Optional[str] = None, scan_on_start: bool = True) -> FastAPI:
     logs.attach()
     db = Database(db_path or config.data_path / "library.db")
@@ -96,29 +145,10 @@ def create_app(config: Config, db_path: Optional[str] = None, scan_on_start: boo
     app.state.intro = IntroLearner(db, config)
     app.state.person_names = PersonNames(db, config, app.state.moviepilot)
 
-    def after_sync(result) -> None:
-        # 新 strm 的媒體資訊在背景探測，和掃描、刮削同時進行（互不相干）
-        # 115 上換掉的檔案（pickcode 變了）舊媒體資訊已作廢，和新檔一起重新探測
-        mi = config.mediainfo
-        todo = result.new_files + result.replaced
-        if todo and mi.enabled and mi.after_sync and app.state.prober.available():
-            app.state.prober.run_in_background(todo, "sync")
-        # 先只掃有變動的地方，新片馬上出現；再把新產生的 strm 交給 MoviePilot 刮削，刮好的會再掃一次
-        if config.p115.strm.scan_after_sync and result.changed:
-            scanner.scan_paths(result.changed)
-        mp = app.state.moviepilot
-        if result.new_files and mp.enabled and config.moviepilot.scrape_after_sync:
-            mp.scrape(result.new_files, "sync")
-        if result.mode == FULL and config.moviepilot.fill_after_full_sync and mp.can_subscribe:
-            # 刮削完才有 tmdbid；每一季先向 TMDB 查已播出的集，缺集的季才建訂閱，齊全的不建
-            shows = [s for s in library_series(db)[0] if s["tmdbid"]]
-            if shows:
-                mp.fill_in_background(shows, "sync")
-
     app.state.strm_sync = StrmSync(
         app.state.p115,
         config.p115.strm,
-        on_done=after_sync,
+        on_done=lambda result: _after_sync(app, result),
         port=config.server.port,
     )
     app.state.dupes = DupeFinder(db, app.state.p115, app.state.strm_sync, scanner)  # 115 上的重複檔案
@@ -132,31 +162,7 @@ def create_app(config: Config, db_path: Optional[str] = None, scan_on_start: boo
         expose_headers=["*"],
     )
 
-    @app.middleware("http")
-    async def normalize_path(request: Request, call_next):
-        path = request.scope["path"]
-        lower = _ascii_lower(path)
-        for prefix in PATH_PREFIXES:
-            if lower == prefix or lower.startswith(prefix + "/"):
-                lower = lower[len(prefix):] or "/"
-                break
-        if len(lower) > 1:
-            lower = lower.rstrip("/")
-        request.scope["path"] = lower
-        started = time.monotonic()
-        response = await call_next(request)
-        if access_log.isEnabledFor(logging.DEBUG) and not _quiet(lower):
-            query = request.scope.get("query_string", b"").decode("latin-1")
-            access_log.debug(
-                "%s %s → %s（%d ms）%s%s",
-                request.method,
-                logs.redact(path + ("?" + query if query else "")),
-                response.status_code,
-                (time.monotonic() - started) * 1000,
-                request.headers.get("user-agent", "")[:80],
-                "　未實作或找不到" if response.status_code == 404 else "",
-            )
-        return response
+    app.middleware("http")(_normalize_path)
 
     @app.exception_handler(HTTPException)
     async def http_error(request: Request, exc: HTTPException):

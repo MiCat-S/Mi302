@@ -251,6 +251,18 @@ def match_tree_dirs(
     檔名很普通（例如 01.mkv、movie.nfo）對到好幾個時，先用上次同步記下的 id，再用「已經被別的
     資料夾確定的路徑」排除。回傳 (對照表, 對不上的資料夾 id)；任務目錄本身是 ""。
     """
+    candidates = _dir_candidates(tree, files, root_cid)
+    result: Dict[int, str] = {root_cid: ""}
+    for cid, cands in candidates.items():
+        if hints and hints.get(cid) in cands:
+            result[cid] = hints[cid]
+    _settle_unique(candidates, result)
+    _drop_shared_paths(result, root_cid)
+    return result, [cid for cid in candidates if cid not in result]
+
+
+def _dir_candidates(tree: Iterable[Tuple[str, ...]], files: List[dict], root_cid: int) -> Dict[int, Set[str]]:
+    """每個資料夾 id 可能的路徑：它裡面的檔名在目錄樹裡出現的資料夾取交集。"""
     parents: Dict[str, Set[str]] = {}
     for parts in tree:
         if parts:
@@ -271,12 +283,12 @@ def match_tree_dirs(
             if len(found) <= 1:
                 break
         candidates[cid] = found or set()
-    result: Dict[int, str] = {root_cid: ""}
-    for cid, cands in candidates.items():
-        if hints and hints.get(cid) in cands:
-            result[cid] = hints[cid]
+    return candidates
+
+
+def _settle_unique(candidates: Dict[int, Set[str]], result: Dict[int, str]) -> None:
+    """反覆排除：扣掉已經確定的路徑只剩一個，而且沒有別的資料夾也剩這一個，才算對上。"""
     while True:
-        # 扣掉已經確定的路徑只剩一個，而且沒有別的資料夾也剩這一個，才算對上
         taken = set(result.values())
         proposals: Dict[str, List[int]] = {}
         for cid, cands in candidates.items():
@@ -286,10 +298,13 @@ def match_tree_dirs(
                     proposals.setdefault(next(iter(left)), []).append(cid)
         unique = {rel: cids[0] for rel, cids in proposals.items() if len(cids) == 1}
         if not unique:
-            break
+            return
         for rel, cid in unique.items():
             result[cid] = rel
-    # 同一個路徑對到兩個資料夾（例如導出之後才複製的資料夾）：分不出誰對，都另外查
+
+
+def _drop_shared_paths(result: Dict[int, str], root_cid: int) -> None:
+    """同一個路徑對到兩個資料夾（例如導出之後才複製的資料夾）：分不出誰對，都另外查。"""
     owners: Dict[str, List[int]] = {}
     for cid, rel in result.items():
         owners.setdefault(rel, []).append(cid)
@@ -298,7 +313,16 @@ def match_tree_dirs(
             for cid in cids:
                 if cid != root_cid:
                     del result[cid]
-    return result, [cid for cid in candidates if cid not in result]
+
+
+def _known_below(by_path: Dict[str, int]) -> Dict[str, int]:
+    """每個上層資料夾 → 它底下任一個已知 id 的資料夾（向 115 查那個就能順便知道上層的 id）。"""
+    below: Dict[str, int] = {}
+    for rel, d in by_path.items():
+        while "/" in rel:
+            rel = rel.rsplit("/", 1)[0]
+            below.setdefault(rel, d)
+    return below
 
 
 def tree_folders(tree: Iterable[Tuple[str, ...]]) -> Set[str]:
@@ -784,11 +808,7 @@ class StrmSync:
             if rel in folders and rel not in by_path and d not in dirs:
                 dirs[d] = rel
                 by_path[rel] = d
-        below: Dict[str, int] = {}
-        for rel, d in by_path.items():
-            while "/" in rel:
-                rel = rel.rsplit("/", 1)[0]
-                below.setdefault(rel, d)
+        below = _known_below(by_path)
         for rel in sorted(folders, key=lambda r: -r.count("/")):
             if rel not in by_path and rel in below:
                 ask(below[rel])
@@ -1119,6 +1139,17 @@ class StrmSync:
         只刪掉與被刪 strm 同名的檔案（例如 X.nfo、X-poster.jpg、X.zh.srt），
         以及底下已經沒有任何影片的資料夾裡的中繼資料。其他副檔名的檔案一律不動。
         """
+        gone_stems = self._remove_stale_strm(local, produced)
+        for folder, stems in gone_stems.items():
+            for stem in stems:
+                for f in _sidecars(folder, stem):
+                    if str(f) not in produced and f.exists():
+                        f.unlink()
+                        self.result.removed += 1
+        self._remove_orphan_metadata(local, produced)
+
+    def _remove_stale_strm(self, local: Path, produced: set[str]) -> Dict[Path, List[str]]:
+        """刪掉這次沒產生的 strm；回傳每個資料夾刪掉了哪些檔名（不含副檔名）。"""
         by_lower = {p.lower(): p for p in produced}
         gone_stems: Dict[Path, List[str]] = {}
         for dirpath, _, filenames in os.walk(local):
@@ -1135,12 +1166,10 @@ class StrmSync:
                 self.result.removed += 1
                 self.result.changed.append(str(path))
                 gone_stems.setdefault(path.parent, []).append(path.stem)
-        for folder, stems in gone_stems.items():
-            for stem in stems:
-                for f in _sidecars(folder, stem):
-                    if str(f) not in produced and f.exists():
-                        f.unlink()
-                        self.result.removed += 1
+        return gone_stems
+
+    def _remove_orphan_metadata(self, local: Path, produced: set[str]) -> None:
+        """由下往上：底下已經沒有影片的資料夾，刪掉裡面的中繼資料，空了就刪資料夾。"""
         for dirpath, dirnames, filenames in os.walk(local, topdown=False):
             folder = Path(dirpath)
             if folder == local:

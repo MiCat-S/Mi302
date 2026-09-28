@@ -126,6 +126,21 @@ def media_source_dto(
     return ms
 
 
+# 項目本身的欄位（資料庫欄位 → Emby 的欄位），有值才給
+OPTIONAL_FIELDS = (
+    ("OriginalTitle", "original_title"),
+    ("Overview", "overview"),
+    ("ProductionYear", "year"),
+    ("PremiereDate", "premiere_date"),
+    ("CommunityRating", "community_rating"),
+    ("OfficialRating", "official_rating"),
+    ("IndexNumber", "index_number"),
+    ("ParentIndexNumber", "parent_index_number"),
+    ("RunTimeTicks", "runtime_ticks"),
+    ("Container", "container"),
+)
+
+
 def item_dto(
     db: Database,
     server_id: str,
@@ -140,6 +155,29 @@ def item_dto(
     with_chapters: bool = False,
     can_download: bool = True,
 ) -> Dict[str, Any]:
+    """一個項目的 BaseItemDto。欄位照區塊組：基本資料 → 圖片 → 所屬的劇／季 → 資料夾 → 使用者資料 → 演職人員 → 媒體資訊。"""
+    t = item["type"]
+    dto = _common_fields(server_id, item, can_download)
+    tags = _image_fields(dto, item)
+    if t in ("Season", "Episode") and item["series_id"]:
+        _series_fields(db, dto, item, tags)
+    if t == "Episode" and item["season_id"]:
+        _season_fields(db, dto, item)
+    if t in FOLDER_TYPES:
+        _folder_fields(db, dto, item)
+
+    dto["UserData"] = user_data_dto(db, user_id, item)
+
+    if with_people and people is not None and t in ("Movie", "Series", "Season", "Episode"):
+        dto["People"] = people.for_item(item)
+
+    if (with_media_sources or with_chapters) and t in VIDEO_TYPES:
+        _media_fields(db, dto, item, token, with_media_sources, resolve_remote, intro)
+    return {k: v for k, v in dto.items() if v is not None}
+
+
+def _common_fields(server_id: str, item: sqlite3.Row, can_download: bool) -> Dict[str, Any]:
+    """名稱、類型、父項目、有值的欄位、類型、外部 id、影片的路徑。"""
     t = item["type"]
     dto: Dict[str, Any] = {
         "Name": item["name"],
@@ -159,18 +197,7 @@ def item_dto(
         dto["CollectionType"] = item["collection_type"]
     if item["parent_id"]:
         dto["ParentId"] = str(item["parent_id"])
-    for key, col in (
-        ("OriginalTitle", "original_title"),
-        ("Overview", "overview"),
-        ("ProductionYear", "year"),
-        ("PremiereDate", "premiere_date"),
-        ("CommunityRating", "community_rating"),
-        ("OfficialRating", "official_rating"),
-        ("IndexNumber", "index_number"),
-        ("ParentIndexNumber", "parent_index_number"),
-        ("RunTimeTicks", "runtime_ticks"),
-        ("Container", "container"),
-    ):
+    for key, col in OPTIONAL_FIELDS:
         if item[col] is not None:
             dto[key] = item[col]
     dto["Genres"] = json.loads(item["genres"]) if item["genres"] else []
@@ -184,8 +211,11 @@ def item_dto(
         dto["HasSubtitles"] = False
     if t in ("CollectionFolder",):
         dto["Path"] = item["path"]
+    return dto
 
-    # 圖片
+
+def _image_fields(dto: Dict[str, Any], item: sqlite3.Row) -> Dict[str, str]:
+    """項目自己的圖片；回傳 ImageTags（單集沒有劇照時，_series_fields 會補上劇的圖）。"""
     tags: Dict[str, str] = {}
     for key, col in (("Primary", "primary_image"), ("Thumb", "thumb_image"), ("Logo", "logo_image")):
         tag = image_tag(item[col])
@@ -195,55 +225,61 @@ def item_dto(
     backdrop = image_tag(item["backdrop_image"])
     dto["BackdropImageTags"] = [backdrop] if backdrop else []
     if tags.get("Primary"):
-        dto["PrimaryImageAspectRatio"] = 16 / 9 if t == "Episode" else 2 / 3
+        dto["PrimaryImageAspectRatio"] = 16 / 9 if item["type"] == "Episode" else 2 / 3
+    return tags
 
-    if t in ("Season", "Episode") and item["series_id"]:
-        series = db.get_item(item["series_id"])
-        if series:
-            dto["SeriesId"] = str(series["id"])
-            dto["SeriesName"] = series["name"]
-            stag = image_tag(series["primary_image"])
-            if stag:
-                dto["SeriesPrimaryImageTag"] = stag
-            btag = image_tag(series["backdrop_image"])
-            if btag:
-                dto["ParentBackdropItemId"] = str(series["id"])
-                dto["ParentBackdropImageTags"] = [btag]
-            ttag = image_tag(series["thumb_image"])
-            if ttag:
-                dto["ParentThumbItemId"] = str(series["id"])
-                dto["ParentThumbImageTag"] = ttag
-            if t == "Episode" and not tags.get("Primary"):
-                # TMDB 沒有這集的劇照：用劇的橫幅圖頂上（/Images/Primary 也回同一張），播放器才不會一片空白
-                ftag = image_tag(episode_fallback_image(series))
-                if ftag:
-                    tags["Primary"] = ftag
-                    dto["PrimaryImageAspectRatio"] = 16 / 9
-            ltag = image_tag(series["logo_image"])
-            if ltag:
-                dto["ParentLogoItemId"] = str(series["id"])
-                dto["ParentLogoImageTag"] = ltag
-    if t == "Episode" and item["season_id"]:
-        season = db.get_item(item["season_id"])
-        if season:
-            dto["SeasonId"] = str(season["id"])
-            dto["SeasonName"] = season["name"]
-    if t in FOLDER_TYPES:
-        dto["ChildCount"] = _child_count(db, item)
-        if t == "Series":
-            dto["RecursiveItemCount"] = dto["ChildCount"]
-            # nfo 的 <status>（Continuing／Ended）掃描時沒有讀進資料庫，一律回 Continuing：
-            # 播放器只拿它顯示「連載中」，不影響播放；要讀的話 scanner.parse_nfo 和 items 表都得加欄位
-            dto["Status"] = "Continuing"
 
-    dto["UserData"] = user_data_dto(db, user_id, item)
+def _series_fields(db: Database, dto: Dict[str, Any], item: sqlite3.Row, tags: Dict[str, str]) -> None:
+    """季、集所屬的劇：名稱，以及從劇借來的海報、背景、橫幅、標誌。"""
+    series = db.get_item(item["series_id"])
+    if not series:
+        return
+    dto["SeriesId"] = str(series["id"])
+    dto["SeriesName"] = series["name"]
+    stag = image_tag(series["primary_image"])
+    if stag:
+        dto["SeriesPrimaryImageTag"] = stag
+    btag = image_tag(series["backdrop_image"])
+    if btag:
+        dto["ParentBackdropItemId"] = str(series["id"])
+        dto["ParentBackdropImageTags"] = [btag]
+    ttag = image_tag(series["thumb_image"])
+    if ttag:
+        dto["ParentThumbItemId"] = str(series["id"])
+        dto["ParentThumbImageTag"] = ttag
+    if item["type"] == "Episode" and not tags.get("Primary"):
+        # TMDB 沒有這集的劇照：用劇的橫幅圖頂上（/Images/Primary 也回同一張），播放器才不會一片空白
+        ftag = image_tag(episode_fallback_image(series))
+        if ftag:
+            tags["Primary"] = ftag
+            dto["PrimaryImageAspectRatio"] = 16 / 9
+    ltag = image_tag(series["logo_image"])
+    if ltag:
+        dto["ParentLogoItemId"] = str(series["id"])
+        dto["ParentLogoImageTag"] = ltag
 
-    if with_people and people is not None and t in ("Movie", "Series", "Season", "Episode"):
-        dto["People"] = people.for_item(item)
 
-    want_media = (with_media_sources or with_chapters) and t in VIDEO_TYPES
-    info = MediaInfoStore(db).get(item["path"]) if want_media else None
-    if with_media_sources and t in VIDEO_TYPES:
+def _season_fields(db: Database, dto: Dict[str, Any], item: sqlite3.Row) -> None:
+    season = db.get_item(item["season_id"])
+    if season:
+        dto["SeasonId"] = str(season["id"])
+        dto["SeasonName"] = season["name"]
+
+
+def _folder_fields(db: Database, dto: Dict[str, Any], item: sqlite3.Row) -> None:
+    dto["ChildCount"] = _child_count(db, item)
+    if item["type"] == "Series":
+        dto["RecursiveItemCount"] = dto["ChildCount"]
+        # nfo 的 <status>（Continuing／Ended）掃描時沒有讀進資料庫，一律回 Continuing：
+        # 播放器只拿它顯示「連載中」，不影響播放；要讀的話 scanner.parse_nfo 和 items 表都得加欄位
+        dto["Status"] = "Continuing"
+
+
+def _media_fields(db: Database, dto: Dict[str, Any], item: sqlite3.Row, token: Optional[str], with_media_sources: bool,
+                  resolve_remote, intro) -> None:
+    """影片的 MediaSources、媒體流、解析度和章節（含學到的片頭片尾標記）。"""
+    info = MediaInfoStore(db).get(item["path"])
+    if with_media_sources:
         remote = resolve_remote(item) if resolve_remote else None
         ms = media_source_dto(item, remote, token, info)
         dto["MediaSources"] = [ms]
@@ -255,14 +291,12 @@ def item_dto(
             dto["HasSubtitles"] = any(s.get("Type") == "Subtitle" for s in ms["MediaStreams"])
             if not dto.get("RunTimeTicks") and ms.get("RunTimeTicks"):
                 dto["RunTimeTicks"] = ms["RunTimeTicks"]
-    if want_media:
-        # 媒體資訊裡的章節，加上學到的片頭片尾標記（Emby 的 MarkerType）
-        chapters = list((info or {}).get("chapters") or [])
-        if intro is not None:
-            chapters += intro.chapters_for(item)
-        if chapters or with_media_sources:
-            dto["Chapters"] = chapters
-    return {k: v for k, v in dto.items() if v is not None}
+    # 媒體資訊裡的章節，加上學到的片頭片尾標記（Emby 的 MarkerType）
+    chapters = list((info or {}).get("chapters") or [])
+    if intro is not None:
+        chapters += intro.chapters_for(item)
+    if chapters or with_media_sources:
+        dto["Chapters"] = chapters
 
 
 def user_dto(user: dict, server_id: str, can_download: bool = True) -> Dict[str, Any]:

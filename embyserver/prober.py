@@ -207,6 +207,12 @@ def _has_box(data: bytes, want: bytes) -> bool:
     return False
 
 
+def _add_error(r: ProbeResult, msg: str) -> None:
+    """錯誤訊息最多留 MAX_ERRORS 則，一整批都失敗時網頁不會被塞爆。"""
+    if len(r.errors) < MAX_ERRORS:
+        r.errors.append(msg)
+
+
 class MediaProber:
     def __init__(self, cfg: MediaInfoConfig, config: Config, p115: P115Service, db: Database):
         self.cfg = cfg
@@ -463,47 +469,6 @@ class MediaProber:
         abort = threading.Event()
         count = threading.Lock()
 
-        def error(msg: str) -> None:
-            if len(r.errors) < MAX_ERRORS:
-                r.errors.append(msg)
-
-        def one(path: Path) -> None:
-            if abort.is_set():
-                return
-            r.current = path.name
-            try:
-                if not self._needs(path):
-                    raise ProbeSkip("已經有媒體資訊")  # 排隊的時候被打開即探測做掉、或旁邊放了 json
-                self.probe_one(path, self._cancel)
-            except ProbeCancelled:
-                return  # 按了停止：這一支沒做，不算
-            except (ProbeAbort, P115Throttled) as exc:
-                with count:
-                    if not abort.is_set():
-                        abort.set()
-                        error(str(exc))
-                        log.error("媒體資訊探測中止：%s", exc)
-                return
-            except ProbeSkip as exc:
-                with count:
-                    r.skipped += 1
-                log.info("略過 %s：%s", path.name, exc)
-                return
-            except (P115Error, RuntimeError, OSError) as exc:
-                with count:
-                    r.failed += 1
-                    error(f"{path.name}：{exc}")
-                log.warning("探測 %s 失敗：%s", path, exc)
-                return
-            except Exception as exc:  # 沒預料到的錯誤只算這一項失敗，不能讓整批探測的執行緒死掉
-                with count:
-                    r.failed += 1
-                    error(f"{path.name}：{type(exc).__name__}: {exc}")
-                log.exception("探測 %s 時發生未預期的錯誤", path)
-                return
-            with count:
-                r.done += 1
-
         def worker() -> None:
             while not abort.is_set() and not self._cancel.is_set():
                 with self._batch_lock:
@@ -511,7 +476,7 @@ class MediaProber:
                         return
                     path = self._pending.popleft()
                     self._taken.add(path)
-                one(Path(path))
+                self._batch_one(r, Path(path), abort, count)
 
         try:
             if not self.available():
@@ -530,7 +495,7 @@ class MediaProber:
             elif abort.is_set():
                 r.failed = r.total - r.done - r.skipped  # 中止後沒做的都算沒完成
         except ProbeAbort as exc:
-            error(str(exc))
+            _add_error(r, str(exc))
         finally:
             with self._batch_lock:
                 self._pending.clear()
@@ -540,6 +505,45 @@ class MediaProber:
             self._lock.release()
         log.info("媒體資訊探測%s：成功 %s，失敗 %s，略過 %s", "停止" if r.stopped else "完成", r.done, r.failed, r.skipped)
         return r
+
+    def _batch_one(self, r: ProbeResult, path: Path, abort: threading.Event, count: threading.Lock) -> None:
+        """整批裡的一支：成功、略過、失敗各記一筆。整批都做不下去的（115 限流、找不到 ffprobe）設 abort，
+        其他工作執行緒看到就停手，錯誤只記一次。"""
+        if abort.is_set():
+            return
+        r.current = path.name
+        try:
+            if not self._needs(path):
+                raise ProbeSkip("已經有媒體資訊")  # 排隊的時候被打開即探測做掉、或旁邊放了 json
+            self.probe_one(path, self._cancel)
+        except ProbeCancelled:
+            return  # 按了停止：這一支沒做，不算
+        except (ProbeAbort, P115Throttled) as exc:
+            with count:
+                if not abort.is_set():
+                    abort.set()
+                    _add_error(r, str(exc))
+                    log.error("媒體資訊探測中止：%s", exc)
+            return
+        except ProbeSkip as exc:
+            with count:
+                r.skipped += 1
+            log.info("略過 %s：%s", path.name, exc)
+            return
+        except (P115Error, RuntimeError, OSError) as exc:
+            with count:
+                r.failed += 1
+                _add_error(r, f"{path.name}：{exc}")
+            log.warning("探測 %s 失敗：%s", path, exc)
+            return
+        except Exception as exc:  # 沒預料到的錯誤只算這一項失敗，不能讓整批探測的執行緒死掉
+            with count:
+                r.failed += 1
+                _add_error(r, f"{path.name}：{type(exc).__name__}: {exc}")
+            log.exception("探測 %s 時發生未預期的錯誤", path)
+            return
+        with count:
+            r.done += 1
 
     def retarget(self, candidates: List[str], limit: int, label: str = "") -> Optional[int]:
         """正在跑的這一批改成最多 limit 支（0 = candidates 全部）：多了從 candidates 依序補上，少了把排隊的從後面拿掉。

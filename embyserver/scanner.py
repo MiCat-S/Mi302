@@ -222,6 +222,7 @@ def read_strm(path: Path) -> str:
 
 
 def parse_nfo(path: Path) -> Dict:
+    """讀 nfo（Kodi 格式）：片名、簡介、日期、評分、類型、演職人員、片長、外部 id、季和集號；讀不到回傳 {}。"""
     if not path or not path.is_file():
         return {}
     try:
@@ -233,31 +234,10 @@ def parse_nfo(path: Path) -> Dict:
         el = root.find(tag)
         return el.text.strip() if el is not None and el.text else None
 
-    data: Dict = {}
-    if text("title"):
-        data["name"] = text("title")
-    if text("originaltitle"):
-        data["original_title"] = text("originaltitle")
-    if text("sorttitle"):
-        data["sort_name"] = text("sorttitle")
-    if text("plot") or text("outline"):
-        data["overview"] = text("plot") or text("outline")
-    for tag in ("year",):
-        if text(tag) and text(tag).isdigit():
-            data["year"] = int(text(tag))
-    premiered = text("premiered") or text("aired") or text("releasedate") or ""
-    if DATE_RE.match(premiered):
-        data["premiere_date"] = premiered[:10] + "T00:00:00.0000000Z"
-    if "year" not in data and premiered[:4].isdigit():
-        data["year"] = int(premiered[:4])  # 只填了年份（2019）或年月的 nfo
-    rating = text("rating") or text("ratings/rating/value")
-    if rating:
-        try:
-            data["community_rating"] = round(float(rating), 1)
-        except ValueError:
-            pass
-    if text("mpaa"):
-        data["official_rating"] = text("mpaa")
+    data: Dict = {}  # 欄位順序和寫進資料庫的順序一樣：名稱 → 日期 → 評分 → 類型 → 人 → 片長 → id → 季集
+    _nfo_titles(text, data)
+    _nfo_dates(text, data)
+    _nfo_rating(text, data)
     genres = [g.text.strip() for g in root.findall("genre") if g.text]
     if genres:
         data["genres"] = genres
@@ -265,20 +245,64 @@ def parse_nfo(path: Path) -> Dict:
     runtime = text("runtime")
     if runtime and runtime.isdigit():
         data["runtime_ticks"] = int(runtime) * 60 * 10_000_000
+    providers = _nfo_ids(root, text)
+    if providers:
+        data["provider_ids"] = providers
+    # 季、集號；刮削時沒認出來的會寫成 -1，當成沒寫，改從資料夾和檔名判斷
+    for tag, key in (("season", "parent_index_number"), ("episode", "index_number")):
+        value = text(tag)
+        if value and value.isdigit():
+            data[key] = int(value)
+    return data
+
+
+def _nfo_titles(text, data: Dict) -> None:
+    """片名、原名、排序名、簡介。"""
+    for tag, key in (("title", "name"), ("originaltitle", "original_title"), ("sorttitle", "sort_name")):
+        value = text(tag)
+        if value:
+            data[key] = value
+    overview = text("plot") or text("outline")
+    if overview:
+        data["overview"] = overview
+
+
+def _nfo_rating(text, data: Dict) -> None:
+    """評分（新舊兩種寫法）、分級。"""
+    rating = text("rating") or text("ratings/rating/value")
+    if rating:
+        try:
+            data["community_rating"] = round(float(rating), 1)
+        except ValueError:
+            pass
+    mpaa = text("mpaa")
+    if mpaa:
+        data["official_rating"] = mpaa
+
+
+def _nfo_dates(text, data: Dict) -> None:
+    """年份和首播日期；只填了年份（2019）或年月的 nfo 不產生假日期。"""
+    year = text("year")
+    if year and year.isdigit():
+        data["year"] = int(year)
+    premiered = text("premiered") or text("aired") or text("releasedate") or ""
+    if DATE_RE.match(premiered):
+        data["premiere_date"] = premiered[:10] + "T00:00:00.0000000Z"
+    if "year" not in data and premiered[:4].isdigit():
+        data["year"] = int(premiered[:4])
+
+
+def _nfo_ids(root, text) -> Dict[str, str]:
+    """外部 id：<uniqueid type="tmdb"> 優先，再看 <tmdbid>、<imdbid> 這類舊寫法。"""
     providers: Dict[str, str] = {}
     for uid in root.findall("uniqueid"):
         if uid.text and uid.get("type"):
             providers[uid.get("type").capitalize()] = uid.text.strip()
     for tag, key in (("tmdbid", "Tmdb"), ("imdbid", "Imdb"), ("tvdbid", "Tvdb"), ("imdb_id", "Imdb")):
-        if text(tag):
-            providers.setdefault(key, text(tag))
-    if providers:
-        data["provider_ids"] = providers
-    # 季、集號；刮削時沒認出來的會寫成 -1，當成沒寫，改從資料夾和檔名判斷
-    for tag, key in (("season", "parent_index_number"), ("episode", "index_number")):
-        if text(tag) and text(tag).isdigit():
-            data[key] = int(text(tag))
-    return data
+        value = text(tag)
+        if value:
+            providers.setdefault(key, value)
+    return providers
 
 
 def find_image(folder: Path, stems: List[str]) -> Optional[str]:

@@ -141,6 +141,22 @@ def candidates(db: Database, query: str = "", offset: int = 0, limit: int = 20) 
     return [dict(r) for r in rows], total
 
 
+def _folder_tmdbid(lib: Dict[int, dict], path: str) -> str:
+    """資料夾的 TMDB 編號：媒體庫裡已經刮削過的用它的，沒有就看資料夾名稱裡的 [tmdb=103863]、{tmdb-103863}。"""
+    for info in lib.values():
+        try:
+            tmdbid = (json.loads(info.get("provider_ids") or "{}") or {}).get("Tmdb") or ""
+        except ValueError:
+            tmdbid = ""
+        if tmdbid:
+            return tmdbid
+    for part in reversed(path.split("/")):
+        m = TMDB_IN_NAME_RE.search(part)
+        if m:
+            return m.group(1)
+    return ""
+
+
 @dataclass
 class _File:
     file_id: int
@@ -307,6 +323,29 @@ class Reorganizer:
         path = "/" + path.strip("/") if path.strip("/") else "/"
         if not cid or path == "/":
             raise ReorgError("不能整理整個 115，請選一個資料夾")
+        files = self._folder_videos(cid, path)
+        lib = library_info(self.db, self.strm_sync.tasks, [f.file_id for f in files])
+        for f in files:
+            f.local = (lib.get(f.file_id) or {}).get("local")
+        kinds = {(lib.get(f.file_id) or {}).get("type") for f in files}
+        mtype = "tv" if "Episode" in kinds else "movie" if "Movie" in kinds else \
+            "tv" if any(f.episode is not None for f in files) else "auto"
+        season = parse_season_dir(posixpath.basename(path))
+        seasons = {(lib.get(f.file_id) or {}).get("season") for f in files if lib.get(f.file_id)}
+        if season is None and len(seasons) == 1 and None not in seasons:
+            season = seasons.pop()
+        groups = self._group(files, recommend=False)
+        plan_id = f"f{cid}"
+        in_sync = sum(1 for f in files if f.local)
+        self._save_plan(plan_id, "folder", files, groups, title=path, remote_parent=posixpath.dirname(path))
+        return {
+            "plan_id": plan_id, "mode": "folder", "path": path, "name": posixpath.basename(path),
+            "remote_parent": posixpath.dirname(path), "tmdbid": str(_folder_tmdbid(lib, path)), "type": mtype,
+            "season": season, "in_sync": in_sync, "groups": self._groups_view(groups, True), "missing": [],
+        }
+
+    def _folder_videos(self, cid: int, path: str) -> List[_File]:
+        """一層一層列出資料夾裡的影片（照 115 上的路徑排好）；超過 FOLDER_LIMIT 支或沒有影片就丟 ReorgError。"""
         delay = getattr(self.strm_sync.cfg, "request_delay", 0) or 0
         files: List[_File] = []
         stack = [(cid, path)]
@@ -330,51 +369,14 @@ class Reorganizer:
         if not files:
             raise ReorgError("這個資料夾裡沒有影片")
         files.sort(key=lambda f: f.remote)
-        lib = library_info(self.db, self.strm_sync.tasks, [f.file_id for f in files])
-        for f in files:
-            f.local = (lib.get(f.file_id) or {}).get("local")
-        kinds = {(lib.get(f.file_id) or {}).get("type") for f in files}
-        mtype = "tv" if "Episode" in kinds else "movie" if "Movie" in kinds else \
-            "tv" if any(f.episode is not None for f in files) else "auto"
-        tmdbid = ""
-        for info in lib.values():  # 媒體庫裡已經刮削過：用它的 tmdbid
-            try:
-                tmdbid = (json.loads(info.get("provider_ids") or "{}") or {}).get("Tmdb") or ""
-            except ValueError:
-                tmdbid = ""
-            if tmdbid:
-                break
-        if not tmdbid:  # 資料夾名稱裡的 [tmdb=103863]、{tmdb-103863}
-            for part in reversed(path.split("/")):
-                m = TMDB_IN_NAME_RE.search(part)
-                if m:
-                    tmdbid = m.group(1)
-                    break
-        season = parse_season_dir(posixpath.basename(path))
-        seasons = {(lib.get(f.file_id) or {}).get("season") for f in files if lib.get(f.file_id)}
-        if season is None and len(seasons) == 1 and None not in seasons:
-            season = seasons.pop()
-        groups = self._group(files, recommend=False)
-        plan_id = f"f{cid}"
-        in_sync = sum(1 for f in files if f.local)
-        self._save_plan(plan_id, "folder", files, groups, title=path, remote_parent=posixpath.dirname(path))
-        return {
-            "plan_id": plan_id, "mode": "folder", "path": path, "name": posixpath.basename(path),
-            "remote_parent": posixpath.dirname(path), "tmdbid": str(tmdbid), "type": mtype, "season": season,
-            "in_sync": in_sync, "groups": self._groups_view(groups, True), "missing": [],
-        }
+        return files
 
     # ---------------- 預覽 ----------------
 
     def preview(self, plan_id: str, tmdbid: str, mtype: str, season: Optional[int], target: str, target_path: str,
                 scrape: bool, groups: List[dict]) -> dict:
-        plan = self._plans.get(plan_id)
-        m = re.fullmatch(r"s(\d+)-(\d+)", plan_id)
-        if not plan and m:  # 一季的計畫可以重做（例如伺服器重新啟動過）
-            self.plan(int(m.group(1)), int(m.group(2)))
-            plan = self._plans.get(plan_id)
-        if not plan:
-            raise ReorgError("這個計畫已經過期，請關掉對話框重新打開")
+        """請 MoviePilot 只算不做，列出每個檔案的新位置和 Mi302 的檢查；有可以整理的檔案就給一個預覽代碼。"""
+        plan = self._load_plan(plan_id)
         folder = plan["mode"] == "folder"
         tmdbid = str(tmdbid or "").strip()
         if tmdbid and not tmdbid.isdigit():
@@ -384,18 +386,13 @@ class Reorganizer:
         type_name = {"tv": "电视剧", "movie": "电影"}.get(mtype) if folder else "电视剧"
         if not folder:
             season = plan["season"]
-        if target == "parent":
-            target_path = plan["remote_parent"]
-        elif target == "path":
-            target_path = "/" + str(target_path or "").strip().strip("/")
-            if target_path == "/":
-                raise ReorgError("請填要整理到哪個 115 資料夾")
-        else:
-            target_path = None
+        target_path = self._target_path(plan, target, target_path)
         try:
             self.mp.check_transfer_preview()  # 舊版 MoviePilot 會把預覽當成真的整理
         except MoviePilotError as exc:
             raise ReorgError(str(exc))
+        run = {"tmdbid": tmdbid or None, "season": season, "scrape": scrape, "target_path": target_path,
+               "mtype": type_name}
         roots = [remote_root(t) for t in self.strm_sync.tasks]
         items: List[dict] = []
         batches: List[dict] = []
@@ -408,42 +405,74 @@ class Reorganizer:
             if pg["key"] == UNKNOWN and not template and not folder:
                 notes.append(f"認不出集號的 {len(pg['files'])} 個檔案沒有集數定位模板，這次不送")
                 continue
-            send: List[_File] = []
-            for f in pg["files"]:
-                if template and template_episode(template, f.name) is None:
-                    items.append(self._view(f, {}, template, plan, roots, "集數定位模板對不上這個檔名，沒有送出"))
-                else:
-                    send.append(f)
-            if not send:
-                continue
-            try:
-                results = self.mp.transfer([self._item(f) for f in send], tmdbid or None, season, template, scrape,
-                                           target_path, preview=True, mtype=type_name, timeout=max(60, 10 * len(send)))
-            except MoviePilotError as exc:
-                raise ReorgError(f"MoviePilot 預覽失敗：{exc}")
-            by_source = {r.get("source"): r for r in results}
-            ok = []
-            for f in send:
-                view = self._view(f, by_source.get(f.remote) or {}, template, plan, roots)
-                items.append(view)
-                if view["ok"]:
-                    ok.append(f.file_id)
+            ok = self._preview_group(plan, pg["files"], template, run, roots, items)
             if ok:
                 batches.append({"template": template, "file_ids": ok})
         payload = {"plan_id": plan_id, "tmdbid": tmdbid, "type_name": type_name, "season": season,
                    "target_path": target_path, "scrape": bool(scrape), "batches": batches}
-        token = hashlib.sha1(json.dumps(payload, sort_keys=True).encode()).hexdigest()[:16] if batches else None
+        return {
+            "token": self._remember_preview(plan, payload), "items": items, "notes": notes,
+            "summary": {"total": len(items), "ok": sum(1 for i in items if i["ok"]),
+                        "failed": sum(1 for i in items if not i["ok"]),
+                        "warnings": sum(1 for i in items if i["ok"] and i["warnings"])},
+        }
+
+    def _load_plan(self, plan_id: str) -> dict:
+        plan = self._plans.get(plan_id)
+        m = re.fullmatch(r"s(\d+)-(\d+)", plan_id)
+        if not plan and m:  # 一季的計畫可以重做（例如伺服器重新啟動過）
+            self.plan(int(m.group(1)), int(m.group(2)))
+            plan = self._plans.get(plan_id)
+        if not plan:
+            raise ReorgError("這個計畫已經過期，請關掉對話框重新打開")
+        return plan
+
+    @staticmethod
+    def _target_path(plan: dict, target: str, target_path: str) -> Optional[str]:
+        """整理到哪裡：parent = 現在的上一層、path = 指定的 115 資料夾、其他 = 照 MoviePilot 的目錄設定（None）。"""
+        if target == "parent":
+            return plan["remote_parent"]
+        if target == "path":
+            target_path = "/" + str(target_path or "").strip().strip("/")
+            if target_path == "/":
+                raise ReorgError("請填要整理到哪個 115 資料夾")
+            return target_path
+        return None
+
+    def _preview_group(self, plan: dict, files: List[_File], template: Optional[str], run: dict, roots: List[str],
+                       items: List[dict]) -> List[int]:
+        """一批（同一個集數定位模板）：模板對不上的不送，其餘請 MoviePilot 預覽。結果加進 items，回傳可以整理的檔案 id。"""
+        send: List[_File] = []
+        for f in files:
+            if template and template_episode(template, f.name) is None:
+                items.append(self._view(f, {}, template, plan, roots, "集數定位模板對不上這個檔名，沒有送出"))
+            else:
+                send.append(f)
+        if not send:
+            return []
+        try:
+            results = self.mp.transfer([self._item(f) for f in send], run["tmdbid"], run["season"], template, run["scrape"],
+                                       run["target_path"], preview=True, mtype=run["mtype"], timeout=max(60, 10 * len(send)))
+        except MoviePilotError as exc:
+            raise ReorgError(f"MoviePilot 預覽失敗：{exc}")
+        by_source = {r.get("source"): r for r in results}
+        ok = []
+        for f in send:
+            view = self._view(f, by_source.get(f.remote) or {}, template, plan, roots)
+            items.append(view)
+            if view["ok"]:
+                ok.append(f.file_id)
+        return ok
+
+    def _remember_preview(self, plan: dict, payload: dict) -> Optional[str]:
+        """記下這次預覽（半小時內可以照它執行），回傳預覽代碼；沒有可以整理的檔案時是 None。"""
+        token = hashlib.sha1(json.dumps(payload, sort_keys=True).encode()).hexdigest()[:16] if payload["batches"] else None
         now = time.time()
         self._previews = {k: v for k, v in self._previews.items() if now - v["at"] < PREVIEW_TTL}
         if token:
             self._previews[token] = {**payload, "at": now, "title": plan["title"], "mode": plan["mode"],
                                      "files": plan["files"]}
-        return {
-            "token": token, "items": items, "notes": notes,
-            "summary": {"total": len(items), "ok": sum(1 for i in items if i["ok"]),
-                        "failed": sum(1 for i in items if not i["ok"]),
-                        "warnings": sum(1 for i in items if i["ok"] and i["warnings"])},
-        }
+        return token
 
     @staticmethod
     def _view(f: _File, r: dict, template: Optional[str], plan: dict, roots: List[str], fail: str = "") -> dict:
