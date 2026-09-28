@@ -834,6 +834,10 @@ class P115Service:
             log.info("從 115 取得直鏈：%s %s", pickcode, unquote(urlsplit(url).path.rpartition("/")[-1]))
             return url
 
+    def cached_download_url(self, pickcode: str, user_agent: str = "") -> Optional[str]:
+        """快取裡還沒過期的直鏈（剛播過的）；沒有就回傳 None，不向 115 要。"""
+        return self._cached((pickcode.lower(), user_agent or "NoUA"))
+
     def _cached(self, key: Tuple[str, str]) -> Optional[str]:
         with self._cache_lock:
             hit = self._cache.get(key)

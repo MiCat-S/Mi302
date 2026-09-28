@@ -18,6 +18,13 @@ router = APIRouter()
 
 # 回給播放器的是「假裝成哪一版 Emby」，不是 Mi302 自己的版本（那個在 embyserver.__version__）
 EMBY_VERSION = "4.8.11.0"
+# platform.system() 的名稱換成 Emby 的 OperatingSystem 寫法（MediaBrowser.Model.System.OperatingSystem）
+OS_NAMES = {"Darwin": "OSX", "FreeBSD": "BSD", "OpenBSD": "BSD", "NetBSD": "BSD"}
+
+
+def _operating_system() -> str:
+    name = platform.system()
+    return OS_NAMES.get(name, name or "Linux")
 
 
 def _local_address(request: Request) -> str:
@@ -33,7 +40,7 @@ def _public_info(request: Request) -> dict:
         "ServerName": st.config.server.name,
         "Version": EMBY_VERSION,
         "ProductName": "Emby Server",
-        "OperatingSystem": "Linux",
+        "OperatingSystem": _operating_system(),
         "Id": st.server_id,
         "StartupWizardCompleted": True,
     }

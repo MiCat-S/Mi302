@@ -355,6 +355,9 @@ class MediaProber:
             if not self.p115.logged_in:
                 raise ProbeAbort("尚未登入 115，115 的 strm 沒辦法探測")
             self.p115.breaker.check()
+            cached = self.p115.cached_download_url(pickcode, PLAIN_UA)
+            if cached:
+                return cached, PLAIN_UA, hint  # 剛播過、直鏈還在快取裡：不向 115 要，不占間隔和每小時名額
             self._wait_turn(cancel)
             return self.p115.download_url(pickcode, PLAIN_UA), PLAIN_UA, hint
         if target.startswith(("http://", "https://")):

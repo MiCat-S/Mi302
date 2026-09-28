@@ -34,11 +34,18 @@ PAGE = Path(__file__).resolve().parent.parent / "web" / "admin.html"
 _setup_lock = threading.Lock()
 
 
-async def _body(request: Request):
+async def _body(request: Request) -> dict:
+    """請求內容的 JSON 物件；沒有內容時是 {}。不是 JSON、或不是物件（例如 [1]）回 400。
+
+    也可以當依賴用（body: dict = Depends(_body)），讓端點寫成一般 def、在執行緒池裡跑。
+    """
     try:
-        return json.loads(await request.body() or b"{}")
+        body = json.loads(await request.body() or b"{}")
     except ValueError:
         raise HTTPException(status_code=400, detail="格式錯誤")
+    if not isinstance(body, dict):
+        raise HTTPException(status_code=400, detail="格式錯誤：要是 JSON 物件")
+    return body
 
 
 def _user_view(u: dict) -> dict:
@@ -368,9 +375,8 @@ def intro_status(request: Request, ctx: AuthContext = Depends(require_admin)):
 
 
 @router.post("/web/api/intro/clear")
-async def intro_clear(request: Request, ctx: AuthContext = Depends(require_admin)):
+def intro_clear(request: Request, ctx: AuthContext = Depends(require_admin), body: dict = Depends(_body)):
     """清掉學到的片頭片尾（{"season_id": id} 只清一季，沒有就全清）。"""
-    body = await _body(request)
     sid = body.get("season_id")
     return {"removed": state(request).intro.clear(int(sid) if str(sid or "").isdigit() else None)}
 
@@ -391,8 +397,6 @@ async def intro_set_season(season_id: int, request: Request, ctx: AuthContext = 
     all_seasons 為真時，同一部劇的每一季都用這個設定。
     """
     body = await _body(request)
-    if not isinstance(body, dict):
-        raise HTTPException(status_code=400, detail="格式錯誤")
     intro, credits = body.get("intro") or {}, body.get("credits") or {}
     if not isinstance(intro, dict) or not isinstance(credits, dict):
         raise HTTPException(status_code=400, detail="格式錯誤")
@@ -498,8 +502,6 @@ async def mediainfo_probe(request: Request, ctx: AuthContext = Depends(require_a
     limit 這次最多幾支（0 = 全部符合的）、ids 只做這幾部電影或劇。回傳挑到幾支、有沒有開始。
     """
     body = await _body(request)
-    if not isinstance(body, dict):
-        raise HTTPException(status_code=400, detail="格式錯誤")
     st = state(request)
     if not st.config.mediainfo.enabled:
         raise HTTPException(status_code=400, detail="請先開啟「批次探測」並儲存")
@@ -533,8 +535,6 @@ def _probe_label(base: str, limit: int) -> str:
 async def mediainfo_probe_limit(request: Request, ctx: AuthContext = Depends(require_admin)):
     """提取中改「這次最多幾支」：{"limit": N}（0 = 全部符合的），直接套用到正在跑的這一批。"""
     body = await _body(request)
-    if not isinstance(body, dict):
-        raise HTTPException(status_code=400, detail="格式錯誤")
     try:
         limit = max(int(body.get("limit") or 0), 0)
     except (TypeError, ValueError):
@@ -578,7 +578,7 @@ def dupes_status(request: Request, ctx: AuthContext = Depends(require_admin)):
 async def dupes_scan(request: Request, ctx: AuthContext = Depends(require_admin)):
     """開始找重複：{"paths": ["/影視"]}，不給就用同步任務的 115 目錄。在背景跑。"""
     body = await _body(request)
-    paths = body.get("paths") if isinstance(body, dict) else None
+    paths = body.get("paths")
     if paths is not None and (not isinstance(paths, list) or not all(isinstance(p, str) for p in paths)):
         raise HTTPException(status_code=400, detail="paths 要是 115 路徑的清單")
     st = state(request)
@@ -621,8 +621,6 @@ async def dupes_delete(request: Request, ctx: AuthContext = Depends(require_admi
     {"dry_run": true} 只算會刪幾個、多大，不刪（網頁上的數量和確認框用；不用登入 115）。
     """
     body = await _body(request)
-    if not isinstance(body, dict):
-        raise HTTPException(status_code=400, detail="格式錯誤")
     raw = body.get("overrides") or {}
     if not isinstance(raw, dict):
         raise HTTPException(status_code=400, detail="overrides 格式錯誤")
@@ -800,8 +798,7 @@ def list_api_keys(request: Request, ctx: AuthContext = Depends(require_admin)):
 
 
 @router.post("/web/api/apikeys")
-async def create_api_key(request: Request, ctx: AuthContext = Depends(require_admin)):
-    body = await _body(request)
+def create_api_key(request: Request, ctx: AuthContext = Depends(require_admin), body: dict = Depends(_body)):
     return state(request).auth.create_api_key(str(body.get("name") or ""))
 
 

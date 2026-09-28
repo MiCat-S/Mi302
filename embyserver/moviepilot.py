@@ -41,7 +41,7 @@ from .db import Database
 from .filetypes import IMAGE_EXTS, LIBRARY_VIDEO_EXTS as VIDEO_EXTS
 from .scanner import series_folder
 from .textutil import cjk_count, pinyin_full, simplified
-from .http_util import GuardedClient
+from .http_util import GuardedClient, describe
 
 log = logging.getLogger(__name__)
 
@@ -57,7 +57,7 @@ SYSTEM_ENV_API = "/api/v1/system/env"  # 系統設定，裡面有版本號（要
 # 手動整理的預覽模式從 v2.11.1-1 開始；更舊的版本不認 preview，「預覽」會變成真的整理
 PREVIEW_MIN_VERSION = (2, 11, 1, 1)
 MAX_CONCURRENCY = 8  # 同時送幾項刮削的上限
-# 送過卻沒有劇照的集（TMDB 沒有這集的圖），這段時間內手動刮削不再重送
+# 送過卻沒有劇照的集（TMDB 沒有這集的圖），這段時間內手動刮削不再重送；過了這段時間的紀錄順手清掉
 NO_IMAGE_RETRY_SECONDS = 30 * 86400
 
 
@@ -182,19 +182,24 @@ class MoviePilot:
         self, method: str, path: str, body: Optional[dict] = None, timeout: Optional[float] = None,
         query: Optional[dict] = None,
     ):
-        """呼叫 MoviePilot 的 API，回傳 JSON。
+        """呼叫 MoviePilot 的 API，回傳 JSON；任何失敗（連不上、網址格式不對、HTTP 錯誤）都丟 MoviePilotError。
 
         被拒絕（401／403）而且有帳號密碼時登入一次再送；第二次還被拒絕就照一般的錯誤丟出去。
         """
         if not self.cfg.url:
             raise MoviePilotError("還沒設定 MoviePilot 網址")
-        with self._client(timeout or self.cfg.timeout) as client:
-            resp = self._send(client, method, path, body, query)
-            if resp.status_code in (401, 403) and self.cfg.username and self.cfg.password:
-                # 舊版 MoviePilot 的刮削 API 只認登入 token；或是之前的登入 token 過期了
-                self._jwt = self._login(client)
+        try:
+            with self._client(timeout or self.cfg.timeout) as client:
                 resp = self._send(client, method, path, body, query)
-            return self._parse(resp, path)
+                if resp.status_code in (401, 403) and self.cfg.username and self.cfg.password:
+                    # 舊版 MoviePilot 的刮削 API 只認登入 token；或是之前的登入 token 過期了
+                    self._jwt = self._login(client)
+                    resp = self._send(client, method, path, body, query)
+                return self._parse(resp, path)
+        except httpx.InvalidURL as exc:  # 網址填錯（例如埠號不是數字）；不是 httpx.HTTPError，GuardedClient 接不到
+            raise MoviePilotError(f"MoviePilot 網址格式不對：{exc}") from exc
+        except httpx.HTTPError as exc:
+            raise MoviePilotError(describe(exc)) from exc
 
     def _send(self, client: httpx.Client, method: str, path: str, body: Optional[dict], query: Optional[dict]):
         headers, params = {}, dict(query or {})
@@ -322,10 +327,14 @@ class MoviePilot:
         if self.db is None:
             self._no_image[str(path)] = now
             return
-        self.db.execute(
-            "INSERT INTO mp_no_image(path, at) VALUES(?, ?) ON CONFLICT(path) DO UPDATE SET at=excluded.at",
-            (str(path), int(now)),
-        )
+        with self.db.lock:
+            self.db.conn.execute(
+                "INSERT INTO mp_no_image(path, at) VALUES(?, ?) ON CONFLICT(path) DO UPDATE SET at=excluded.at",
+                (str(path), int(now)),
+            )
+            # 超過重送間隔的紀錄已經不擋重送了，順手清掉，免得這張表一直長大（at 有索引）
+            self.db.conn.execute("DELETE FROM mp_no_image WHERE at<?", (int(now - NO_IMAGE_RETRY_SECONDS),))
+            self.db.conn.commit()
 
     def _recently_no_image(self) -> Set[str]:
         since = time.time() - NO_IMAGE_RETRY_SECONDS

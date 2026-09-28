@@ -198,6 +198,7 @@ CREATE TABLE IF NOT EXISTS mp_no_image (
     path TEXT PRIMARY KEY,
     at INTEGER NOT NULL
 );
+CREATE INDEX IF NOT EXISTS idx_mp_no_image_at ON mp_no_image(at);  -- 找最近送過的、清掉過期的
 """
 
 

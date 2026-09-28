@@ -232,6 +232,8 @@ def item_dto(
         dto["ChildCount"] = _child_count(db, item)
         if t == "Series":
             dto["RecursiveItemCount"] = dto["ChildCount"]
+            # nfo 的 <status>（Continuing／Ended）掃描時沒有讀進資料庫，一律回 Continuing：
+            # 播放器只拿它顯示「連載中」，不影響播放；要讀的話 scanner.parse_nfo 和 items 表都得加欄位
             dto["Status"] = "Continuing"
 
     dto["UserData"] = user_data_dto(db, user_id, item)

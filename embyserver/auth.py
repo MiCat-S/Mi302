@@ -9,7 +9,7 @@ import re
 import secrets
 import uuid
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Dict, Optional
 
 from fastapi import HTTPException, Request
@@ -17,10 +17,13 @@ from fastapi import HTTPException, Request
 from .db import Database
 
 _AUTH_PAIR_RE = re.compile(r'(\w+)="([^"]*)"')
+ISO_FORMAT = "%Y-%m-%dT%H:%M:%S.0000000Z"  # Emby 的時間格式；同格式的字串可以直接比先後
+# tokens.last_used 最多隔這麼久才寫一次：每個請求都會驗 token，每次都寫資料庫太浪費
+TOKEN_TOUCH_SECONDS = 3600
 
 
 def now_iso() -> str:
-    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.0000000Z")
+    return datetime.now(timezone.utc).strftime(ISO_FORMAT)
 
 
 def hash_password(password: str) -> str:
@@ -245,12 +248,21 @@ class AuthService:
             admin = self.db.one("SELECT * FROM users WHERE is_admin=1 ORDER BY name LIMIT 1")
             return AuthContext(dict(admin) if admin else None, token, via_api_key=True)
         row = self.db.one(
-            "SELECT u.* FROM tokens t JOIN users u ON u.id=t.user_id WHERE t.token=?",
+            "SELECT u.*, t.last_used AS token_last_used FROM tokens t JOIN users u ON u.id=t.user_id WHERE t.token=?",
             (token,),
         )
         if not row:
             return AuthContext(None, token)
-        return AuthContext(dict(row), token)
+        user = dict(row)
+        self._touch(token, user.pop("token_last_used"))
+        return AuthContext(user, token)
+
+    def _touch(self, token: str, last_used: Optional[str]) -> None:
+        """記下 token 最後使用的時間；上次記的還不到 TOKEN_TOUCH_SECONDS 就不寫。"""
+        now = datetime.now(timezone.utc)
+        if last_used and last_used >= (now - timedelta(seconds=TOKEN_TOUCH_SECONDS)).strftime(ISO_FORMAT):
+            return
+        self.db.execute("UPDATE tokens SET last_used=? WHERE token=?", (now.strftime(ISO_FORMAT), token))
 
 
 def require_user(request: Request) -> AuthContext:

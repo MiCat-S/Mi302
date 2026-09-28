@@ -338,3 +338,44 @@ def test_plan_finds_series_inside_category_folders(tmp_path: Path):
     touch(show / "tvshow.nfo", "<tvshow><uniqueid type='tmdb'>94840</uniqueid></tvshow>")
     assert mp.plan([ep1]) == [(Path(ep1), False)]
     assert mp._series_dir(Path(ep1)) == show and mp._episode_tmdbid(Path(ep1)) == "94840"
+
+
+def test_old_no_image_marks_are_pruned(tmp_path: Path):
+    """mp_no_image：寫入時順手清掉超過 30 天的紀錄（那些已經不擋重送了）。"""
+    import time
+
+    from embyserver.db import Database
+    from embyserver.moviepilot import NO_IMAGE_RETRY_SECONDS
+
+    cfg = make_config(tmp_path)
+    db = Database(":memory:")
+    old = int(time.time() - NO_IMAGE_RETRY_SECONDS - 60)
+    db.execute("INSERT INTO mp_no_image(path, at) VALUES(?, ?)", ("/tv/old.strm", old))
+    db.execute("INSERT INTO mp_no_image(path, at) VALUES(?, ?)", ("/tv/recent.strm", int(time.time() - 86400)))
+    MoviePilot(cfg.moviepilot, cfg, db=db)._mark_no_image(Path("/tv/new.strm"))
+    assert {r["path"] for r in db.query("SELECT path FROM mp_no_image")} == {"/tv/recent.strm", "/tv/new.strm"}
+    plan = db.query("EXPLAIN QUERY PLAN DELETE FROM mp_no_image WHERE at<?", (old,))
+    assert any("idx_mp_no_image_at" in r["detail"] for r in plan)
+
+
+def test_bad_url_gives_a_reason_instead_of_500(tmp_path: Path):
+    """網址填錯（埠號不是數字、有看不見的字元）：測試連線回 ok: false 和原因，網頁不會卡在「測試中…」。"""
+    cfg = make_config(tmp_path)
+    for url in ("http://mp:abc", "http://mp\x00:3000", "mp:3000"):
+        cfg.moviepilot.url = url
+        res = MoviePilot(cfg.moviepilot, cfg).test()
+        assert res["ok"] is False and res["message"], url
+    cfg = make_config(tmp_path, url="http://mp:abc")
+    app = create_app(cfg, scan_on_start=False)
+    c = TestClient(app)
+    token = c.post("/Users/AuthenticateByName", json={"Username": "admin", "Pw": "pw"}).json()["AccessToken"]
+    r = c.post("/web/api/moviepilot/test", headers={"X-Emby-Token": token})
+    assert r.status_code == 200 and r.json()["ok"] is False and "網址格式不對" in r.json()["message"]
+
+    # 請求途中的 httpx 錯誤（不是連線失敗）也一樣轉成 MoviePilotError
+    def broken(request):
+        raise httpx.RemoteProtocolError("peer closed connection", request=request)
+
+    cfg = make_config(tmp_path)
+    res = MoviePilot(cfg.moviepilot, cfg, transport=httpx.MockTransport(broken)).test()
+    assert res["ok"] is False and "mp" in res["message"]

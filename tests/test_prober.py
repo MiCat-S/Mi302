@@ -251,6 +251,23 @@ def test_hourly_limit_waits_for_the_oldest_fetch(tmp_path: Path):
     assert prober.usage()["used"] == 3 and prober.usage()["limit"] == 3  # 第 3、4、5 次都在這一小時內
 
 
+def test_cached_link_does_not_use_the_hourly_quota(tmp_path: Path):
+    """剛播過（直鏈還在快取裡）的影片：探測直接用快取的直鏈，不排隊、不占每小時名額。"""
+    app, prober, links, cmds = make(tmp_path, hourly_limit=1, concurrency=1)
+    clock = FakeClock()
+    prober.clock, prober.sleep = clock, clock.sleep
+    expires = int(time.time()) + 7200  # 115 直鏈的 t 參數是到期時間
+    app.state.p115._fetch_download_url = lambda pc, ua: links.append((pc, ua)) or f"https://cdn.115.test/{pc}?t={expires}"
+    played, fresh = "abcdefghijklmnop1", "abcdefghijklmnop2"
+    strm(tmp_path, "Played", f"http://mi302/d/{played}.mkv")
+    strm(tmp_path, "Fresh", f"http://mi302/d/{fresh}.mkv")
+    app.state.p115.download_url(played, PLAIN_UA)  # 播放時取過一次，進了快取
+    assert prober.run(None, "manual").done == 2
+    assert links == [(played, PLAIN_UA), (fresh, PLAIN_UA)]  # 探測只向 115 要了沒快取的那一支
+    assert prober.usage()["used"] == 1
+    assert sum(clock.slept) < 3600  # 名額只用了一次，不必等到下一個小時
+
+
 def test_slowdown_after_breaker_recovers(tmp_path: Path):
     app, prober, links, cmds = make(tmp_path, hourly_limit=300, interval=1.0)
     breaker = app.state.p115.breaker

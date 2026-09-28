@@ -346,3 +346,41 @@ def test_resolve_redirect_chain(media: Path, tmp_path: Path):
             assert r.headers["location"] == f"http://127.0.0.1:{port}/final/signed?sig=abc"
     finally:
         server.shutdown()
+
+
+def test_image_index_is_not_validated(client):
+    """/Images/Primary/abc：Emby 只回 404，不是 FastAPI 驗證參數的 422 JSON。"""
+    token, uid = login(client)
+    h = {"X-Emby-Token": token}
+    movie = next(i for i in client.get("/Items", params={"Recursive": "true", "IncludeItemTypes": "Movie"},
+                                       headers=h).json()["Items"] if i["Name"] == "全面啟動")
+    assert client.get(f"/Items/{movie['Id']}/Images/Primary/0").status_code == 200
+    r = client.get(f"/Items/{movie['Id']}/Images/Primary/abc")
+    assert r.status_code == 200 and r.content.startswith(b"\xff\xd8")  # 第幾張不影響，每種只有一張
+    r = client.get(f"/Items/{movie['Id']}/Images/Backdrop/abc")
+    assert r.status_code == 404 and r.headers["content-type"].startswith("text/plain")
+
+
+def test_token_last_used_is_written_at_most_hourly(client):
+    token, _ = login(client)
+    db = client.app.state.db
+    used = lambda: db.one("SELECT last_used FROM tokens WHERE token=?", (token,))["last_used"]  # noqa: E731
+    db.execute("UPDATE tokens SET last_used=? WHERE token=?", ("2020-01-01T00:00:00.0000000Z", token))
+    assert client.get("/System/Info", headers={"X-Emby-Token": token}).status_code == 200
+    assert used() > "2020-01-01T00:00:00.0000000Z"
+    # 一小時內再用：不寫（改成一個一小時內的假時間，看它有沒有被蓋掉）
+    from datetime import datetime, timedelta, timezone
+    recent = (datetime.now(timezone.utc) - timedelta(minutes=30)).strftime("%Y-%m-%dT%H:%M:%S.0000000Z")
+    db.execute("UPDATE tokens SET last_used=? WHERE token=?", (recent, token))
+    assert client.get("/System/Info", headers={"X-Emby-Token": token}).status_code == 200
+    assert used() == recent
+
+
+def test_operating_system_follows_the_host(client):
+    import platform
+
+    from embyserver.routes.system import OS_NAMES
+
+    info = client.get("/System/Info/Public").json()
+    assert info["OperatingSystem"] == OS_NAMES.get(platform.system(), platform.system() or "Linux")
+    assert info["OperatingSystem"] != "Darwin"  # macOS 用 Emby 的寫法 OSX

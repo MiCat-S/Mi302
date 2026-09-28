@@ -173,3 +173,34 @@ def test_client_disconnect_is_not_logged_as_error(tmp_path: Path, monkeypatch, c
     assert r.status_code == 499
     assert not [rec for rec in caplog.records if rec.levelno >= logging.ERROR]
     assert any("請求送完之前就斷了" in rec.getMessage() for rec in caplog.records)
+
+
+def test_non_object_json_body_is_400(tmp_path: Path):
+    """送來的 JSON 不是物件（例如 [1]、"x"、3）：回 400，不是 .get 炸掉的 500。"""
+    c = make_client(tmp_path, {"users": [{"name": "admin", "password": "pw", "admin": True}]})
+    h = admin_headers(c)
+    for method, path in (
+        ("post", "/web/api/users"), ("put", "/web/api/settings"), ("post", "/web/api/scan"),
+        ("post", "/web/api/intro/clear"), ("post", "/web/api/apikeys"), ("post", "/web/api/dupes/scan"),
+        ("post", "/web/api/moviepilot/fill"), ("post", "/web/api/moviepilot/reorganize/execute"),
+    ):
+        for body in ("[1]", '"x"', "3"):
+            r = c.request(method, path, content=body, headers={**h, "Content-Type": "application/json"})
+            assert r.status_code == 400, (path, body, r.status_code, r.text)
+    # 沒登入時照樣先擋權限，不先看內容
+    assert c.post("/web/api/intro/clear", content="[1]").status_code == 401
+
+
+def test_blocking_endpoints_run_in_threadpool(tmp_path: Path):
+    """會寫檔、寫資料庫的端點寫成一般 def，FastAPI 放進執行緒池，不佔住事件迴圈。"""
+    import inspect
+
+    from embyserver.routes import items, web
+
+    for endpoint in (web.intro_clear, web.create_api_key, items.upload_image):
+        assert not inspect.iscoroutinefunction(endpoint), endpoint.__name__
+    c = make_client(tmp_path, {"users": [{"name": "admin", "password": "pw", "admin": True}]})
+    h = admin_headers(c)
+    assert c.post("/web/api/intro/clear", json={}, headers=h).json() == {"removed": 0}
+    key = c.post("/web/api/apikeys", json={"name": "MP"}, headers=h).json()
+    assert key["name"] == "MP" and [k["key"] for k in c.get("/web/api/apikeys", headers=h).json()] == [key["key"]]

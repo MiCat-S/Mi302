@@ -603,7 +603,8 @@ IMAGE_COLUMNS = {
 
 @router.api_route("/items/{item_id}/images/{image_type}", methods=["GET", "HEAD"])
 @router.api_route("/items/{item_id}/images/{image_type}/{index}", methods=["GET", "HEAD"])
-def item_image(item_id: str, image_type: str, request: Request, index: int = 0):
+def item_image(item_id: str, image_type: str, request: Request):
+    """{index} 是 Emby 的第幾張圖（背景圖可以有好幾張）；這裡每種只有一張，不看它。"""
     st = state(request)
     if item_id[:1].lower() == "p":
         return _person_image(st, item_id)
@@ -636,16 +637,24 @@ def _image_body(body: bytes) -> bytes:
         raise HTTPException(status_code=400, detail="圖片內容無法解讀")
 
 
+async def _raw_body(request: Request) -> bytes:
+    return await request.body()
+
+
 @router.post("/items/{item_id}/images/{image_type}")
 @router.post("/items/{item_id}/images/{image_type}/{index}")
-async def upload_image(item_id: str, image_type: str, request: Request, ctx: AuthContext = Depends(require_admin)):
-    """上傳圖片（例如 MoviePilot 的媒體庫封面插件）。存在資料夾 data/images，重新掃描時不會被蓋掉。"""
+def upload_image(item_id: str, image_type: str, request: Request, ctx: AuthContext = Depends(require_admin),
+                 body: bytes = Depends(_raw_body)):
+    """上傳圖片（例如 MoviePilot 的媒體庫封面插件）。存在資料夾 data/images，重新掃描時不會被蓋掉。
+
+    解 base64、寫檔、寫資料庫都在執行緒池裡做（一般 def），不佔住處理其他請求的事件迴圈。
+    """
     st = state(request)
     row = st.db.get_item(item_id)
     col = IMAGE_COLUMNS.get(image_type.lower())
     if not row or not col:
         raise HTTPException(status_code=404, detail="Item not found")
-    data = _image_body(await request.body())
+    data = _image_body(body)
     if len(data) > MAX_IMAGE_BYTES:
         raise HTTPException(status_code=413, detail="圖片太大")
     try:
