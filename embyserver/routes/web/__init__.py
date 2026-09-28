@@ -1,0 +1,16 @@
+"""網頁管理介面 /web 和它用的管理 API，照分頁分成幾個檔案，這裡組成一個 router 給 app 用。
+
+- setup：網頁本身、首次設定、設定、使用者、選資料夾、API 金鑰、日誌、備份、中文化
+- scan：媒體庫掃描、批量新增媒體庫的建議
+- intro：片頭片尾
+- moviepilot：刮削、補全缺集、交給 MoviePilot 整理集號
+- p115：瀏覽 115、回收站、重複檔案、媒體資訊
+"""
+
+from fastapi import APIRouter
+
+from . import intro, moviepilot, p115, scan, setup
+
+router = APIRouter()
+for _module in (setup, scan, p115, moviepilot, intro):
+    router.include_router(_module.router)

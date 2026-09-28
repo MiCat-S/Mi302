@@ -159,7 +159,7 @@ def test_client_disconnect_is_not_logged_as_error(tmp_path: Path, monkeypatch, c
 
     from starlette.requests import ClientDisconnect
 
-    from embyserver.routes import web
+    from embyserver.routes.web import p115 as web_p115
 
     c = make_client(tmp_path, {"users": [{"name": "admin", "password": "pw", "admin": True}]})
     h = admin_headers(c)
@@ -167,7 +167,7 @@ def test_client_disconnect_is_not_logged_as_error(tmp_path: Path, monkeypatch, c
     async def gone(request):
         raise ClientDisconnect()
 
-    monkeypatch.setattr(web, "_body", gone)
+    monkeypatch.setattr(web_p115, "json_body", gone)
     with caplog.at_level(logging.INFO):
         r = c.post("/web/api/mediainfo/probe", json={}, headers=h)
     assert r.status_code == 499
@@ -195,9 +195,10 @@ def test_blocking_endpoints_run_in_threadpool(tmp_path: Path):
     """會寫檔、寫資料庫的端點寫成一般 def，FastAPI 放進執行緒池，不佔住事件迴圈。"""
     import inspect
 
-    from embyserver.routes import items, web
+    from embyserver.routes import items
+    from embyserver.routes.web import intro, setup
 
-    for endpoint in (web.intro_clear, web.create_api_key, items.upload_image):
+    for endpoint in (intro.intro_clear, setup.create_api_key, items.upload_image):
         assert not inspect.iscoroutinefunction(endpoint), endpoint.__name__
     c = make_client(tmp_path, {"users": [{"name": "admin", "password": "pw", "admin": True}]})
     h = admin_headers(c)

@@ -191,7 +191,7 @@ Each module under `embyserver/`:
 | `routes/items.py` | Libraries, item queries, user data, images |
 | `routes/playback.py` | PlaybackInfo, streaming, progress reports, intro endpoints |
 | `routes/p115.py` | Admin API for 115 login and sync, pickcode short links |
-| `routes/web.py` | The web admin page and its API |
+| `routes/web/` | The web admin page and its API, split by page into `setup`, `scan`, `intro`, `moviepilot` and `p115` |
 | `routes/common.py` | Small helpers shared by the routes |
 | `web/admin.html` | The web admin page (one file with HTML, CSS and JavaScript) |
 
