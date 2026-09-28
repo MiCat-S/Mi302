@@ -6,7 +6,7 @@ import httpx
 import pytest
 
 from embyserver.p115 import BROWSER_UA, PLAIN_UA, P115Error, parse_export_tree, tree_relative
-from embyserver.strm_sync import FULL, INCREMENTAL, _TaskIndex, _task_key, match_tree_dirs
+from embyserver.strm_sync import FULL, INCREMENTAL, _TaskIndex, task_key, match_tree_dirs
 
 from test_incremental import T0, Fake115, make
 
@@ -101,7 +101,7 @@ def test_full_sync_uses_export_tree(tmp_path: Path):
     assert listings(fake) == []
     assert len([c for c in fake.calls if c[0] == "/files" and c[1].get("limit") == "1"]) == 2
     assert fake.deleted == ["9500"]  # 用完把 115 根目錄的目錄樹檔案刪掉
-    index = _TaskIndex(sync.p115.db, _task_key(sync.tasks[0]))
+    index = _TaskIndex(sync.p115.db, task_key(sync.tasks[0]))
     assert index.dirs()[104] == "劇集/Dark/Season 1"
     assert index.dirs()[102] == "劇集"  # 只有子資料夾的資料夾，查 Season 1 時順便拿到
 
@@ -163,7 +163,7 @@ def test_folders_with_only_subfolders_are_indexed(tmp_path: Path):
     assert not r.errors and not r.notes
     # 劇集資料夾只放各季：每部劇查一次（從 Season 1 往上），分類資料夾順便補上
     assert sorted(lookups(fake)) == [103, 113, 115]
-    dirs = _TaskIndex(sync.p115.db, _task_key(sync.tasks[0])).dirs()
+    dirs = _TaskIndex(sync.p115.db, task_key(sync.tasks[0])).dirs()
     assert {d: dirs[d] for d in (102, 110, 111, 112, 114)} == {
         102: "劇集", 110: "電視劇", 111: "電視劇/國產劇", 112: "電視劇/國產劇/繁花", 114: "電視劇/國產劇/漫長的季節",
     }
@@ -251,7 +251,7 @@ def test_videos_missing_from_listing_are_kept(tmp_path: Path):
     # 兩邊都沒有的才刪；只是沒列出來的連刮削資料一起留著
     assert not (media / "電影" / "Old Movie (2001).strm").exists() and r.removed == 1
     assert dark.exists() and (dark.parent / "Dark.S01E01.nfo").exists()
-    index = _TaskIndex(sync.p115.db, _task_key(sync.tasks[0]))
+    index = _TaskIndex(sync.p115.db, task_key(sync.tasks[0]))
     assert index.get(2) == ("劇集/Dark/Dark.S01E01.strm", False)  # 索引也留著，增量遇到它的事件才找得到
     assert index.get(1) is None
 

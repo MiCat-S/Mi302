@@ -34,6 +34,7 @@ from .filetypes import VIDEO_EXTS
 from .mediainfo import MediaInfoStore
 from .p115 import P115Error, P115Service
 from .scanner import STANDARD_EPISODE, episode_match, parse_episode
+from .strm_sync import remote_root, task_key
 from .textutil import simplified
 
 log = logging.getLogger(__name__)
@@ -49,9 +50,27 @@ PREFER_APPLIED_KEY = "dupes_prefer_applied"  # 資料庫裡的建議是照哪個
 # 建議保留的規則改過時加一：啟動時照新規則重算已找到的結果（不用重新找）
 SUGGEST_RULE = "2"  # 2：比檔名編號格式完不完整，同解析度保留小的
 SUGGEST_RULE_KEY = "dupes_suggest_rule"
-YEAR_RE = re.compile(r"(?<!\d)(?:19|20)\d{2}(?!\d)")
 PREFERS = ("1080", "2160", "highest")
 DEFAULT_PREFER = "1080"
+DELETE_BATCH = 100  # 一次請求送幾個檔案進回收站
+
+# ---- 從檔名看出來的東西 ----
+# 年份：電影的檔名要有年份才算編號格式完整
+YEAR_RE = re.compile(r"(?<!\d)(?:19|20)\d{2}(?!\d)")
+# 解析度、HDR、編碼（沒有媒體資訊時用）
+RES_RE = re.compile(r"(?<![0-9])(2160|1080|720|576|480)[pi](?![0-9])|(?<![a-z])(4k|uhd)(?![a-z])", re.I)
+DV_RE = re.compile(r"(?<![a-z])(dv|dovi|dolby[ ._-]?vision)(?![a-z])", re.I)
+HDR_RE = re.compile(r"(?<![a-z])(hdr10\+|hdr10|hdr)(?![a-z0-9])", re.I)
+CODEC_RE = {"HEVC": re.compile(r"x265|h\.?265|hevc", re.I), "H264": re.compile(r"x264|h\.?264|avc", re.I),
+            "AV1": re.compile(r"(?<![a-z])av1(?![a-z0-9])", re.I)}
+# 版本：版本名不同的是不同剪輯，分開算
+EDITION_RE = re.compile(
+    r"director'?s[ ._-]?cut|extended|unrated|uncut|theatrical|imax|remaster(?:ed)?|criterion|"
+    r"导演剪辑|導演剪輯|加长|加長|未删减|未刪減|完整版|特别版|特別版", re.I)
+# 分段檔：CD1、Disc 2、Part 3……同一部片的不同段，不是重複
+PART_RE = re.compile(r"(?:^|[ ._\-\[(])(?:cd|dvd|disc|disk|part|pt)[ ._-]?\d{1,2}(?=[ ._\-\])]|$)", re.I)
+# 多集：一個檔案好幾集（E01E02、E01-E02、E01-02），不算不同版本
+MULTI_EP_RE = re.compile(r"[Ee]\d{1,4}[ ._]?[-~]?[ ._]?[Ee]\d{1,4}|[Ee]\d{1,3}-\d{1,3}(?![0-9p])")
 
 
 def res_rank(res: Optional[int], prefer: str) -> Tuple[int, int]:
@@ -93,22 +112,6 @@ def version_order(prefer: str):
 def exact_order(local: Optional[str], name: str, mtime: Optional[int], fid: int) -> tuple:
     """完全相同的排序：本機有 strm 的 → 檔名編號格式完整的 → 早上傳的。"""
     return (0 if local else 1, 0 if name_complete(name) else 1, mtime or 0, fid)
-DELETE_BATCH = 100  # 一次請求送幾個檔案進回收站
-
-# 檔名裡看得出來的畫質（沒有媒體資訊時用）
-RES_RE = re.compile(r"(?<![0-9])(2160|1080|720|576|480)[pi](?![0-9])|(?<![a-z])(4k|uhd)(?![a-z])", re.I)
-DV_RE = re.compile(r"(?<![a-z])(dv|dovi|dolby[ ._-]?vision)(?![a-z])", re.I)
-HDR_RE = re.compile(r"(?<![a-z])(hdr10\+|hdr10|hdr)(?![a-z0-9])", re.I)
-CODEC_RE = {"HEVC": re.compile(r"x265|h\.?265|hevc", re.I), "H264": re.compile(r"x264|h\.?264|avc", re.I),
-            "AV1": re.compile(r"(?<![a-z])av1(?![a-z0-9])", re.I)}
-# 分段檔：CD1、Disc 2、Part 3……同一部片的不同段，不是重複
-PART_RE = re.compile(r"(?:^|[ ._\-\[(])(?:cd|dvd|disc|disk|part|pt)[ ._-]?\d{1,2}(?=[ ._\-\])]|$)", re.I)
-# 一個檔案好幾集：E01E02、E01-E02、E01-02
-MULTI_EP_RE = re.compile(r"[Ee]\d{1,4}[ ._]?[-~]?[ ._]?[Ee]\d{1,4}|[Ee]\d{1,3}-\d{1,3}(?![0-9p])")
-# 版本名不同的是不同剪輯，分開算
-EDITION_RE = re.compile(
-    r"director'?s[ ._-]?cut|extended|unrated|uncut|theatrical|imax|remaster(?:ed)?|criterion|"
-    r"导演剪辑|導演剪輯|加长|加長|未删减|未刪減|完整版|特别版|特別版", re.I)
 
 
 def _norm(text: str) -> str:
@@ -188,7 +191,7 @@ class DupeFinder:
 
     def default_roots(self) -> List[str]:
         """同步任務的 115 目錄；互相包含的只留外層，免得同一個檔案列兩次。"""
-        roots = sorted({"/" + t.remote.strip("/") for t in self.strm_sync.tasks}, key=len)
+        roots = sorted({remote_root(t) for t in self.strm_sync.tasks}, key=len)
         out: List[str] = []
         for root in roots:
             if not any(root == o or root.startswith(o.rstrip("/") + "/") for o in out):
@@ -275,7 +278,8 @@ class DupeFinder:
         """列出範圍內的影片，把 SHA1 和大小都一樣的分成一組，整批換掉上次的結果。"""
         if not self._lock.acquire(blocking=False):
             return self.job
-        job = self.job if self.job.running and self.job.kind == "scan" else DupeJob(kind="scan", running=True, started=time.time())
+        job = self.job if self.job.running and self.job.kind == "scan" else DupeJob(
+            kind="scan", running=True, started=time.time())
         self.job = job
         try:
             roots = ["/" + r.strip("/") for r in roots or [] if str(r).strip()] or self.default_roots()
@@ -352,9 +356,8 @@ class DupeFinder:
         local_of: Dict[str, Tuple[int, str]] = {}  # 本機 strm → (115 檔案 id, 115 路徑)
         for task in self.strm_sync.tasks:
             root = Path(task.local).expanduser()
-            remote = "/" + task.remote.strip("/")
-            for r in self.db.query("SELECT file_id, path FROM p115_index WHERE task=? AND is_dir=0",
-                                   (f"{task.remote}\n{task.local}",)):
+            remote = remote_root(task)
+            for r in self.db.query("SELECT file_id, path FROM p115_index WHERE task=? AND is_dir=0", (task_key(task),)):
                 info = files.get(r["file_id"])
                 if info:
                     local_of[str(root / r["path"])] = (
@@ -640,7 +643,8 @@ class DupeFinder:
                 self.db.execute(
                     "INSERT INTO user_data(user_id, item_id, played, play_count, position_ticks, is_favorite, last_played) "
                     "VALUES(?,?,?,?,?,?,?)",
-                    (r["user_id"], dst["id"], r["played"], r["play_count"], r["position_ticks"], r["is_favorite"], r["last_played"]),
+                    (r["user_id"], dst["id"], r["played"], r["play_count"], r["position_ticks"], r["is_favorite"],
+                     r["last_played"]),
                 )
                 continue
             newer = (r["last_played"] or "") > (mine["last_played"] or "")  # 續播點用最近看的那一份

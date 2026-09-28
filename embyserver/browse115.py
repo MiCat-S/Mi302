@@ -12,7 +12,7 @@ from typing import Dict, Iterable, List, Optional
 
 from .db import Database
 from .filetypes import VIDEO_EXTS
-from .strm_sync import _remote_root, _task_key
+from .strm_sync import remote_root, task_key
 
 MAX_FILES = 1000  # 一個資料夾最多回傳幾個檔案（資料夾全部列出）
 
@@ -24,7 +24,7 @@ def _chunks(items: List, size: int = 500) -> Iterable[List]:
 
 def library_info(db: Database, tasks, file_ids: Iterable[int]) -> Dict[int, dict]:
     """115 檔案 id → 在 Mi302 的樣子：本機 strm，以及媒體庫裡的項目（還沒掃描到的只有 local）。"""
-    roots = {_task_key(t): Path(t.local).expanduser() for t in tasks}
+    roots = {task_key(t): Path(t.local).expanduser() for t in tasks}
     local_of: Dict[str, int] = {}
     ids = list(dict.fromkeys(file_ids))
     for chunk in _chunks(ids):
@@ -53,7 +53,7 @@ def library_info(db: Database, tasks, file_ids: Iterable[int]) -> Dict[int, dict
 def sync_root(tasks, path: str) -> Optional[str]:
     """這個 115 路徑在哪個同步任務的目錄裡；不在任何任務裡回傳 None。"""
     for t in tasks:
-        root = _remote_root(t)
+        root = remote_root(t)
         if path == root or path.startswith(root.rstrip("/") + "/"):
             return root
     return None

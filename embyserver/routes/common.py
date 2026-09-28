@@ -4,9 +4,10 @@ from __future__ import annotations
 
 from typing import List, Optional
 
-from fastapi import Request
+from fastapi import HTTPException, Request
 
-from ..auth import lower_query
+from ..auth import AuthContext, lower_query
+from ..dto import user_data_dto
 
 
 def q(request: Request, name: str, default: Optional[str] = None) -> Optional[str]:
@@ -38,3 +39,21 @@ def q_list(request: Request, name: str) -> List[str]:
 
 def state(request: Request):
     return request.app.state
+
+
+def set_user_data(request: Request, ctx: AuthContext, item_id: str, **fields) -> dict:
+    """改這個使用者對一個項目的資料（看過、續播點、收藏、最後播放時間），回傳 Emby 的 UserData；項目不存在時 404。"""
+    st = state(request)
+    row = st.db.get_item(item_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="Item not found")
+    st.db.execute(
+        "INSERT OR IGNORE INTO user_data(user_id, item_id) VALUES(?, ?)", (ctx.user_id, row["id"])
+    )
+    if fields:
+        sets = ", ".join(f"{k}=?" for k in fields)
+        st.db.execute(
+            f"UPDATE user_data SET {sets} WHERE user_id=? AND item_id=?",
+            (*fields.values(), ctx.user_id, row["id"]),
+        )
+    return user_data_dto(st.db, ctx.user_id, row)

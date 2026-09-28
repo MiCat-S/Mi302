@@ -172,8 +172,9 @@ class P115OpenClient:
         return self._envelope(resp).get("data") or {}
 
     def _call(self, method: str, path: str, params=None, form=None, user_agent: str = "") -> dict:
-        for attempt in range(2):
-            token = self.access_token(force_refresh=attempt > 0)
+        """呼叫開放平台 API。access_token 過期時強制刷新、再送一次；第二次還失敗就丟出去。"""
+
+        def send(token: str) -> dict:
             resp = self._client.request(
                 method,
                 OPEN_BASE + path,
@@ -181,13 +182,15 @@ class P115OpenClient:
                 data=form,
                 headers={"Authorization": f"Bearer {token}", "User-Agent": user_agent or OPEN_UA},
             )
-            try:
-                return self._envelope(resp)
-            except P115OpenError as exc:
-                if exc.code in AUTH_EXPIRED_CODES and attempt == 0:
-                    continue
+            return self._envelope(resp)
+
+        token = self.access_token()
+        try:
+            return send(token)
+        except P115OpenError as exc:
+            if exc.code not in AUTH_EXPIRED_CODES:
                 raise
-        raise P115OpenError("呼叫 115 開放平台失敗")
+        return send(self.access_token(force_refresh=True))
 
     # ---------------- 掃碼授權 ----------------
 

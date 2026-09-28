@@ -2034,7 +2034,7 @@ async function fillSeries(ids, label) {
   toast(r.started ? '已送給 MoviePilot：' + label : '已經在補全中，等它做完'); pollMP();
 }
 async function fillAll() {
-  if (await ask({title: '把所有有 tmdbid 的劇都送給 MoviePilot？', text: '每一季各建一條訂閱；已經齊全的 MoviePilot 會拒絕，不會留下。', ok: '全部補全'})) fillSeries([], '全部劇集');
+  if (await ask({title: '把所有有 tmdbid 的劇都送給 MoviePilot？', text: '每一季先向 TMDB 查已播出的集，缺集的季才建訂閱並請 MoviePilot 搜尋；已經齊全的季不建。', ok: '全部補全'})) fillSeries([], '全部劇集');
 }
 function fillHtml(f) {
   if (!f.started) return '';

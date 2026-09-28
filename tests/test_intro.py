@@ -91,7 +91,9 @@ def test_learns_intro_from_a_skip_and_applies_to_the_season(tmp_path: Path):
     assert "Chapters" in c.get("/Items", params={"Ids": e2, "Fields": "Chapters"}, headers=p.h).json()["Items"][0]
 
     st = c.get("/web/api/intro/status", headers=p.h).json()
-    assert (st["seasons"], st["episodes"]) == (1, 1) and st["recent"][0]["intro"] == [10, 100] and st["recent"][0]["credits_tail"] == 90
+    assert (st["seasons"], st["episodes"]) == (1, 1)
+    season = c.get("/web/api/intro/seasons", headers=p.h).json()["items"][0]
+    assert season["intro"] == [10, 100] and season["credits_tail"] == 90
     assert c.post("/web/api/intro/clear", json={}, headers=p.h).json()["removed"] == 2
     assert markers(c, p.h, e2) == {} and c.get(f"/Episode/{e2}/IntroTimestamps", headers=p.h).status_code == 404
 

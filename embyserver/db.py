@@ -253,6 +253,11 @@ class Database:
         with self.lock:
             return self.conn.execute(sql, tuple(params)).fetchone()
 
+    def scalar(self, sql: str, params: Iterable[Any] = ()) -> Any:
+        """只要第一列的第一個欄位（例如 COUNT(*)）；查不到任何列時回傳 None。"""
+        row = self.one(sql, params)
+        return row[0] if row else None
+
     def get_meta(self, key: str) -> Optional[str]:
         row = self.one("SELECT value FROM meta WHERE key=?", (key,))
         return row["value"] if row else None

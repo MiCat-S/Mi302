@@ -56,15 +56,15 @@ EPISODE_FORMAT_API = "/api/v1/transfer/episode-format/recommend"
 SYSTEM_ENV_API = "/api/v1/system/env"  # 系統設定，裡面有版本號（要管理員帳號）
 # 手動整理的預覽模式從 v2.11.1-1 開始；更舊的版本不認 preview，「預覽」會變成真的整理
 PREVIEW_MIN_VERSION = (2, 11, 1, 1)
+MAX_CONCURRENCY = 8  # 同時送幾項刮削的上限
+# 送過卻沒有劇照的集（TMDB 沒有這集的圖），這段時間內手動刮削不再重送
+NO_IMAGE_RETRY_SECONDS = 30 * 86400
 
 
 def parse_version(text: str) -> Optional[Tuple[int, int, int, int]]:
     """「v3.0.9」「v2.11.1-1」→ (3, 0, 9, 0)、(2, 11, 1, 1)；看不懂回傳 None。"""
     m = re.match(r"^v?(\d+)\.(\d+)\.(\d+)(?:-(\d+))?", str(text or "").strip())
     return (int(m.group(1)), int(m.group(2)), int(m.group(3)), int(m.group(4) or 0)) if m else None
-MAX_CONCURRENCY = 8
-# 送過卻沒有劇照的集（TMDB 沒有這集的圖），這段時間內手動刮削不再重送
-NO_IMAGE_RETRY_SECONDS = 30 * 86400
 
 
 class MoviePilotError(Exception):
@@ -182,38 +182,48 @@ class MoviePilot:
         self, method: str, path: str, body: Optional[dict] = None, timeout: Optional[float] = None,
         query: Optional[dict] = None,
     ):
+        """呼叫 MoviePilot 的 API，回傳 JSON。
+
+        被拒絕（401／403）而且有帳號密碼時登入一次再送；第二次還被拒絕就照一般的錯誤丟出去。
+        """
         if not self.cfg.url:
             raise MoviePilotError("還沒設定 MoviePilot 網址")
         with self._client(timeout or self.cfg.timeout) as client:
-            for attempt in range(2):
-                headers, params = {}, dict(query or {})
-                if self._jwt:
-                    headers["Authorization"] = f"Bearer {self._jwt}"
-                elif self.cfg.api_token:
-                    # 新版接受 X-API-KEY 標頭；token 查詢參數給接受 API 令牌的舊端點
-                    headers["X-API-KEY"] = self.cfg.api_token
-                    params["token"] = self.cfg.api_token
-                resp = client.request(method, self.cfg.url.rstrip("/") + path, json=body, headers=headers, params=params)
-                if resp.status_code in (401, 403) and attempt == 0 and self.cfg.username and self.cfg.password:
-                    # 舊版 MoviePilot 的刮削 API 只認登入 token；或是之前的登入 token 過期了
-                    self._jwt = self._login(client)
-                    continue
-                if resp.status_code in (401, 403):
-                    hint = "API 令牌不正確" if self.cfg.api_token else "請填 API 令牌"
-                    if self.cfg.api_token and not self.cfg.username:
-                        hint += "；若 MoviePilot 版本較舊，請改填 MoviePilot 的帳號密碼"
-                    raise MoviePilotError(f"MoviePilot 拒絕存取（HTTP {resp.status_code}）：{hint}", resp.status_code)
-                if resp.status_code == 404:
-                    raise MoviePilotError(f"MoviePilot 沒有這個 API（{path}），請確認網址或升級 MoviePilot", 404)
-                if resp.status_code >= 400:
-                    if resp.text.lstrip().startswith("<"):
-                        raise MoviePilotError(f"MoviePilot 回應 HTTP {resp.status_code}，內容是網頁不是 API，請確認網址", resp.status_code)
-                    raise MoviePilotError(f"MoviePilot 回應 HTTP {resp.status_code}：{resp.text[:200]}", resp.status_code)
-                try:
-                    return resp.json()
-                except ValueError:
-                    raise MoviePilotError("MoviePilot 回應不是 JSON，請確認網址是 MoviePilot")
-        raise MoviePilotError("MoviePilot 登入失敗")
+            resp = self._send(client, method, path, body, query)
+            if resp.status_code in (401, 403) and self.cfg.username and self.cfg.password:
+                # 舊版 MoviePilot 的刮削 API 只認登入 token；或是之前的登入 token 過期了
+                self._jwt = self._login(client)
+                resp = self._send(client, method, path, body, query)
+            return self._parse(resp, path)
+
+    def _send(self, client: httpx.Client, method: str, path: str, body: Optional[dict], query: Optional[dict]):
+        headers, params = {}, dict(query or {})
+        if self._jwt:
+            headers["Authorization"] = f"Bearer {self._jwt}"
+        elif self.cfg.api_token:
+            # 新版接受 X-API-KEY 標頭；token 查詢參數給接受 API 令牌的舊端點
+            headers["X-API-KEY"] = self.cfg.api_token
+            params["token"] = self.cfg.api_token
+        return client.request(method, self.cfg.url.rstrip("/") + path, json=body, headers=headers, params=params)
+
+    def _parse(self, resp: httpx.Response, path: str):
+        """HTTP 錯誤換成看得懂的說明，成功時回傳 JSON。"""
+        if resp.status_code in (401, 403):
+            hint = "API 令牌不正確" if self.cfg.api_token else "請填 API 令牌"
+            if self.cfg.api_token and not self.cfg.username:
+                hint += "；若 MoviePilot 版本較舊，請改填 MoviePilot 的帳號密碼"
+            raise MoviePilotError(f"MoviePilot 拒絕存取（HTTP {resp.status_code}）：{hint}", resp.status_code)
+        if resp.status_code == 404:
+            raise MoviePilotError(f"MoviePilot 沒有這個 API（{path}），請確認網址或升級 MoviePilot", 404)
+        if resp.status_code >= 400:
+            if resp.text.lstrip().startswith("<"):
+                raise MoviePilotError(f"MoviePilot 回應 HTTP {resp.status_code}，內容是網頁不是 API，請確認網址",
+                                      resp.status_code)
+            raise MoviePilotError(f"MoviePilot 回應 HTTP {resp.status_code}：{resp.text[:200]}", resp.status_code)
+        try:
+            return resp.json()
+        except ValueError:
+            raise MoviePilotError("MoviePilot 回應不是 JSON，請確認網址是 MoviePilot")
 
     # ---------------- 功能 ----------------
 

@@ -103,7 +103,8 @@ def suggest(parent: str, libraries: List[LibraryConfig]) -> dict:
     if not base.is_dir():
         raise ValueError(f"資料夾不存在：{parent}")
     try:
-        names = sorted((e.name for e in os.scandir(base) if e.is_dir(follow_symlinks=True) and not _skip_dir(e.name)), key=str.lower)
+        names = sorted((e.name for e in os.scandir(base) if e.is_dir(follow_symlinks=True) and not _skip_dir(e.name)),
+                       key=str.lower)
     except OSError as exc:
         raise ValueError(f"無法讀取：{exc}")
     deadline = time.monotonic() + TOTAL_SECONDS

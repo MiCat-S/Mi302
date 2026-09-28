@@ -3,7 +3,6 @@
 import time
 from pathlib import Path
 
-import pytest
 from fastapi.testclient import TestClient
 
 from embyserver.app import create_app

@@ -6,6 +6,7 @@ import base64
 import binascii
 import json
 import logging
+import threading
 from typing import Any, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
@@ -15,10 +16,12 @@ from ..auth import AuthContext, now_iso, require_admin, require_user
 from ..dto import episode_fallback_image, item_dto, query_result, user_data_dto
 from ..scanner import image_ext
 from ..textutil import title_match
-from .common import q, q_bool, q_int, q_list, state
+from .common import q, q_bool, q_int, q_list, set_user_data, state
 
 log = logging.getLogger(__name__)
 MAX_IMAGE_BYTES = 30 * 1024 * 1024
+# 季和集合成一個數字（季 × 100000 + 集），讓 SQL 能直接比大小、找「下一集」
+SEASON_KEY_BASE = 100000
 
 router = APIRouter()
 
@@ -159,8 +162,6 @@ def item_counts(request: Request, ctx: AuthContext = Depends(require_user)):
 
 
 def _background(target, *args) -> Response:
-    import threading
-
     threading.Thread(target=target, args=args, daemon=True).start()
     return Response(status_code=204)
 
@@ -234,7 +235,9 @@ def _query_items(request: Request, ctx: AuthContext) -> dict:
         where.append("i.type<>'CollectionFolder'")
 
     # 某個人參與的作品：PersonIds（人物 id）或 Person（名稱）
-    person_ids = q_list(request, "PersonIds") or ([st.people.by_name(q(request, "Person")) or "-"] if q(request, "Person") else [])
+    person_ids = q_list(request, "PersonIds")
+    if not person_ids and q(request, "Person"):
+        person_ids = [st.people.by_name(q(request, "Person")) or "-"]
     if person_ids:
         item_ids = st.people.item_ids(person_ids) or [-1]
         where.append(f"i.id IN ({','.join('?' for _ in item_ids)})")
@@ -485,7 +488,7 @@ def next_up(request: Request, ctx: AuthContext = Depends(require_user)):
         params.append(int(series_filter))
     # 每部劇取最後看過的集數，下一集即為「接著看」
     last = st.db.query(
-        "SELECT i.series_id, MAX(i.parent_index_number*100000 + COALESCE(i.index_number,0)) AS k, "
+        f"SELECT i.series_id, MAX(i.parent_index_number*{SEASON_KEY_BASE} + COALESCE(i.index_number,0)) AS k, "
         "MAX(u.last_played) AS lp FROM items i JOIN user_data u ON u.item_id=i.id AND u.user_id=? "
         f"WHERE i.type='Episode' AND u.played=1{extra} GROUP BY i.series_id ORDER BY lp DESC",
         params,
@@ -494,7 +497,7 @@ def next_up(request: Request, ctx: AuthContext = Depends(require_user)):
     for r in last:
         nxt = st.db.one(
             "SELECT * FROM items WHERE type='Episode' AND series_id=? "
-            "AND parent_index_number*100000 + COALESCE(index_number,0) > ? "
+            f"AND parent_index_number*{SEASON_KEY_BASE} + COALESCE(index_number,0) > ? "
             "ORDER BY parent_index_number, index_number LIMIT 1",
             (r["series_id"], r["k"]),
         )
@@ -508,23 +511,6 @@ def next_up(request: Request, ctx: AuthContext = Depends(require_user)):
 # ---------------- 使用者資料 ----------------
 
 
-def _set_user_data(request: Request, ctx: AuthContext, item_id: str, **fields) -> dict:
-    st = state(request)
-    row = st.db.get_item(item_id)
-    if not row:
-        raise HTTPException(status_code=404, detail="Item not found")
-    st.db.execute(
-        "INSERT OR IGNORE INTO user_data(user_id, item_id) VALUES(?, ?)", (ctx.user_id, row["id"])
-    )
-    if fields:
-        sets = ", ".join(f"{k}=?" for k in fields)
-        st.db.execute(
-            f"UPDATE user_data SET {sets} WHERE user_id=? AND item_id=?",
-            (*fields.values(), ctx.user_id, row["id"]),
-        )
-    return user_data_dto(st.db, ctx.user_id, row)
-
-
 def mark_played(request: Request, ctx: AuthContext, item_id: str, played: bool) -> dict:
     st = state(request)
     row = st.db.get_item(item_id)
@@ -536,13 +522,13 @@ def mark_played(request: Request, ctx: AuthContext, item_id: str, played: bool) 
         targets = st.db.query(f"SELECT * FROM items WHERE {col}=? AND type='Episode'", (row["id"],))
     for t in targets:
         if played:
-            _set_user_data(request, ctx, t["id"], played=1, position_ticks=0, last_played=now_iso())
+            set_user_data(request, ctx, t["id"], played=1, position_ticks=0, last_played=now_iso())
             st.db.execute(
                 "UPDATE user_data SET play_count=play_count+1 WHERE user_id=? AND item_id=?",
                 (ctx.user_id, t["id"]),
             )
         else:
-            _set_user_data(request, ctx, t["id"], played=0, position_ticks=0)
+            set_user_data(request, ctx, t["id"], played=0, position_ticks=0)
     return user_data_dto(st.db, ctx.user_id, row)
 
 
@@ -559,13 +545,13 @@ def played_remove(user_id: str, item_id: str, request: Request, ctx: AuthContext
 
 @router.post("/users/{user_id}/favoriteitems/{item_id}")
 def fav_add(user_id: str, item_id: str, request: Request, ctx: AuthContext = Depends(require_user)):
-    return _set_user_data(request, ctx, item_id, is_favorite=1)
+    return set_user_data(request, ctx, item_id, is_favorite=1)
 
 
 @router.delete("/users/{user_id}/favoriteitems/{item_id}")
 @router.post("/users/{user_id}/favoriteitems/{item_id}/delete")
 def fav_remove(user_id: str, item_id: str, request: Request, ctx: AuthContext = Depends(require_user)):
-    return _set_user_data(request, ctx, item_id, is_favorite=0)
+    return set_user_data(request, ctx, item_id, is_favorite=0)
 
 
 # ---------------- 空結果的周邊端點 ----------------
@@ -597,11 +583,9 @@ def theme_media():
 @router.get("/genres")
 def genres(request: Request, ctx: AuthContext = Depends(require_user)):
     st = state(request)
-    import json as _json
-
     names = set()
     for r in st.db.query("SELECT genres FROM items WHERE genres IS NOT NULL"):
-        names.update(_json.loads(r["genres"]))
+        names.update(json.loads(r["genres"]))
     items = [{"Name": n, "Id": n, "Type": "Genre", "ServerId": st.server_id} for n in sorted(names)]
     return query_result(items, len(items))
 

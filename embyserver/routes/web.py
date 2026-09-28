@@ -668,7 +668,8 @@ def list_series(request: Request, ctx: AuthContext = Depends(require_admin)):
         db, q(request, "q") or "", q(request, "gaps") in ("1", "true"), limit=limit, offset=offset,
         year=q_int(request, "year"),
     )
-    years = [r["year"] for r in db.query("SELECT DISTINCT year FROM items WHERE type='Series' AND year IS NOT NULL ORDER BY year DESC")]
+    years = [r["year"] for r in db.query(
+        "SELECT DISTINCT year FROM items WHERE type='Series' AND year IS NOT NULL ORDER BY year DESC")]
     return {"items": items, "total": total, "offset": offset, "more": offset + len(items) < total, "years": years}
 
 

@@ -20,13 +20,14 @@ from typing import Dict, Iterable, List, Optional, Tuple
 
 import httpx
 
+from . import __version__
 from .db import Database
 from .textutil import has_cjk, simplified
 
 log = logging.getLogger(__name__)
 
 WIKIDATA_API = "https://query.wikidata.org/sparql"
-WIKIDATA_UA = "Mi302/0.1 (https://github.com/MiCat-S/Mi302)"
+WIKIDATA_UA = f"Mi302/{__version__} (https://github.com/MiCat-S/Mi302)"
 WIKIDATA_LANGS = ("zh-hans", "zh-cn", "zh-sg", "zh", "zh-hant", "zh-tw", "zh-hk")
 RECHECK_SECONDS = 30 * 86400
 TOP_ACTORS = 20  # 每部作品只查前幾位演員的中文名（加上導演、編劇）
@@ -229,18 +230,20 @@ class PersonNames:
             "SELECT DISTINCT p.tmdbid FROM people p LEFT JOIN person_names n ON n.tmdbid=p.tmdbid "
             "WHERE p.tmdbid GLOB '[0-9]*' AND p.tmdbid NOT GLOB '*[^0-9]*' AND (p.type<>'Actor' OR p.ord<?) "
             "AND (n.tmdbid IS NULL OR (n.zh IS NULL AND n.at<?)) LIMIT ?",
+            # ord 是同一串裡的順序，導演、編劇排在演員前面，會把演員往後推：多留 10 個位置給他們，
+            # 所以實際是「所有導演、編劇，加上大約前 TOP_ACTORS 位演員」
             (TOP_ACTORS + 10, int(time.time() - RECHECK_SECONDS), limit),
         )
         return [r["tmdbid"] for r in rows]
 
     def status(self) -> dict:
-        one = lambda sql: self.db.one(sql)["c"]  # noqa: E731
+        count = self.db.scalar
         return {
-            "people": one("SELECT COUNT(DISTINCT pid) AS c FROM people"),
-            "resolved": one("SELECT COUNT(*) AS c FROM person_names WHERE zh IS NOT NULL"),
-            "none": one("SELECT COUNT(*) AS c FROM person_names WHERE zh IS NULL"),
-            "from_moviepilot": one("SELECT COUNT(*) AS c FROM person_names WHERE source='moviepilot'"),
-            "from_wikidata": one("SELECT COUNT(*) AS c FROM person_names WHERE source='wikidata'"),
+            "people": count("SELECT COUNT(DISTINCT pid) FROM people"),
+            "resolved": count("SELECT COUNT(*) FROM person_names WHERE zh IS NOT NULL"),
+            "none": count("SELECT COUNT(*) FROM person_names WHERE zh IS NULL"),
+            "from_moviepilot": count("SELECT COUNT(*) FROM person_names WHERE source='moviepilot'"),
+            "from_wikidata": count("SELECT COUNT(*) FROM person_names WHERE source='wikidata'"),
             "pending": len(self.pending(100000)),
             "running": self.running, "last_error": self.last_error, "last_run": int(self.last_run) or None,
             "moviepilot": bool(self.moviepilot and self.moviepilot.enabled),

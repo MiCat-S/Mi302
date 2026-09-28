@@ -110,7 +110,7 @@ def create_app(config: Config, db_path: Optional[str] = None, scan_on_start: boo
         if result.new_files and mp.enabled and config.moviepilot.scrape_after_sync:
             mp.scrape(result.new_files, "sync")
         if result.mode == FULL and config.moviepilot.fill_after_full_sync and mp.can_subscribe:
-            # 刮削完才有 tmdbid；替所有的劇建訂閱，MoviePilot 會拒絕已經齊全的
+            # 刮削完才有 tmdbid；每一季先向 TMDB 查已播出的集，缺集的季才建訂閱，齊全的不建
             shows = [s for s in library_series(db)[0] if s["tmdbid"]]
             if shows:
                 mp.fill_in_background(shows, "sync")

@@ -53,6 +53,8 @@ SERVER_URL_META_KEY = "server_url"
 STATE_META_KEY = "p115_sync_state"
 # 增量同步往回多看一段時間，避免 115 與本機時間差或同一秒上傳的檔案漏掉；重複處理只會判定為「未變」
 INCREMENTAL_OVERLAP = 600
+# 全量同步：115 一次列出的影片少於目錄樹裡的這個比例，代表清單不完整，改成逐層列目錄
+MIN_LISTED_RATIO = 0.9
 
 FULL = "full"
 INCREMENTAL = "incremental"
@@ -125,11 +127,13 @@ def strm_content(cfg: P115StrmConfig, pickcode: str, file_name: str, base_url: O
     return url
 
 
-def _task_key(task: StrmTask) -> str:
+def task_key(task: StrmTask) -> str:
+    """同步任務在資料庫裡的鍵（p115_index.task、同步進度）：115 目錄和本機資料夾，中間隔一個換行。"""
     return f"{task.remote}\n{task.local}"
 
 
-def _remote_root(task: StrmTask) -> str:
+def remote_root(task: StrmTask) -> str:
+    """同步任務的 115 目錄，統一成「/開頭、結尾沒有 /」（根目錄是 /）。"""
     return "/" + task.remote.strip("/")
 
 
@@ -311,9 +315,9 @@ class _Ctx:
 
     def __init__(self, task: StrmTask, db: Database):
         self.task = task
-        self.root = _remote_root(task)
+        self.root = remote_root(task)
         self.local = Path(task.local).expanduser()
-        self.index = _TaskIndex(db, _task_key(task))
+        self.index = _TaskIndex(db, task_key(task))
         # 刪除、搬走後可能空掉的資料夾；等這一輪事件全處理完再清，
         # 「先刪舊集再上傳新集」中間那一刻資料夾沒有影片，不能就把 nfo、海報清掉
         self.to_prune: Set[Path] = set()
@@ -351,7 +355,7 @@ class StrmSync:
 
     def prune_index(self) -> None:
         """刪掉的任務不再需要對照表。"""
-        keys = {_task_key(t) for t in self.tasks}
+        keys = {task_key(t) for t in self.tasks}
         stale = [r["task"] for r in self.p115.db.query("SELECT DISTINCT task FROM p115_index") if r["task"] not in keys]
         self.p115.db.executemany("DELETE FROM p115_index WHERE task=?", [(k,) for k in stale])
 
@@ -479,13 +483,13 @@ class StrmSync:
 
     def _save_state(self, task: StrmTask, **values) -> None:
         states = self._states()
-        states.setdefault(_task_key(task), {}).update(values)
+        states.setdefault(task_key(task), {}).update(values)
         self.p115.db.set_meta(STATE_META_KEY, json.dumps(states))
 
     def task_states(self) -> List[dict]:
         """每個任務上次全量、增量同步的時間，給網頁顯示。"""
         states = self._states()
-        return [states.get(_task_key(t), {}) for t in self.tasks]
+        return [states.get(task_key(t), {}) for t in self.tasks]
 
     # ---------------- 執行 ----------------
 
@@ -534,7 +538,7 @@ class StrmSync:
         full: List[StrmTask] = []
         incremental: List[StrmTask] = []
         for task in self.tasks:
-            if mode == INCREMENTAL and states.get(_task_key(task), {}).get("indexed"):
+            if mode == INCREMENTAL and states.get(task_key(task), {}).get("indexed"):
                 incremental.append(task)
             else:
                 if mode == INCREMENTAL:
@@ -543,9 +547,9 @@ class StrmSync:
                 full.append(task)
 
         events: Optional[List[dict]] = None
-        pointers = [states[_task_key(t)].get("life_id") or 0 for t in incremental]
+        pointers = [states[task_key(t)].get("life_id") or 0 for t in incremental]
         if incremental and self.p115.cookies and any(pointers):
-            first = min((states[_task_key(t)] for t in incremental if states[_task_key(t)].get("life_id")),
+            first = min((states[task_key(t)] for t in incremental if states[task_key(t)].get("life_id")),
                         key=lambda st: st["life_id"])
             try:
                 events = self.p115.life_events(first["life_id"], first.get("life_time") or 0)
@@ -562,7 +566,7 @@ class StrmSync:
                 log.warning("讀取 115 生活事件失敗，這次只用修改時間補抓：%s", exc)
 
         jobs = [(t, lambda t=t: self._run_full(t)) for t in full]
-        jobs += [(t, lambda t=t: self._run_incremental(t, states[_task_key(t)], events)) for t in incremental]
+        jobs += [(t, lambda t=t: self._run_incremental(t, states[task_key(t)], events)) for t in incremental]
         for i, (task, job) in enumerate(jobs):
             if self.p115.breaker.tripped:
                 left = "、".join(t.remote for t, _ in jobs[i:])
@@ -617,7 +621,7 @@ class StrmSync:
         if self.cfg.full_interval <= 0:
             return False
         states = self._states()
-        done = [states.get(_task_key(t), {}).get("full_at") for t in self.tasks]
+        done = [states.get(task_key(t), {}).get("full_at") for t in self.tasks]
         done = [t for t in done if t]
         # 從沒同步過的任務等使用者第一次按同步（或增量同步自動補全量），這裡不搶著跑
         return bool(done) and now - min(done) >= self.cfg.full_interval * 3600
@@ -656,7 +660,7 @@ class StrmSync:
             if target:
                 produced.add(str(target))
                 rows.append((info["id"], target.relative_to(local).as_posix(), False))
-        index = _TaskIndex(self.p115.db, _task_key(task))
+        index = _TaskIndex(self.p115.db, task_key(task))
         if keep:
             # 目錄樹裡有、115 卻沒列出來的影片：strm 和索引都照舊保留
             known = index.files()
@@ -702,11 +706,11 @@ class StrmSync:
         # 列出的影片比目錄樹少很多，代表清單不完整；照這份清單會漏檔、誤刪，改回逐層列目錄
         in_tree = sum(1 for parts in tree if Path(parts[-1]).suffix.lower() in VIDEO_EXTS)
         listed = sum(1 for f in files if Path(f["name"]).suffix.lower() in VIDEO_EXTS)
-        if listed < in_tree * 0.9:
+        if listed < in_tree * MIN_LISTED_RATIO:
             log.warning("115 列出的影片（%s）比目錄樹（%s）少很多，改成逐層列目錄", listed, in_tree)
             self.result.notes.append(f"{task.remote}：115 列出的影片比目錄樹少，改成逐層列目錄")
             return None
-        hints = _TaskIndex(self.p115.db, _task_key(task)).dirs()
+        hints = _TaskIndex(self.p115.db, task_key(task)).dirs()
         dirs, unmatched = match_tree_dirs(tree, files, cid, hints)
         queries = self._resolve_tree_dirs(task, dirs, unmatched, tree_folders(tree), hints)
         missing = {f["parent_id"] for f in files} - dirs.keys()
@@ -744,7 +748,7 @@ class StrmSync:
         後者不影響產生 strm，但增量同步遇到它改名、搬移、刪除時，要靠記下的 id 把本機整個資料夾（連同刮削
         資料）一起搬。每查一個資料夾，115 會一起給它所有上層資料夾的 id，所以一次能補好幾層。回傳查了幾次。
         """
-        root = _remote_root(task)
+        root = remote_root(task)
         by_path = {rel: d for d, rel in dirs.items()}
         asked: Set[int] = set()
 

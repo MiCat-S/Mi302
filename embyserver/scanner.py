@@ -27,15 +27,23 @@ VIDEO_EXTS = LIBRARY_VIDEO_EXTS  # 影片檔和 strm
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}")
 YEAR_RE = re.compile(r"(?:^|[\s.\-_\[(（])((?:19|20)\d{2})(?:$|[\s.\-_\])）])")
 PAREN_YEAR_RE = re.compile(r"^(?P<title>.+?)\s*[(（\[](?P<year>(?:19|20)\d{2})[)）\]]")
+# 片名後面的畫質、來源、編碼標記：推片名時從這裡切掉
+QUALITY_JUNK_RE = re.compile(
+    r"[\s._-]+(?:2160p|1080p|720p|480p|4k|uhd|bluray|blu-ray|web-?dl|webrip|hdtv|remux|"
+    r"x264|x265|h\.?264|h\.?265|hevc|hdr|dv|atmos|dts|aac).*$",
+    re.I,
+)
 EPISODE_PATTERNS = [
     re.compile(r"[Ss](?P<season>\d{1,3})[\s._-]*[Ee][Pp]?(?P<episode>\d{1,4})"),
     re.compile(r"(?P<season>\d{1,2})x(?P<episode>\d{1,3})(?!\d)"),
     re.compile(r"第\s*(?P<episode>\d{1,4}|[一二三四五六七八九十百零〇两兩]{1,6})\s*[集话話]"),
     re.compile(r"(?:^|[\s._\-\[])[Ee][Pp]?(?P<episode>\d{1,4})(?!\d)"),
-    # 開頭就是集號：「10.潘玮柏战队…」「03-比赛…」「01」；只有空格隔開時要補零（「01 嘻哈首战」），免得「21 Jump Street」被當成第 21 集
+    # 開頭就是集號：「10.潘玮柏战队…」「03-比赛…」「01」；
+    # 只有空格隔開時要補零（「01 嘻哈首战」），免得「21 Jump Street」被當成第 21 集
     re.compile(r"^(?P<episode>\d{1,3})(?:$|(?=[._\-、]))"),
     re.compile(r"^(?P<episode>0\d{1,2})(?=\s)"),
 ]
+STANDARD_EPISODE = {0, 1}  # EPISODE_PATTERNS 的 SxxEyy、1x02：標準寫法，季和集都寫明了
 SEASON_DIR_PATTERNS = [
     re.compile(r"^(?:season|series)[\s._-]*(?P<season>\d{1,3})$", re.I),
     re.compile(r"^s(?P<season>\d{1,3})$", re.I),
@@ -61,11 +69,6 @@ def image_ext(data: bytes) -> Optional[str]:
     if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
         return "webp"
     return None
-QUALITY_JUNK_RE = re.compile(
-    r"[\s._-]+(?:2160p|1080p|720p|480p|4k|uhd|bluray|blu-ray|web-?dl|webrip|hdtv|remux|"
-    r"x264|x265|h\.?264|h\.?265|hevc|hdr|dv|atmos|dts|aac).*$",
-    re.I,
-)
 
 
 def _iso(ts: float) -> str:
@@ -113,9 +116,6 @@ def episode_match(stem: str) -> Optional[Tuple["re.Match", int]]:
         if m:
             return m, index
     return None
-
-
-STANDARD_EPISODE = {0, 1}  # SxxEyy、1x02：標準寫法，季和集都寫明了
 
 
 def episode_numbers(found: Optional[Tuple["re.Match", int]]) -> Tuple[Optional[int], Optional[int]]:
@@ -474,7 +474,8 @@ class Scanner:
 
     def _drop_removed_libraries(self) -> None:
         keep = {f"library://{lib.name}" for lib in self.config.libraries}
-        rows = [r for r in self.db.query("SELECT id, name, path FROM items WHERE type='CollectionFolder'") if r["path"] not in keep]
+        libraries = self.db.query("SELECT id, name, path FROM items WHERE type='CollectionFolder'")
+        rows = [r for r in libraries if r["path"] not in keep]
         for row in rows:
             n = self.db.execute("DELETE FROM items WHERE library_id=? OR id=?", (row["id"], row["id"])).rowcount
             self._after_delete()

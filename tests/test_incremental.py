@@ -1,6 +1,5 @@
 """增量同步（生活事件＋修改時間）、刪除過期項目、115 帳號狀態。115 以一個可變的假目錄樹模擬。"""
 
-import json
 import time
 from pathlib import Path
 

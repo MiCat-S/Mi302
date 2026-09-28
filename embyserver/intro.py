@@ -161,7 +161,8 @@ class IntroLearner:
         if credits:
             out["credits"] = int(statistics.median(credits))
         elif runtime:
-            tails = [r["end_ticks"] - r["start_ticks"] for r in season if r["kind"] == "credits" and r["end_ticks"] > r["start_ticks"]]
+            tails = [r["end_ticks"] - r["start_ticks"] for r in season
+                     if r["kind"] == "credits" and r["end_ticks"] > r["start_ticks"]]
             if tails:
                 out["credits"] = max(0, runtime - int(statistics.median(tails)))
         return out
@@ -191,7 +192,8 @@ class IntroLearner:
                 "ShowSkipPromptAt": start / TICK, "HideSkipPromptAt": min(end, start + 10 * TICK) / TICK,
             }
 
-        empty = {"EpisodeId": str(item["id"]), "Valid": False, "IntroStart": 0, "IntroEnd": 0, "ShowSkipPromptAt": 0, "HideSkipPromptAt": 0}
+        empty = {"EpisodeId": str(item["id"]), "Valid": False, "IntroStart": 0, "IntroEnd": 0,
+                 "ShowSkipPromptAt": 0, "HideSkipPromptAt": 0}
         intro = seg(*marks["intro"]) if "intro" in marks else empty
         credits = seg(marks["credits"], runtime) if "credits" in marks and runtime else empty
         return {"Introduction": intro, "Credits": credits}
@@ -203,12 +205,12 @@ class IntroLearner:
         out = []
         if "intro" in marks:
             s, e = marks["intro"]
-            out.append({"Id": f"{item['id']}-intro", "ItemId": str(item["id"]), "Type": "Intro", "StartTicks": s, "EndTicks": e})
+            out.append({"Id": f"{item['id']}-intro", "ItemId": str(item["id"]), "Type": "Intro",
+                        "StartTicks": s, "EndTicks": e})
         if "credits" in marks and runtime:
-            out.append({"Id": f"{item['id']}-outro", "ItemId": str(item["id"]), "Type": "Outro", "StartTicks": marks["credits"], "EndTicks": runtime})
+            out.append({"Id": f"{item['id']}-outro", "ItemId": str(item["id"]), "Type": "Outro",
+                        "StartTicks": marks["credits"], "EndTicks": runtime})
         return out
-
-    # ---------------- 網頁 ----------------
 
     # ---------------- 手動設定 ----------------
 
@@ -301,31 +303,14 @@ class IntroLearner:
 
     # ---------------- 網頁 ----------------
 
-    def status(self, limit: int = 20) -> dict:
-        one = lambda sql: self.db.one(sql)["c"]  # noqa: E731
-        rows = self.db.query(
-            "SELECT s.name AS series, e.parent_index_number AS season, COUNT(DISTINCT o.item_id) AS episodes, "
-            "MIN(o.at) AS first_at, MAX(o.at) AS last_at, "
-            "SUM(o.kind='intro') AS intros, SUM(o.kind='credits') AS credits, e.season_id AS season_id "
-            "FROM intro_obs o JOIN items e ON e.id=o.item_id LEFT JOIN items s ON s.id=e.series_id "
-            "GROUP BY e.season_id ORDER BY last_at DESC LIMIT ?", (limit,),
-        )
-        seasons = []
-        for r in rows:
-            sample = self.db.one("SELECT * FROM items WHERE season_id=? AND type='Episode' ORDER BY index_number LIMIT 1", (r["season_id"],))
-            marks = self.marks_for(sample) if sample else {}
-            seasons.append({
-                "series": r["series"], "season": r["season"], "episodes": r["episodes"], "last_at": r["last_at"],
-                "intro": [round(marks["intro"][0] / TICK), round(marks["intro"][1] / TICK)] if "intro" in marks else None,
-                "credits_tail": round((int(sample["runtime_ticks"]) - marks["credits"]) / TICK)
-                if sample and "credits" in marks and sample["runtime_ticks"] else None,
-            })
+    def status(self) -> dict:
+        """管理網頁上的總數：開了沒有、學到幾集、幾季，手動設定了幾季。"""
+        count = self.db.scalar
         return {
             "enabled": self.enabled,
-            "episodes": one("SELECT COUNT(DISTINCT item_id) AS c FROM intro_obs"),
-            "seasons": one("SELECT COUNT(DISTINCT i.season_id) AS c FROM intro_obs o JOIN items i ON i.id=o.item_id"),
-            "manual": one("SELECT COUNT(*) AS c FROM intro_manual"),
-            "recent": seasons,
+            "episodes": count("SELECT COUNT(DISTINCT item_id) FROM intro_obs"),
+            "seasons": count("SELECT COUNT(DISTINCT i.season_id) FROM intro_obs o JOIN items i ON i.id=o.item_id"),
+            "manual": count("SELECT COUNT(*) FROM intro_manual"),
         }
 
     def clear(self, season_id: Optional[int] = None) -> int:

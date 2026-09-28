@@ -18,11 +18,12 @@ from ..auth import AuthContext, now_iso, require_user
 from ..dto import media_source_dto
 from ..mediainfo import MediaInfoStore
 from ..p115 import P115Error
-from .common import q, q_int, state
-from .items import _set_user_data
+from .common import q, q_int, set_user_data, state
 
 log = logging.getLogger(__name__)
 router = APIRouter()
+
+WATCHED_RATIO = 0.9  # 停下來時播到片長的九成以上，算看完了
 
 # 這些路徑名稱不是影片本體，不能被當成串流處理
 NON_MEDIA_NAMES = {
@@ -134,15 +135,15 @@ def _report(request: Request, ctx: AuthContext, body: dict, stopped: bool) -> Re
     except (TypeError, ValueError):
         # 沒帶位置（舊版 API 的開始播放一定不帶）：不知道播到哪，只記最後播放時間，不能把續播點清成 0，
         # 也不拿去學片頭（會把「從 0 跳到續播點」當成跳過片頭）
-        _set_user_data(request, ctx, item_id, last_played=now_iso())
+        set_user_data(request, ctx, item_id, last_played=now_iso())
         return Response(status_code=204)
     fields = {"last_played": now_iso(), "position_ticks": pos}
     runtime: Optional[int] = row["runtime_ticks"] or lb.get("runtimeticks")
     st.intro.report(ctx.user_id, row, pos, stopped)  # 從播放行為學片頭片尾
-    finished = bool(stopped and runtime and pos >= runtime * 0.9)
+    finished = bool(stopped and runtime and pos >= runtime * WATCHED_RATIO)
     if finished:
         fields.update(played=1, position_ticks=0)
-    _set_user_data(request, ctx, item_id, **fields)
+    set_user_data(request, ctx, item_id, **fields)
     if finished:
         st.db.execute(
             "UPDATE user_data SET play_count=play_count+1 WHERE user_id=? AND item_id=?",

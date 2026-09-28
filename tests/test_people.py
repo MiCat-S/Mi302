@@ -1,6 +1,5 @@
 """演職人員：從 nfo 讀進來給播放器、人物頁、搜尋；中文名（MoviePilot → Wikidata）；類型中文化。"""
 
-import json
 import time
 from pathlib import Path
 
@@ -231,3 +230,15 @@ def test_person_page_with_accented_name(tmp_path: Path):
         TVSHOW.replace("Chen Daoming", "Émilie Dequenne"), encoding="utf-8")
     app.state.scanner.scan_all()
     assert c.get("/Persons/Émilie Dequenne", headers=h).status_code == 200
+
+
+def test_version_is_defined_once():
+    """Wikidata 的 UA 用 embyserver.__version__；pyproject.toml 的版本要跟它一樣，改版本時漏改一邊會紅。"""
+    import re
+
+    from embyserver import __version__
+    from embyserver.people import WIKIDATA_UA
+
+    text = (Path(__file__).resolve().parent.parent / "pyproject.toml").read_text(encoding="utf-8")
+    assert re.search(r'^version = "([^"]+)"', text, re.M).group(1) == __version__  # tomllib 要 3.11，這裡用正則
+    assert WIKIDATA_UA.startswith(f"Mi302/{__version__} ")

@@ -35,12 +35,13 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 from .browse115 import library_info
+from .config import StrmTask
 from .db import Database
 from .filetypes import VIDEO_EXTS
 from .moviepilot import MoviePilot, MoviePilotError
 from .p115 import P115Error
 from .scanner import episode_match, parse_episode, parse_nfo, parse_season_dir
-from .strm_sync import INCREMENTAL, _remote_root, _task_key
+from .strm_sync import INCREMENTAL, remote_root, task_key
 from .textutil import title_match
 
 log = logging.getLogger(__name__)
@@ -191,7 +192,8 @@ class Reorganizer:
 
     # ---------------- 計畫 ----------------
 
-    def _locate(self, local: str) -> Tuple[Optional[object], str]:
+    def _locate(self, local: str) -> Tuple[Optional[StrmTask], str]:
+        """本機路徑在哪個同步任務的資料夾裡，以及相對於那個資料夾的路徑；不在任何任務裡回傳 (None, "")。"""
         for task in self.strm_sync.tasks:
             try:
                 return task, Path(local).relative_to(Path(task.local).expanduser()).as_posix()
@@ -256,7 +258,7 @@ class Reorganizer:
         task, series_rel = self._locate(series["path"])
         if not task:
             raise ReorgError("這部劇不在任何 115 同步任務的本機資料夾裡，MoviePilot 找不到 115 上的檔案")
-        remote_series = posixpath.join(_remote_root(task), series_rel) if series_rel != "." else _remote_root(task)
+        remote_series = posixpath.join(remote_root(task), series_rel) if series_rel != "." else remote_root(task)
         files: List[_File] = []
         missing: List[dict] = []
         listings: Dict[str, Tuple[int, Dict[int, dict]]] = {}
@@ -264,15 +266,15 @@ class Reorganizer:
             for ep in episodes:
                 task, rel = self._locate(ep["path"])
                 row = self.db.one("SELECT file_id FROM p115_index WHERE task=? AND path=? AND is_dir=0",
-                                  (_task_key(task), rel)) if task else None
+                                  (task_key(task), rel)) if task else None
                 if not row:
                     missing.append({"path": ep["path"], "reason": "115 同步的紀錄裡沒有這個 strm，先跑一次全量同步"})
                     continue
                 folder = posixpath.dirname(rel)
-                remote_dir = posixpath.join(_remote_root(task), folder) if folder else _remote_root(task)
+                remote_dir = posixpath.join(remote_root(task), folder) if folder else remote_root(task)
                 if remote_dir not in listings:
                     drow = self.db.one("SELECT file_id FROM p115_index WHERE task=? AND path=? AND is_dir=1",
-                                       (_task_key(task), folder)) if folder else None
+                                       (task_key(task), folder)) if folder else None
                     cid = drow["file_id"] if drow else self.p115.dir_id(remote_dir)
                     listings[remote_dir] = (cid, {e["id"]: e for e in self.p115.list_dir(cid) if not e["is_dir"]})
                 cid, entries = listings[remote_dir]
@@ -394,7 +396,7 @@ class Reorganizer:
             self.mp.check_transfer_preview()  # 舊版 MoviePilot 會把預覽當成真的整理
         except MoviePilotError as exc:
             raise ReorgError(str(exc))
-        roots = [_remote_root(t) for t in self.strm_sync.tasks]
+        roots = [remote_root(t) for t in self.strm_sync.tasks]
         items: List[dict] = []
         batches: List[dict] = []
         notes: List[str] = []

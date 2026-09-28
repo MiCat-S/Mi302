@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import platform
+import threading
 from urllib.parse import parse_qsl
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, WebSocket, WebSocketDisconnect
@@ -15,6 +16,7 @@ from .common import q, state
 
 router = APIRouter()
 
+# 回給播放器的是「假裝成哪一版 Emby」，不是 Mi302 自己的版本（那個在 embyserver.__version__）
 EMBY_VERSION = "4.8.11.0"
 
 
@@ -251,7 +253,5 @@ async def emby_websocket(ws: WebSocket):
 
 @router.post("/library/refresh")
 def library_refresh(request: Request, ctx: AuthContext = Depends(require_admin)):
-    import threading
-
     threading.Thread(target=state(request).scanner.scan_all, daemon=True).start()
     return Response(status_code=204)

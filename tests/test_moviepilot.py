@@ -7,7 +7,7 @@ import httpx
 from fastapi.testclient import TestClient
 
 from embyserver.app import create_app
-from embyserver.config import MoviePilotConfig, PathRule, config_from_dict
+from embyserver.config import config_from_dict
 from embyserver.moviepilot import MoviePilot
 
 
