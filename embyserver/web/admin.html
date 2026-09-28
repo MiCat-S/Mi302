@@ -43,6 +43,7 @@ code{font:13px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;background:v
 .link:hover{text-decoration:underline}
 .doc{white-space:nowrap}  /* 說明文字結尾連到 wiki 的「說明」 */
 .pager{padding-top:12px}
+.jump{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:16px}  /* 頁內分段導覽：點了捲到那張卡片 */
 
 /* 按鈕與表單 */
 .btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;font:inherit;font-size:14px;font-weight:500;padding:8px 14px;border-radius:9px;border:1px solid var(--line);background:var(--panel);color:var(--fg);cursor:pointer;white-space:nowrap;transition:background .15s,border-color .15s}
@@ -110,7 +111,7 @@ main{min-width:0;padding:28px 32px 80px}
 .page-h{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;margin-bottom:20px;flex-wrap:wrap}
 .page-h .sub{color:var(--muted);margin-top:4px;max-width:640px}
 .banner{display:flex;gap:10px;align-items:flex-start;padding:12px 14px;border-radius:10px;background:var(--warn-soft);color:var(--warn);margin:0 auto 18px;max-width:1040px;font-size:14px}
-.card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow);margin-bottom:16px;min-width:0}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow);margin-bottom:16px;min-width:0;scroll-margin-top:16px}
 .card-h{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:14px 18px;border-bottom:1px solid var(--line);flex-wrap:wrap}
 .card-h .t{display:flex;align-items:center;gap:9px}.card-h .t svg{color:var(--muted)}
 .card-b{padding:18px}
@@ -232,6 +233,7 @@ dialog .card-b{max-height:70vh;overflow:auto}
   .side .foot{margin:0;flex-direction:row;align-items:center;gap:2px}.side .foot span{display:none}
   .side .star{border:0;padding:8px}.side .star .gold{display:none}
   main{padding:18px 16px 70px}
+  .card{scroll-margin-top:72px}  /* 分頁列變成頂端固定的一列，捲到卡片時別被它蓋住 */
   .grid2{grid-template-columns:1fr}
   .stats{grid-template-columns:repeat(2,minmax(0,1fr))}
 }
@@ -567,6 +569,9 @@ dialog .card-b{max-height:70vh;overflow:auto}
       <div class="page-h">
         <div><h1>MoviePilot</h1><p class="sub">Mi302 不自己刮削：同步產生新的 strm 後交給 MoviePilot 查影片資料，把 nfo 和海報寫到同一個資料夾，Mi302 再重新掃描。</p></div>
       </div>
+      <nav class="jump" aria-label="跳到這一頁的卡片">
+        <button class="btn sm" data-act="jump" data-target="mpConn">連線</button><button class="btn sm" data-act="jump" data-target="mpScrape">刮削</button><button class="btn sm" data-act="jump" data-target="mpFill">補全缺集</button><button class="btn sm" data-act="jump" data-target="mpReorg">整理集號</button><button class="btn sm" data-act="jump" data-target="mpEmby">當成 Emby</button>
+      </nav>
       <div class="card" id="mpConn">
         <div class="card-h"><div class="t"><svg class="i"><use href="#i-spark"/></svg><h2>連線</h2></div><span id="mpPill"></span></div>
         <div class="card-b stack">
@@ -588,14 +593,14 @@ dialog .card-b{max-height:70vh;overflow:auto}
         </div>
         <div class="card-f"><button class="btn primary" onclick="saveMP()">儲存</button><button class="btn" onclick="testMP(this)">測試連線</button></div>
       </div>
-      <div class="card">
+      <div class="card" id="mpScrape">
         <div class="card-h"><div class="t"><svg class="i"><use href="#i-film"/></svg><h2>刮削</h2></div><button class="btn" onclick="scrapeMP()">刮削缺少資料的項目</button></div>
         <div class="card-b stack">
           <div class="js-mp"></div>
           <p class="hint">把媒體庫裡還沒有 nfo 的影片、以及有 nfo 卻沒有劇照的集送去 MoviePilot 刮削。 <a class="doc" href="https://github.com/MiCat-S/Mi302/wiki/MoviePilot-整合#送出規則" target="_blank" rel="noopener">說明</a></p>
         </div>
       </div>
-      <div class="card">
+      <div class="card" id="mpFill">
         <div class="card-h"><div class="t"><svg class="i"><use href="#i-tv"/></svg><h2>補全缺集</h2></div><button class="btn" onclick="fillAll()">全部補全</button></div>
         <div class="card-b stack">
           <p class="hint">對照 TMDB 上已經播出的集，真的缺集的季才向 MoviePilot 建訂閱並馬上搜尋。要先把 Mi302 加成 MoviePilot 的媒體伺服器（見下方），並填上面的 MoviePilot 帳號密碼。 <a class="doc" href="https://github.com/MiCat-S/Mi302/wiki/MoviePilot-整合#補全缺集" target="_blank" rel="noopener">說明</a></p>
@@ -611,7 +616,7 @@ dialog .card-b{max-height:70vh;overflow:auto}
           </div></details>
         </div>
       </div>
-      <div class="card">
+      <div class="card" id="mpReorg">
         <div class="card-h"><div class="t"><svg class="i"><use href="#i-tool"/></svg><h2>集號不對的劇：交給 MoviePilot 整理</h2></div></div>
         <div class="card-b stack">
           <p class="hint">這些集的集號是 Mi302 從「10.xxx」「第10集」這類檔名猜的，或認不出來。交給 MoviePilot 在 115 上改成標準檔名並刮削，<b>會真的改 115 上的檔名和位置</b>，所以一定先預覽再執行。 <a class="doc" href="https://github.com/MiCat-S/Mi302/wiki/MoviePilot-整合#整理集號不對的劇" target="_blank" rel="noopener">說明</a></p>
@@ -621,7 +626,7 @@ dialog .card-b{max-height:70vh;overflow:auto}
           <div id="reoList" class="list"><p class="hint">讀取中…</p></div>
         </div>
       </div>
-      <div class="card">
+      <div class="card" id="mpEmby">
         <div class="card-h"><div class="t"><svg class="i"><use href="#i-key"/></svg><h2>讓 MoviePilot 把 Mi302 當成 Emby</h2></div></div>
         <div class="card-b stack">
           <p class="hint">MoviePilot 可以把 Mi302 加成媒體伺服器，用來判斷片子是否已經有了、整理完自動通知 Mi302 重新掃描。在 MoviePilot 的「設定 → 媒體伺服器」新增一個 Emby：</p>
@@ -982,6 +987,7 @@ function route() {
 }
 window.addEventListener('hashchange', () => { if (token && cfg) route(); });
 ACTS.copyOrigin = () => copyText(location.origin);
+ACTS.jump = el => $(el.dataset.target)?.scrollIntoView({behavior: 'smooth', block: 'start'});  // 不用 href="#…"：網址的 # 拿來切分頁
 
 // ---- 表單欄位 data-key="a.b.c" 對應設定 ----
 function getKey(obj, key) { return key.split('.').reduce((o, k) => o?.[k], obj); }

@@ -47,7 +47,7 @@
    - ~~魔術數字：看完門檻 0.9（playback），季×100000+集（items.py 兩處）。~~（見 review-2026-09-28）
    - ~~`routes/system.py` 的 `OperatingSystem` 寫死 Linux；dto 的劇集 `Status` 寫死 Continuing。~~（見 review-2026-09-28）
    - `auth._is_api_key` 每個請求都讀資料庫、解析 JSON；~~`tokens.last_used` 從不更新~~（見 review-2026-09-28）。
-   - settings 的 `*_FIELDS`、config 的 dataclass、`config_file.render` 三處手動列欄位，新欄位要改三處，漏改不會有測試發現。
+   - ~~settings 的 `*_FIELDS`、config 的 dataclass、`config_file.render` 三處手動列欄位，新欄位要改三處，漏改不會有測試發現。~~（見 review-2026-09-28）
 
 ### 二、背景服務（intro、backup、people、moviepilot、prober）
 

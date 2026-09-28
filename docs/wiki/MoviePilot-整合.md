@@ -4,6 +4,8 @@ Mi302 不自己刮削，這件事交給 [MoviePilot](https://github.com/jxxghp/M
 
 Mi302 是照 MoviePilot V3 做的。舊版大多能用，但有幾項功能會打折扣，見[舊版 MoviePilot](#舊版-moviepilot)。
 
+管理網頁的「MoviePilot」分頁從上到下是「連線」「刮削」「補全缺集」「集號不對的劇：交給 MoviePilot 整理」「讓 MoviePilot 把 Mi302 當成 Emby」五張卡片。頁面最上方那一列按鈕（「連線」「刮削」「補全缺集」「整理集號」「當成 Emby」）點了直接捲到對應的卡片。
+
 ## 運作方式
 
 Mi302 只讀資料夾裡已經有的 nfo 和圖片。這些資料可以在 115 同步時一併下載（見[115 網盤與同步](115-網盤與同步)），或交給 MoviePilot 刮削：

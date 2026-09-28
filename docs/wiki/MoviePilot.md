@@ -4,6 +4,8 @@ Mi302 does not scrape (fetch metadata and artwork) by itself; it hands this to [
 
 Mi302 was built against MoviePilot V3. Older versions mostly work, with a few features reduced; see [Older MoviePilot versions](#older-moviepilot-versions).
 
+The **MoviePilot** tab of the web admin page has five cards, top to bottom: **Connection** (連線), **Scrape** (刮削), **Fill missing episodes** (補全缺集), **Series with wrong episode numbers: reorganise with MoviePilot** (集號不對的劇：交給 MoviePilot 整理) and **Let MoviePilot treat Mi302 as Emby** (讓 MoviePilot 把 Mi302 當成 Emby). The row of buttons at the top of the page — **Connection** (連線), **Scrape** (刮削), **Fill missing episodes** (補全缺集), **Reorganise episode numbers** (整理集號) and **As Emby** (當成 Emby) — scrolls straight to the matching card.
+
 ## How it works
 
 Mi302 only reads nfo files and images that are already in the folders. They can be downloaded along with the 115 sync (see [115 Cloud Sync](115-Cloud-Sync)), or produced by MoviePilot:
