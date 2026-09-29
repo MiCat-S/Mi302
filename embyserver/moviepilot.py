@@ -529,15 +529,20 @@ class MoviePilot:
     def transfer(
         self, fileitems: List[dict], tmdbid: Optional[str], season: Optional[int], episode_format: Optional[str],
         scrape: bool, target_path: Optional[str], preview: bool, mtype: Optional[str] = "电视剧",
-        timeout: Optional[float] = None,
+        timeout: Optional[float] = None, single: bool = False,
     ) -> List[dict]:
         """請 MoviePilot 整理這些 115 上的檔案（一次一批、同一個集數定位模板）。
 
         preview=True 只預覽新路徑；否則真的在 115 上移動、改名（和刮削）。tmdbid、season、mtype（电视剧／电影）
         空的時候讓 MoviePilot 自己辨識。target_path 是空的時候照 MoviePilot 的目錄設定放；有給就放在那個資料夾
         底下（不另加類型、類別資料夾）。回傳每個檔案的結果：source、target、success、message、episode、state。
+        single=True 時只送一個項目（fileitem），和 MoviePilot 網頁整理一個資料夾一樣：資料夾裡的影片、字幕、音軌都整理。
         """
-        body = {"fileitems": fileitems, "transfer_type": "move", "scrape": scrape, "preview": preview}
+        body = {"transfer_type": "move", "scrape": scrape, "preview": preview}
+        if single and len(fileitems) == 1:
+            body["fileitem"] = fileitems[0]
+        else:
+            body["fileitems"] = fileitems
         if tmdbid:
             body.update(media_source="themoviedb", media_id=str(tmdbid), tmdbid=int(tmdbid))  # V3 看前兩個，V2 看 tmdbid
         if mtype:
@@ -553,8 +558,20 @@ class MoviePilot:
         data = res.get("data") if isinstance(res, dict) else None
         items = data.get("items") if isinstance(data, dict) else None
         if not isinstance(items, list) or not items:
+            if not preview and isinstance(res, dict) and res.get("success"):
+                # V2 真的整理時只回 {"success": true}（同步做完才回應），沒有每個檔案的結果
+                return [{"source": fi.get("path"), "success": True, "state": "completed",
+                         "message": "MoviePilot 沒有回傳每個檔案的結果"} for fi in fileitems]
             raise MoviePilotError(str((res or {}).get("message") or "MoviePilot 沒有回傳整理結果"))
         return [i for i in items if isinstance(i, dict)]
+
+    def rename_formats(self) -> Tuple[str, str]:
+        """MoviePilot 的重命名格式（劇集、電影）；要管理員帳號。沒有回的是空字串。"""
+        res = self._request("GET", SYSTEM_ENV_API, timeout=15)
+        data = res.get("data") if isinstance(res, dict) else None
+        if not isinstance(data, dict):
+            raise MoviePilotError(str((res or {}).get("message") or "MoviePilot 沒有回傳系統設定"))
+        return str(data.get("TV_RENAME_FORMAT") or ""), str(data.get("MOVIE_RENAME_FORMAT") or "")
 
     def check_transfer_preview(self) -> None:
         """確認 MoviePilot 支援整理預覽，不支援就丟出 MoviePilotError。十分鐘內確認過就不再問。

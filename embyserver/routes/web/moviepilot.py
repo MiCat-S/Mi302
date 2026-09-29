@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException, Request
 from starlette.concurrency import run_in_threadpool
 
@@ -10,6 +12,8 @@ from ...moviepilot import library_series
 from ...reorganize import ReorgError, candidates as reorg_candidates
 from ..common import q, q_int, state
 from .common import json_body
+
+log = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -91,6 +95,13 @@ def reorganize_list(request: Request, ctx: AuthContext = Depends(require_admin))
     st = state(request)
     offset, limit = max(q_int(request, "offset") or 0, 0), min(max(q_int(request, "limit") or 20, 1), 200)
     items, total = reorg_candidates(st.db, q(request, "q") or "", offset, limit)
+    try:
+        flagged = st.organizer.nonstandard_series()
+    except Exception:  # 找不規範資料夾出錯不影響這個清單
+        log.exception("找命名不規範的資料夾時發生錯誤")
+        flagged = set()
+    for it in items:
+        it["folder_nonstandard"] = it["series_id"] in flagged  # 資料夾不規範：網頁改成整個資料夾整理
     return {"items": items, "total": total, "job": st.reorganizer.job.as_dict(), "ready": st.reorganizer.ready()}
 
 
@@ -117,7 +128,7 @@ def reorganize_folder_plan(request: Request, ctx: AuthContext = Depends(require_
 @router.post("/web/api/moviepilot/reorganize/preview")
 async def reorganize_preview(request: Request, ctx: AuthContext = Depends(require_admin)):
     """請 MoviePilot 只算不做：{plan_id（或 series_id + season）, tmdbid, type: auto|tv|movie, season,
-    target: auto|parent|path, target_path, scrape, groups: [{key, template, enabled}], expect_dir}。"""
+    target: auto|parent|path, target_path, scrape, groups: [{key, template, enabled}]}。"""
     st = state(request)
     body = await json_body(request)
     if not st.reorganizer.ready()["login"]:
@@ -129,7 +140,7 @@ async def reorganize_preview(request: Request, ctx: AuthContext = Depends(requir
             st.reorganizer.preview, plan_id, str(body.get("tmdbid") or ""), str(body.get("type") or "auto"),
             int(season) if str(season if season is not None else "").strip().isdigit() else None,
             str(body.get("target") or "auto"), str(body.get("target_path") or ""), bool(body.get("scrape", True)),
-            [g for g in body.get("groups") or [] if isinstance(g, dict)], str(body.get("expect_dir") or ""),
+            [g for g in body.get("groups") or [] if isinstance(g, dict)],
         )
     except ReorgError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
@@ -137,7 +148,7 @@ async def reorganize_preview(request: Request, ctx: AuthContext = Depends(requir
 
 @router.post("/web/api/moviepilot/reorganize/execute")
 async def reorganize_execute(request: Request, ctx: AuthContext = Depends(require_admin)):
-    """照預覽執行：{"token": 預覽代碼} 或 {"tokens": [...], "cleanup": [{cid, path}]}（合併重複的資料夾：幾個預覽一起，
+    """照預覽執行：{"token": 預覽代碼} 或 {"tokens": [...], "cleanup": [{cid, path}]}（整理 115 網盤：幾個預覽一起，
     整理完沒有影片留下的來源資料夾移到 115 回收站）。只送預覽成功的檔案，在背景跑，進度看 GET /web/api/moviepilot/reorganize。"""
     st = state(request)
     body = await json_body(request)
