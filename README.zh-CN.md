@@ -85,6 +85,8 @@ curl -fsSL https://raw.githubusercontent.com/MiCat-S/Mi302/main/install.sh | bas
 | `mi302 update` | 更新到最新版，配置和数据不动 |
 | `mi302 reset-password admin 新密码` | 忘记密码时重置 |
 
+检查更新、更新和重启也可以在网页“设定”页的“版本与更新”卡片完成，有新版时每一页上方会提示。
+
 ## 授权
 
 Mi302 采用 [PolyForm Noncommercial License 1.0.0](LICENSE.md)，**不能用于商业用途**。

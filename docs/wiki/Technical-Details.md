@@ -137,10 +137,12 @@ The API behind the web admin page `/web`. Apart from `/web/api/setup`, it needs 
 | `GET /web/api/browse`, `/web/api/115/browse` | Pick a folder on the server, pick a 115 directory |
 | `GET /web/api/115/recyclebin`, `POST /web/api/115/recyclebin/clean` | One page of the 115 recycle bin (`offset`, `limit`); emptying it (permanent; needs `{"confirm": "清空"}`, plus the `password` security key on the cookie channel) |
 | `GET /web/api/115/files` | Browse 115: subfolders and files of a folder (`cid` and `path`, or only `path`), with what the library made of each video (`lib`) |
+| `GET /web/api/115/duplicate-folders` | Merging duplicate folders: folders on the same level with the same name where one has `{tmdbid=…}` and one does not, found in the sync records (`sources`, `targets`, `type`), plus what is missing to reorganise (`ready`) and the current reorganise job (`job`) |
+| `GET /web/api/server`, `POST /web/api/server/check`, `POST /web/api/server/update`, `POST /web/api/server/restart` | Version and the last update check (`boot` differs on every start); check now; update to the latest version (runs in the background, progress in `job`); restart |
 | `GET /web/api/libraries/suggest?path=` | Bulk add libraries: list the subfolders with a suggested type and the reason, the video count (`complete` when fully counted), whether a library already uses the folder (`used`), and whether to tick it by default; `partial` means some folders were not fully read |
 | `POST /web/api/moviepilot/test`, `GET /web/api/moviepilot/status`, `POST /web/api/moviepilot/scrape` | MoviePilot connection test, status, scrape items missing metadata |
 | `GET /web/api/series`, `POST /web/api/moviepilot/fill` | Series and episode-gap list; fill missing episodes |
-| `GET /web/api/moviepilot/reorganize`, `GET /web/api/moviepilot/reorganize/plan`, `GET /web/api/moviepilot/reorganize/folder`, `POST /web/api/moviepilot/reorganize/preview`, `POST /web/api/moviepilot/reorganize/execute` | Reorganise series with wrong episode numbers through MoviePilot: the list (with the current job and missing settings), one season's plan (`series`, `season`; batches and episode formats), a 115 folder's plan (`cid`, `path`), a preview (takes the plan's `plan_id`, returns a `token`), and running a preview by its token |
+| `GET /web/api/moviepilot/reorganize`, `GET /web/api/moviepilot/reorganize/plan`, `GET /web/api/moviepilot/reorganize/folder`, `POST /web/api/moviepilot/reorganize/preview`, `POST /web/api/moviepilot/reorganize/execute` | Reorganise series with wrong episode numbers through MoviePilot: the list (with the current job and missing settings), one season's plan (`series`, `season`; batches and episode formats), a 115 folder's plan (`cid`, `path`), a preview (takes the plan's `plan_id`, returns a `token`), and running a preview by its token (`token`, or several at once with `tokens`; `cleanup` moves source folders with no videos left to the recycle bin afterwards) |
 | `GET /web/api/intro/status`, `POST /web/api/intro/clear` | Intro and credits (`{"season_id": id}` clears one season's learned records) |
 | `GET /web/api/intro/seasons?q=`, `PUT /web/api/intro/seasons/{season id}` | Season list and search for intro and credits; manual settings for a season (`all_seasons` applies them to the whole series) |
 | `GET /web/api/people/status`, `POST /web/api/people/resolve` | Chinese names for cast and crew |
@@ -168,30 +170,37 @@ Each module under `embyserver/`:
 | `app.py` | Builds the FastAPI app, normalises paths, starts background jobs |
 | `auth.py` | Users, tokens, Emby authorization headers |
 | `backup.py` | Daily backup of the database and config file |
+| `browse115.py` | Browsing 115: folder listings, videos matched to the library |
 | `config.py` | Config data classes and loading |
 | `config_file.py` | Writes the settings back to `config.yaml` |
 | `settings.py` | Settings editable in the web page: validation, applying, keeping the config file in step |
 | `db.py` | SQLite tables and access |
+| `dupes.py` | Duplicate files on 115: identical files, different versions, which one to keep |
 | `dto.py` | Turns database rows into Emby `BaseItemDto`, `UserDto` and `MediaSourceInfo` |
 | `filetypes.py` | Shared file extension lists |
+| `folder_merge.py` | Finds 115 folders with the same name where one has `{tmdbid=…}` and one does not |
 | `http_util.py` | httpx client for external services that turns connection errors into readable reasons |
 | `intro.py` | Learns intros and credits from playback |
+| `library_suggest.py` | Bulk-adding libraries: guesses whether subfolders hold movies or shows |
 | `logs.py` | Logging to the console, the log file and memory, with credentials masked |
 | `mediainfo.py` | Media info: ffprobe output and `X-mediainfo.json` to Emby format |
 | `prober.py` | Probes the videos behind strm files with ffprobe |
 | `moviepilot.py` | Scraping and filling missing episodes through MoviePilot |
 | `p115.py` | 115: QR-code login, direct links, directory listing, life events (115's activity log), circuit breaker |
 | `p115_open.py` | 115 open platform channel |
+| `probe_select.py` | Media info: picking titles to probe (filters, order) |
 | `people.py` | Cast and crew, Chinese names, Chinese genres |
 | `redirect.py` | Resolves the real URL behind a strm, path rules, redirect cache |
+| `reorganize.py` | Handing files to MoviePilot to reorganise: plan, preview, run |
 | `scanner.py` | Library scanning |
 | `strm_sync.py` | Creates strm files from 115 and downloads metadata |
 | `textutil.py` | Pinyin sorting, pinyin search, Traditional/Simplified conversion |
+| `updater.py` | Checking for updates, updating and restarting from the web page |
 | `routes/system.py` | System, Users, Sessions and similar endpoints |
 | `routes/items.py` | Libraries, item queries, user data, images |
 | `routes/playback.py` | PlaybackInfo, streaming, progress reports, intro endpoints |
 | `routes/p115.py` | Admin API for 115 login and sync, pickcode short links |
-| `routes/web/` | The web admin page and its API, split by page into `setup`, `scan`, `intro`, `moviepilot` and `p115` |
+| `routes/web/` | The web admin page and its API, split by page into `setup`, `scan`, `intro`, `moviepilot`, `p115` and `server` |
 | `routes/common.py` | Small helpers shared by the routes |
 | `web/admin.html` | The web admin page (one file with HTML, CSS and JavaScript) |
 

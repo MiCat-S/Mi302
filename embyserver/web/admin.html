@@ -112,6 +112,9 @@ main{min-width:0;padding:28px 32px 80px}
 .page-h{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;margin-bottom:20px;flex-wrap:wrap}
 .page-h .sub{color:var(--muted);margin-top:4px;max-width:640px}
 .banner{display:flex;gap:10px;align-items:flex-start;padding:12px 14px;border-radius:10px;background:var(--warn-soft);color:var(--warn);margin:0 auto 18px;max-width:1040px;font-size:14px}
+.banner.info{background:var(--accent-soft);color:var(--fg);align-items:center;flex-wrap:wrap}.banner.info>.i{color:var(--accent)}
+.navdot{width:7px;height:7px;border-radius:50%;background:var(--accent);margin-left:auto;flex:none}
+.changes{margin:0;padding-left:18px;display:flex;flex-direction:column;gap:4px}.changes li{word-break:break-all}.changes .hint{margin-left:8px;white-space:nowrap}
 .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow);margin-bottom:16px;min-width:0;scroll-margin-top:16px}
 .card-h{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:14px 18px;border-bottom:1px solid var(--line);flex-wrap:wrap}
 .card-h .t{display:flex;align-items:center;gap:9px}.card-h .t svg{color:var(--muted)}
@@ -318,7 +321,7 @@ dialog .card-b{max-height:70vh;overflow:auto}
       <a href="#moviepilot" data-tab="moviepilot" id="nav-moviepilot" role="tab" aria-controls="tab-moviepilot" aria-selected="false" aria-label="MoviePilot"><svg class="i"><use href="#i-spark"/></svg><span>MoviePilot</span></a>
       <a href="#users" data-tab="users" id="nav-users" role="tab" aria-controls="tab-users" aria-selected="false" aria-label="使用者"><svg class="i"><use href="#i-users"/></svg><span>使用者</span></a>
       <a href="#logs" data-tab="logs" id="nav-logs" role="tab" aria-controls="tab-logs" aria-selected="false" aria-label="日誌"><svg class="i"><use href="#i-doc"/></svg><span>日誌</span></a>
-      <a href="#settings" data-tab="settings" id="nav-settings" role="tab" aria-controls="tab-settings" aria-selected="false" aria-label="設定"><svg class="i"><use href="#i-sliders"/></svg><span>設定</span></a>
+      <a href="#settings" data-tab="settings" id="nav-settings" role="tab" aria-controls="tab-settings" aria-selected="false" aria-label="設定"><svg class="i"><use href="#i-sliders"/></svg><span>設定</span><span class="navdot hidden" id="navUpd" title="有新版本"></span></a>
     </nav>
     <div class="foot">
       <a class="star" href="https://github.com/MiCat-S/Mi302" target="_blank" rel="noopener" title="Mi302 在 GitHub 上，覺得好用請點個 Star" aria-label="Mi302 在 GitHub，點個 Star"><svg class="i"><use href="#i-github"/></svg><span>GitHub 點個 Star</span><svg class="i gold"><use href="#i-star"/></svg></a>
@@ -327,6 +330,9 @@ dialog .card-b{max-height:70vh;overflow:auto}
 
   <main>
     <div id="fileErr" class="banner hidden"><svg class="i"><use href="#i-alert"/></svg><span></span></div>
+    <div id="updBanner" class="banner info hidden" role="status"><svg class="i"><use href="#i-download"/></svg><span class="grow" id="updText"></span>
+      <a class="btn sm" href="#settings">看更新內容</a><button class="btn sm primary" id="updNow" onclick="updateServer()">立即更新</button>
+      <button class="btn sm ghost" onclick="dismissUpdate()" title="這一版先不提示">先不要</button></div>
 
     <!-- 概覽 -->
     <section id="tab-overview" class="page hidden" role="tabpanel" aria-labelledby="nav-overview">
@@ -704,6 +710,15 @@ dialog .card-b{max-height:70vh;overflow:auto}
       <div class="page-h">
         <div><h1>設定</h1><p class="sub">設定都存在設定檔 <code id="cfgPath"></code>，儲存時自動寫入（舊檔留成 .bak）。直接改檔案也可以，重新整理網頁就會套用。</p></div>
       </div>
+      <div class="card" id="srvCard">
+        <div class="card-h"><div class="t"><svg class="i"><use href="#i-download"/></svg><h2>版本與更新</h2></div>
+          <div class="row wrap gap6"><button class="btn" id="srvCheck" onclick="checkUpdate()">檢查更新</button><button class="btn" id="srvRestart" onclick="restartServer()">重新啟動</button></div></div>
+        <div class="card-b stack">
+          <div id="srvInfo" aria-live="polite"><p class="hint row"><span class="spin"></span>讀取中…</p></div>
+          <label class="switch"><input type="checkbox" data-key="server.update_check" onchange="saveToggle(this, loadServer)"><span class="track"></span><span class="lbl">自動檢查更新<small>每 6 小時向 GitHub 查一次，有新版時每一頁上方都會提示</small></span></label>
+          <p class="hint">網頁上的更新和終端機的 <code>mi302 update</code> 一樣下載新版、需要時安裝相依套件；新版啟動不了會退回原本的版本。安裝腳本管的服務設定、ffprobe 還是要用 <code>mi302 update</code> 更新。 <a class="doc" href="https://github.com/MiCat-S/Mi302/wiki/安裝#在網頁上更新和重新啟動" target="_blank" rel="noopener">說明</a></p>
+        </div>
+      </div>
       <div class="card">
         <div class="card-h"><div class="t"><h2>伺服器</h2></div></div>
         <div class="card-b stack">
@@ -958,6 +973,9 @@ async function boot() {
   catch (e) { return token ? bootFailed(e) : undefined; }  // token 被清掉是 401，api() 已經改顯示登入
   bootTries = 0;
   show('main'); route();
+  if (!location.hash.startsWith('#settings')) loadServer(true);  // 設定頁自己會讀
+  const done = sessionGet('mi302-done');
+  if (done) { sessionSet('mi302-done', ''); toast(done); }
 }
 function bootFailed(e) {
   const wait = Math.min(30, 3 * 2 ** Math.min(bootTries++, 3));  // 3、6、12、24、30 秒後再試
@@ -988,7 +1006,7 @@ async function login() {
 }
 async function logoutWeb() { try { await api('/Sessions/Logout', {method: 'POST'}); } catch (e) {} token = ''; localStorage.removeItem('mi302'); show('login'); }
 
-const PAGES = {overview: () => loadOverview(), libraries: () => loadLibs(), '115': () => load115(false), tools: () => loadTools(), moviepilot: () => loadMP(), users: () => loadUsers(), logs: () => loadLogs(true), settings: () => { loadBackups(); pollPeople(); }};
+const PAGES = {overview: () => loadOverview(), libraries: () => loadLibs(), '115': () => load115(false), tools: () => loadTools(), moviepilot: () => loadMP(), users: () => loadUsers(), logs: () => loadLogs(true), settings: () => { loadServer(); loadBackups(); pollPeople(); }};
 function route() {
   let tab = (location.hash || '#overview').slice(1);
   if (!PAGES[tab]) tab = 'overview';
@@ -2666,6 +2684,118 @@ async function resolvePeople() {
   try { const r = await api('/web/api/people/resolve', {method: 'POST'}); toast(r.started ? '開始查中文名' : '已經在查了'); }
   catch (e) { toast(e.message, 'bad'); }
   pollPeople();
+}
+
+// ---- 版本與更新、重新啟動 ----
+let srv = null;  // GET /web/api/server：版本、檢查結果、更新進度
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+function sessionGet(k) { try { return sessionStorage.getItem(k) || ''; } catch (e) { return ''; } }
+function sessionSet(k, v) { try { if (v) sessionStorage.setItem(k, v); else sessionStorage.removeItem(k); } catch (e) {} }
+function localGet(k) { try { return localStorage.getItem(k) || ''; } catch (e) { return ''; } }
+async function loadServer(quiet) {
+  try { srv = await api('/web/api/server'); }
+  catch (e) { if (quiet !== true) setHtml($('srvInfo'), failHtml(e)); return; }
+  renderServer();
+  // 更新中每 1.5 秒看一次進度；平常半小時看一次（伺服器每 6 小時查一次 GitHub）
+  later('srv', () => loadServer(true), srv.job.running || srv.check.checking ? 1500 : 30 * 60 * 1000);
+}
+function renderServer() {
+  const s = srv, c = s.check, j = s.job;
+  const ver = `<b>Mi302 ${esc(s.version)}</b>` + (s.commit ? `<code>${esc(s.commit.slice(0, 7))}</code><span class="hint">${fmtTime(s.date)}</span>` : '');
+  const state = j.running ? `<span class="pill accent"><span class="spin"></span>更新中</span><span class="hint">${esc(j.step)}…</span>`
+    : c.checking ? '<span class="pill"><span class="spin"></span>檢查中</span>'
+    : c.error ? `<span class="pill warn">檢查失敗</span><span class="hint">${esc(c.error)}</span>`
+    : c.available ? `<span class="pill accent">有新版本${c.behind ? `・${c.behind} 個更新` : ''}</span><span class="hint">上次檢查 ${ago(c.at)}</span>`
+    : c.at ? `<span class="pill ok">已是最新版</span><span class="hint">上次檢查 ${ago(c.at)}</span>`
+    : '<span class="hint">還沒檢查過更新</span>';
+  let h = `<div class="row wrap gap6">${ver}</div>${s.subject ? `<div class="hint mt4">這一版：${esc(s.subject)}</div>` : ''}<div class="row wrap gap6 mt10">${state}</div>`;
+  if (c.available && c.commits.length) {
+    const more = c.behind > c.commits.length ? `，只列最新 ${c.commits.length} 個` : '';
+    h += `<details class="more mt8" open><summary>更新內容（${c.behind} 個${more}）</summary><div class="in"><ul class="changes">` +
+      c.commits.map(x => `<li>${esc(x.subject)}<span class="hint">${fmtTime(x.date)}</span></li>`).join('') + '</ul></div></details>';
+  }
+  if (c.available && c.ahead) h += `<p class="notice warn mt8">本機有 ${c.ahead} 個 GitHub 上沒有的提交，更新會換成 GitHub 上的版本。</p>`;
+  if (j.error) h += `<p class="notice bad mt8">更新失敗：${esc(j.error)}</p>`;
+  else if (j.message && !j.running) h += `<p class="notice mt8">${esc(j.message)}</p>`;
+  if (j.patch) h += `<p class="hint mt8">自己改過的程式檔已備份成 <code>${esc(j.patch)}</code></p>`;
+  if (!s.can_update) h += `<p class="hint mt8">${esc(s.update_reason)}</p>`;
+  if (!s.can_restart) h += '<p class="hint mt8">Mi302 這次不是用 python -m embyserver 啟動的，網頁上不能重新啟動。</p>';
+  if (c.available && s.can_update) h += `<div class="row wrap mt10"><button class="btn primary" onclick="updateServer()"${j.running ? ' disabled' : ''}>${icon('download')}更新到最新版</button></div>`;
+  setHtml($('srvInfo'), h);
+  $('srvCheck').disabled = c.checking || j.running;
+  $('srvRestart').disabled = !s.can_restart || j.running;
+  renderUpdateBanner();
+}
+function renderUpdateBanner() {
+  // 每一頁上方的「有新版本」；按「先不要」的那一版不再提示，下一版還是會
+  const c = srv?.check, avail = !!c?.available;
+  const show = avail && !srv.job.running && localGet('mi302-skip') !== c.remote;
+  $('navUpd').classList.toggle('hidden', !avail);
+  $('updBanner').classList.toggle('hidden', !show);
+  if (!show) return;
+  const latest = c.commits[0]?.subject;
+  $('updText').textContent = `Mi302 有新版本${c.behind ? `（${c.behind} 個更新）` : ''}${latest ? '：' + latest : ''}`;
+  $('updNow').classList.toggle('hidden', !srv.can_update);
+}
+function dismissUpdate() {
+  try { localStorage.setItem('mi302-skip', srv.check.remote); } catch (e) {}
+  renderUpdateBanner();
+}
+async function checkUpdate() {
+  $('srvCheck').disabled = true;
+  if (srv) { srv.check.checking = true; renderServer(); }
+  try { srv = await api('/web/api/server/check', {method: 'POST'}); }
+  catch (e) { toast(e.message, 'bad'); return loadServer(); }
+  renderServer();
+  if (!srv.check.error) toast(srv.check.available ? `有新版本${srv.check.behind ? `（${srv.check.behind} 個更新）` : ''}` : '已經是最新版');
+}
+function busyText() { return srv?.busy?.length ? `正在進行的${srv.busy.join('、')}會中斷。` : ''; }
+async function updateServer() {
+  await loadServer(true);  // 最新的更新內容和正在進行的工作
+  const c = srv?.check;
+  if (!c?.available || !srv.can_update) return;
+  if (!await ask({title: `更新 Mi302${c.behind ? `（${c.behind} 個更新）` : ''}？`,
+    text: `下載新版，需要時安裝相依套件，確認新版能啟動後自動重新啟動，大約 10 秒到 1 分鐘；新版有問題會退回原本的版本。${busyText()}播放中的影片可能會斷一下。`,
+    ok: '更新', danger: !!srv.busy.length})) return;
+  const boot = srv.boot;
+  try { srv = await api('/web/api/server/update', {method: 'POST'}); } catch (e) { toast(e.message, 'bad'); return; }
+  renderServer();
+  cancel('srv');
+  for (;;) {  // 看進度；開始重新啟動（或已經連不上）就改等它回來
+    await sleep(1500);
+    let s;
+    try { s = await api('/web/api/server'); } catch (e) { return waitRestart(boot, 'Mi302 已更新'); }
+    if (s.boot !== boot || s.job.restarting) return waitRestart(boot, `Mi302 已更新到 ${s.job.new.slice(0, 7) || '最新版'}`);
+    srv = s; renderServer();
+    if (!s.job.running) { toast(s.job.error ? '更新失敗' : s.job.message || '更新完成', s.job.error ? 'bad' : ''); return loadServer(true); }
+  }
+}
+async function restartServer() {
+  await loadServer(true);
+  if (!srv?.can_restart) return;
+  if (!await ask({title: '重新啟動 Mi302？', text: `大約 5 到 10 秒後回來，播放中的影片可能會斷一下。${busyText()}`, ok: '重新啟動', danger: !!srv.busy.length})) return;
+  let s;
+  try { s = await api('/web/api/server/restart', {method: 'POST'}); } catch (e) { toast(e.message, 'bad'); return; }
+  waitRestart(s.boot, '已重新啟動');
+}
+async function waitRestart(oldBoot, done) {
+  // 等 Mi302 回來：boot 變了就是新的程序。網頁本身可能也更新了，所以整頁重新載入
+  for (const k in timers) cancel(k);
+  show('boot');
+  $('bootRetry').classList.add('hidden');
+  $('bootMsg').className = 'hint row';
+  $('bootMsg').innerHTML = '<span class="spin"></span>Mi302 重新啟動中，回來後自動重新載入…';
+  const end = Date.now() + 180000;
+  while (Date.now() < end) {
+    await sleep(1500);
+    try {
+      const s = await api('/web/api/server');
+      if (s.boot !== oldBoot) { sessionSet('mi302-done', done); location.reload(); return; }
+    } catch (e) {}
+  }
+  $('bootMsg').className = 'notice warn';
+  $('bootMsg').textContent = 'Mi302 三分鐘都沒有回來。請在伺服器上執行 mi302 status 看有沒有在執行，mi302 logs 看原因。';
+  $('bootRetry').classList.remove('hidden');
 }
 
 // ---- 備份 ----

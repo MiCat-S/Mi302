@@ -85,6 +85,8 @@ After a one-line install, manage Mi302 with `mi302`:
 | `mi302 update` | Update to the latest version; settings and data are kept |
 | `mi302 reset-password admin <new password>` | Reset a forgotten password |
 
+Checking for updates, updating and restarting also work from the **Version and updates** (版本與更新) card on the Settings page; when a new version is out, every page shows a notice.
+
 ## License
 
 Mi302 is licensed under the [PolyForm Noncommercial License 1.0.0](LICENSE.md). **Commercial use is not allowed.**

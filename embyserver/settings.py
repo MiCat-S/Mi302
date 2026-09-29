@@ -32,6 +32,7 @@ TASKS_META_KEY = "p115_strm_tasks"
 # 網頁可修改的欄位；port、host、data_dir 牽涉啟動方式，不開放在網頁改
 SERVER_FIELDS = (
     "name", "public_users", "log_level", "backup_keep", "chinese_people", "chinese_genres", "intro_skip", "allow_download",
+    "update_check",
 )
 STRM_FIELDS = (
     "base_url", "include_name", "download_metadata", "delete_stale",

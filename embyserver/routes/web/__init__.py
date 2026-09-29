@@ -5,12 +5,13 @@
 - intro：片頭片尾
 - moviepilot：刮削、補全缺集、交給 MoviePilot 整理集號
 - p115：瀏覽 115、回收站、重複檔案、媒體資訊
+- server：版本、檢查更新、更新、重新啟動
 """
 
 from fastapi import APIRouter
 
-from . import intro, moviepilot, p115, scan, setup
+from . import intro, moviepilot, p115, scan, server, setup
 
 router = APIRouter()
-for _module in (setup, scan, p115, moviepilot, intro):
+for _module in (setup, scan, p115, moviepilot, intro, server):
     router.include_router(_module.router)

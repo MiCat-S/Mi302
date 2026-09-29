@@ -2,12 +2,16 @@
 
 import argparse
 import logging
+import os
+import sys
+import threading
 
 import uvicorn
 
 from . import logs
 from .app import create_app
 from .config import load_config
+from .updater import restart_argv, restart_env
 
 
 def main() -> None:
@@ -39,11 +43,26 @@ def main() -> None:
     if args.scan:
         app.state.scanner.scan_all()
         return
-    # 不讓 uvicorn 另外設定日誌，它的訊息才會進日誌檔和網頁；請求紀錄由 app 自己記（詳細模式）
-    uvicorn.run(
+    # 不讓 uvicorn 另外設定日誌，它的訊息才會進日誌檔和網頁；請求紀錄由 app 自己記（詳細模式）。
+    # 停下時進行中的請求（例如播放器在串流本機影片）最多等 5 秒
+    server = uvicorn.Server(uvicorn.Config(
         app, host=config.server.host, port=config.server.port, proxy_headers=True, forwarded_allow_ips="*",
-        log_config=None, access_log=False,
-    )
+        log_config=None, access_log=False, timeout_graceful_shutdown=5,
+    ))
+    restart = threading.Event()
+
+    def request_restart() -> None:
+        """網頁上的「重新啟動」「更新」：請 uvicorn 停下，停好之後 exec 自己。"""
+        restart.set()
+        server.should_exit = True
+
+    app.state.updater.restart_cb = request_restart
+    server.run()
+    if restart.is_set():
+        # 同一個程序編號換成新程式：systemd、launchd、背景執行（pid 檔）都不用另外處理
+        logging.getLogger(__name__).info("重新啟動 Mi302")
+        logging.shutdown()
+        os.execve(sys.executable, restart_argv(), restart_env())
 
 
 if __name__ == "__main__":

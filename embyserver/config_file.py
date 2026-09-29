@@ -59,6 +59,7 @@ def render(config: Config) -> str:
         _kv("  chinese_genres", s.chinese_genres, "類型顯示中文（Action → 动作），繁體換成簡體；關掉後重新掃描即還原"),
         _kv("  intro_skip", s.intro_skip, "從播放行為學片頭片尾（開頭跳過一段、片尾切下一集），給播放器「跳過片頭」用"),
         _kv("  allow_download", s.allow_download, "播放器可以下載影片（要登入）；關掉後播放器不顯示下載"),
+        _kv("  update_check", s.update_check, "每 6 小時向 GitHub 查一次有沒有新版，有的話網頁上提示"),
         "",
         "# 第一次啟動時預先建立的帳號；之後新增帳號、改密碼請用網頁，不會寫回這裡",
     ]

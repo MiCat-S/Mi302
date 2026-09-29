@@ -260,6 +260,24 @@ git pull
 
 Then restart Mi302. With the systemd unit above, run `sudo systemctl restart mi302`.
 
+### Updating and restarting from the web page
+
+If you used the one-line installer (or your own `git clone`), you don't need a terminal: use the **Version and updates** (版本與更新) card at the top of the Settings (設定) page.
+
+- Current version: version number, commit, date and the title of this version.
+- **Check for updates** (檢查更新) asks GitHub right away. With **Check for updates automatically** (自動檢查更新) on (the default; `server.update_check` in the config file), Mi302 checks one minute after it starts and every 6 hours after that.
+- When there is a new version, a notice appears at the top of every page and a dot appears next to Settings in the sidebar; the card lists the title of every update. **Not now** (先不要) on the notice hides it for that version only; the next version is announced again.
+- **Update to the latest version** (更新到最新版), or **Update now** (立即更新) on the notice, downloads the new version like `mi302 update`, installs dependencies when `requirements.txt` changed, and first tries to load the new version. If any step fails, Mi302 goes back to the previous version and does not restart; the page keeps working and the card shows why. Otherwise Mi302 restarts by itself and the page reloads once it is back, which takes about 10 seconds to a minute. Files you changed in the program folder are saved as `local-changes-*.patch` first, as with `mi302 update`.
+- **Restart** (重新啟動) only restarts, in about 5 to 10 seconds. A running 115 sync, scan, scrape or reorganisation is interrupted; the confirmation lists them. Playing videos may stall briefly.
+
+The web update only replaces the program and its dependencies. What the installer manages (the systemd or launchd service definition, ffprobe, the Python version) still needs `mi302 update` in a terminal. In these cases the card explains why and you need `mi302 update`:
+
+- Installed from a ZIP download (the program folder is not a git checkout).
+- `git` is not installed on the machine.
+- The account Mi302 runs as may not modify the program folder or `.venv` (for example `--user` names another account while the program folder belongs to root).
+
+Restarting means Mi302 stops and starts itself again with the same command and the same process ID, so it works under systemd, launchd, and the background mode used without systemd. If it is not back after three minutes, the page tells you to check `mi302 status` and `mi302 logs` on the server.
+
 ## Uninstalling
 
 ```bash
