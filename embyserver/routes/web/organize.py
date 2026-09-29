@@ -66,7 +66,7 @@ def organize_unpin(unit_id: str, request: Request, ctx: AuthContext = Depends(re
 
 @router.post("/web/api/115/organize/preview")
 async def organize_preview(request: Request, ctx: AuthContext = Depends(require_admin)):
-    """請 MoviePilot 只算不做：{id, parts: {部分: {type: tv|movie, tmdbid, season, format}}, target: parent|auto|path,
+    """請 MoviePilot 只算不做：{id, parts: {部分: {type: tv|movie, tmdbid, season, format}}, target: auto（預設）|parent|path,
     target_path, scrape}，沒指定的讓 MoviePilot 自己認。回傳每個檔案的新位置、它認成什麼和 Mi302 的檢查；
     有能整理的就給預覽代碼 token，用 POST /web/api/115/organize/execute 執行。"""
     st = state(request)

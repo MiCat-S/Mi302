@@ -532,13 +532,13 @@ class Organizer:
     def preview(self, unit_id: str, overrides: Dict[str, dict], target: str = "", target_path: str = "",
                 scrape: bool = True) -> dict:
         """請 MoviePilot 只算不做，一個部分一次。overrides：{部分: {type, tmdbid, season, format}}，沒給的讓它自己認。
-        target：parent（同一層，同步目錄裡的預設）、auto（照 MoviePilot 的目錄設定，同步目錄外的預設）、path（target_path）。"""
+        target：auto（照 MoviePilot 的目錄設定，預設）、parent（同一層）、path（target_path）。"""
         unit = self.unit(unit_id)
         try:
             self.mp.check_transfer_preview()  # 舊版 MoviePilot 會把預覽當成真的整理
         except MoviePilotError as exc:
             raise OrganizeError(str(exc))
-        target = target or ("parent" if unit.in_sync else "auto")
+        target = target or "auto"
         if target == "path":
             dest = "/" + str(target_path or "").strip().strip("/")
             if dest == "/":

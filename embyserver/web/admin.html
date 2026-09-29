@@ -502,6 +502,9 @@ dialog .card-b{max-height:70vh;overflow:auto}
             <div id="ogInfo"></div>
             <div class="row wrap gap6"><input id="ogQ" type="search" class="grow" placeholder="搜尋資料夾名稱或路徑" aria-label="搜尋資料夾" oninput="soon('og', () => organizeLoad(1), 400)">
               <select id="ogKind" class="w-auto" aria-label="種類" onchange="organizeLoad(1)"><option value="">劇集和電影</option><option value="series">只看劇集</option><option value="movie">只看電影</option><option value="episodes">只看集號不對的</option></select></div>
+            <div class="row wrap gap6"><span class="hint">全部整理到</span><select id="ogTarget" class="w-auto" aria-label="全部整理到" onchange="organizeTargetAll()"><option value="auto">照 MoviePilot 的目錄設定</option><option value="parent">同一層</option><option value="path">指定的 115 資料夾</option></select>
+              <input id="ogTargetPath" type="text" class="hidden" placeholder="/影視/電視劇" aria-label="全部整理到的 115 資料夾" onchange="organizeTargetAll()"><button class="btn sm hidden" id="ogTargetPick" onclick="organizeTargetPick()">選擇…</button>
+              <span class="hint">每一列還是可以自己改</span></div>
           </div>
           <div id="ogPinned" class="list"></div>
           <div id="ogList" class="list"></div>
@@ -2292,7 +2295,27 @@ async function deleteUnit(u) {
 const OG_PAGE = 30;
 const OG_KIND = {series: '劇集', movie: '電影', movie_file: '電影', folder: '資料夾'};
 // state：資料夾 id → 勾選、整理到哪、每一部分指定的類型／TMDB／季／集數定位（空的讓 MoviePilot 自己認）、預覽結果
-let og = {page: 1, seq: 0, items: [], pinned: [], ready: null, state: {}};
+let og = {page: 1, seq: 0, items: [], pinned: [], ready: null, state: {},
+  target: localGet('mi302-og-target') || 'auto', targetPath: localGet('mi302-og-target-path')};  // 「全部整理到」，記在這個瀏覽器
+function organizeTargetUi() {
+  $('ogTarget').value = og.target; $('ogTargetPath').value = og.targetPath;
+  for (const id of ['ogTargetPath', 'ogTargetPick']) $(id).classList.toggle('hidden', og.target !== 'path');
+}
+function organizeTargetAll() {
+  // 全部整理到：沒有自己改過的每一列都跟著換，之前的預覽作廢
+  og.target = $('ogTarget').value; og.targetPath = $('ogTargetPath').value.trim();
+  try { localStorage.setItem('mi302-og-target', og.target); localStorage.setItem('mi302-og-target-path', og.targetPath); } catch (e) {}
+  organizeTargetUi();
+  for (const st of Object.values(og.state)) {
+    if (st.targetCustom || st.sent) continue;
+    st.target = og.target; st.targetPath = og.targetPath; st.preview = null; st.error = '';
+  }
+  organizeLoad(og.page, true);
+}
+async function organizeTargetPick() {
+  const v = await pickDir('115', $('ogTargetPath').value || '/');
+  if (v) { $('ogTargetPath').value = v; organizeTargetAll(); }
+}
 function organizeLack() {
   const r = og.ready || {};
   return !r.moviepilot ? '還沒設定 MoviePilot：到「MoviePilot」頁填網址和 API 令牌' : !r.login ? '問 MoviePilot、交給它整理都要帳號登入：到「MoviePilot」頁填帳號密碼'
@@ -2341,6 +2364,7 @@ async function organizeLoad(page, quiet) {
   if (seq !== og.seq) return;
   og.ready = r.ready; og.items = r.items; og.pinned = r.pinned; S.reo = r.reorg_job;
   note($('ogMsg'), organizeLack(), 'warn');
+  organizeTargetUi();
   organizeProgress(r);
   const c = r.counts, n = c.series + c.movie;
   $('ogHead').classList.toggle('hidden', !n && !r.pinned.length);
@@ -2358,7 +2382,7 @@ async function organizeLoad(page, quiet) {
   if (r.reorg_job.running) pollReorgJob();
 }
 function ogState(u) {
-  const st = og.state[u.id] ||= {on: false, parts: {}, target: u.in_sync ? 'parent' : 'auto', targetPath: '', preview: null, error: '', sent: false};
+  const st = og.state[u.id] ||= {on: false, parts: {}, target: og.target, targetPath: og.targetPath, targetCustom: false, preview: null, error: '', sent: false};
   for (const p of u.parts) st.parts[p.key] ||= {type: '', tmdbid: '', season: '', format: ''};  // 預設全部讓 MoviePilot 自己認
   st.unit = u;
   return st;
@@ -2377,7 +2401,7 @@ function organizeRow(u) {
     ${u.mp_name && u.mp_name !== u.name ? `<div class="ogmap mt6">MoviePilot 會整理成 <b>${esc(u.mp_name)}</b>${u.merge_into ? '（旁邊已經有，會併進去）' : ''}</div>` : ''}
     ${files.map(f => `<div class="ogmap">${esc(ogStem(f[0]))} → <b>${esc(ogStem(f[1]))}</b></div>`).join('')}
     ${u.error ? '<p class="hint mt6">在下面指定類型和 TMDB 編號再預覽，或到 115 上改名稱讓 MoviePilot 認得出來</p>' : ''}
-    <div class="row wrap gap6 mt8"><span class="hint">整理到</span><select class="sm js-target" aria-label="整理到哪裡"><option value="parent">同一層</option><option value="auto">照 MoviePilot 的目錄設定</option><option value="path">指定的 115 資料夾</option></select>
+    <div class="row wrap gap6 mt8"><span class="hint">整理到</span><select class="sm js-target" aria-label="整理到哪裡"><option value="auto">照 MoviePilot 的目錄設定</option><option value="parent">同一層</option><option value="path">指定的 115 資料夾</option></select>
       <input class="sm js-tpath" type="text" placeholder="/影視/電視劇" aria-label="整理到的 115 資料夾"><button class="btn sm js-tpick">選擇…</button></div>
     <div class="ogparts">${u.parts.map(p => `<div class="ogpart" data-key="${esc(p.key)}"><div class="row wrap gap6"><span>${esc(p.label)}${p.videos != null ? `<span class="hint">（${p.videos} 支）</span>` : ''}</span>
       <span class="hint js-sum"></span><button class="btn sm ghost js-ovr-btn" aria-expanded="false">指定…</button><span class="js-rec hint"></span></div>
@@ -2391,9 +2415,10 @@ function organizeRow(u) {
   target.value = st.target; tpath.value = st.targetPath;
   const showTarget = () => { for (const el of [tpath, tpick]) el.classList.toggle('hidden', target.value !== 'path'); };
   showTarget();
-  target.onchange = () => { st.target = target.value; showTarget(); organizeReset(st); };
-  tpath.oninput = () => { st.targetPath = tpath.value.trim(); organizeReset(st); };
-  tpick.onclick = async () => { const v = await pickDir('115', tpath.value || u.parent); if (v) { tpath.value = v; st.targetPath = v; organizeReset(st); } };
+  // 這一列自己改過就不再跟著「全部整理到」
+  target.onchange = () => { st.target = target.value; st.targetCustom = true; showTarget(); organizeReset(st); };
+  tpath.oninput = () => { st.targetPath = tpath.value.trim(); st.targetCustom = true; organizeReset(st); };
+  tpick.onclick = async () => { const v = await pickDir('115', tpath.value || u.parent); if (v) { tpath.value = v; st.targetPath = v; st.targetCustom = true; organizeReset(st); } };
   for (const row of d.querySelectorAll('.ogpart')) {
     // 平常只顯示「自動」和 MoviePilot 認成什麼；按「指定…」才展開類型、TMDB、季、集數定位
     const o = st.parts[row.dataset.key], [type, tmdb, season, fmt, rec, ovr, btn, sum] =

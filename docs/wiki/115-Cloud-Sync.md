@@ -300,7 +300,7 @@ In **Browse 115** (瀏覽 115), **Organise this folder…** (整理這個資料�
 
 ### What to check for each entry
 
-- **Organise into** (整理到): **the same parent folder** (同一層), the default inside the sync folders; **MoviePilot's directory settings** (照 MoviePilot 的目錄設定), the default outside them, using its library folders, categories and overwrite settings; or **a given 115 folder** (指定的 115 資料夾).
+- **Organise into** (整理到): **MoviePilot's directory settings** (照 MoviePilot 的目錄設定), the default, using its library folders, categories and overwrite settings; **the same parent folder** (同一層); or **a given 115 folder** (指定的 115 資料夾). **Organise everything into** (全部整理到) above the list changes all entries at once; an entry you changed yourself no longer follows it. The choice is remembered in this browser.
 - **Each part**: a folder with subfolders is sent one subfolder at a time, plus once for the videos lying directly in it (a subfolder may be a different title, like "虚天战纪.导演剪辑版 (2025) [tmdb-282348]" inside the 凡人修仙传 folder). Each part defaults to **Let MoviePilot recognise it** (讓 MoviePilot 自己認); **Set…** (指定…) lets you set the type, TMDB ID, season and episode format for that part only.
 - **Episode format** (集數定位): for when MoviePilot cannot find the episode number (e.g. "10.xxx.mp4"). `{ep}` marks the episode number and `{a}`, `{b}` any text, e.g. `{ep}.{a}`. **Recommend** (推薦) asks MoviePilot first; only if it cannot recommend one does Mi302 offer its own guess from the file names, and it says which one you got.
 
@@ -314,7 +314,7 @@ Mi302 also blocks what MoviePilot itself does not:
 - Two files organised to the same location: a note says only one will stay.
 - For files that were outside the sync folders to begin with, a new location outside them only gives the note that Mi302 will not create strm files for them.
 
-The preview cannot tell you whether the target already has the same episode (MoviePilot's preview does not check). When organising into the same parent folder or a given folder, MoviePilot does not overwrite existing files, so that episode is skipped and stays where it was.
+The preview cannot tell you whether the target already has the same episode (MoviePilot's preview does not check). When organising into the same parent folder or a given folder, MoviePilot does not overwrite existing files, so that episode is skipped and stays where it was; with its directory settings, that directory's overwrite setting applies.
 
 ### Running it
 

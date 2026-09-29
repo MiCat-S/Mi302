@@ -239,8 +239,9 @@ def name_calls(mp):
 
 
 def preview(c, h, unit, parts=None, **extra):
-    return c.post("/web/api/115/organize/preview", json={"id": unit["id"], "parts": parts or {}, "scrape": False, **extra},
-                  headers=h)
+    """預設整理到同一層（假 MoviePilot 的目錄設定在同步目錄外的 /媒體庫）。"""
+    body = {"id": unit["id"], "parts": parts or {}, "scrape": False, "target": "parent", **extra}
+    return c.post("/web/api/115/organize/preview", json=body, headers=h)
 
 
 def sent_bodies(mp):
@@ -453,7 +454,7 @@ def test_folder_picked_in_browse(tmp_path: Path):
     r = listing(c, h)
     assert [u["id"] for u in r["pinned"]] == ["d200"] and "d200" not in [u["id"] for u in r["items"]]
     mp.calls.clear()
-    pv = preview(c, h, unit).json()
+    pv = c.post("/web/api/115/organize/preview", json={"id": unit["id"], "scrape": False}, headers=h).json()  # 沒指定：照目錄設定
     sent = sent_bodies(mp)[0]
     assert pv["target"] == "auto" and "target_path" not in sent and sent["fileitem"]["fileid"] == "200"
     assert pv["summary"]["ok"] == 2 and all("Mi302 不會替它產生 strm" in i["warnings"][0] for i in pv["items"])
