@@ -19,6 +19,9 @@ Mi302 再用增量同步把本機的 strm 跟著搬過去。以後哪個工具�
 也可以整理「瀏覽 115」裡選的任何一個資料夾（folder_plan）：資料夾裡（含子資料夾）的影片，最多 500 支。
 類型、TMDB 編號、季都可以不填，讓 MoviePilot 自己辨識；檔名看不出集號的照樣送（可能是電影）。
 原本在同步目錄裡的檔案不能搬出同步目錄；原本不在的只提醒。
+
+「合併重複的資料夾」（folder_merge）用的也是資料夾整理：幾個預覽一起執行，預覽時多檢查新位置是不是在
+目標資料夾裡（expect_dir），執行完把沒有影片留下的舊資料夾移到 115 回收站（cleanup）。
 """
 
 from __future__ import annotations
@@ -337,7 +340,7 @@ class Reorganizer:
         groups = self._group(files, recommend=False)
         plan_id = f"f{cid}"
         in_sync = sum(1 for f in files if f.local)
-        self._save_plan(plan_id, "folder", files, groups, title=path, remote_parent=posixpath.dirname(path))
+        self._save_plan(plan_id, "folder", files, groups, title=path, remote_parent=posixpath.dirname(path), cid=cid)
         return {
             "plan_id": plan_id, "mode": "folder", "path": path, "name": posixpath.basename(path),
             "remote_parent": posixpath.dirname(path), "tmdbid": str(_folder_tmdbid(lib, path)), "type": mtype,
@@ -374,8 +377,11 @@ class Reorganizer:
     # ---------------- 預覽 ----------------
 
     def preview(self, plan_id: str, tmdbid: str, mtype: str, season: Optional[int], target: str, target_path: str,
-                scrape: bool, groups: List[dict]) -> dict:
-        """請 MoviePilot 只算不做，列出每個檔案的新位置和 Mi302 的檢查；有可以整理的檔案就給一個預覽代碼。"""
+                scrape: bool, groups: List[dict], expect_dir: str = "") -> dict:
+        """請 MoviePilot 只算不做，列出每個檔案的新位置和 Mi302 的檢查；有可以整理的檔案就給一個預覽代碼。
+
+        expect_dir：新位置應該在這個 115 資料夾裡（合併重複的資料夾時是帶 tmdbid 的那個），不在就提醒。
+        """
         plan = self._load_plan(plan_id)
         folder = plan["mode"] == "folder"
         tmdbid = str(tmdbid or "").strip()
@@ -392,7 +398,7 @@ class Reorganizer:
         except MoviePilotError as exc:
             raise ReorgError(str(exc))
         run = {"tmdbid": tmdbid or None, "season": season, "scrape": scrape, "target_path": target_path,
-               "mtype": type_name}
+               "mtype": type_name, "expect_dir": "/" + str(expect_dir or "").strip().strip("/") if expect_dir else ""}
         roots = [remote_root(t) for t in self.strm_sync.tasks]
         items: List[dict] = []
         batches: List[dict] = []
@@ -458,7 +464,7 @@ class Reorganizer:
         by_source = {r.get("source"): r for r in results}
         ok = []
         for f in send:
-            view = self._view(f, by_source.get(f.remote) or {}, template, plan, roots)
+            view = self._view(f, by_source.get(f.remote) or {}, template, plan, roots, expect_dir=run["expect_dir"])
             items.append(view)
             if view["ok"]:
                 ok.append(f.file_id)
@@ -471,11 +477,12 @@ class Reorganizer:
         self._previews = {k: v for k, v in self._previews.items() if now - v["at"] < PREVIEW_TTL}
         if token:
             self._previews[token] = {**payload, "at": now, "title": plan["title"], "mode": plan["mode"],
-                                     "files": plan["files"]}
+                                     "files": plan["files"], "cid": plan.get("cid")}
         return token
 
     @staticmethod
-    def _view(f: _File, r: dict, template: Optional[str], plan: dict, roots: List[str], fail: str = "") -> dict:
+    def _view(f: _File, r: dict, template: Optional[str], plan: dict, roots: List[str], fail: str = "",
+              expect_dir: str = "") -> dict:
         """一個檔案的預覽結果，加上 Mi302 自己的檢查。"""
         target = str(r.get("target") or r.get("target_dir") or "")
         expected = template_episode(template, f.name) if template else f.episode
@@ -490,6 +497,9 @@ class Reorganizer:
                 warnings.append("新位置不在 Mi302 的 115 同步目錄裡，Mi302 不會替它產生 strm")
         if ok and season_mode and not target.startswith(plan["remote_series"].rstrip("/") + "/"):
             warnings.append("會搬到別的劇集資料夾，不是現在的「" + posixpath.basename(plan["remote_series"]) + "」")
+        if ok and expect_dir and not target.startswith(expect_dir.rstrip("/") + "/"):
+            warnings.append(f"新位置不在目標資料夾「{posixpath.basename(expect_dir)}」裡：MoviePilot 命名設定產生的"
+                            "資料夾名稱和它不同，整理後會多一個資料夾")
         if ok and expected is not None and episode is not None and episode != expected:
             warnings.append(f"MoviePilot 認成第 {episode} 集，檔名看起來是第 {expected} 集")
         if ok and season_mode and episode is None:
@@ -501,49 +511,45 @@ class Reorganizer:
 
     # ---------------- 執行 ----------------
 
-    def execute_in_background(self, token: str) -> None:
-        pv = self._previews.get(token or "")
-        if not pv or time.time() - pv["at"] > PREVIEW_TTL:
-            raise ReorgError("預覽已經過期或不存在，請重新預覽")
+    def execute_in_background(self, tokens: List[str], cleanup: Optional[List[dict]] = None) -> None:
+        """照一個或幾個預覽執行（合併重複的資料夾時一次好幾個）。
+
+        cleanup：[{cid, path}]，整理完沒有影片留下就移到 115 回收站；只能是這次執行的資料夾整理的來源資料夾。
+        """
+        now = time.time()
+        previews: List[dict] = []
+        for token in tokens:
+            pv = self._previews.get(str(token or ""))
+            if not pv or now - pv["at"] > PREVIEW_TTL:
+                raise ReorgError("預覽已經過期或不存在，請重新預覽")
+            previews.append(pv)
+        if not previews:
+            raise ReorgError("沒有要執行的預覽")
+        folders = {pv.get("cid") for pv in previews if pv["mode"] == "folder"}
+        cleanup = [{"cid": int(c["cid"]), "path": str(c.get("path") or "")} for c in cleanup or []]
+        if any(c["cid"] not in folders for c in cleanup):
+            raise ReorgError("只能清掉這次整理的來源資料夾")
         if not self._lock.acquire(blocking=False):
             raise ReorgError("已經有一批在整理，等它完成再執行")
-        self._previews.pop(token, None)
-        total = sum(len(b["file_ids"]) for b in pv["batches"])
-        self.job = ReorgJob(running=True, started=time.time(), title=pv["title"], total=total)
-        threading.Thread(target=self._run, args=(pv,), daemon=True).start()
+        for token in tokens:
+            self._previews.pop(str(token), None)
+        total = sum(len(b["file_ids"]) for pv in previews for b in pv["batches"])
+        title = previews[0]["title"] if len(previews) == 1 else f"合併 {len(previews)} 個資料夾"
+        self.job = ReorgJob(running=True, started=time.time(), title=title, total=total)
+        threading.Thread(target=self._run, args=(previews, cleanup), daemon=True).start()
 
-    def _run(self, pv: dict) -> None:
+    def _run(self, previews: List[dict], cleanup: List[dict]) -> None:
         job = self.job
-        moved: List[_File] = []
         try:
-            for batch in pv["batches"]:
-                files = [pv["files"][i] for i in batch["file_ids"]]
-                job.current = f"MoviePilot 整理中（{len(files)} 個檔案）"
-                try:
-                    results = self.mp.transfer([self._item(f) for f in files], pv["tmdbid"] or None, pv["season"],
-                                               batch["template"], pv["scrape"], pv["target_path"], preview=False,
-                                               mtype=pv["type_name"], timeout=max(300, 60 * len(files)))
-                except MoviePilotError as exc:
-                    job.errors.append(str(exc))
-                    job.failed += len(files)
-                    log.warning("MoviePilot 整理失敗：%s", exc)
-                    continue
-                by_source = {r.get("source"): r for r in results}
-                for f in files:
-                    r = by_source.get(f.remote) or {}
-                    state = str(r.get("state") or ("completed" if r.get("success") else "failed"))
-                    job.items.append({"name": f.name, "state": state, "target": r.get("target") or "",
-                                      "message": r.get("message") or ""})
-                    if state in ("completed", "accepted"):
-                        job.done += 1
-                        moved.append(f)
-                    else:
-                        job.failed += 1
-            for f in moved:
+            moved: List[Tuple[_File, dict]] = []
+            for pv in previews:
+                moved += [(f, pv) for f in self._run_preview(pv, job)]
+            for f, pv in moved:
                 if f.local:
                     self._drop_stale_nfo(Path(f.local), strict=pv["mode"] == "folder")
-            self._plans.pop(pv["plan_id"], None)
             log.info("MoviePilot 整理 %s：%s 個完成，%s 個失敗", job.title, job.done, job.failed)
+            if cleanup:
+                self._remove_empty_folders(cleanup, job)
             if moved:
                 job.current = f"等 115 記下變動，{int(self.sync_delay)} 秒後同步"
                 time.sleep(self.sync_delay)
@@ -556,6 +562,66 @@ class Reorganizer:
             job.running = False
             job.finished = time.time()
             self._lock.release()
+
+    def _run_preview(self, pv: dict, job: ReorgJob) -> List[_File]:
+        """照一個預覽送 MoviePilot 整理，一批一批送；回傳整理好（或已接收）的檔案。"""
+        moved: List[_File] = []
+        for batch in pv["batches"]:
+            files = [pv["files"][i] for i in batch["file_ids"]]
+            job.current = f"MoviePilot 整理中（{len(files)} 個檔案）"
+            try:
+                results = self.mp.transfer([self._item(f) for f in files], pv["tmdbid"] or None, pv["season"],
+                                           batch["template"], pv["scrape"], pv["target_path"], preview=False,
+                                           mtype=pv["type_name"], timeout=max(300, 60 * len(files)))
+            except MoviePilotError as exc:
+                job.errors.append(str(exc))
+                job.failed += len(files)
+                log.warning("MoviePilot 整理失敗：%s", exc)
+                continue
+            by_source = {r.get("source"): r for r in results}
+            for f in files:
+                r = by_source.get(f.remote) or {}
+                state = str(r.get("state") or ("completed" if r.get("success") else "failed"))
+                job.items.append({"name": f.name, "state": state, "target": r.get("target") or "",
+                                  "message": r.get("message") or ""})
+                if state in ("completed", "accepted"):
+                    job.done += 1
+                    moved.append(f)
+                else:
+                    job.failed += 1
+        self._plans.pop(pv["plan_id"], None)
+        return moved
+
+    def _remove_empty_folders(self, folders: List[dict], job: ReorgJob) -> None:
+        """整理完的來源資料夾沒有影片留下就移到 115 回收站（可以還原）；還有影片（整理失敗、目標已有同一集）就留著。"""
+        for c in folders:
+            path = c["path"] or f"資料夾 {c['cid']}"
+            job.current = f"檢查舊資料夾 {path}"
+            try:
+                left = self._videos_left(c["cid"])
+                if left:
+                    job.items.append({"name": path, "state": "kept", "target": "",
+                                      "message": f"還有 {left} 支影片（整理失敗或目標已有同一集的會留在原處），資料夾保留"})
+                    continue
+                self.p115.delete_files([c["cid"]])
+                job.items.append({"name": path, "state": "removed", "target": "", "message": "沒有影片留下，已移到 115 回收站"})
+                log.info("合併後的舊資料夾移到 115 回收站：%s", path)
+            except P115Error as exc:
+                job.items.append({"name": path, "state": "kept", "target": "", "message": f"資料夾保留：{exc}"})
+
+    def _videos_left(self, cid: int) -> int:
+        """資料夾（含子資料夾）裡還有幾支影片。"""
+        delay = getattr(self.strm_sync.cfg, "request_delay", 0) or 0
+        left, stack = 0, [cid]
+        while stack:
+            for e in self.p115.list_dir(stack.pop()):
+                if e["is_dir"]:
+                    stack.append(e["id"])
+                elif posixpath.splitext(e["name"])[1].lower() in VIDEO_EXTS:
+                    left += 1
+            if stack and delay:
+                time.sleep(delay)
+        return left
 
     @staticmethod
     def _drop_stale_nfo(strm: Path, strict: bool = False) -> None:

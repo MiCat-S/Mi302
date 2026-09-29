@@ -245,6 +245,8 @@ Besides the seasons listed on this card, you can pick any folder in **Browse 115
 - Files that are currently inside a sync folder may not move outside the sync folders, or they would disappear from the library. For files that were outside the sync folders to begin with, a new location outside them only gives the note that Mi302 will not create strm files for them.
 - Afterwards only local nfo files with `-1` numbers are deleted; movie nfo files and others stay.
 
+**Merge duplicate folders** (合併重複的資料夾) on the 115 tab uses the same flow: it finds folders on the same level whose names are identical except for a `{tmdbid=…}` tag, organises the untagged one into the tagged one, runs several groups together and can move old folders with no videos left to the 115 recycle bin afterwards; see [115 cloud sync](115-Cloud-Sync#merging-duplicate-folders).
+
 ## Add Mi302 to MoviePilot as Emby
 
 MoviePilot can add Mi302 as a media server. It uses it to check what you already have, and to notify Mi302 to rescan after organising files.

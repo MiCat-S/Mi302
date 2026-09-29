@@ -10,6 +10,7 @@ from starlette.concurrency import run_in_threadpool
 
 from ...auth import AuthContext, require_admin
 from ...browse115 import list_folder
+from ...folder_merge import duplicate_folders
 from ...p115 import P115Error
 from ...p115_open import P115OpenError
 from ...probe_select import ProbeFilter, missing_paths, missing_titles, title_names
@@ -39,6 +40,15 @@ def browse_115_files(request: Request, ctx: AuthContext = Depends(require_admin)
         return list_folder(st.p115, st.db, st.strm_sync.tasks, cid, path)
     except (P115Error, P115OpenError) as exc:
         raise HTTPException(status_code=400, detail=f"讀不到 115：{exc}")
+
+
+@router.get("/web/api/115/duplicate-folders")
+def duplicate_folder_groups(request: Request, ctx: AuthContext = Depends(require_admin)):
+    """同一層底下同名、一個帶 {tmdbid=…} 一個沒有的資料夾，依 115 同步紀錄比對（不向 115 請求）。
+    附上整理缺什麼設定（ready）和目前的整理工作（job）。"""
+    st = state(request)
+    return {"groups": duplicate_folders(st.db, st.strm_sync.tasks, st.config.libraries),
+            "ready": st.reorganizer.ready(), "job": st.reorganizer.job.as_dict()}
 
 
 @router.get("/web/api/115/recyclebin")

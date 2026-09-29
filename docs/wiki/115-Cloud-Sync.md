@@ -269,6 +269,24 @@ Marks next to a video:
 
 If a folder looks wrong, click **Reorganise this folder with MoviePilot…** (交給 MoviePilot 整理這個資料夾…), or **Reorganise…** on a subfolder. MoviePilot renames, moves and scrapes the files on 115, again with a preview before anything runs; see [MoviePilot](MoviePilot#reorganising-a-folder-on-115).
 
+## Merging duplicate folders
+
+The same title sometimes has two folders on 115: one whose name carries `{tmdbid=6836}` (organised by MoviePilot) and one without, for example:
+
+```
+/TV/Variety/康熙来了 (2004)
+/TV/Variety/康熙来了 (2004) {tmdbid=6836}
+```
+
+The **Merge duplicate folders** (合併重複的資料夾) card on the 115 tab hands the folder without a tmdbid to MoviePilot to be organised into the one that has it.
+
+1. Click **Find duplicate folders** (找出重複的資料夾). Mi302 compares the directory tree in its 115 sync records without asking 115: folders under the same parent whose names are identical once the tmdbid tag is removed form a group, and a group needs at least one folder with the tag and one without. Full-width brackets, letter case and extra spaces do not matter; a different year counts as a different show. Only folders inside the sync tasks that contain videos are considered, so run a full sync first for accurate results.
+2. Each group shows the source (no tmdbid) → the target (with tmdbid), how many videos each has, and the type (TV show or movie, guessed from the library or the library type; choose it yourself when it could not be guessed). When the same level has two folders with different tmdbids, pick the one to merge into.
+3. Tick the groups to merge and click **Preview selected** (預覽選取的). Each source folder is previewed by MoviePilot with the target folder's TMDB ID, organised into the same parent folder, and every file's new location is listed under its group. A note appears when a new location is not inside the target folder: MoviePilot's naming settings produce a folder name that differs from the tagged folder, so organising would create yet another folder — align MoviePilot's naming settings first. Files the target already has, and files whose episode number cannot be recognised, are not sent.
+4. Click **Run** (執行). The ticked groups are organised together in the background, with progress on the card. Afterwards, if **Move old folders with no videos left to the 115 recycle bin** (整理完後，沒有影片留下的舊資料夾移到 115 回收站) is on, source folders with no videos left go to the recycle bin (restorable on 115); folders that still have videos (failed files, episodes the target already had) are kept and can be handled with **Duplicate files** (重複檔案). About 20 seconds later an incremental sync moves the local strm files along.
+
+The details (preview codes, batches, old nfo files) are the same as for [reorganising a folder on 115](MoviePilot#reorganising-a-folder-on-115).
+
 ## 115 recycle bin
 
 Files deleted on 115 first go to 115's recycle bin, where they can still be restored in 115; Mi302 also sends deleted duplicates there. The **115 recycle bin** (115 回收站) card on the 115 tab:

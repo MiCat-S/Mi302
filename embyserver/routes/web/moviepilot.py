@@ -117,7 +117,7 @@ def reorganize_folder_plan(request: Request, ctx: AuthContext = Depends(require_
 @router.post("/web/api/moviepilot/reorganize/preview")
 async def reorganize_preview(request: Request, ctx: AuthContext = Depends(require_admin)):
     """請 MoviePilot 只算不做：{plan_id（或 series_id + season）, tmdbid, type: auto|tv|movie, season,
-    target: auto|parent|path, target_path, scrape, groups: [{key, template, enabled}]}。"""
+    target: auto|parent|path, target_path, scrape, groups: [{key, template, enabled}], expect_dir}。"""
     st = state(request)
     body = await json_body(request)
     if not st.reorganizer.ready()["login"]:
@@ -129,7 +129,7 @@ async def reorganize_preview(request: Request, ctx: AuthContext = Depends(requir
             st.reorganizer.preview, plan_id, str(body.get("tmdbid") or ""), str(body.get("type") or "auto"),
             int(season) if str(season if season is not None else "").strip().isdigit() else None,
             str(body.get("target") or "auto"), str(body.get("target_path") or ""), bool(body.get("scrape", True)),
-            [g for g in body.get("groups") or [] if isinstance(g, dict)],
+            [g for g in body.get("groups") or [] if isinstance(g, dict)], str(body.get("expect_dir") or ""),
         )
     except ReorgError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
@@ -137,11 +137,14 @@ async def reorganize_preview(request: Request, ctx: AuthContext = Depends(requir
 
 @router.post("/web/api/moviepilot/reorganize/execute")
 async def reorganize_execute(request: Request, ctx: AuthContext = Depends(require_admin)):
-    """照預覽執行：{"token": 預覽代碼}。只送預覽成功的檔案，在背景跑，進度看 GET /web/api/moviepilot/reorganize。"""
+    """照預覽執行：{"token": 預覽代碼} 或 {"tokens": [...], "cleanup": [{cid, path}]}（合併重複的資料夾：幾個預覽一起，
+    整理完沒有影片留下的來源資料夾移到 115 回收站）。只送預覽成功的檔案，在背景跑，進度看 GET /web/api/moviepilot/reorganize。"""
     st = state(request)
     body = await json_body(request)
+    tokens = body.get("tokens") if isinstance(body.get("tokens"), list) else [body.get("token")]
+    cleanup = [c for c in body.get("cleanup") or [] if isinstance(c, dict) and str(c.get("cid") or "").isdigit()]
     try:
-        st.reorganizer.execute_in_background(str(body.get("token") or ""))
+        st.reorganizer.execute_in_background([str(t or "") for t in tokens], cleanup)
     except ReorgError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     return {"job": st.reorganizer.job.as_dict()}
