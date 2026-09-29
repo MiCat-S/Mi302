@@ -267,6 +267,45 @@ class Reorganizer:
         log.info("移到 115 回收站：%s", path)
         return {"deleted": 1, "folder_removed": is_dir, "note": ""}
 
+    def delete_in_folder(self, parent_cid: int, ids: List[int]) -> dict:
+        """瀏覽 115 裡勾的資料夾、檔案移到 115 回收站（資料夾連同裡面所有檔案），同步目錄裡的本機 strm、nfo 和媒體庫跟著拿掉。
+        先列一次這個資料夾，只刪真的在裡面的（清單過期、id 不對的不刪）。"""
+        ids = list(dict.fromkeys(int(i) for i in ids))
+        if not ids:
+            raise ReorgError("沒有勾要刪的")
+        self._begin_delete()
+        deleted: List[int] = []
+        local_dirs: List[str] = []
+        try:
+            entries = {e["id"]: e for e in self.p115.list_dir(parent_cid)}
+            pick = [i for i in ids if i in entries]
+            if len(pick) != len(ids):
+                raise ReorgError("勾的有些已經不在這個資料夾裡（清單可能已經過期），請重新整理清單")
+            local_dirs = self._local_dirs([i for i in pick if entries[i]["is_dir"]])
+            for start in range(0, len(pick), DELETE_BATCH):
+                batch = pick[start:start + DELETE_BATCH]
+                self.p115.delete_files(batch)
+                deleted += batch
+        except (P115Error, ReorgError) as exc:
+            self._after_delete(None, deleted, False, extra=local_dirs if deleted else [])
+            if isinstance(exc, ReorgError):
+                raise
+            raise ReorgError(f"115 刪除失敗：{exc}" + (f"（已經刪了 {len(deleted)} 個）" if deleted else ""))
+        self._after_delete(None, deleted, False, extra=local_dirs)
+        log.info("瀏覽 115：%s 個移到 115 回收站：%s", len(deleted), "、".join(entries[i]["name"] for i in deleted[:5]))
+        return {"deleted": len(deleted), "names": [entries[i]["name"] for i in deleted]}
+
+    def _local_dirs(self, dir_ids: List[int]) -> List[str]:
+        """這些 115 資料夾在本機對應的位置（同步紀錄裡有的），刪掉後給媒體庫重新掃描。"""
+        out = []
+        for task in self.strm_sync.tasks:
+            local = Path(task.local).expanduser()
+            for i in dir_ids:
+                row = self.db.one("SELECT path FROM p115_index WHERE task=? AND file_id=? AND is_dir=1", (task_key(task), i))
+                if row:
+                    out.append(str(local / row["path"]))
+        return out
+
     def _after_delete(self, series_id: Optional[int], ids: List[int], folder_removed: bool, extra: Optional[List[str]] = None) -> None:
         """115 上刪了：本機 strm、nfo 拿掉，重新掃描那些位置（劇集資料夾刪了就連劇一起拿掉）；最後放開鎖。"""
         try:

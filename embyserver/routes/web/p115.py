@@ -12,6 +12,7 @@ from ...auth import AuthContext, require_admin
 from ...browse115 import list_folder
 from ...p115 import P115Error
 from ...p115_open import P115OpenError
+from ...reorganize import ReorgError
 from ...probe_select import ProbeFilter, missing_paths, missing_titles, title_names
 from ..common import q, q_int, state
 from .common import json_body
@@ -39,6 +40,23 @@ def browse_115_files(request: Request, ctx: AuthContext = Depends(require_admin)
         return list_folder(st.p115, st.db, st.strm_sync.tasks, cid, path)
     except (P115Error, P115OpenError) as exc:
         raise HTTPException(status_code=400, detail=f"讀不到 115：{exc}")
+
+
+@router.post("/web/api/115/delete")
+async def browse_delete(request: Request, ctx: AuthContext = Depends(require_admin)):
+    """瀏覽 115 裡勾的刪掉：{parent: 現在看的資料夾 id, ids: [資料夾或檔案 id]}。移到 115 回收站（可以還原），
+    資料夾連同裡面所有檔案；同步目錄裡的本機 strm、nfo 和媒體庫跟著拿掉。要用掃碼登入 115。"""
+    st = state(request)
+    body = await json_body(request)
+    ids = [int(i) for i in body.get("ids") or [] if str(i).isdigit()]
+    try:
+        parent = int(body.get("parent") or 0)
+        result = await run_in_threadpool(st.reorganizer.delete_in_folder, parent, ids)
+    except (ReorgError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    for i in ids:  # 釘在「整理 115 網盤」的也拿掉
+        st.organizer.unpin(f"d{i}")
+    return result
 
 
 @router.get("/web/api/115/recyclebin")

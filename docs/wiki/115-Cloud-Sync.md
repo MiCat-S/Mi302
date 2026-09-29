@@ -257,6 +257,7 @@ The **Browse 115** (瀏覽 115) page in the sidebar shows what is inside folders
 - Subfolders: click the name to open one. **Organise…** (整理…) on the right adds that folder to **Organise 115** (整理 115 網盤).
 - Videos: size, upload time, and what Mi302's library made of them.
 - Other files (nfo, images, subtitles) are listed in grey. A folder lists at most 1000 files.
+- Every row has a checkbox, with **Select all** (全選) above. **Organise selected…** (整理選取的…) adds the ticked folders to **Organise 115** (files cannot be organised on their own and are skipped); **Delete selected…** (刪除選取的…) moves them to the 115 recycle bin (restorable on 115), folders with everything inside, and for anything inside a sync folder also removes the local strm and nfo files and library entries. Before deleting, Mi302 lists the folder again and only deletes what really is in it. Deleting needs the QR-code (cookie) login to 115.
 
 Marks next to a video:
 

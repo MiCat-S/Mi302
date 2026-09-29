@@ -247,3 +247,24 @@ def test_big_ids_are_sent_as_strings():
     big = 2856394156427519845
     assert js_safe({"a": [big, 5, True, {"b": -big}], "c": 2 ** 53 - 1, "d": 1.5}) == \
         {"a": [str(big), 5, True, {"b": str(-big)}], "c": 2 ** 53 - 1, "d": 1.5}
+
+
+def test_delete_from_browse(tmp_path: Path):
+    """瀏覽 115 裡勾的刪掉：只刪真的在這個資料夾裡的；資料夾連同裡面，本機 strm 和媒體庫跟著拿掉。"""
+    app, fake, mp, media, c, h = build(tmp_path)
+    delete = "/web/api/115/delete"
+    assert c.post(delete, json={"parent": 102, "ids": ["103"]}).status_code == 401
+    assert c.post(delete, json={"parent": 102, "ids": []}, headers=h).status_code == 400
+    before = list(fake.deleted)  # 全量同步用完刪掉的目錄樹檔
+    r = c.post(delete, json={"parent": 102, "ids": ["103", "1"]}, headers=h)  # 1 是電影資料夾裡的檔案，不在這裡
+    assert r.status_code == 400 and "不在這個資料夾裡" in r.text and fake.deleted == before
+    dark = app.state.db.one("SELECT id FROM items WHERE type='Series' AND name='Dark'")
+    assert dark and (media / "劇集" / "Dark").exists()
+    assert c.post(delete, json={"parent": 102, "ids": ["103"]}, headers=h).json() == {"deleted": 1, "names": ["Dark"]}
+    assert fake.deleted == before + ["103"] and not (media / "劇集" / "Dark").exists()
+    assert not app.state.db.one("SELECT 1 FROM items WHERE id=?", (dark["id"],))
+    # 檔案
+    movie = media / "電影" / "Old Movie (2001).strm"
+    assert movie.exists()
+    assert c.post(delete, json={"parent": 101, "ids": [1]}, headers=h).json()["deleted"] == 1
+    assert "1" in fake.deleted and not movie.exists()

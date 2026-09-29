@@ -75,6 +75,7 @@ textarea{resize:vertical;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,
 .li .main input.sm.tmdb{width:8.5em}.li .main input.sm.season{width:6.5em}.li .main input.sm.fmt{width:10em}.li .main input.sm.js-tpath{width:16em}
 .ogparts{display:flex;flex-direction:column;gap:6px;margin-top:8px}.ogparts .ogpart{display:flex;flex-direction:column;align-items:stretch;gap:6px;padding:6px 10px}
 .ogmap{font-size:13px;color:var(--muted);word-break:break-all}.ogmap b{color:var(--fg);font-weight:500}
+.selall{flex:none;white-space:nowrap;cursor:pointer}.selall input{width:auto}
 .reasons{margin:6px 0 0;padding-left:18px;color:var(--warn);font-size:13px;display:flex;flex-direction:column;gap:2px}.reasons li{word-break:break-all}
 .ogpart{display:inline-flex;align-items:center;gap:6px;font-size:13px;padding:4px 8px;border:1px solid var(--line);border-radius:8px}
 .dupbar{position:sticky;top:0;z-index:2;background:var(--panel);padding:8px 0;border-bottom:1px solid var(--line)}
@@ -545,6 +546,10 @@ dialog .card-b{max-height:70vh;overflow:auto}
           <div id="b115Bar" class="row wrap hidden"><span class="hint grow" id="b115Info"></span>
             <button class="btn sm" onclick="b115Open(b115.cid, b115.path)">重新整理清單</button>
             <button class="btn sm" id="b115Reo" onclick="organizeFolder(b115.cid, b115.path)">整理這個資料夾…</button></div>
+          <div id="b115SelBar" class="row wrap gap6 hidden"><label class="row gap6 selall"><input type="checkbox" class="chk" id="b115All" onchange="b115SelectAll(this.checked)"><span>全選</span></label>
+            <span class="hint grow" id="b115Sel" aria-live="polite"></span>
+            <button class="btn sm" id="b115OrgSel" onclick="b115OrganizeSelected()" disabled>整理選取的…</button>
+            <button class="btn sm danger" id="b115DelSel" onclick="b115DeleteSelected()" disabled>刪除選取的…</button></div>
           <div id="b115List" class="list"><p class="hint row"><span class="spin"></span>讀取 115…</p></div>
         </div>
       </div>
@@ -2652,12 +2657,15 @@ function renderFolder(r) {
   $('b115Info').textContent = `${r.dirs.length} 個資料夾、${r.total_files} 個檔案（${videos} 支影片）` + (r.sync_root ? `・在同步目錄 ${r.sync_root} 裡` : '・不在同步目錄裡');
   $('b115Reo').disabled = r.path === '/';
   $('b115Bar').classList.remove('hidden');
+  $('b115SelBar').classList.toggle('hidden', !r.dirs.length && !r.files.length);
+  $('b115All').checked = false;
   const box = $('b115List'); box.innerHTML = '';
   if (r.path !== '/') box.appendChild(b115DirRow(icon('up'), '上一層', () => b115Open(null, parentPath(r.path))));
   for (const d of r.dirs) {
     const full = joinPath(r.path, d.name);
     const row = b115DirRow(icon('folder'), d.name, () => b115Open(d.id, full), () => organizeFolder(d.id, full));
     row.dataset.cid = String(d.id);
+    row.prepend(b115Check(d.id, d.name, true, full));
     row.querySelector('.main').insertAdjacentHTML('beforeend', `<span class="pill accent js-added${b115.added.has(String(d.id)) ? '' : ' hidden'}">已加進整理</span>`);
     box.appendChild(row);
   }
@@ -2667,10 +2675,58 @@ function renderFolder(r) {
     row.innerHTML = f.video
       ? `<div class="main"><b>${esc(f.name)}</b><div class="row wrap mt4 gap6"><span class="hint">${meta}</span>${b115Lib(f, !!r.sync_root)}</div></div>`
       : `<div class="main other">${esc(f.name)}・${meta}</div>`;
+    row.prepend(b115Check(f.id, f.name, false, joinPath(r.path, f.name)));
     box.appendChild(row);
   }
+  b115SelCount();
   if (r.total_files > r.files.length) box.insertAdjacentHTML('beforeend', `<p class="hint pt10">還有 ${r.total_files - r.files.length} 個檔案沒列出</p>`);
   if (!r.dirs.length && !r.files.length) box.insertAdjacentHTML('beforeend', '<p class="hint pt10">這個資料夾是空的</p>');
+}
+function b115Check(id, name, dir, path) {
+  // 一列的勾選框；115 的 id 是字串（19 位，當成數字會被四捨五入）
+  const b = document.createElement('input');
+  b.type = 'checkbox'; b.className = 'chk js-pick'; b.setAttribute('aria-label', '選取 ' + name);
+  Object.assign(b.dataset, {id: String(id), name, dir: dir ? '1' : '', path});
+  b.onchange = b115SelCount;
+  return b;
+}
+const b115Picked = () => [...$('b115List').querySelectorAll('.js-pick:checked')].map(b => ({...b.dataset, dir: !!b.dataset.dir}));
+function b115SelCount() {
+  const picked = b115Picked(), dirs = picked.filter(p => p.dir).length, all = $('b115List').querySelectorAll('.js-pick').length;
+  $('b115Sel').textContent = picked.length ? `選了 ${picked.length} 個` + (dirs && dirs < picked.length ? `（${dirs} 個資料夾、${picked.length - dirs} 個檔案）` : '') : '';
+  $('b115OrgSel').disabled = !dirs;
+  $('b115DelSel').disabled = !picked.length;
+  $('b115All').checked = !!all && picked.length === all;
+}
+function b115SelectAll(on) {
+  for (const b of $('b115List').querySelectorAll('.js-pick')) b.checked = on;
+  b115SelCount();
+}
+async function b115OrganizeSelected() {
+  // 勾的資料夾一個一個加進「整理 115 網盤」（每個都列一次目錄、問 MoviePilot）；檔案不能單獨整理，略過
+  const dirs = b115Picked().filter(p => p.dir);
+  for (const [i, d] of dirs.entries()) {
+    $('b115Sel').textContent = `加進整理中（${i + 1} / ${dirs.length}）：${d.name}`;
+    await organizeFolder(d.id, d.path);
+  }
+  b115SelectAll(false);
+}
+async function b115DeleteSelected() {
+  // 勾的移到 115 回收站；資料夾連同裡面所有檔案
+  const picked = b115Picked();
+  if (!picked.length) return;
+  const dirs = picked.filter(p => p.dir).length, names = picked.slice(0, 3).map(p => `「${p.name}」`).join('、') + (picked.length > 3 ? ` 等 ${picked.length} 個` : '');
+  const inSync = !$('b115Info').textContent.includes('不在同步目錄裡');
+  if (!await ask({title: `刪除 ${picked.length} 個？`, text: `${names}移到 115 回收站（在 115 可以還原）${dirs ? '，資料夾連同裡面所有檔案' : ''}。${inSync ? '本機的 strm、nfo 和媒體庫裡的也一起拿掉。' : ''}`,
+    ok: '刪除', danger: true})) return;
+  $('b115DelSel').disabled = true;
+  try {
+    const r = await api('/web/api/115/delete', {method: 'POST', body: JSON.stringify({parent: String(b115.cid), ids: picked.map(p => p.id)})});
+    toast(`已刪除 ${r.deleted} 個（移到 115 回收站）`);
+    for (const p of picked) b115.added.delete(p.id);
+    b115GoLabel();
+  } catch (e) { toast(e.message, 'bad'); b115SelCount(); return; }
+  b115Open(b115.cid, b115.path);
 }
 function b115DirRow(ic, name, open, reorg) {
   // 一列資料夾：名稱是按鈕（點了進去），有 reorg 時旁邊多一個「整理…」
