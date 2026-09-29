@@ -252,7 +252,7 @@ Deleting a sync task never deletes the strm files it created, whether this optio
 
 ## Browsing 115
 
-The **Browse 115** (瀏覽 115) card on the 115 tab shows what is inside folders on 115. Click **Start browsing** (開始瀏覽) to start at the 115 folder of the first sync task (or at the root when there are no sync tasks). Click a folder to open it; click any part of the path at the top, or **Up** (上一層), to go back. Each folder you open costs one directory listing on 115.
+The **Browse 115** (瀏覽 115) page in the sidebar shows what is inside folders on 115. The first time it opens at the 115 folder of the first sync task (or at the root when there are no sync tasks), and afterwards where you left off; **Back to the sync folder** (回到同步目錄) returns to the start. Click a folder to open it; click any part of the path at the top, or **Up** (上一層), to go back. Each folder you open costs one directory listing on 115.
 
 - Subfolders: click the name to open one. **Organise…** (整理…) on the right adds that folder to **Organise 115** (整理 115 網盤).
 - Videos: size, upload time, and what Mi302's library made of them.
@@ -267,7 +267,7 @@ Marks next to a video:
 | strm exists, not scanned yet (有 strm，還沒掃描) | Synced to a strm, not yet picked up by a library scan |
 | Not in the library (no strm) (不在媒體庫（沒有 strm）) | Inside a sync folder but without a strm, for example smaller than the size limit in the sync options, or not synced yet |
 
-If a folder looks wrong, click **Organise this folder…** (整理這個資料夾…), or **Organise…** on a subfolder: it is pinned at the top of the **Organise 115** card below, where MoviePilot renames, moves and scrapes it on 115, again with a preview before anything runs; see [Organising 115](#organising-115).
+If a folder looks wrong, click **Organise this folder…** (整理這個資料夾…), or **Organise…** on a subfolder: it is pinned at the top of the **Organise 115** card on the 115 tab and marked **Added to organise** (已加進整理) here, so you can keep browsing and pick more. When done, **Go organise (N)** (去整理) at the top of the page takes you to that card, where MoviePilot renames, moves and scrapes them on 115, again with a preview before anything runs; see [Organising 115](#organising-115). Reorganisation progress is shown on this page too.
 
 ## Organising 115
 
@@ -318,7 +318,7 @@ The preview cannot tell you whether the target already has the same episode (Mov
 
 ### Running it
 
-Click **Run** (執行). All previewed entries are organised together in the background, with the settings from the preview; progress is shown at the top of the card (and in **Browse 115**). 115 only allows a few requests per second and each video needs several to move and rename, so a folder of a few hundred episodes takes ten minutes or more. Afterwards:
+Click **Run** (執行). All previewed entries are organised together in the background, with the settings from the preview; progress is shown at the top of the card (and on the **Browse 115** page). 115 only allows a few requests per second and each video needs several to move and rename, so a folder of a few hundred episodes takes ten minutes or more. Afterwards:
 
 - With **Move old folders with no videos left to the 115 recycle bin** (整理完後，沒有影片留下的舊資料夾移到 115 回收站) on (the default), emptied old folders go to the recycle bin together with the nfo files and images left inside, restorable on 115. Folders that still hold videos (skipped or failed ones) are kept; use **Duplicate files** (重複檔案) for them. Before moving a folder Mi302 checks it is still where it was; if MoviePilot already deleted it, it is left alone.
 - Local nfo files with `-1` numbers are deleted and an incremental sync runs about 20 seconds later, moving the local strm files along. After the sync and a scan, the organised folders are gone from the list.

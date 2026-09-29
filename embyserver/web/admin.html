@@ -336,6 +336,7 @@ dialog .card-b{max-height:70vh;overflow:auto}
       <a href="#overview" data-tab="overview" id="nav-overview" role="tab" aria-controls="tab-overview" aria-selected="false" aria-label="概覽"><svg class="i"><use href="#i-grid"/></svg><span>概覽</span></a>
       <a href="#libraries" data-tab="libraries" id="nav-libraries" role="tab" aria-controls="tab-libraries" aria-selected="false" aria-label="媒體庫"><svg class="i"><use href="#i-film"/></svg><span>媒體庫</span></a>
       <a href="#115" data-tab="115" id="nav-115" role="tab" aria-controls="tab-115" aria-selected="false" aria-label="115 網盤"><svg class="i"><use href="#i-cloud"/></svg><span>115 網盤</span></a>
+      <a href="#browse" data-tab="browse" id="nav-browse" role="tab" aria-controls="tab-browse" aria-selected="false" aria-label="瀏覽 115"><svg class="i"><use href="#i-folder"/></svg><span>瀏覽 115</span></a>
       <a href="#tools" data-tab="tools" id="nav-tools" role="tab" aria-controls="tab-tools" aria-selected="false" aria-label="整理"><svg class="i"><use href="#i-tool"/></svg><span>整理</span></a>
       <a href="#moviepilot" data-tab="moviepilot" id="nav-moviepilot" role="tab" aria-controls="tab-moviepilot" aria-selected="false" aria-label="MoviePilot"><svg class="i"><use href="#i-spark"/></svg><span>MoviePilot</span></a>
       <a href="#users" data-tab="users" id="nav-users" role="tab" aria-controls="tab-users" aria-selected="false" aria-label="使用者"><svg class="i"><use href="#i-users"/></svg><span>使用者</span></a>
@@ -476,20 +477,6 @@ dialog .card-b{max-height:70vh;overflow:auto}
         </div>
       </div>
 
-      <div class="card">
-        <div class="card-h"><div class="t"><svg class="i"><use href="#i-folder"/></svg><h2>瀏覽 115</h2></div>
-          <button class="btn" id="b115Start" onclick="browse115Start()">開始瀏覽</button></div>
-        <div class="card-b stack">
-          <p class="hint">看 115 上的資料夾裡有什麼，影片標出在 Mi302 媒體庫裡被認成哪一集或哪部電影。認錯的資料夾按「整理這個資料夾…」，加進下面的「整理 115 網盤」，先預覽再執行。 <a class="doc" href="https://github.com/MiCat-S/Mi302/wiki/115-網盤與同步#瀏覽-115" target="_blank" rel="noopener">說明</a></p>
-          <div id="b115Job"></div>
-          <div id="b115Crumbs" class="crumbs"></div>
-          <div id="b115Bar" class="row wrap hidden"><span class="hint grow" id="b115Info"></span>
-            <button class="btn sm" onclick="b115Open(b115.cid, b115.path)">重新整理清單</button>
-            <button class="btn sm" id="b115Reo" onclick="organizeFolder(b115.cid, b115.path)">整理這個資料夾…</button></div>
-          <div id="b115List" class="list"></div>
-        </div>
-      </div>
-
       <div class="card" id="ogCard">
         <div class="card-h"><div class="t"><svg class="i"><use href="#i-tool"/></svg><h2>整理 115 網盤</h2></div>
           <div class="row wrap gap6"><button class="btn" id="ogCheck" onclick="organizeCheck(false)">問 MoviePilot 檢查</button><button class="btn ghost" id="ogRecheck" onclick="organizeCheck(true)">全部重新檢查</button></div></div>
@@ -542,6 +529,24 @@ dialog .card-b{max-height:70vh;overflow:auto}
           <label class="switch"><input type="checkbox" data-key="p115.strm.include_name"><span class="track"></span><span class="lbl">strm 網址後附上原檔名<small>方便人工辨識，伺服器會忽略這一段；儲存後現有的 strm 會一起改</small></span></label>
         </div>
         <div class="card-f"><button class="btn primary" onclick="saveFields($('syncOpts'))">儲存同步選項</button></div>
+      </div>
+    </section>
+
+    <!-- 瀏覽 115 -->
+    <section id="tab-browse" class="page hidden" role="tabpanel" aria-labelledby="nav-browse">
+      <div class="page-h">
+        <div><h1>瀏覽 115</h1><p class="sub">看 115 上的資料夾裡有什麼，影片標出在 Mi302 媒體庫裡被認成哪一集或哪部電影。認錯的資料夾按「整理…」加進「115 網盤」頁的「整理 115 網盤」，先預覽再執行。 <a class="doc" href="https://github.com/MiCat-S/Mi302/wiki/115-網盤與同步#瀏覽-115" target="_blank" rel="noopener">說明</a></p></div>
+        <div class="row wrap gap6"><button class="btn" id="b115Go" onclick="goOrganize()">去整理</button><button class="btn" id="b115Start" onclick="browse115Start()">回到同步目錄</button></div>
+      </div>
+      <div class="card">
+        <div class="card-b stack">
+          <div id="b115Job"></div>
+          <div id="b115Crumbs" class="crumbs"></div>
+          <div id="b115Bar" class="row wrap hidden"><span class="hint grow" id="b115Info"></span>
+            <button class="btn sm" onclick="b115Open(b115.cid, b115.path)">重新整理清單</button>
+            <button class="btn sm" id="b115Reo" onclick="organizeFolder(b115.cid, b115.path)">整理這個資料夾…</button></div>
+          <div id="b115List" class="list"><p class="hint row"><span class="spin"></span>讀取 115…</p></div>
+        </div>
       </div>
     </section>
 
@@ -1016,7 +1021,7 @@ async function login() {
 }
 async function logoutWeb() { try { await api('/Sessions/Logout', {method: 'POST'}); } catch (e) {} token = ''; localStorage.removeItem('mi302'); show('login'); }
 
-const PAGES = {overview: () => loadOverview(), libraries: () => loadLibs(), '115': () => { load115(false); organizeLoad(1); }, tools: () => loadTools(), moviepilot: () => loadMP(), users: () => loadUsers(), logs: () => loadLogs(true), settings: () => { loadBackups(); pollPeople(); }};
+const PAGES = {overview: () => loadOverview(), libraries: () => loadLibs(), '115': () => { load115(false); organizeLoad(1); }, browse: () => openBrowse(), tools: () => loadTools(), moviepilot: () => loadMP(), users: () => loadUsers(), logs: () => loadLogs(true), settings: () => { loadBackups(); pollPeople(); }};
 function route() {
   let tab = (location.hash || '#overview').slice(1);
   if (!PAGES[tab]) tab = 'overview';
@@ -2328,13 +2333,16 @@ async function organizeCheck(refresh) {
   organizeLoad(1);
 }
 async function organizeFolder(cid, path) {
-  // 瀏覽 115 裡挑的資料夾：加進這張卡片最上面（會列一次目錄、問 MoviePilot 叫什麼）
+  // 瀏覽 115 裡挑的資料夾：加進「整理 115 網盤」最上面（會列一次目錄、問 MoviePilot 叫什麼），留在這一頁繼續挑
   if (!path || path === '/') { toast('不能整理整個 115，請進到一個資料夾', 'bad'); return; }
   toast('讀取資料夾、問 MoviePilot…');
-  try { await api('/web/api/115/organize/folder', {method: 'POST', body: JSON.stringify({cid, path})}); }
+  let u;
+  try { u = await api('/web/api/115/organize/folder', {method: 'POST', body: JSON.stringify({cid, path})}); }
   catch (e) { toast(e.message, 'bad'); return; }
-  await organizeLoad(og.page, true);
-  $('ogCard').scrollIntoView({block: 'start'});
+  b115.added.add(u.id.slice(1));
+  b115GoLabel();
+  for (const el of document.querySelectorAll(`#b115List [data-cid="${CSS.escape(String(u.id.slice(1)))}"] .js-added`)) el.classList.remove('hidden');
+  toast(`已加進「整理 115 網盤」：${u.name}${u.mp_name && u.mp_name !== u.name ? `（MoviePilot 會整理成 ${u.mp_name}）` : ''}`);
 }
 async function organizeUnpin(u) {
   try { await api('/web/api/115/organize/folder/' + encodeURIComponent(u.id), {method: 'DELETE'}); } catch (e) { toast(e.message, 'bad'); return; }
@@ -2380,6 +2388,8 @@ async function organizeLoad(page, quiet) {
   $('ogBar').classList.toggle('hidden', !r.total && !r.pinned.length);
   organizeButtons();
   if (r.reorg_job.running) pollReorgJob();
+  b115.added = new Set(r.pinned.map(p => p.id.slice(1)));
+  if (og.scrollTo) { og.scrollTo = false; $('ogCard').scrollIntoView({block: 'start'}); }
 }
 function ogState(u) {
   const st = og.state[u.id] ||= {on: false, parts: {}, target: og.target, targetPath: og.targetPath, targetCustom: false, preview: null, error: '', sent: false};
@@ -2583,7 +2593,23 @@ async function cleanRecycle() {
 }
 
 // ---- 瀏覽 115 ----
-let b115 = {cid: null, path: '', seq: 0};
+let b115 = {cid: null, path: '', seq: 0, added: new Set()};  // added：加進「整理 115 網盤」的資料夾 id（字串）
+async function openBrowse() {
+  // 第一次打開從同步目錄開始；之後回到上次看的資料夾。順便讀已經加進整理的資料夾和整理進度
+  if (!b115.path) browse115Start(); else b115Open(b115.cid, b115.path);
+  try {
+    const r = await api('/web/api/115/organize?limit=1');
+    b115.added = new Set(r.pinned.map(u => u.id.slice(1)));
+    b115GoLabel();
+    if (r.reorg_job.running || r.reorg_job.started) pollReorgJob();
+  } catch (e) {}
+}
+function b115GoLabel() { $('b115Go').textContent = b115.added.size ? `去整理（${b115.added.size}）` : '去整理'; }
+function goOrganize() {
+  // 到「115 網盤」頁的「整理 115 網盤」卡片
+  og.scrollTo = true;
+  location.hash = '#115';
+}
 const joinPath = (dir, name) => (dir === '/' ? '' : dir.replace(/\/+$/, '')) + '/' + name;
 const parentPath = path => path.replace(/\/[^/]*$/, '') || '/';
 function browse115Start() {
@@ -2630,7 +2656,10 @@ function renderFolder(r) {
   if (r.path !== '/') box.appendChild(b115DirRow(icon('up'), '上一層', () => b115Open(null, parentPath(r.path))));
   for (const d of r.dirs) {
     const full = joinPath(r.path, d.name);
-    box.appendChild(b115DirRow(icon('folder'), d.name, () => b115Open(d.id, full), () => organizeFolder(d.id, full)));
+    const row = b115DirRow(icon('folder'), d.name, () => b115Open(d.id, full), () => organizeFolder(d.id, full));
+    row.dataset.cid = String(d.id);
+    row.querySelector('.main').insertAdjacentHTML('beforeend', `<span class="pill accent js-added${b115.added.has(String(d.id)) ? '' : ' hidden'}">已加進整理</span>`);
+    box.appendChild(row);
   }
   for (const f of r.files) {
     const row = document.createElement('div'); row.className = 'li top';
@@ -2646,7 +2675,7 @@ function renderFolder(r) {
 function b115DirRow(ic, name, open, reorg) {
   // 一列資料夾：名稱是按鈕（點了進去），有 reorg 時旁邊多一個「整理…」
   const row = document.createElement('div'); row.className = 'li';
-  row.innerHTML = `<div class="main"><button class="link dir path">${ic}<span>${esc(name)}</span></button></div>` +
+  row.innerHTML = `<div class="main row gap6"><button class="link dir path">${ic}<span>${esc(name)}</span></button></div>` +
     (reorg ? '<button class="btn sm ghost js-reo" title="加進「整理 115 網盤」">整理…</button>' : '');
   row.querySelector('.dir').onclick = open;
   if (reorg) row.querySelector('.js-reo').onclick = reorg;
