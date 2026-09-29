@@ -1,4 +1,4 @@
-"""整理 115 網盤：命名格式變正則、找出不規範的資料夾、整個資料夾交給 MoviePilot 預覽和執行、清掉搬空的舊資料夾
+"""整理 115 網盤：問 MoviePilot 每個資料夾整理後叫什麼、找出對不上的、整個資料夾交給它預覽和執行、清掉搬空的舊資料夾
 （假 115 + 假 MoviePilot）。"""
 
 import json
@@ -11,62 +11,72 @@ from fastapi.testclient import TestClient
 
 from embyserver.app import create_app
 from embyserver.config import config_from_dict
-from embyserver.organize115 import DEFAULT_MOVIE, DEFAULT_TV, Formats, _layout, folder_key, folder_tag
 from embyserver.p115 import P115Service
 from embyserver.strm_sync import FULL
 
 from test_incremental import T0, Fake115
 from test_reorganize import wait
 
-TV = ("{{title}}{% if year %} ({{year}}){% endif %} {tmdbid={{tmdbid}}}/Season {{season}}/{{title}} - {{season_episode}}"
-      "{% if part %}-{{part}}{% endif %}{% if episode %} - 第 {{episode}} 集{% endif %}{{fileExt}}")
-MOVIE = "{{title}}{% if year %} ({{year}}){% endif %} {tmdbid={{tmdbid}}}/{{title}}{% if year %} ({{year}}){% endif %}{{fileExt}}"
 FANREN = "F 凡人修仙传{tmdbid-106449} 更176｜停更｜预计第二季度更新"
+XUTIAN = "虚天战纪.导演剪辑版 (2025) [tmdb-282348]"
 EXECUTE = "/web/api/moviepilot/reorganize/execute"
 
 
-def test_template_to_patterns():
-    tv = _layout(TV, True)
-    assert tv.match("folder", "康熙来了 (2004) {tmdbid=6836}") and tv.match("folder", "康熙来了 {tmdbid=6836}")
-    assert not tv.match("folder", "康熙来了 (2004)") and not tv.match("folder", FANREN)
-    assert tv.match("season", "Season 1") and tv.match("season", "Season 01") and not tv.match("season", "第一季")
-    assert tv.match("file", "康熙来了 - S01E03") and tv.match("file", "康熙来了 - S01E03 - 第 3 集")
-    assert not tv.match("file", "176") and not tv.match("file", "康熙来了 第3集")
-    assert tv.render_folder({"title": "康熙来了", "year": 2004, "tmdbid": "6836"}) == "康熙来了 (2004) {tmdbid=6836}"
-    assert tv.render_folder({"title": "康熙来了", "year": "", "tmdbid": "6836"}) == "康熙来了 {tmdbid=6836}"
-    assert tv.uses("folder", "tmdbid") and not _layout(DEFAULT_TV, True).uses("folder", "tmdbid")
-    movie = _layout(MOVIE, False)
-    assert movie.match("folder", "飞屋环游记 (2009) {tmdbid=14160}") and movie.season is None
-    # 看不懂的模板：改用預設格式，說明原因
-    f = Formats.build("{% for x in y %}{{x}}{% endfor %}/{{title}}", "{% if a %}/b{% endif %}{{title}}", "moviepilot")
-    assert f.tv_template == DEFAULT_TV and f.movie_template == DEFAULT_MOVIE and "看不懂" in f.note
-    # 沒有季資料夾的格式
-    flat = _layout("{{title}} ({{year}})/{{title}} - {{season_episode}}{{fileExt}}", True)
-    assert flat.season is None and flat.match("folder", "X (2020)")
-
-
-def test_folder_tag_and_key():
-    assert folder_tag(FANREN) == "106449" and folder_tag("Dark [tmdb=70523]") == "70523"
-    assert folder_tag("康熙来了 (2004)") == "" and folder_tag("2004 {tmdbid=}") == ""
-    assert {folder_key(n) for n in ["康熙来了 (2004) {tmdbid=6836}", "康熙来了 (2004)", "康熙来了（2004）", "康熙来了  (2004) "]} \
-        == {"康熙来了 (2004)"}
-    assert folder_key("康熙来了 (2004)") != folder_key("康熙来了 (2015)")
-
-
 class OrganizeMP:
-    """MoviePilot：命名格式是上面的 TV、MOVIE；整理資料夾時把裡面（含子資料夾）的影片、字幕都算進來，
-    執行時在假 115 上搬，目標已經有同名檔案就跳過（整理到指定資料夾時 MoviePilot 的覆蓋模式是 never）。"""
+    """MoviePilot：自己辨識名稱（資料夾、上一層、上上層的 tmdbid 標記或片名），照「片名 (年份) {tmdbid=…}/Season N/
+    片名 - SxxEyy - 第 N 集」命名。和真的一樣，名稱裡的「第二季度」會被認成第 2 季。整理資料夾時把裡面的影片都算進來，
+    執行時在假 115 上搬，目標已經有同名檔案就跳過。"""
 
-    MEDIA = {"106449": ("凡人修仙传", 2020), "6836": ("康熙来了", 2004), "292388": ("斗破苍穹", 2017),
-             "157336": ("星际穿越", 2014), "14160": ("飞屋环游记", 2009)}
+    MEDIA = {"106449": ("凡人修仙传", 2020, "tv"), "6836": ("康熙来了", 2004, "tv"), "292388": ("斗破苍穹", 2017, "tv"),
+             "9": ("流浪", 2019, "tv"), "157336": ("星际穿越", 2014, "movie"), "14160": ("飞屋环游记", 2009, "movie"),
+             "282348": ("虚天战纪", 2025, "movie")}
+    KEYWORDS = {"康熙来了": "6836", "Interstellar": "157336", "Up.2009": "14160"}
 
     def __init__(self, fake115: Fake115):
         self.f = fake115
         self.calls = []
-        self.same, self.outside = set(), set()  # 這些檔名預覽時新位置和原本一樣／在同步目錄外
-        self.delete_source = False  # 搬空後 MoviePilot 自己把來源資料夾刪掉
+        self.same, self.outside = set(), set()
+        self.delete_source = False
         self.next_cid = 300
 
+    # ---- 辨識 ----
+    def media_of(self, path):
+        parts = path.rstrip("/").split("/")[-3:]
+        for part in reversed(parts):
+            m = re.search(r"tmdb(?:id)?[=\-](\d+)", part)
+            if m:
+                return m.group(1)
+        for part in reversed(parts):
+            for word, tid in self.KEYWORDS.items():
+                if word in part:
+                    return tid
+        return None
+
+    def season_of(self, path):
+        for part in reversed(path.rstrip("/").split("/")[-3:-1]):
+            m = re.fullmatch(r"Season (\d+)", part)
+            if m:
+                return int(m.group(1))
+            m = re.search(r"第([一二三])季", part)
+            if m:
+                return "一二三".index(m.group(1)) + 1
+        return 1
+
+    def folder_name(self, tid):
+        title, year, _ = self.MEDIA[tid]
+        return f"{title} ({year}) {{tmdbid={tid}}}"
+
+    def file_name(self, tid, season, stem, ext):
+        title, year, kind = self.MEDIA[tid]
+        if kind == "movie":
+            return f"{title} ({year}){ext}"
+        m = re.search(r"(\d+)(?!.*\d)", stem)
+        if not m:
+            return None
+        ep = int(m.group(1))
+        return f"{title} - S{season:02d}E{ep:02d} - 第 {ep} 集{ext}"
+
+    # ---- 假 115 ----
     def path_of(self, cid):
         return "/" + "/".join(a["name"] for a in self.f.ancestors(cid)[1:])
 
@@ -82,8 +92,9 @@ class OrganizeMP:
 
     def mkdirs(self, path):
         cid = 0
-        for i, name in enumerate(path.strip("/").split("/")):
-            found = self.dir_by_path("/" + "/".join(path.strip("/").split("/")[:i + 1]))
+        parts = path.strip("/").split("/")
+        for i, name in enumerate(parts):
+            found = self.dir_by_path("/" + "/".join(parts[:i + 1]))
             if found is None:
                 self.next_cid += 1
                 found = self.next_cid
@@ -99,34 +110,49 @@ class OrganizeMP:
         if request.headers.get("Authorization") != "Bearer jwt":
             return httpx.Response(403, json={"detail": "需要登入"})
         body = json.loads(request.content or b"{}")
-        self.calls.append((path, body))
+        self.calls.append((path, body or dict(request.url.params)))
         if path == "/api/v1/system/env":
-            return httpx.Response(200, json={"success": True, "data": {"VERSION": "v3.0.10-1", "TV_RENAME_FORMAT": TV,
-                                                                        "MOVIE_RENAME_FORMAT": MOVIE}})
+            return httpx.Response(200, json={"success": True, "data": {
+                "VERSION": "v3.0.10-1", "TV_RENAME_FORMAT": "a/Season {{season}}/b", "MOVIE_RENAME_FORMAT": "a/b"}})
+        if path == "/api/v1/transfer/name":
+            p, kind = request.url.params["path"], request.url.params["filetype"]
+            tid = self.media_of(p)
+            if not tid:
+                return httpx.Response(200, json={"success": False, "message": "未识别到媒体信息"})
+            if kind == "dir":
+                return httpx.Response(200, json={"success": True, "data": {"name": self.folder_name(tid)}})
+            stem, ext = posixpath.splitext(posixpath.basename(p))
+            name = self.file_name(tid, self.season_of(p), stem, ext)
+            return httpx.Response(200, json={"success": True, "data": {"name": name}} if name else
+                                  {"success": False, "message": "未识别到文件集数"})
         if path != "/api/v1/transfer/manual":
             return httpx.Response(404)
         items = [body["fileitem"]] if "fileitem" in body else body["fileitems"]
         files = []
         for it in items:
             files += self.expand(int(it["fileid"])) if it["type"] == "dir" else [(int(it["fileid"]), it["path"])]
-        title, year = self.MEDIA[str(body["media_id"])]
-        folder = f"{title} ({year}) {{tmdbid={body['media_id']}}}"
         out = []
         for fid, src in files:
-            name = posixpath.basename(src)
-            stem, ext = posixpath.splitext(name)
-            ep = None
-            if body["type_name"] == "电影":
-                target = f"{body['target_path']}/{folder}/{title} ({year}){ext}"
-            else:
-                m = re.search(r"(\d+)(?!.*\d)", stem)
-                if not m:
-                    out.append({"source": src, "success": False, "message": "未识别到文件集数", "state": "failed"})
-                    continue
-                ep, season = int(m.group(1)), body["season"]
-                target = f"{body['target_path']}/{folder}/Season {season}/{title} - S{season:02d}E{ep:02d} - 第 {ep} 集{ext}"
-            target = src if name in self.same else f"/别处/{name}" if name in self.outside else target
-            item = {"source": src, "target": target, "success": True, "episode": ep, "season": body.get("season")}
+            tid = str(body.get("media_id") or self.media_of(src) or "")
+            if not tid:
+                out.append({"source": src, "success": False, "message": "未识别到媒体信息", "state": "failed"})
+                continue
+            title, year, kind = self.MEDIA[tid]
+            if body.get("type_name") == "电影":
+                kind = "movie"
+            season = body.get("season") or self.season_of(src)
+            stem, ext = posixpath.splitext(posixpath.basename(src))
+            name = self.file_name(tid, season, stem, ext) if kind == "tv" else f"{title} ({year}){ext}"
+            if not name:
+                out.append({"source": src, "success": False, "message": "未识别到文件集数", "state": "failed"})
+                continue
+            folder = f"{body['target_path']}/{self.folder_name(tid)}"
+            target = f"{folder}/Season {season}/{name}" if kind == "tv" else f"{folder}/{name}"
+            base = posixpath.basename(src)
+            target = src if base in self.same else f"/别处/{base}" if base in self.outside else target
+            item = {"source": src, "target": target, "success": True, "title": title,
+                    "type": "电视剧" if kind == "tv" else "电影", "season": season if kind == "tv" else None,
+                    "episode": int(re.search(r"E(\d+)", name).group(1)) if kind == "tv" else None}
             if not body["preview"]:
                 tdir = self.dir_by_path(posixpath.dirname(target))
                 if tdir is not None and any(f["cid"] == tdir and f["n"] == posixpath.basename(target) for f in self.f.files):
@@ -147,16 +173,16 @@ class OrganizeMP:
 def setup(tmp_path: Path, login: bool = True):
     fake = Fake115()
     fake.dirs.update({
-        110: (FANREN, 102),
+        110: (FANREN, 102), 119: (XUTIAN, 110),
         111: ("康熙来了 (2004)", 102), 112: ("康熙来了 (2004) {tmdbid=6836}", 102), 113: ("Season 1", 112),
         114: ("D 斗破苍穹{tmdbid-292388} 更186", 102), 115: ("第一季", 114), 116: ("Season 2", 114),
         117: ("流浪 (2019) {tmdbid=9}", 102), 118: ("Season 1", 117),
         120: ("星际穿越 Interstellar 2014 4K", 101),
     })
-    files = [(40, 110, "1.mp4"), (41, 110, "2.mp4"), (42, 110, "3.mp4"),
+    files = [(40, 110, "1.mp4"), (41, 110, "2.mp4"), (42, 110, "3.mp4"), (43, 119, "虚天战纪 上.mp4"), (44, 119, "虚天战纪 下.mp4"),
              (50, 111, "康熙来了 EP01.mp4"), (51, 111, "康熙来了 EP02.mp4"), (52, 113, "康熙来了 - S01E02 - 第 2 集.mp4"),
              (60, 115, "01.mp4"), (61, 116, "斗破苍穹 - S02E01 - 第 1 集.mp4"), (62, 114, "特别篇.mp4"),
-             (70, 118, "流浪 - S01E01.mp4"), (80, 120, "Interstellar.2014.mkv"), (81, 101, "Up.2009.1080p.mkv")]
+             (70, 118, "流浪 - S01E01 - 第 1 集.mp4"), (80, 120, "Interstellar.2014.mkv"), (81, 101, "Up.2009.1080p.mkv")]
     for i, (fid, cid, name) in enumerate(files):
         fake.files.append({"fid": fid, "cid": cid, "n": name, "pc": f"pc{fid}".ljust(17, "x"), "s": 900_000_000, "te": T0 + i})
     fake.event(2, 2)
@@ -187,148 +213,163 @@ def setup(tmp_path: Path, login: bool = True):
     return app, fake, mp, media, c, h
 
 
+def check(app, c, h, refresh=False):
+    assert c.post("/web/api/115/organize/check", json={"refresh": refresh}, headers=h).json()["started"]
+    wait(lambda: not app.state.organizer.job.running)
+    assert not app.state.organizer.job.error
+
+
 def listing(c, h, **params):
     return c.get("/web/api/115/organize", params=params, headers=h).json()
 
 
-def preview(c, h, unit, **body):
-    body = {"id": unit["id"], "tmdbid": unit["tmdbid"], "type": unit["type"],
-            "seasons": {p["key"]: p["season"] for p in unit["parts"]}, "scrape": False, **body}
-    return c.post("/web/api/115/organize/preview", json=body, headers=h)
+def name_calls(mp):
+    return [b for p_, b in mp.calls if p_ == "/api/v1/transfer/name"]
 
 
-def test_find_nonstandard_folders(tmp_path: Path):
+def preview(c, h, unit, parts=None):
+    return c.post("/web/api/115/organize/preview", json={"id": unit["id"], "parts": parts or {}, "scrape": False}, headers=h)
+
+
+def test_moviepilot_decides_what_is_nonstandard(tmp_path: Path):
     app, fake, mp, media, c, h = setup(tmp_path)
     assert c.get("/web/api/115/organize").status_code == 401
+    before = listing(c, h)
+    assert before["items"] == [] and before["unchecked"] == before["folders"] == 9  # 還沒問過 MoviePilot：什麼都不列
+    check(app, c, h)
     r = listing(c, h)
-    assert r["formats"]["source"] == "moviepilot" and r["formats"]["tv"] == TV and r["ready"]["login"]
+    job = r["job"]
+    assert (job["total"], job["todo"], job["done"], r["unchecked"]) == (9, 9, 9, 0)
     units = {u["name"]: u for u in r["items"]}
-    # 照格式命名的（康熙来了 {tmdbid=6836}、流浪）不列；Dark 沒有年份、tmdbid 和季資料夾，列出來
+    # 名稱和 MoviePilot 給的一樣的（康熙来了 {tmdbid=6836}、流浪）不列
     assert set(units) == {FANREN, "康熙来了 (2004)", "D 斗破苍穹{tmdbid-292388} 更186", "Dark", "星际穿越 Interstellar 2014 4K",
                           "Old Movie (2001)", "Up.2009.1080p"}
-    assert r["counts"] == {"series": 4, "movie": 3} and r["total"] == 7
+    assert job["found"] == 7 and r["counts"] == {"series": 4, "movie": 3}
 
     fr = units[FANREN]
-    assert (fr["id"], fr["kind"], fr["type"], fr["videos"], fr["tmdbid"], fr["tmdb_from"]) == ("d110", "series", "tv", 3, "106449", "name")
-    assert fr["reasons"][0] == "資料夾名稱不照命名格式（tmdbid 的寫法不對）"
-    assert any("直接放在劇集資料夾裡" in x for x in fr["reasons"]) and any("3 個檔名不照命名格式" in x for x in fr["reasons"])
-    assert fr["parts"] == [{"key": "all", "label": "整個資料夾", "videos": 3, "season": 1}] and fr["parent"] == "/影視/劇集"
+    assert fr["mp_name"] == "凡人修仙传 (2020) {tmdbid=106449}" and fr["error"] == ""
+    assert fr["reasons"] == ["資料夾名稱和 MoviePilot 的不一樣", "3 支影片直接放在資料夾裡（MoviePilot 會放進季資料夾）",
+                             "檔名和 MoviePilot 的不一樣"]
+    assert fr["mp_files"][0] == ["1.strm", "凡人修仙传 - S02E01 - 第 1 集.strm"]  # MoviePilot 把「预计第二季度」認成第 2 季
+    # 子資料夾（別部影片）和直接放著的影片分開送，都讓 MoviePilot 自己認
+    assert [(p["key"], p["label"], p["videos"]) for p in fr["parts"]] == [("d119", XUTIAN, 2), ("loose", "直接放在資料夾裡的影片", 3)]
 
     kx = units["康熙来了 (2004)"]
-    assert kx["merge_into"]["name"] == "康熙来了 (2004) {tmdbid=6836}" and (kx["tmdbid"], kx["tmdb_from"]) == ("6836", "merge")
-
-    dp = units["D 斗破苍穹{tmdbid-292388} 更186"]
-    assert [(p["key"], p["season"], p["videos"]) for p in dp["parts"]] == [("d116", 2, 1), ("d115", 1, 1), ("loose", 1, 1)]
-    assert any("「第一季」" in x for x in dp["reasons"])
-
-    assert units["星际穿越 Interstellar 2014 4K"]["kind"] == "movie" and units["星际穿越 Interstellar 2014 4K"]["type"] == "movie"
-    up = units["Up.2009.1080p"]
-    assert up["kind"] == "movie_file" and up["id"] == "f81" and "沒有自己的資料夾" in up["reasons"][0] and up["parent"] == "/影視/電影"
-
+    assert kx["merge_into"] == {"name": "康熙来了 (2004) {tmdbid=6836}", "path": "/影視/劇集/康熙来了 (2004) {tmdbid=6836}"}
+    assert units["Dark"]["error"] == "未识别到媒体信息" and units["Dark"]["reasons"] == ["MoviePilot 認不出來：未识别到媒体信息"]
+    assert units["Up.2009.1080p"]["kind"] == "movie_file" and "沒有自己的資料夾" in units["Up.2009.1080p"]["reasons"][0]
+    assert units["星际穿越 Interstellar 2014 4K"]["mp_name"] == "星际穿越 (2014) {tmdbid=157336}"
     assert [u["name"] for u in listing(c, h, kind="movie")["items"]] == ["Old Movie (2001)", "Up.2009.1080p", "星际穿越 Interstellar 2014 4K"]
     assert [u["name"] for u in listing(c, h, q="凡人")["items"]] == [FANREN]
 
-    # 「集號不對的劇」：資料夾不規範的標出來，網頁改成整個資料夾整理
+    # 「集號不對的劇」：問過 MoviePilot、資料夾不規範的標出來
     rows = c.get("/web/api/moviepilot/reorganize", headers=h).json()["items"]
     assert any(it["name"] == FANREN and it["folder_nonstandard"] for it in rows)
 
+    # 再檢查一次：問過、沒變的不再問；資料夾裡多了影片的重問；refresh 全部重問
+    mp.calls.clear()
+    check(app, c, h)
+    assert name_calls(mp) == [] and listing(c, h)["job"]["todo"] == 0
+    fake.files.append({"fid": 45, "cid": 110, "n": "4.mp4", "pc": "pc45".ljust(17, "x"), "s": 900_000_000, "te": T0 + 50})
+    assert not app.state.strm_sync.run(FULL).errors
+    app.state.scanner.scan_all()
+    check(app, c, h)
+    asked = {b["path"] for b in name_calls(mp)}
+    assert f"/影視/劇集/{FANREN}" in asked and all(FANREN in p for p in asked)
+    mp.calls.clear()
+    check(app, c, h, refresh=True)
+    assert len({b["path"] for b in name_calls(mp) if b["filetype"] == "dir"}) == 7  # 沒有自己資料夾的電影只問檔名
 
-def test_preview_whole_folder_and_checks(tmp_path: Path):
+
+def test_preview_lets_moviepilot_recognize(tmp_path: Path):
     app, fake, mp, media, c, h = setup(tmp_path)
+    check(app, c, h)
     units = {u["id"]: u for u in listing(c, h)["items"]}
     mp.calls.clear()
     pv = preview(c, h, units["d110"]).json()
     sent = [b for p_, b in mp.calls if p_ == "/api/v1/transfer/manual"]
-    # 整個資料夾一個項目，季明確給（名稱裡的「预计第二季度」不會被當成第 2 季），整理到同一層
-    assert len(sent) == 1 and "fileitems" not in sent[0]
-    item = sent[0]["fileitem"]
-    assert (item["type"], item["fileid"], item["path"]) == ("dir", "110", f"/影視/劇集/{FANREN}/")
-    assert (sent[0]["season"], sent[0]["media_id"], sent[0]["type_name"], sent[0]["target_path"], sent[0]["preview"]) == \
-        (1, "106449", "电视剧", "/影視/劇集", True)
-    assert pv["token"] and pv["summary"] == {"total": 3, "ok": 3, "failed": 0, "warnings": 0}
-    assert pv["folders"] == ["凡人修仙传 (2020) {tmdbid=106449}"]
-    assert pv["items"][0]["target"] == "/影視/劇集/凡人修仙传 (2020) {tmdbid=106449}/Season 1/凡人修仙传 - S01E01 - 第 1 集.mp4"
+    # 什麼都沒指定：不送 TMDB 編號、類型、季，整理到同一層
+    assert len(sent) == 2 and all("media_id" not in b and "season" not in b and "type_name" not in b for b in sent)
+    assert sent[0]["fileitem"] == {"storage": "u115", "type": "dir", "path": f"/影視/劇集/{FANREN}/{XUTIAN}/", "name": XUTIAN,
+                                   "basename": XUTIAN, "fileid": "119", "parent_fileid": "110"}
+    assert [fi["name"] for fi in sent[1]["fileitems"]] == ["1.mp4", "2.mp4", "3.mp4"] and sent[1]["target_path"] == "/影視/劇集"
+    parts = {p["key"]: p for p in pv["parts"]}
+    assert parts["d119"]["recognized"] == [{"title": "虚天战纪", "type": "电影", "season": None, "count": 2}]
+    assert parts["loose"]["recognized"] == [{"title": "凡人修仙传", "type": "电视剧", "season": 2, "count": 3}]
+    assert any("MoviePilot 認成第 2 季，媒體庫裡是第 1 季" in n for n in pv["notes"])
+    assert sorted(pv["folders"]) == ["凡人修仙传 (2020) {tmdbid=106449}", "虚天战纪 (2025) {tmdbid=282348}"]
+    assert all("只會留一個" in i["warnings"][0] for i in pv["items"] if i["part"] == XUTIAN)  # 上、下兩支認成同一部電影
+    assert pv["token"]
 
-    # 併進旁邊照格式命名的資料夾：新位置在那裡面，沒有提醒
-    kx = preview(c, h, units["d111"]).json()
-    assert kx["summary"]["ok"] == 2 and not any(i["warnings"] for i in kx["items"])
-    # 命名格式組出來的名稱不一樣：提醒不會併進去
-    wrong = preview(c, h, units["d111"], tmdbid="106449").json()
-    assert all("不會併進" in i["warnings"][0] for i in wrong["items"])
-
-    # 有季資料夾的：一季一次，直接放著的影片照 115 上的檔名送
+    # 認錯的季：只在那一部分指定
     mp.calls.clear()
-    dp = preview(c, h, units["d114"], seasons={"d116": 2, "d115": 1, "loose": 0}).json()
+    fixed = preview(c, h, units["d110"], {"loose": {"season": 1}}).json()
     sent = [b for p_, b in mp.calls if p_ == "/api/v1/transfer/manual"]
-    assert [(b["fileitem"]["fileid"], b["fileitem"]["type"], b["season"]) for b in sent] == \
-        [("116", "dir", 2), ("115", "dir", 1), ("62", "file", 0)]  # 只有一支直接放著的影片：照它在 115 上的檔名送
-    assert sent[2]["fileitem"]["name"] == "特别篇.mp4"
-    assert dp["summary"]["ok"] == 2 and dp["summary"]["failed"] == 1  # 特别篇 認不出集號
+    assert "season" not in sent[0] and sent[1]["season"] == 1
+    assert {p["key"]: p["recognized"][0]["season"] for p in fixed["parts"]}["loose"] == 1
+    assert not any("季" in n for n in fixed["notes"])
+    assert fixed["items"][-1]["target"] == "/影視/劇集/凡人修仙传 (2020) {tmdbid=106449}/Season 1/凡人修仙传 - S01E03 - 第 3 集.mp4"
 
     # 新位置和原本一樣、或在同步目錄外：那一部分整個不送
     mp.same.add("2.mp4")
-    blocked = preview(c, h, units["d110"]).json()
-    assert blocked["token"] is None and blocked["summary"]["ok"] == 0
-    assert "新位置和原本一樣" in blocked["notes"][0] and "整個資料夾一起整理" in blocked["notes"][0]
+    blocked = preview(c, h, units["d110"], {"loose": {"season": 1}}).json()
+    assert [p["ok"] for p in blocked["parts"]] == [2, 0] and any("新位置和原本一樣" in n for n in blocked["notes"])
     mp.same.clear()
-    mp.outside.add("1.mp4")
-    assert preview(c, h, units["d110"]).json()["token"] is None
-    mp.outside.clear()
 
-    # 電影：沒有自己資料夾的只送那一支
+    # 指定的參數檢查；電影不送季
+    assert preview(c, h, units["d110"], {"loose": {"tmdbid": "abc"}}).status_code == 400
     mp.calls.clear()
-    up = preview(c, h, units["f81"], tmdbid="14160").json()
-    sent = [b for p_, b in mp.calls if p_ == "/api/v1/transfer/manual"]
-    assert sent[0]["fileitem"]["type"] == "file" and sent[0]["fileitem"]["name"] == "Up.2009.1080p.mkv" and "season" not in sent[0]
-    assert up["items"][0]["target"] == "/影視/電影/飞屋环游记 (2009) {tmdbid=14160}/飞屋环游记 (2009).mkv"
-
-    # 參數檢查
-    assert preview(c, h, units["d110"], type="").status_code == 400
-    assert preview(c, h, units["d110"], tmdbid="abc").status_code == 400
-    assert preview(c, h, {"id": "d999", "tmdbid": "", "type": "tv", "parts": []}).status_code == 400
+    preview(c, h, units["f81"], {"file": {"type": "movie", "tmdbid": "14160", "season": 3}})
+    sent = [b for p_, b in mp.calls if p_ == "/api/v1/transfer/manual"][0]
+    assert (sent["fileitem"]["name"], sent["media_id"], sent["type_name"]) == ("Up.2009.1080p.mkv", "14160", "电影")
+    assert "season" not in sent
+    assert preview(c, h, {"id": "d999"}).status_code == 400
 
 
 def test_execute_moves_and_cleans_up(tmp_path: Path):
     app, fake, mp, media, c, h = setup(tmp_path)
+    check(app, c, h)
     units = {u["id"]: u for u in listing(c, h)["items"]}
-    fr, kx = preview(c, h, units["d110"]).json(), preview(c, h, units["d111"]).json()
+    fr = preview(c, h, units["d110"], {"loose": {"season": 1}}).json()
+    kx = preview(c, h, units["d111"]).json()
     cleanup = [{"cid": 110, "path": units["d110"]["path"]}, {"cid": 111, "path": units["d111"]["path"]}]
     assert c.post(EXECUTE, json={"tokens": [fr["token"]], "cleanup": [{"cid": 114, "path": "/x"}]}, headers=h).status_code == 400
+    mp.calls.clear()
     assert c.post(EXECUTE, json={"tokens": [fr["token"], kx["token"]], "cleanup": cleanup}, headers=h).status_code == 200
     wait(lambda: not app.state.reorganizer.job.running)
+    sent = [b for p_, b in mp.calls if p_ == "/api/v1/transfer/manual"]
+    assert [b.get("season") for b in sent] == [None, 1, None]  # 執行時照預覽時指定的
     job = app.state.reorganizer.job
-    assert (job.total, job.done, job.failed) == (5, 4, 1) and not job.errors  # 康熙 EP02 目標已經有，跳過
+    # 虚天战纪 上、下認成同一部電影：第二支跳過；康熙 EP02 目標已經有，跳過
+    assert (job.total, job.done, job.failed, job.title) == (7, 5, 2, "整理 2 個資料夾") and not job.errors
     folders = {i["name"]: i for i in job.items if i["state"] in ("kept", "removed")}
-    assert folders[units["d110"]["path"]]["state"] == "removed" and "110" in fake.deleted
-    assert folders[units["d111"]["path"]]["state"] == "kept" and "1 支影片" in folders[units["d111"]["path"]]["message"]
+    assert folders[units["d110"]["path"]]["state"] == "kept" and "1 支影片" in folders[units["d110"]["path"]]["message"]
+    assert folders[units["d111"]["path"]]["state"] == "kept"
     assert {f["n"] for f in fake.files if f["cid"] == 113} == {"康熙来了 - S01E01 - 第 1 集.mp4", "康熙来了 - S01E02 - 第 2 集.mp4"}
 
-    # 增量同步把 strm 搬到新位置，重新掃描後凡人修仙传不再列出，康熙来了（還剩 EP02）還在
-    wait(lambda: not app.state.strm_sync.result.running and app.state.strm_sync.result.finished)
+    # 增量同步把 strm 搬到新位置；重新掃描、再問一次 MoviePilot 後，整理好的不再列出
+    wait(lambda: not app.state.strm_sync.result.running and app.state.strm_sync.result.mode == "incremental")
     assert (media / "劇集/凡人修仙传 (2020) {tmdbid=106449}/Season 1/凡人修仙传 - S01E03 - 第 3 集.strm").exists()
     app.state.scanner.scan_all()
-    names = {u["name"] for u in listing(c, h, refresh="1")["items"]}
-    assert FANREN not in names and "康熙来了 (2004)" in names
+    check(app, c, h)
+    names = {u["name"] for u in listing(c, h)["items"]}
+    assert "凡人修仙传 (2020) {tmdbid=106449}" not in names and "康熙来了 (2004)" in names
 
 
 def test_cleanup_skips_folder_moviepilot_already_removed(tmp_path: Path):
     app, fake, mp, media, c, h = setup(tmp_path)
+    check(app, c, h)
     units = {u["id"]: u for u in listing(c, h)["items"]}
-    pv = preview(c, h, units["d110"]).json()
+    pv = preview(c, h, units["d111"]).json()
     mp.delete_source = True
-    c.post(EXECUTE, json={"tokens": [pv["token"]], "cleanup": [{"cid": 110, "path": units["d110"]["path"]}]}, headers=h)
+    c.post(EXECUTE, json={"tokens": [pv["token"]], "cleanup": [{"cid": 111, "path": units["d111"]["path"]}]}, headers=h)
     wait(lambda: not app.state.reorganizer.job.running)
     kept = [i for i in app.state.reorganizer.job.items if i["state"] == "kept"]
-    assert kept and "已經不在原本的位置" in kept[0]["message"] and "110" not in fake.deleted
+    assert kept and "已經不在原本的位置" in kept[0]["message"] and "111" not in fake.deleted
 
 
-def test_formats_fall_back_without_moviepilot_login(tmp_path: Path):
+def test_needs_moviepilot_login(tmp_path: Path):
     app, fake, mp, media, c, h = setup(tmp_path, login=False)
-    r = listing(c, h)
-    assert r["formats"]["source"] == "default" and "帳號密碼" in r["formats"]["note"] and not r["ready"]["login"]
-    # 預設格式沒有 tmdbid：名稱帶 tmdbid 標記的標出來；康熙来了 (2004) 名稱照格式，但影片沒放進季資料夾
-    units = {u["name"]: u for u in r["items"]}
-    assert "tmdbid 標記" in units["康熙来了 (2004) {tmdbid=6836}"]["reasons"][0]
-    assert units["康熙来了 (2004)"]["reasons"][0].startswith("2 支影片直接放在劇集資料夾裡")
-    assert "流浪 (2019) {tmdbid=9}" in units and "Dark" in units
-    assert preview(c, h, units[FANREN]).status_code == 400  # 手動整理要帳號登入
+    r = c.post("/web/api/115/organize/check", json={}, headers=h)
+    assert r.status_code == 400 and "帳號密碼" in r.text
+    assert listing(c, h)["items"] == [] and not listing(c, h)["ready"]["login"]

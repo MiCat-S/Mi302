@@ -137,7 +137,7 @@ The API behind the web admin page `/web`. Apart from `/web/api/setup`, it needs 
 | `GET /web/api/browse`, `/web/api/115/browse` | Pick a folder on the server, pick a 115 directory |
 | `GET /web/api/115/recyclebin`, `POST /web/api/115/recyclebin/clean` | One page of the 115 recycle bin (`offset`, `limit`); emptying it (permanent; needs `{"confirm": "清空"}`, plus the `password` security key on the cookie channel) |
 | `GET /web/api/115/files` | Browse 115: subfolders and files of a folder (`cid` and `path`, or only `path`), with what the library made of each video (`lib`) |
-| `GET /web/api/115/organize`, `POST /web/api/115/organize/preview` | Organise 115: folders not named to MoviePilot's rename format (`q`, `kind`, `offset`, `limit`; `refresh=1` searches again), with the formats used, what is missing (`ready`) and the current job (`job`); preview one folder (`id`, `tmdbid`, `type`, a season per part in `seasons`), returning a `token` to run with `/web/api/moviepilot/reorganize/execute` |
+| `GET /web/api/115/organize`, `POST /web/api/115/organize/check`, `POST /web/api/115/organize/preview` | Organise 115: folders whose name differs from what MoviePilot answered (`q`, `kind`, `offset`, `limit`; with the background check progress `job` and the number not asked yet `unchecked`); ask MoviePilot in the background (`refresh` asks again for everything); preview one folder (`id`, with optional per-part settings `parts: {part: {type, tmdbid, season}}`), returning a `token` to run with `/web/api/moviepilot/reorganize/execute` |
 | `GET /web/api/server`, `POST /web/api/server/check`, `POST /web/api/server/update`, `POST /web/api/server/restart` | Version and the last update check (`boot` differs on every start); check now; update to the latest version (runs in the background, progress in `job`); restart |
 | `GET /web/api/libraries/suggest?path=` | Bulk add libraries: list the subfolders with a suggested type and the reason, the video count (`complete` when fully counted), whether a library already uses the folder (`used`), and whether to tick it by default; `partial` means some folders were not fully read |
 | `POST /web/api/moviepilot/test`, `GET /web/api/moviepilot/status`, `POST /web/api/moviepilot/scrape` | MoviePilot connection test, status, scrape items missing metadata |
@@ -179,7 +179,7 @@ Each module under `embyserver/`:
 | `dupes.py` | Duplicate files on 115: identical files, different versions, which one to keep |
 | `dto.py` | Turns database rows into Emby `BaseItemDto`, `UserDto` and `MediaSourceInfo` |
 | `filetypes.py` | Shared file extension lists |
-| `organize115.py` | Organise 115: turns MoviePilot's rename format into patterns, finds non-standard folders, previews whole folders with MoviePilot |
+| `organize115.py` | Organise 115: asks MoviePilot what each folder would be called (answers stored in `organize_checks`) and previews whole folders with it |
 | `http_util.py` | httpx client for external services that turns connection errors into readable reasons |
 | `intro.py` | Learns intros and credits from playback |
 | `library_suggest.py` | Bulk-adding libraries: guesses whether subfolders hold movies or shows |

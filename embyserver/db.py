@@ -199,6 +199,16 @@ CREATE TABLE IF NOT EXISTS mp_no_image (
     at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_mp_no_image_at ON mp_no_image(at);  -- 找最近送過的、清掉過期的
+
+-- 整理 115 網盤：問過 MoviePilot「這個資料夾（和幾支影片）整理後叫什麼」的結果；裡面的影片沒變就不再問
+CREATE TABLE IF NOT EXISTS organize_checks (
+    path TEXT PRIMARY KEY,  -- 115 上的資料夾（沒有自己資料夾的電影是那支影片）
+    sig TEXT NOT NULL,      -- 名稱和裡面影片清單的雜湊
+    name TEXT,              -- MoviePilot 給的資料夾名稱
+    files TEXT,             -- JSON：[[現在的檔名, MoviePilot 給的檔名], ...]
+    error TEXT,             -- MoviePilot 認不出來時的說明
+    at INTEGER NOT NULL
+);
 """
 
 

@@ -681,8 +681,10 @@ class Reorganizer:
         """整理 115 網盤的一批：整個資料夾（或一季、直接放著的影片）交給 MoviePilot，結果照它回的每個檔案記。"""
         job.current = f"MoviePilot 整理中：{batch['label']}（{batch['count']} 個檔案）"
         try:
-            results = self.mp.transfer(batch["fileitems"], pv["tmdbid"] or None, batch["season"], None, pv["scrape"],
-                                       pv["target_path"], preview=False, mtype=pv["type_name"],
+            # 每一部分可以各自指定 TMDB 編號、類型（沒指定是 None，讓 MoviePilot 自己認）
+            results = self.mp.transfer(batch["fileitems"], batch.get("tmdbid", pv["tmdbid"]) or None, batch["season"], None,
+                                       pv["scrape"], pv["target_path"], preview=False,
+                                       mtype=batch.get("type_name", pv["type_name"]),
                                        timeout=max(600, 60 * batch["count"]), single=batch["single"])
         except MoviePilotError as exc:
             job.errors.append(f"{batch['label']}：{exc}")

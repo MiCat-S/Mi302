@@ -254,7 +254,7 @@ Besides the seasons listed on this card, you can pick any folder in **Browse 115
 - Files that are currently inside a sync folder may not move outside the sync folders, or they would disappear from the library. For files that were outside the sync folders to begin with, a new location outside them only gives the note that Mi302 will not create strm files for them.
 - Afterwards only local nfo files with `-1` numbers are deleted; movie nfo files and others stay.
 
-**Organise 115** (整理 115 網盤) on the 115 tab uses the same flow, one whole folder at a time: it finds show and movie folders not named to MoviePilot's rename format and hands each whole folder to MoviePilot (videos and subtitles together, with the season given explicitly), runs several together, and can move old folders with no videos left to the 115 recycle bin; see [115 cloud sync](115-Cloud-Sync#organising-115).
+**Organise 115** (整理 115 網盤) on the 115 tab uses the same flow, one whole folder at a time, with recognition and naming left to MoviePilot: it first asks MoviePilot what each show and movie folder would be called, sends each folder whose name differs (by default without type, TMDB ID or season, so MoviePilot recognises it; you only set them where it gets them wrong), runs several together, and can move old folders with no videos left to the 115 recycle bin; see [115 cloud sync](115-Cloud-Sync#organising-115).
 
 ## Add Mi302 to MoviePilot as Emby
 

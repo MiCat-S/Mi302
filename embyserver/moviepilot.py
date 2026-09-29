@@ -53,6 +53,7 @@ TMDB_EPISODES_API = "/api/v1/tmdb/{tmdbid}/{season}"
 # 手動整理（在 115 上改名、搬家、刮削）和推薦集數定位模板；兩個都只接受帳號登入
 TRANSFER_API = "/api/v1/transfer/manual"
 EPISODE_FORMAT_API = "/api/v1/transfer/episode-format/recommend"
+TRANSFER_NAME_API = "/api/v1/transfer/name"  # 整理後會叫什麼（要帳號登入）
 SYSTEM_ENV_API = "/api/v1/system/env"  # 系統設定，裡面有版本號（要管理員帳號）
 # 手動整理的預覽模式從 v2.11.1-1 開始；更舊的版本不認 preview，「預覽」會變成真的整理
 PREVIEW_MIN_VERSION = (2, 11, 1, 1)
@@ -564,6 +565,15 @@ class MoviePilot:
                          "message": "MoviePilot 沒有回傳每個檔案的結果"} for fi in fileitems]
             raise MoviePilotError(str((res or {}).get("message") or "MoviePilot 沒有回傳整理結果"))
         return [i for i in items if isinstance(i, dict)]
+
+    def transfer_name(self, path: str, filetype: str) -> Tuple[bool, str]:
+        """MoviePilot 整理這個 115 路徑後會叫什麼：filetype=dir 回傳媒體資料夾名稱，file 回傳檔名。
+        它用自己的辨識和重命名格式算，不動任何檔案。認不出來時回傳 (False, 說明)；連不上等錯誤丟 MoviePilotError。"""
+        res = self._request("GET", TRANSFER_NAME_API, query={"path": path, "filetype": filetype}, timeout=60)
+        data = res.get("data") if isinstance(res, dict) else None
+        if isinstance(res, dict) and res.get("success") and isinstance(data, dict) and data.get("name"):
+            return True, str(data["name"])
+        return False, str((res or {}).get("message") or "MoviePilot 認不出來")
 
     def rename_formats(self) -> Tuple[str, str]:
         """MoviePilot 的重命名格式（劇集、電影）；要管理員帳號。沒有回的是空字串。"""

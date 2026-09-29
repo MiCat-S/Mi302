@@ -44,27 +44,39 @@ def browse_115_files(request: Request, ctx: AuthContext = Depends(require_admin)
 
 @router.get("/web/api/115/organize")
 def organize_list(request: Request, ctx: AuthContext = Depends(require_admin)):
-    """整理 115 網盤：命名不照 MoviePilot 重命名格式的資料夾（q 搜尋、kind=series|movie、offset、limit；refresh=1 重新找）。
-    只看媒體庫和 115 同步紀錄，不向 115 請求；附上比對用的格式、缺什麼設定（ready）、目前的整理工作（job）。"""
+    """整理 115 網盤：問過 MoviePilot、名稱和它給的不一樣的資料夾（q 搜尋、kind=series|movie、offset、limit）。
+    附上背景檢查的進度（job）、還沒問過的數量（unchecked）、缺什麼設定（ready）、目前的整理工作（reorg_job）。不向 MoviePilot 請求。"""
     st = state(request)
     offset, limit = max(q_int(request, "offset") or 0, 0), min(max(q_int(request, "limit") or 50, 1), 200)
-    result = st.organizer.list(q(request, "q") or "", q(request, "kind") or "", offset, limit, q(request, "refresh") == "1")
-    return {**result, "offset": offset, "ready": st.reorganizer.ready(), "job": st.reorganizer.job.as_dict()}
+    result = st.organizer.list(q(request, "q") or "", q(request, "kind") or "", offset, limit)
+    return {**result, "offset": offset, "ready": st.reorganizer.ready(), "reorg_job": st.reorganizer.job.as_dict()}
+
+
+@router.post("/web/api/115/organize/check")
+async def organize_check(request: Request, ctx: AuthContext = Depends(require_admin)):
+    """在背景問 MoviePilot 每個資料夾整理後叫什麼：{"refresh": true} 連問過的也重問。進度看 GET /web/api/115/organize。"""
+    st = state(request)
+    body = await json_body(request)
+    try:
+        started = st.organizer.check_in_background(bool(body.get("refresh")))
+    except OrganizeError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {"started": started, "job": st.organizer.job.as_dict()}
 
 
 @router.post("/web/api/115/organize/preview")
 async def organize_preview(request: Request, ctx: AuthContext = Depends(require_admin)):
-    """請 MoviePilot 只算不做：{id, tmdbid, type: tv|movie, seasons: {部分: 季}, scrape}。
-    回傳每個檔案的新位置和 Mi302 的檢查；有能整理的就給預覽代碼 token，用 /web/api/moviepilot/reorganize/execute 執行。"""
+    """請 MoviePilot 只算不做：{id, parts: {部分: {type: tv|movie, tmdbid, season}}, scrape}，沒指定的讓 MoviePilot 自己認。
+    回傳每個檔案的新位置、MoviePilot 認成什麼和 Mi302 的檢查；有能整理的就給預覽代碼 token，
+    用 /web/api/moviepilot/reorganize/execute 執行。"""
     st = state(request)
     body = await json_body(request)
     if not st.reorganizer.ready()["login"]:
         raise HTTPException(status_code=400, detail="MoviePilot 的手動整理只接受帳號登入，請在「MoviePilot 帳號密碼」填好再儲存")
-    seasons = body.get("seasons") if isinstance(body.get("seasons"), dict) else {}
-    seasons = {str(k): int(v) if str(v).strip().isdigit() else None for k, v in seasons.items()}
+    parts = body.get("parts") if isinstance(body.get("parts"), dict) else {}
+    overrides = {str(k): v for k, v in parts.items() if isinstance(v, dict)}
     try:
-        return await run_in_threadpool(st.organizer.preview, str(body.get("id") or ""), str(body.get("tmdbid") or ""),
-                                       str(body.get("type") or ""), seasons, bool(body.get("scrape", True)))
+        return await run_in_threadpool(st.organizer.preview, str(body.get("id") or ""), overrides, bool(body.get("scrape", True)))
     except OrganizeError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 

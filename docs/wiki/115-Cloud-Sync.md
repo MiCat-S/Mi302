@@ -274,48 +274,47 @@ If a folder looks wrong, click **Reorganise this folder with MoviePilot…** (�
 Videos organised by MoviePilot are named after its rename format, for example `凡人修仙传 (2020) {tmdbid=106449}/Season 1/凡人修仙传 - S01E176 - 第 176 集.mp4`. Folders saved from other people's shares often look different:
 
 ```
-/TV/Anime/F 凡人修仙传{tmdbid-106449} 更176｜停更｜预计第二季度更新/176.mp4
+/TV/Donghua/F 凡人修仙传{tmdbid-106449} 更176｜停更｜预计第二季度更新/凡人修仙传 EP001_风起天南.mp4
 /TV/Variety/康熙来了 (2004)/康熙来了 EP01.mp4      ← next to an existing "康熙来了 (2004) {tmdbid=6836}"
 ```
 
-The **Organise 115** (整理 115 網盤) card on the 115 tab finds such folders and hands each whole folder to MoviePilot.
+The **Organise 115** (整理 115 網盤) card on the 115 tab finds such folders and hands each whole folder to MoviePilot. **Recognition and naming are done by MoviePilot**: Mi302 does not judge names itself and does not guess TMDB IDs, types or seasons. It needs the MoviePilot username and password on the MoviePilot tab (these APIs only accept an account login).
 
-### Finding non-standard folders
+### Checking with MoviePilot
 
-Click **Find non-standard folders** (找出不規範的資料夾). Mi302 first reads MoviePilot's rename formats (`TV_RENAME_FORMAT`, `MOVIE_RENAME_FORMAT`; this needs the MoviePilot username and password on the MoviePilot tab). If they cannot be read, MoviePilot's default formats are used and the card says why. Then the 115 folder of every show and movie in the library is checked on three levels:
+Click **Check with MoviePilot** (問 MoviePilot 檢查). For every show and movie in the library that lies inside a sync folder, Mi302 asks MoviePilot what it would be called after organising (MoviePilot's "query the organised name" API, the same logic its own UI uses): once for the folder, and once each for one or two sample videos. Entries are listed with their reasons:
 
-| What | Examples |
+| Reason | Meaning |
 | --- | --- |
-| Folder name | Extra text such as 更176｜停更; a tmdbid written as `{tmdbid-106449}`; the format has `{tmdbid=…}` but the folder does not. With scraped metadata, the name is also compared with the one the format would produce |
-| Season folders | Episodes lying directly in the show folder, or a season folder named 第一季 (`Specials` and `SPs` count as season 0) |
-| File names | `176.mp4`, `康熙来了 EP01.mp4` and other names without `S01E01` |
+| Folder name differs from MoviePilot's (資料夾名稱和 MoviePilot 的不一樣) | For example it would rename "F 凡人修仙传{tmdbid-106449} 更176…" to "凡人修仙传 (2020) {tmdbid=106449}". If a folder with that name already exists next to it, the entry says it will be merged into it |
+| Videos lie directly in the folder (影片直接放在資料夾裡) | MoviePilot's TV rename format has season folders, but the videos are not in one |
+| File names differ from MoviePilot's (檔名和 MoviePilot 的不一樣) | The current and the new file names are shown, e.g. "1 → 凡人修仙传 - S02E01 - 第 1 集" |
+| No folder of its own (沒有自己的資料夾) | A movie that shares its folder with other movies; listed on its own |
+| MoviePilot cannot recognise it (MoviePilot 認不出來) | It cannot tell which title this is; set the type and TMDB ID yourself before previewing, or rename it on 115 |
 
-Each entry lists its reasons. A movie that shares its folder with other movies is listed on its own (**no folder of its own**, 沒有自己的資料夾). Only titles in the library and inside a sync folder are checked. The comparison uses Mi302's sync records without asking 115, so even tens of thousands of episodes take a second or two. Run a full sync and a library scan first for accurate results. You can search by name or show only shows or only movies.
+The check runs in the background; the card shows how far it is and how many it found, and results appear as they come in. A large library takes a while the first time (two or three questions per folder, each making MoviePilot query TMDB). Answers are stored in Mi302's database: folders whose name and videos have not changed are not asked again, only new or changed ones are. After changing MoviePilot's rename format, click **Check everything again** (全部重新檢查). You can search by name or show only shows or only movies.
 
-In **Shows with wrong episode numbers** (集號不對的劇) on the MoviePilot tab, shows whose folder is non-standard are marked **Folder not named to the format** (資料夾命名不規範) and the button becomes **Organise the whole folder…** (整個資料夾整理…), which jumps to this card and searches for the show.
+In **Shows with wrong episode numbers** (集號不對的劇) on the MoviePilot tab, shows whose folder MoviePilot would rename are marked **Folder not named to the format** (資料夾命名不規範) and the button becomes **Organise the whole folder…** (整個資料夾整理…), which jumps to this card and searches for the show.
 
-### What to check for each entry
+### Preview
 
-- Type: TV show or movie.
-- TMDB ID: taken from the folder name (`{tmdbid-…}` and `[tmdb=…]` both work), the scraped metadata, or the folder it will be merged into. If none is found you can leave it empty and let MoviePilot recognise the name.
-- Season (shows): one field for a folder without season folders; otherwise one field per season folder, plus one for episodes lying directly in the show folder. Mi302 pre-fills the season most of these episodes have in the library, and uses the number in names such as `Season 2`. **Always check it**: with words like 预计第二季度 in the folder name, MoviePilot would take the folder as season 2 on its own, so Mi302 always tells it the season explicitly.
-- When there is already a correctly named folder that looks like the same title next to it (same name without the tmdbid tag, or the same tmdbid), the entry says it will be merged into it.
+Tick the entries and click **Preview selected** (預覽選取的). As with **File manager → Organise** in MoviePilot's own UI, the whole folder is sent: videos, subtitles and audio tracks inside are organised together into the same parent folder, following MoviePilot's format. A folder with subfolders is sent one subfolder at a time, plus once for the videos lying directly in it (a subfolder may be a different title, like "虚天战纪.导演剪辑版 (2025) [tmdb-282348]" inside the 凡人修仙传 folder).
 
-### Preview and run
+Every part defaults to "type: auto, TMDB: auto, season: auto", which lets MoviePilot recognise it. After the preview each part shows what MoviePilot recognised, such as "→ 凡人修仙传 第 2 季（174 個）" or "→ 虚天战纪（電影）（2 個）". If it is wrong, set the type, TMDB ID or season for that part only and preview again. A common case is 预计第二季度 in a folder name: MoviePilot takes it as season 2, and Mi302 points it out when that differs from the season in the library.
 
-Tick the entries and click **Preview selected** (預覽選取的). Each folder (each season folder, if there are any) is previewed by MoviePilot once. As with **File manager → Organise** in MoviePilot's own UI, the whole folder is sent: videos, subtitles and audio tracks inside are organised together, into the same parent folder, following MoviePilot's rename format. Under each entry you see the target folder and every file's new location. Mi302 also checks:
+Mi302 only blocks what MoviePilot itself does not:
 
 - A new location equal to the current one (already named to the format), or outside the sync folders: MoviePilot cannot skip single files when it organises a folder, so that whole part is not sent.
-- The folder it should merge into has a different name from what MoviePilot produces: a note says it will not be merged and organising would create another folder. Align MoviePilot's rename format first.
 - Two files organised to the same location: a note says only one will stay.
-- Files whose episode number MoviePilot cannot recognise are marked as not sent; they fail again when you run and stay where they are.
 
 The preview cannot tell you whether the target already has the same episode (MoviePilot's preview does not check). When organising into a given folder, MoviePilot does not overwrite existing files, so that episode is skipped and stays where it was.
 
-Click **Run** (執行). All previewed entries are organised together in the background, with progress at the top of the card. 115 only allows a few requests per second and each video needs several to move and rename, so a folder of a few hundred episodes takes ten minutes or more. Afterwards:
+### Running it
+
+Click **Run** (執行). All previewed entries are organised together in the background, with the same settings as in the preview; progress is shown at the top of the card. 115 only allows a few requests per second and each video needs several to move and rename, so a folder of a few hundred episodes takes ten minutes or more. Afterwards:
 
 - With **Move old folders with no videos left to the 115 recycle bin** (整理完後，沒有影片留下的舊資料夾移到 115 回收站) on (the default), emptied old folders go to the recycle bin together with the nfo files and images left inside, restorable on 115. Folders that still hold videos (skipped or failed ones) are kept; use **Duplicate files** (重複檔案) for them. Before moving a folder Mi302 checks it is still where it was; if MoviePilot already deleted it, it is left alone.
-- Local nfo files with `-1` numbers are deleted and an incremental sync runs about 20 seconds later, moving the local strm files along. After the sync and a scan, click **Find non-standard folders** again and the organised folders are gone from the list.
+- Local nfo files with `-1` numbers are deleted and an incremental sync runs about 20 seconds later, moving the local strm files along. After the sync and a scan, click **Check with MoviePilot** again and the organised folders are gone from the list.
 
 ## 115 recycle bin
 

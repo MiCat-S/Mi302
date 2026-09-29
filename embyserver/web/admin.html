@@ -72,7 +72,9 @@ textarea{resize:vertical;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,
 .dupm input{width:auto;flex:none;margin-top:3px}
 .dupm .p{word-break:break-all}
 .li>input.chk{width:auto;flex:none;margin-top:4px}.li .main select.sm,.li .main input.sm{font-size:13px;padding:4px 8px;width:auto}
-.li .main input.sm.tmdb{width:9em}.li .main input.sm.season{width:4.5em}
+.li .main input.sm.tmdb{width:8.5em}.li .main input.sm.season{width:6.5em}
+.ogparts{display:flex;flex-direction:column;gap:6px;margin-top:8px}.ogparts .ogpart{display:flex;flex-wrap:wrap;align-items:center;gap:6px}
+.ogmap{font-size:13px;color:var(--muted);word-break:break-all}.ogmap b{color:var(--fg);font-weight:500}
 .reasons{margin:6px 0 0;padding-left:18px;color:var(--warn);font-size:13px;display:flex;flex-direction:column;gap:2px}.reasons li{word-break:break-all}
 .ogpart{display:inline-flex;align-items:center;gap:6px;font-size:13px;padding:4px 8px;border:1px solid var(--line);border-radius:8px}
 .dupbar{position:sticky;top:0;z-index:2;background:var(--panel);padding:8px 0;border-bottom:1px solid var(--line)}
@@ -476,11 +478,12 @@ dialog .card-b{max-height:70vh;overflow:auto}
 
       <div class="card" id="ogCard">
         <div class="card-h"><div class="t"><svg class="i"><use href="#i-tool"/></svg><h2>整理 115 網盤</h2></div>
-          <button class="btn" id="ogScan" onclick="organizeLoad(1, true)">找出不規範的資料夾</button></div>
+          <div class="row wrap gap6"><button class="btn" id="ogCheck" onclick="organizeCheck(false)">問 MoviePilot 檢查</button><button class="btn ghost" id="ogRecheck" onclick="organizeCheck(true)">全部重新檢查</button></div></div>
         <div class="card-b stack">
-          <p class="hint">照 MoviePilot 的重命名格式檢查媒體庫裡每一部劇、每一部電影在 115 上的資料夾名稱、季資料夾、檔名，不照格式的整個資料夾交給 MoviePilot 整理（影片、字幕一起搬），先預覽再執行。 <a class="doc" href="https://github.com/MiCat-S/Mi302/wiki/115-網盤與同步#整理-115-網盤" target="_blank" rel="noopener">說明</a></p>
+          <p class="hint">媒體庫裡每一部劇、每一部電影的資料夾，都問 MoviePilot 整理後該叫什麼；和它給的名稱不一樣的列出來，整個資料夾交給它整理（影片、字幕一起搬），先預覽再執行。辨識、命名都是 MoviePilot 做的。 <a class="doc" href="https://github.com/MiCat-S/Mi302/wiki/115-網盤與同步#整理-115-網盤" target="_blank" rel="noopener">說明</a></p>
           <div id="ogJob"></div>
           <p id="ogMsg" class="notice hidden" aria-live="polite"></p>
+          <div id="ogProgress" aria-live="polite"></div>
           <div id="ogHead" class="stack hidden">
             <div id="ogInfo"></div>
             <div class="row wrap gap6"><input id="ogQ" type="search" class="grow" placeholder="搜尋資料夾名稱或路徑" aria-label="搜尋資料夾" oninput="soon('og', () => organizeLoad(1), 400)">
@@ -2419,90 +2422,115 @@ async function pollReorgJob() {
 // ---- 整理 115 網盤 ----
 const OG_PAGE = 30;
 const OG_KIND = {series: '劇集', movie: '電影', movie_file: '電影'};
-const OG_FROM = {name: '從資料夾名稱', library: '從刮削資料', merge: '從要併進的資料夾'};
-// state：資料夾 id → 勾選、類型、TMDB 編號、每一部分的季、預覽結果；換頁、重新找都留著
-let og = {page: 1, seq: 0, items: [], ready: null, state: {}, pendingQ: null};
+// state：資料夾 id → 勾選、每一部分指定的類型／TMDB 編號／季（空的讓 MoviePilot 自己認）、預覽結果；換頁、重新整理都留著
+let og = {page: 1, seq: 0, items: [], ready: null, state: {}, pendingQ: null, job: null};
 function organizeFind(name) {
   // 從「集號不對的劇」跳過來：到 115 頁，用劇名搜尋
   og.pendingQ = name;
   location.hash = '#115';
 }
 function organizePending() {
-  if (og.pendingQ == null) return;
+  if (og.pendingQ == null) return organizeLoad(1);
   $('ogQ').value = og.pendingQ; $('ogKind').value = ''; og.pendingQ = null;
   organizeLoad(1).then(() => $('ogCard').scrollIntoView({block: 'start'}));
 }
 function organizeLack() {
   const r = og.ready || {};
-  return !r.moviepilot ? '還沒設定 MoviePilot：到「MoviePilot」頁填網址和 API 令牌' : !r.login ? 'MoviePilot 的手動整理只接受帳號登入：到「MoviePilot」頁填帳號密碼'
+  return !r.moviepilot ? '還沒設定 MoviePilot：到「MoviePilot」頁填網址和 API 令牌' : !r.login ? '問 MoviePilot、交給它整理都要帳號登入：到「MoviePilot」頁填帳號密碼'
     : !r.p115 ? '要先登入 115' : '';
 }
-async function organizeLoad(page, refresh) {
+async function organizeCheck(refresh) {
+  if (refresh && !await ask({title: '全部重新問 MoviePilot？', text: '問過的也重問一次（例如改過 MoviePilot 的重命名格式）。資料夾多的要一陣子，在背景跑，可以先做別的。', ok: '重新檢查'})) return;
+  try { await api('/web/api/115/organize/check', {method: 'POST', body: JSON.stringify({refresh})}); }
+  catch (e) { toast(e.message, 'bad'); return; }
+  organizeLoad(1);
+}
+function organizeProgress(r) {
+  // 背景檢查的進度；檢查中每 3 秒重新讀一次清單（問完的會陸續出現）
+  const j = r.job;
+  $('ogCheck').disabled = $('ogRecheck').disabled = j.running || !!organizeLack();
+  let h = '';
+  if (j.running) h = `<p class="hint row"><span class="spin"></span>問 MoviePilot 中：${j.done} / ${j.todo}，找到 ${j.found} 個不一樣的${j.current ? `・${esc(j.current)}` : ''}</p>`;
+  else if (j.error) h = `<p class="notice bad">${esc(j.error)}</p>`;
+  else if (!r.folders) h = '<p class="hint">媒體庫裡沒有在 115 同步目錄底下的劇集、電影。</p>';
+  else if (r.unchecked === r.folders) h = `<p class="hint">媒體庫裡有 ${r.folders} 個資料夾，還沒問過 MoviePilot。按「問 MoviePilot 檢查」，每個資料夾問它一次整理後該叫什麼（在背景跑，資料夾多的要一陣子）。</p>`;
+  else if (r.unchecked) h = `<p class="hint">有 ${r.unchecked} 個資料夾還沒問過（新加的或內容變了），按「問 MoviePilot 檢查」補問。</p>`;
+  setHtml($('ogProgress'), h);
+  if (j.running) later('ogjob', () => organizeLoad(og.page, true), 3000);
+}
+async function organizeLoad(page, quiet) {
   og.page = Math.max(1, page || og.page);
   const box = $('ogList'), seq = ++og.seq;
-  box.innerHTML = `<p class="hint row"><span class="spin"></span>${refresh ? '照 MoviePilot 的命名格式檢查媒體庫…' : '讀取中…'}</p>`;
+  if (!quiet) box.innerHTML = '<p class="hint row"><span class="spin"></span>讀取中…</p>';
   let r;
-  try { r = await api(`/web/api/115/organize?q=${encodeURIComponent($('ogQ').value)}&kind=${$('ogKind').value}&offset=${(og.page - 1) * OG_PAGE}&limit=${OG_PAGE}${refresh ? '&refresh=1' : ''}`); }
+  try { r = await api(`/web/api/115/organize?q=${encodeURIComponent($('ogQ').value)}&kind=${$('ogKind').value}&offset=${(og.page - 1) * OG_PAGE}&limit=${OG_PAGE}`); }
   catch (e) { if (seq === og.seq) box.innerHTML = failHtml(e); return; }
   if (seq !== og.seq) return;
-  og.ready = r.ready; og.items = r.items; S.reo = r.job;
-  $('ogHead').classList.remove('hidden');
-  const f = r.formats, src = f.source === 'moviepilot' ? '來自 MoviePilot' : 'MoviePilot 的預設格式';
-  $('ogInfo').innerHTML = `<p class="hint">找到 <b>${r.counts.series + r.counts.movie}</b> 個不照格式的：劇集 ${r.counts.series}、電影 ${r.counts.movie}${r.scanned ? `・${ago(r.scanned)}檢查的` : ''}</p>` +
-    (f.note ? `<p class="notice warn mt8">${esc(f.note)}</p>` : '') +
-    `<details class="more mt6"><summary>比對用的命名格式（${src}）</summary><div class="in stack"><div><span class="hint">劇集</span><div class="pre"><code>${esc(f.tv)}</code></div></div><div><span class="hint">電影</span><div class="pre"><code>${esc(f.movie)}</code></div></div></div></details>`;
+  og.ready = r.ready; og.items = r.items; S.reo = r.reorg_job;
   note($('ogMsg'), organizeLack(), 'warn');
+  organizeProgress(r);
+  const checked = r.folders - r.unchecked;
+  $('ogHead').classList.toggle('hidden', !checked);
+  $('ogInfo').innerHTML = checked ? `<p class="hint">問過 MoviePilot 的 ${checked} 個資料夾裡，<b>${r.counts.series + r.counts.movie}</b> 個和它給的名稱不一樣：劇集 ${r.counts.series}、電影 ${r.counts.movie}</p>` : '';
+  if (quiet && document.activeElement && box.contains(document.activeElement)) return;  // 正在填某一列：這次不重畫
   box.innerHTML = '';
-  if (!r.items.length) box.innerHTML = `<p class="hint">${$('ogQ').value || $('ogKind').value ? '沒有符合的資料夾' : '媒體庫裡的劇集、電影都照 MoviePilot 的命名格式，沒有要整理的。'}</p>`;
+  if (checked && !r.items.length) box.innerHTML = `<p class="hint">${$('ogQ').value || $('ogKind').value ? '沒有符合的資料夾' : '問過的資料夾都和 MoviePilot 給的名稱一樣，沒有要整理的。'}</p>`;
   for (const u of r.items) box.appendChild(organizeRow(u));
   pager(box, {page: og.page, pages: Math.max(1, Math.ceil(r.total / OG_PAGE)), onPage: p => organizeLoad(p), total: r.total, unit: '個'});
   $('ogBar').classList.toggle('hidden', !r.total);
   organizeButtons();
-  if (r.job.running) pollReorgJob();
+  if (r.reorg_job.running) pollReorgJob();
 }
 function ogState(u) {
-  const st = og.state[u.id] ||= {on: false, tmdbid: u.tmdbid, type: u.type, seasons: Object.fromEntries(u.parts.map(p => [p.key, p.season])), preview: null, error: '', sent: false};
+  const st = og.state[u.id] ||= {on: false, parts: {}, preview: null, error: '', sent: false};
+  for (const p of u.parts) st.parts[p.key] ||= {type: '', tmdbid: '', season: ''};
   st.unit = u;
   return st;
 }
+const ogStem = n => n.replace(/\.[^.\/]+$/, '');
 function organizeRow(u) {
-  // 一個資料夾：原因、會併進哪裡、類型、TMDB 編號、每一部分是第幾季、預覽結果
+  // 一個資料夾：MoviePilot 給的名稱、原因、會併進哪裡；每一部分可以指定類型、TMDB 編號、季（空的讓 MoviePilot 自己認）
   const st = ogState(u), d = document.createElement('div');
   d.className = 'li top';
-  const seasonWord = /第.{1,3}季/.exec(u.name);
+  const files = u.mp_files.filter(f => ogStem(f[0]) !== ogStem(f[1]));
   d.innerHTML = `<input type="checkbox" class="chk js-on" aria-label="整理 ${esc(u.name)}"${st.on ? ' checked' : ''}${st.sent ? ' disabled' : ''}>
     <div class="main"><div class="row wrap gap6"><b>${esc(u.name)}</b><span class="pill">${OG_KIND[u.kind]}</span><span class="hint">${u.videos} 支影片</span>${st.sent ? '<span class="pill ok">已送出整理</span>' : ''}</div>
     <div class="sub">${esc(u.parent)}</div>
     <ul class="reasons">${u.reasons.map(x => `<li>${esc(x)}</li>`).join('')}</ul>
-    ${u.merge_into ? `<div class="sub mt4">會併進旁邊的「${esc(u.merge_into.name)}」</div>` : ''}${u.expected ? `<div class="sub mt4">照格式應該叫「${esc(u.expected)}」</div>` : ''}
-    <div class="row wrap gap6 mt8"><select class="js-type sm" aria-label="類型"><option value="tv">電視劇</option><option value="movie">電影</option></select>
-      <input class="js-tmdb sm tmdb" type="text" inputmode="numeric" placeholder="TMDB 編號" aria-label="TMDB 編號"><span class="hint">${esc(OG_FROM[u.tmdb_from] || '沒找到，不填讓 MoviePilot 用名稱辨識')}</span></div>
-    <div class="js-parts row wrap gap6 mt6">${u.parts.map(p => `<label class="ogpart"><span>${esc(p.label)}（${p.videos} 支）第</span><input class="sm season" type="number" min="0" data-key="${esc(p.key)}" aria-label="${esc(p.label)} 是第幾季"><span>季</span></label>`).join('')}</div>
-    ${seasonWord ? `<p class="hint mt4 js-seasonhint">名稱裡有「${esc(seasonWord[0])}」，MoviePilot 自己認會認成那一季，所以季要在這裡填對</p>` : ''}
+    ${u.mp_name && u.mp_name !== u.name ? `<div class="ogmap mt6">MoviePilot 會整理成 <b>${esc(u.mp_name)}</b>${u.merge_into ? '（旁邊已經有，會併進去）' : ''}</div>` : ''}
+    ${files.map(f => `<div class="ogmap">${esc(ogStem(f[0]))} → <b>${esc(ogStem(f[1]))}</b></div>`).join('')}
+    ${u.error ? '<p class="hint mt6">在下面指定類型和 TMDB 編號再預覽，或到 115 上改名稱讓 MoviePilot 認得出來</p>' : ''}
+    <div class="ogparts">${u.parts.map(p => `<div class="ogpart" data-key="${esc(p.key)}"><span class="hint">${esc(p.label)}（${p.videos} 支）</span>
+      <select class="sm js-type" aria-label="${esc(p.label)} 的類型"><option value="">類型：自動</option><option value="tv">電視劇</option><option value="movie">電影</option></select>
+      <input class="sm tmdb js-tmdb" type="text" inputmode="numeric" placeholder="TMDB：自動" aria-label="${esc(p.label)} 的 TMDB 編號">
+      <input class="sm season js-season" type="number" min="0" placeholder="季：自動" aria-label="${esc(p.label)} 是第幾季"><span class="js-rec hint"></span></div>`).join('')}</div>
     <div class="row wrap gap6 mt6 js-st"></div><div class="js-pv"></div></div>`;
-  const type = d.querySelector('.js-type'), tmdb = d.querySelector('.js-tmdb');
-  type.value = st.type; tmdb.value = st.tmdbid || '';
-  const showParts = () => { for (const el of d.querySelectorAll('.js-parts, .js-seasonhint')) el.classList.toggle('hidden', type.value !== 'tv'); };
-  showParts();
-  for (const inp of d.querySelectorAll('.js-parts input')) {
-    inp.value = st.seasons[inp.dataset.key] ?? '';
-    inp.oninput = () => { st.seasons[inp.dataset.key] = inp.value === '' ? null : Number(inp.value); organizeReset(st); };
+  for (const row of d.querySelectorAll('.ogpart')) {
+    const o = st.parts[row.dataset.key], type = row.querySelector('.js-type'), tmdb = row.querySelector('.js-tmdb'), season = row.querySelector('.js-season');
+    type.value = o.type; tmdb.value = o.tmdbid; season.value = o.season;
+    season.classList.toggle('hidden', o.type === 'movie');
+    type.onchange = () => { o.type = type.value; season.classList.toggle('hidden', o.type === 'movie'); organizeReset(st); };
+    tmdb.oninput = () => { o.tmdbid = tmdb.value.trim(); organizeReset(st); };
+    season.oninput = () => { o.season = season.value; organizeReset(st); };
   }
-  type.onchange = () => { st.type = type.value; showParts(); organizeReset(st); };
-  tmdb.oninput = () => { st.tmdbid = tmdb.value.trim(); organizeReset(st); };
   d.querySelector('.js-on').onchange = e => { st.on = e.target.checked; organizeButtons(); };
   st.el = d;
   organizeShow(st);
   return d;
 }
 function organizeReset(st) {
-  // 改了設定，之前的預覽就不算數了
+  // 改了指定，之前的預覽就不算數了
   st.preview = null; st.error = '';
   organizeShow(st); organizeButtons();
 }
 function organizeShow(st) {
   if (!st.el?.isConnected) return;
   const box = st.el.querySelector('.js-st'), pv = st.el.querySelector('.js-pv'), r = st.preview;
+  for (const row of st.el.querySelectorAll('.ogpart')) {  // MoviePilot 把每一部分認成什麼
+    const part = r?.parts.find(p => p.key === row.dataset.key);
+    row.querySelector('.js-rec').textContent = part ? (part.recognized.length ? '→ ' + part.recognized.map(x =>
+      `${x.title || '？'}${x.type === '电影' ? '（電影）' : x.season != null ? ` 第 ${x.season} 季` : ''}（${x.count} 個）`).join('、') : '→ MoviePilot 認不出來') : '';
+  }
   if (st.error) { box.innerHTML = `<span class="pill bad">${esc(st.error)}</span>`; pv.innerHTML = ''; return; }
   if (!r) { box.innerHTML = ''; pv.innerHTML = ''; return; }
   const sm = r.summary;
@@ -2521,30 +2549,26 @@ function organizeButtons() {
   $('ogRun').textContent = ready.length ? `執行（${ready.length} 個）` : '執行';
 }
 function organizeToggleAll() {
-  const rows = og.items.map(u => og.state[u.id]).filter(st => st && !st.sent), all = rows.every(st => st.on);
+  const rows = og.items.map(u => og.state[u.id]).filter(st => st && !st.sent && !st.unit.error), all = rows.every(st => st.on);
   for (const st of rows) { st.on = !all; const box = st.el?.querySelector('.js-on'); if (box) box.checked = !all; }
   organizeButtons();
 }
 async function organizePreview() {
-  // 一個一個請 MoviePilot 預覽（一個資料夾可能分幾季送），結果顯示在那一列底下
+  // 一個一個請 MoviePilot 預覽（一個資料夾可能分幾部分送），結果顯示在那一列底下
+  // 換頁、檢查中的自動重新整理都不中斷：結果記在 state，回到那一頁還看得到
   const sel = organizeSelected();
-  const noSeason = sel.filter(st => st.type === 'tv' && st.unit.parts.some(p => st.seasons[p.key] == null));
-  if (noSeason.length) { toast(`有 ${noSeason.length} 個還沒填第幾季：「${noSeason[0].unit.name}」`, 'bad'); return; }
-  const seq = ++og.seq;
   $('ogPreview').disabled = $('ogRun').disabled = true;
   let n = 0;
   for (const st of sel) {
-    if (seq !== og.seq) return;  // 換頁或重新找了
     st.error = '';
     const box = st.el?.isConnected ? st.el.querySelector('.js-st') : null;
     if (box) box.innerHTML = `<span class="spin"></span><span class="hint">MoviePilot 預覽中（${++n} / ${sel.length}），檔案多的要一點時間…</span>`;
     try {
-      st.preview = await api('/web/api/115/organize/preview', {method: 'POST', body: JSON.stringify({
-        id: st.unit.id, tmdbid: st.tmdbid || '', type: st.type, seasons: st.seasons, scrape: true})});
+      st.preview = await api('/web/api/115/organize/preview', {method: 'POST', body: JSON.stringify({id: st.unit.id, parts: st.parts, scrape: true})});
     } catch (e) { st.preview = null; st.error = e.message; }
     organizeShow(st);
   }
-  if (seq === og.seq) organizeButtons();
+  organizeButtons();
 }
 async function organizeExecute() {
   const ready = organizeSelected().filter(st => st.preview?.token);
