@@ -7,7 +7,7 @@
 ## 接手須知
 
 - 直接在 main 上提交，提交訊息用繁體中文，結尾加 `Co-Authored-By` 那一行；做完就推送，不用等使用者說。
-- 每一批修改都要有回歸測試；`pytest -q` 要全過，`ruff check embyserver tests` 要乾淨。推到 GitHub 後 Actions 在 Python 3.10–3.13 各跑一次。
+- 每一批修改都要有回歸測試；`pytest -q` 要全過，`ruff check embyserver tests` 要乾淨。
 - 管理網頁的 `node --check`、Wiki 連結和設定鍵的檢查都在測試裡（`tests/test_admin_page.py`、`tests/test_docs.py`）。
 - 不要加回任何 Docker 相關檔案或說明（已經整個移除；install.sh 裡的 docker 字樣只是拒絕舊參數和搬遷舊安裝用的）。
 - 使用者用 MoviePilot V3（看 V3 分支的原始碼），播放器是 SenPlayer。
@@ -20,8 +20,8 @@
 審閱結果在另一份（`review-2026-09-29.md`，不在這個倉庫）。六項都對照程式碼確認屬實，已修：
 啟動時檢查設定檔；`/Users/{id}/…` 讀寫路徑上那個人的資料（管理員代標記不再寫到自己身上）；
 p115.timeout、redirect.resolve_timeout 熱套用；網頁上刪掉的設定檔帳號從設定檔拿掉；程式結束時關資料庫和連線池；
-StartIndex、Limit 的負數當成沒給。另外加了 GitHub Actions（Python 3.10–3.13、Ruff、node --check、Wiki 檢查），
-因此發現 p115cipher 在 Python 3.10 上取直鏈會丟 TypeError，已在 `p115.py` 補上。
+StartIndex、Limit 的負數當成沒給。另外測試加了管理網頁 node --check 和 Wiki 檢查；在 Python 3.10 上跑測試時
+發現 p115cipher 取直鏈會丟 TypeError，已在 `p115.py` 補上。審閱建議的 GitHub Actions 使用者覺得多餘，加了又拿掉。
 
 沒做的：審閱建議把 strm_sync.py、p115.py、scanner.py、admin.html 照職責拆開，也說了還沒到必須重構的程度，先不動。
 

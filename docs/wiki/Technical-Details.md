@@ -223,7 +223,7 @@ python -m pytest
 ruff check embyserver tests
 ```
 
-The tests also check the admin page's JavaScript syntax with `node --check` (skipped without node) and the documentation: wiki links and anchors resolve, every page is in the sidebar, and the config reference in all three languages covers every key. On pushes to main and on pull requests, GitHub Actions runs Ruff and the tests on Python 3.10 to 3.13; see `.github/workflows/test.yml`.
+The tests also check the admin page's JavaScript syntax with `node --check` (skipped without node) and the documentation: wiki links and anchors resolve, every page is in the sidebar, and the config reference in all three languages covers every key.
 
 After changing `install.sh`:
 
