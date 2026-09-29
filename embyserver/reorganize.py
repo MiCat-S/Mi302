@@ -377,7 +377,8 @@ class Reorganizer:
             results = self.mp.transfer(batch["fileitems"], batch.get("tmdbid") or None, batch.get("season"),
                                        batch.get("episode_format") or None, pv["scrape"], pv["target_path"], preview=False,
                                        mtype=batch.get("type_name"), timeout=max(600, 60 * batch["count"]),
-                                       single=batch["single"])
+                                       single=batch["single"], reorganize=bool(batch.get("reorganize")),
+                                       type_folder=pv.get("type_folder", False), category_folder=pv.get("category_folder", False))
         except MoviePilotError as exc:
             job.errors.append(f"{batch['label']}：{exc}")
             job.failed += batch["count"]

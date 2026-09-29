@@ -184,8 +184,8 @@ MoviePilot 下载、整理完会通知 Mi302 重新扫描。缺集的季如果�
 - MoviePilot 要 v2.11.1-1 以上。更旧的版本不支持预览，“预览”会变成真的整理，所以 Mi302 预览前先查版本（`GET /api/v1/system/env`），太旧或查不到都不发送。
 - “连线”卡片填好 MoviePilot 账号密码，账号要是管理员。查询整理后的名称、手动整理、推荐集数定位和查版本的 API 都只接受账号登录。
 - MoviePilot 的 115 网盘（存储）要登录和 Mi302 同一个 115 账号。Mi302 发送的是 115 上的文件夹、文件 id，MoviePilot 靠它移动文件。
-- 用到的 API：`GET /api/v1/transfer/name`（整理后叫什么）、`POST /api/v1/transfer/manual`（预览和执行；一个文件夹发送一个 `fileitem`，和 MoviePilot 网页“文件管理 → 整理”一样）、`POST /api/v1/transfer/episode-format/recommend`（推荐集数定位）。
-- 整理到“同一层”或指定的文件夹时，MoviePilot 用自己的重命名格式，不另加类型、类别文件夹，已有的文件不覆盖；“照 MoviePilot 的目录设定”时，按它的媒体库目录、分类和覆盖设置。
+- 用到的 API：`GET /api/v1/transfer/name`（整理后叫什么）、`POST /api/v1/transfer/manual`（预览和执行；一个文件夹发送一个 `fileitem`，和 MoviePilot 网页“文件管理 → 整理”一样）、`POST /api/v1/transfer/episode-format/recommend`（推荐集数定位）、`GET /api/v1/storage/directories`（目录设置；V2 是 `/api/v1/system/setting/Directories`）、`POST /api/v1/transfer/manual/target-path`（它自己会整理到哪个目录）、`POST /api/v1/transfer/manual/history`（有没有整理记录）。
+- 整理到“同一层”或指定的文件夹时，MoviePilot 用自己的重命名格式，不另加类型、类别文件夹，已有的文件不覆盖；“照 MoviePilot 的目录设定”时，把包含这个文件夹的媒体库目录当作目标发送过去，按那一项的类型、类别文件夹和覆盖设置（见 [115 网盘与同步](115-网盘与同步#每一个要确认的)）。
 
 ## 让 MoviePilot 把 Mi302 当作 Emby
 

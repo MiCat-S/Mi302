@@ -26,7 +26,10 @@ EXECUTE = "/web/api/115/organize/execute"
 class OrganizeMP:
     """MoviePilot：自己辨識名稱（資料夾、上一層、上上層的 tmdbid 標記或片名），照「片名 (年份) {tmdbid=…}/Season N/
     片名 - SxxEyy - 第 N 集」命名。和真的一樣，名稱裡的「第二季度」會被認成第 2 季。整理資料夾時把裡面的影片都算進來，
-    執行時在假 115 上搬，目標已經有同名檔案就跳過。"""
+    執行時在假 115 上搬，目標已經有同名檔案就跳過。
+    目錄設定（dirs）：預設只有一項「下載目錄 /下載 → 媒體庫 /媒體庫」（在同步目錄外，加類型資料夾），和真的一樣，
+    沒指定整理到哪時它照這一項放；target-path 問得到它（match=False 時問不到）。history 裡的檔案有整理紀錄：
+    真的整理時沒帶 reorganize 就當成「已整理過」跳過（預覽不看紀錄）。"""
 
     MEDIA = {"106449": ("凡人修仙传", 2020, "tv"), "6836": ("康熙来了", 2004, "tv"), "292388": ("斗破苍穹", 2017, "tv"),
              "9": ("流浪", 2019, "tv"), "157336": ("星际穿越", 2014, "movie"), "14160": ("飞屋环游记", 2009, "movie"),
@@ -41,6 +44,11 @@ class OrganizeMP:
         self.next_cid = 300
         self.version = "v3.0.10-1"
         self.recommend = "{ep}"  # 推薦的集數定位；空字串是推薦不出來
+        self.dirs = [{"name": "115 媒體庫", "storage": "u115", "download_path": "/下載", "monitor_type": "monitor",
+                      "library_storage": "u115", "library_path": "/媒體庫", "library_type_folder": True,
+                      "library_category_folder": False, "overwrite_mode": "never", "renaming": True}]
+        self.match = True  # /transfer/manual/target-path 挑得出目錄
+        self.history = set()  # 有成功整理紀錄的檔案（115 路徑）
 
     # ---- 辨識 ----
     def media_of(self, path):
@@ -120,6 +128,16 @@ class OrganizeMP:
         if path == "/api/v1/transfer/episode-format/recommend":
             return httpx.Response(200, json={"success": True, "data": {"episode_format": self.recommend, "rule_name": "純數字"}}
                                   if self.recommend else {"success": False, "message": "样本不足"})
+        if path == "/api/v1/storage/directories":
+            return httpx.Response(200, json={"success": True, "data": self.dirs})
+        if path == "/api/v1/transfer/manual/target-path":
+            return httpx.Response(200, json={"success": True, "data": {"target_storage": "u115", "target_path": "/媒體庫"}
+                                             if self.match else {"target_storage": None, "target_path": None}})
+        if path == "/api/v1/transfer/manual/history":
+            items = [body["fileitem"]] if "fileitem" in body else body["fileitems"]
+            paths = [p for it in items for _, p in (self.expand(int(it["fileid"])) if it["type"] == "dir" else [(0, it["path"])])]
+            n = sum(1 for p in paths if p in self.history)
+            return httpx.Response(200, json={"success": True, "data": {"reorganize": bool(n), "history_count": n}})
         if path == "/api/v1/transfer/name":
             p, kind = request.url.params["path"], request.url.params["filetype"]
             tid = self.media_of(p)
@@ -155,8 +173,10 @@ class OrganizeMP:
             if not name:
                 out.append({"source": src, "success": False, "message": "未识别到文件集数", "state": "failed"})
                 continue
-            # 沒給整理到哪：照它的目錄設定放進媒體庫（這裡是同步目錄外的 /媒體庫）
-            dest = body.get("target_path") or ("/媒體庫/電影" if kind == "movie" else "/媒體庫/劇集")
+            # 沒給整理到哪：照它的目錄設定放進媒體庫（這裡是同步目錄外的 /媒體庫，加類型資料夾）
+            dest = body.get("target_path") or "/媒體庫"
+            if body.get("library_type_folder", not body.get("target_path")):
+                dest += "/電影" if kind == "movie" else "/劇集"
             folder = f"{dest}/{self.folder_name(tid)}"
             target = f"{folder}/Season {season}/{name}" if kind == "tv" else f"{folder}/{name}"
             base = posixpath.basename(src)
@@ -164,7 +184,9 @@ class OrganizeMP:
             item = {"source": src, "target": target, "success": True, "title": title,
                     "type": "电视剧" if kind == "tv" else "电影", "season": season if kind == "tv" else None,
                     "episode": int(re.search(r"E(\d+)", name).group(1)) if kind == "tv" else None}
-            if not body["preview"]:
+            if not body["preview"] and src in self.history and not body.get("reorganize"):
+                item.update(success=False, state="skipped", message=f"{base} 已整理过")
+            elif not body["preview"]:
                 tdir = self.dir_by_path(posixpath.dirname(target))
                 if tdir is not None and any(f["cid"] == tdir and f["n"] == posixpath.basename(target) for f in self.f.files):
                     item.update(success=False, state="skipped", message="目标文件已存在")
@@ -316,7 +338,7 @@ def test_preview_lets_moviepilot_recognize(tmp_path: Path):
     assert parts["d119"]["recognized"] == [{"title": "虚天战纪", "type": "电影", "season": None, "count": 2}]
     assert parts["loose"]["recognized"] == [{"title": "凡人修仙传", "type": "电视剧", "season": 2, "count": 3}]
     assert any("MoviePilot 認成第 2 季，媒體庫裡是第 1 季" in n for n in pv["notes"])
-    assert sorted(pv["folders"]) == ["凡人修仙传 (2020) {tmdbid=106449}", "虚天战纪 (2025) {tmdbid=282348}"]
+    assert pv["folders"] == ["/影視/劇集/凡人修仙传 (2020) {tmdbid=106449}/Season 2", "/影視/劇集/虚天战纪 (2025) {tmdbid=282348}"]
     assert all("只會留一個" in i["warnings"][0] for i in pv["items"] if i["part"] == XUTIAN)  # 上、下兩支認成同一部電影
     assert pv["token"]
 
@@ -481,3 +503,112 @@ def test_delete_a_movie_from_the_list(tmp_path: Path):
     assert "Up.2009.1080p" not in {u["name"] for u in listing(c, h)["items"]}
     assert c.post("/web/api/115/organize/delete", json={"id": "d120"}, headers=h).json()["folder_removed"]  # 電影資料夾
     assert "120" in fake.deleted and not (media / "電影" / "星际穿越 Interstellar 2014 4K").exists()
+
+
+LIBRARY = {"name": "影視庫", "storage": "local", "download_path": "/downloads", "monitor_type": "monitor",
+           "library_storage": "u115", "library_path": "/影視", "library_type_folder": True,
+           "library_category_folder": False, "overwrite_mode": "never"}
+
+
+def test_auto_target_uses_the_library_the_folder_is_in(tmp_path: Path):
+    """照 MoviePilot 的目錄設定：它自己挑目錄只看下載目錄，媒體庫裡的資料夾對不上；Mi302 找出包含這個資料夾的媒體庫目錄，
+    當成目標送過去，類型、類別資料夾照那一項。"""
+    app, fake, mp, media, c, h = setup(tmp_path)
+    mp.dirs.append(dict(LIBRARY))
+    check(app, c, h)
+    units = {u["id"]: u for u in listing(c, h)["items"]}
+    mp.calls.clear()
+    pv = preview(c, h, units["d111"], target="auto").json()
+    sent = sent_bodies(mp)[0]
+    assert (sent["target_storage"], sent["target_path"], sent["library_type_folder"], sent["library_category_folder"]) == \
+        ("u115", "/影視", True, False)
+    assert pv["notes"][0] == "照 MoviePilot 的目錄設定「影視庫」整理到媒體庫 /影視（加類型資料夾）"
+    assert pv["folders"] == ["/影視/劇集/康熙来了 (2004) {tmdbid=6836}/Season 1"]  # 留在同步目錄裡，照它的結構
+
+    # 那一項只收電影：劇集不用它，讓 MoviePilot 自己挑（問得到 /媒體庫）
+    mp.dirs[-1]["media_type"] = "电影"
+    mp.calls.clear()
+    pv = preview(c, h, units["d111"], target="auto").json()
+    assert "target_path" not in sent_bodies(mp)[0] and pv["notes"][0] == "MoviePilot 照它的目錄設定整理到媒體庫 /媒體庫"
+
+    # 都對不上：不送預覽，說清楚（它預覽時只會說「整理任务处理失败」）
+    mp.dirs, mp.match = [], False
+    mp.calls.clear()
+    r = preview(c, h, units["d111"], target="auto")
+    assert r.status_code == 400 and "目錄設定" in r.text and "同一層" in r.text and not sent_bodies(mp)
+
+
+def test_moviepilot_history_is_reorganized(tmp_path: Path):
+    """MoviePilot 整理過的檔案（紀錄還在）：沒帶 reorganize 會被它當成「已整理過」跳過，所以和它的網頁一樣帶上。"""
+    app, fake, mp, media, c, h = setup(tmp_path)
+    check(app, c, h)
+    units = {u["id"]: u for u in listing(c, h)["items"]}
+    mp.history = {"/影視/劇集/康熙来了 (2004)/康熙来了 EP01.mp4"}
+    pv = preview(c, h, units["d111"]).json()
+    assert any("MoviePilot 有 1 條成功整理的紀錄" in n for n in pv["notes"])
+    mp.calls.clear()
+    assert c.post(EXECUTE, json={"tokens": [pv["token"]]}, headers=h).status_code == 200
+    wait(lambda: not app.state.reorganizer.job.running)
+    assert sent_bodies(mp)[0]["reorganize"] is True
+    states = {i["name"]: (i["state"], i["message"]) for i in app.state.reorganizer.job.items}
+    assert states["康熙来了 EP01.mp4"][0] == "completed"
+
+    # 沒有紀錄的不帶
+    app2, fake2, mp2, _, c2, h2 = setup(tmp_path / "b")
+    check(app2, c2, h2)
+    unit = {u["id"]: u for u in listing(c2, h2)["items"]}["d111"]
+    pv = preview(c2, h2, unit).json()
+    mp2.calls.clear()
+    c2.post(EXECUTE, json={"tokens": [pv["token"]]}, headers=h2)
+    wait(lambda: not app2.state.reorganizer.job.running)
+    assert "reorganize" not in sent_bodies(mp2)[0]
+
+
+def test_names_that_differ_only_in_word_order_are_the_same():
+    from embyserver.organize115 import _same_name
+
+    # MoviePilot 解析時把效果倒過來排：它自己取的名稱再問一次會換順序
+    assert _same_name("浪浪山小妖怪.Nobody.2025.WEB-DL DV HQ.2160p.H265.DTS 5.1", "浪浪山小妖怪.Nobody.2025.WEB-DL HQ DV.2160p.H265.DTS 5.1")
+    assert _same_name("Title.2023.4K", "title.2023.4k")
+    assert not _same_name("画江湖之天罡.2023.4K(1)", "画江湖之天罡.A Portrait of Jianghu： The Legend.2023.4k")
+    assert not _same_name("康熙来了 (2004)", "康熙来了 (2004) {tmdbid=6836}")
+
+
+def test_crowded_movie_folder_is_described():
+    from embyserver.organize115 import Unit, judge
+
+    def unit(parent, loose):
+        return Unit("f1", "movie_file", f"/cms/電影/{parent}/画江湖之天罡.2023.4K(1)", 1, 0, "画江湖之天罡.2023.4K(1)", 1,
+                    "画江湖之天罡", 2023, 1, loose, [], [], checked=True)
+
+    u = unit("H-画江湖之天罡-2023-[tmdb=1221210]", 2)
+    judge(u, 3, 2)
+    assert u.reasons == ["資料夾裡還有另外 1 支影片（MoviePilot 會給每部電影自己的資料夾；同一部的重複檔案可以先到「整理 → 重複檔案」清掉）"]
+    u = unit("动画电影", 5)  # 分類資料夾
+    judge(u, 3, 2)
+    assert u.reasons == ["沒有自己的資料夾（MoviePilot 會放進自己的資料夾）"]
+
+
+def test_latest_overwrite_mode_blocks_in_place_renames():
+    """覆蓋模式「保留最新」：目標不存在時 MoviePilot 會先刪掉目標資料夾裡同一集的其他版本（只避開目標本身），
+    在同一個資料夾裡改名時來源也在那裡，會被刪掉，所以不送。"""
+    from embyserver.organize115 import Part, _overwrite, _view
+
+    part = Part("all", "整個資料夾", 1, "/影視/劇集/X", None, 1)
+    item = {"source": "/影視/劇集/X/Season 1/x.01.mp4", "target": "/影視/劇集/X/Season 1/X - S01E01.mp4", "success": True}
+    moved = {**item, "target": "/影視/劇集/X (2020)/Season 1/X - S01E01.mp4"}
+    v = _view(item, part, ["/影視"], "latest")
+    assert (v["ok"], v["skip"]) == (False, "latest") and "保留最新" in v["message"]
+    assert _view(moved, part, ["/影視"], "latest")["ok"] and _view(item, part, ["/影視"], "never")["ok"]
+    dirs = [{"monitor_type": "monitor", "library_storage": "u115", "library_path": "/影視/", "overwrite_mode": "size"},
+            {"monitor_type": "monitor", "library_storage": "u115", "library_path": "/影視", "overwrite_mode": "latest"},
+            {"monitor_type": "", "library_storage": "u115", "library_path": "/別的", "overwrite_mode": "latest"}]
+    assert _overwrite(dirs, "/影視") == "latest" and _overwrite(dirs, "/別的") == "never" and _overwrite([], "/影視") == "never"
+
+
+def test_vague_moviepilot_failure_gets_a_hint():
+    from embyserver.organize115 import Part, _view
+
+    part = Part("all", "整個資料夾", 1, "/影視/電影/X", None, 1)
+    v = _view({"source": "/影視/電影/X/x.mkv", "success": False, "message": "整理任务处理失败，请稍后重试"}, part, ["/影視"])
+    assert not v["ok"] and "目錄設定對不上" in v["message"]

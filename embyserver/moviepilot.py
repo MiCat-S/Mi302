@@ -54,6 +54,10 @@ TMDB_EPISODES_API = "/api/v1/tmdb/{tmdbid}/{season}"
 TRANSFER_API = "/api/v1/transfer/manual"
 EPISODE_FORMAT_API = "/api/v1/transfer/episode-format/recommend"
 TRANSFER_NAME_API = "/api/v1/transfer/name"  # 整理後會叫什麼（要帳號登入）
+TRANSFER_TARGET_API = "/api/v1/transfer/manual/target-path"  # 它自己照目錄設定會整理到哪裡
+TRANSFER_HISTORY_API = "/api/v1/transfer/manual/history"  # 有沒有成功整理過的紀錄
+DIRECTORIES_API = "/api/v1/storage/directories"  # 目錄設定（V3）
+DIRECTORIES_V2_API = "/api/v1/system/setting/Directories"  # 目錄設定（V2）
 SYSTEM_ENV_API = "/api/v1/system/env"  # 系統設定，裡面有版本號（要管理員帳號）
 # 手動整理的預覽模式從 v2.11.1-1 開始；更舊的版本不認 preview，「預覽」會變成真的整理
 PREVIEW_MIN_VERSION = (2, 11, 1, 1)
@@ -530,7 +534,8 @@ class MoviePilot:
     def transfer(
         self, fileitems: List[dict], tmdbid: Optional[str], season: Optional[int], episode_format: Optional[str],
         scrape: bool, target_path: Optional[str], preview: bool, mtype: Optional[str] = "电视剧",
-        timeout: Optional[float] = None, single: bool = False,
+        timeout: Optional[float] = None, single: bool = False, reorganize: bool = False,
+        type_folder: Optional[bool] = False, category_folder: Optional[bool] = False,
     ) -> List[dict]:
         """請 MoviePilot 整理這些 115 上的檔案（一次一批、同一個集數定位模板）。
 
@@ -538,6 +543,9 @@ class MoviePilot:
         空的時候讓 MoviePilot 自己辨識。target_path 是空的時候照 MoviePilot 的目錄設定放；有給就放在那個資料夾
         底下（不另加類型、類別資料夾）。回傳每個檔案的結果：source、target、success、message、episode、state。
         single=True 時只送一個項目（fileitem），和 MoviePilot 網頁整理一個資料夾一樣：資料夾裡的影片、字幕、音軌都整理。
+        有 target_path 時 type_folder、category_folder 決定要不要加類型、類別資料夾（None = 照那個媒體庫目錄的設定）。
+        reorganize=True：MoviePilot 有成功整理過的紀錄時，和它的網頁一樣清掉舊紀錄重新整理；
+        沒有的話它會當成「已整理過」跳過（預覽不看紀錄，所以預覽時看不出來）。
         """
         body = {"transfer_type": "move", "scrape": scrape, "preview": preview}
         if single and len(fileitems) == 1:
@@ -553,8 +561,12 @@ class MoviePilot:
         if episode_format:
             body["episode_format"] = episode_format
         if target_path:
-            body.update(target_storage="u115", target_path=target_path,
-                        library_type_folder=False, library_category_folder=False)
+            body.update(target_storage="u115", target_path=target_path)
+            for key, value in (("library_type_folder", type_folder), ("library_category_folder", category_folder)):
+                if value is not None:
+                    body[key] = value
+        if reorganize:
+            body["reorganize"] = True
         res = self._request("POST", TRANSFER_API, body, timeout=timeout, query={"background": "false"})
         data = res.get("data") if isinstance(res, dict) else None
         items = data.get("items") if isinstance(data, dict) else None
@@ -565,6 +577,43 @@ class MoviePilot:
                          "message": "MoviePilot 沒有回傳每個檔案的結果"} for fi in fileitems]
             raise MoviePilotError(str((res or {}).get("message") or "MoviePilot 沒有回傳整理結果"))
         return [i for i in items if isinstance(i, dict)]
+
+    def library_dirs(self) -> List[dict]:
+        """MoviePilot 的目錄設定（下載目錄 → 媒體庫目錄、類型／類別資料夾、覆蓋模式…）；要管理員帳號。
+        V3 是 /storage/directories，V2 放在系統設定 Directories。"""
+        try:
+            res = self._request("GET", DIRECTORIES_API, query={"directory_type": "all"}, timeout=30)
+            data = res.get("data") if isinstance(res, dict) else res
+        except MoviePilotError as exc:
+            if exc.status != 404:
+                raise
+            res = self._request("GET", DIRECTORIES_V2_API, timeout=30)
+            data = (res.get("data") or {}).get("value") if isinstance(res, dict) else None
+        return [d for d in data or [] if isinstance(d, dict)] if isinstance(data, list) else []
+
+    def transfer_target(self, fileitem: dict) -> Optional[dict]:
+        """MoviePilot 自己照目錄設定會把這個項目整理到哪個媒體庫目錄（和它的網頁整理對話框一樣問）；
+        對不上任何一個目錄設定時回傳 None。"""
+        try:
+            res = self._request("POST", TRANSFER_TARGET_API, {"fileitem": fileitem, "target_storage": None}, timeout=30)
+        except MoviePilotError as exc:
+            if exc.status in (404, 405):
+                return None
+            raise
+        data = res.get("data") if isinstance(res, dict) else None
+        return data if isinstance(data, dict) and data.get("target_path") else None
+
+    def transfer_history(self, fileitems: List[dict]) -> int:
+        """這些項目（資料夾會往下找）在 MoviePilot 有幾條成功整理的紀錄；舊版沒有這個 API 時回 0。"""
+        body = {"fileitem": fileitems[0]} if len(fileitems) == 1 else {"fileitems": fileitems}
+        try:
+            res = self._request("POST", TRANSFER_HISTORY_API, body, timeout=60)
+        except MoviePilotError as exc:
+            if exc.status in (404, 405):
+                return 0
+            raise
+        data = res.get("data") if isinstance(res, dict) else None
+        return int(data.get("history_count") or 0) if isinstance(data, dict) and data.get("reorganize") else 0
 
     def transfer_name(self, path: str, filetype: str) -> Tuple[bool, str]:
         """MoviePilot 整理這個 115 路徑後會叫什麼：filetype=dir 回傳媒體資料夾名稱，file 回傳檔名。

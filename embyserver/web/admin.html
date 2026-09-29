@@ -2504,7 +2504,7 @@ function organizeShow(st) {
   box.innerHTML = (r.token ? `<span class="pill ok">${sm.ok} 個可以</span>` : '<span class="pill bad">沒有可以整理的</span>') +
     (sm.warnings ? `<span class="pill warn">${sm.warnings} 個要看一下</span>` : '') + (sm.failed ? `<span class="pill bad">${sm.failed} 個不會整理</span>` : '') +
     (sm.skipped ? `<span class="pill">${sm.skipped} 個不送</span>` : '') +
-    (r.folders.length ? `<span class="hint">→ ${r.folders.map(f => `「${esc(f)}」`).join('、')}</span>` : '');
+    (r.folders.length ? `<span class="hint brk">→ ${r.folders.slice(0, 3).map(f => `「${esc(f)}」`).join('、')}${r.folders.length > 3 ? `等 ${r.folders.length} 個資料夾` : ''}</span>` : '');  // 整理到哪些資料夾
   pv.innerHTML = (r.notes.length ? `<p class="notice warn mt8">${r.notes.map(esc).join('<br>')}</p>` : '') +
     `<details class="more mt6"><summary>看每個檔案的新位置（${r.items.length}）</summary><div class="in"><div class="list">${reoItemsHtml(r.items)}</div></div></details>`;
 }
