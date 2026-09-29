@@ -118,9 +118,19 @@ main{min-width:0;padding:28px 32px 80px}
 .page-h .sub{color:var(--muted);margin-top:4px;max-width:640px}
 .banner{display:flex;gap:10px;align-items:flex-start;padding:12px 14px;border-radius:10px;background:var(--warn-soft);color:var(--warn);margin:0 auto 18px;max-width:1040px;font-size:14px}
 .banner.info{background:var(--accent-soft);color:var(--fg);align-items:center;flex-wrap:wrap}.banner.info>.i{color:var(--accent)}.banner.info>#updText{flex:1 1 240px}
-.side .ver{justify-content:flex-start;position:relative}.side .ver.new{color:var(--accent);background:var(--accent-soft)}
+.side .vercard{display:flex;align-items:center;gap:10px;width:100%;padding:8px 12px;border:1px solid var(--line);border-radius:9px;background:var(--panel);color:var(--fg);font:inherit;text-align:left;cursor:pointer;position:relative}
+.side .vercard:hover{background:var(--panel2)}
+.side .vercard .vic{display:grid;place-items:center;flex:none;color:var(--muted)}
+.side .vercard .vt{display:flex;flex-direction:column;min-width:0;line-height:1.3}
+.side .vercard .vt b{font-size:13.5px;font-weight:600}
+.side .vercard .vt small{font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.side .vercard.ok .vic{color:var(--ok)}.side .vercard.bad .vic{color:var(--warn)}
+.side .vercard.new{border-color:transparent;background:var(--accent-soft)}.side .vercard.new .vic,.side .vercard.new .vt b{color:var(--accent)}
+.side .footrow{display:flex;gap:4px}.side .footrow .btn{flex:1;padding:7px 6px;font-size:13.5px}
 .updot{width:7px;height:7px;border-radius:50%;background:var(--accent);margin-left:auto;flex:none}
-@media (max-width:860px){.side .ver .updot{position:absolute;top:6px;right:6px;margin:0}}
+@media (max-width:860px){.side .vercard{width:auto;border:0;padding:8px;background:transparent}.side .vercard.new{background:var(--accent-soft)}
+  .side .vercard .vt{display:none}.side .vercard .updot{position:absolute;top:5px;right:5px;margin:0}
+  .side .footrow{gap:2px}.side .footrow .btn{flex:none;padding:8px}}
 .changes{margin:0;padding-left:18px;display:flex;flex-direction:column;gap:4px}.changes li{word-break:break-all}.changes .hint{margin-left:8px;white-space:nowrap}
 .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow);margin-bottom:16px;min-width:0;scroll-margin-top:16px}
 .card-h{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:14px 18px;border-bottom:1px solid var(--line);flex-wrap:wrap}
@@ -275,6 +285,8 @@ dialog .card-b{max-height:70vh;overflow:auto}
   <symbol id="i-alert" viewBox="0 0 24 24"><path d="M12 3.5l9.5 16.5h-19z"/><path d="M12 10v4.5M12 17.5v.01"/></symbol>
   <symbol id="i-play" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M10 9l5 3-5 3z"/></symbol>
   <symbol id="i-doc" viewBox="0 0 24 24"><path d="M6 3h8l5 5v13H6z"/><path d="M14 3v5h5M9 12h7M9 16h7"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></symbol>
+  <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8v.01"/></symbol>
   <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></symbol>
   <symbol id="i-github" viewBox="0 0 16 16"><path fill="currentColor" stroke="none" d="M8 0c4.42 0 8 3.58 8 8a8.013 8.013 0 0 1-5.45 7.59c-.4.08-.55-.17-.55-.38 0-.27.01-1.13.01-2.2 0-.75-.25-1.23-.54-1.48 1.78-.2 3.65-.88 3.65-3.95 0-.88-.31-1.59-.82-2.15.08-.2.36-1.02-.08-2.12 0 0-.67-.22-2.2.82-.64-.18-1.32-.27-2-.27-.68 0-1.36.09-2 .27-1.53-1.03-2.2-.82-2.2-.82-.44 1.1-.16 1.92-.08 2.12-.51.56-.82 1.28-.82 2.15 0 3.06 1.86 3.75 3.64 3.95-.23.2-.44.55-.51 1.07-.46.21-1.61.55-2.33-.66-.15-.24-.6-.83-1.23-.82-.67.01-.27.38.01.53.34.19.73.9.82 1.13.16.45.68 1.31 2.69.94 0 .67.01 1.3.01 1.49 0 .21-.15.45-.55.38A7.995 7.995 0 0 1 0 8c0-4.42 3.58-8 8-8Z"/></symbol>
   <symbol id="i-star" viewBox="0 0 24 24"><path d="M12 3.2l2.7 5.5 6 .9-4.35 4.25 1.03 6-5.38-2.83-5.38 2.83 1.03-6L3.3 9.6l6-.9z"/></symbol>
@@ -331,10 +343,12 @@ dialog .card-b{max-height:70vh;overflow:auto}
       <a href="#settings" data-tab="settings" id="nav-settings" role="tab" aria-controls="tab-settings" aria-selected="false" aria-label="設定"><svg class="i"><use href="#i-sliders"/></svg><span>設定</span></a>
     </nav>
     <div class="foot">
-      <button class="btn ghost full ver" id="verBtn" onclick="openServer()" title="版本與更新" aria-label="版本與更新"><svg class="i"><use href="#i-download"/></svg><span id="verText">版本與更新</span><i class="updot hidden" id="navUpd" title="有新版本"></i></button>
-      <button class="btn ghost full" id="restartSide" onclick="restartServer()" title="重新啟動 Mi302" aria-label="重新啟動 Mi302"><svg class="i"><use href="#i-refresh"/></svg><span>重新啟動</span></button>
       <a class="star" href="https://github.com/MiCat-S/Mi302" target="_blank" rel="noopener" title="Mi302 在 GitHub 上，覺得好用請點個 Star" aria-label="Mi302 在 GitHub，點個 Star"><svg class="i"><use href="#i-github"/></svg><span>GitHub 點個 Star</span><svg class="i gold"><use href="#i-star"/></svg></a>
-      <button class="btn ghost full" onclick="logoutWeb()" title="登出" aria-label="登出"><svg class="i"><use href="#i-logout"/></svg><span>登出</span></button></div>
+      <button class="vercard" id="verBtn" onclick="openServer()" title="版本與更新" aria-label="版本與更新"><i class="vic" id="verIcon"><svg class="i"><use href="#i-info"/></svg></i><span class="vt"><b id="verTitle">版本</b><small id="verSub">讀取中…</small></span><i class="updot hidden" id="navUpd" title="有新版本"></i></button>
+      <div class="footrow">
+        <button class="btn ghost" id="restartSide" onclick="restartServer()" title="重新啟動 Mi302" aria-label="重新啟動 Mi302"><svg class="i"><use href="#i-refresh"/></svg><span>重新啟動</span></button>
+        <button class="btn ghost" onclick="logoutWeb()" title="登出" aria-label="登出"><svg class="i"><use href="#i-logout"/></svg><span>登出</span></button>
+      </div></div>
   </aside>
 
   <main>
@@ -2872,14 +2886,28 @@ function renderUpdateBanner() {
   const c = srv?.check, avail = !!c?.available;
   const show = avail && !srv.job.running && localGet('mi302-skip') !== c.remote;
   $('navUpd').classList.toggle('hidden', !avail);
-  $('verBtn').classList.toggle('new', avail);
-  $('verText').textContent = avail ? `有新版本${c.behind ? `（${c.behind}）` : ''}` : `版本 ${srv.version}${srv.commit ? '・' + srv.commit.slice(0, 7) : ''}`;
+  renderVersion();
   $('restartSide').disabled = !srv.can_restart || srv.job.running;
   $('updBanner').classList.toggle('hidden', !show);
   if (!show) return;
   const latest = c.commits[0]?.subject;
   $('updText').textContent = `Mi302 有新版本${c.behind ? `（${c.behind} 個更新）` : ''}${latest ? '：' + latest : ''}`;
   $('updNow').classList.toggle('hidden', !srv.can_update);
+}
+function renderVersion() {
+  // 側欄的版本卡片：最新版打勾、有新版本藍色加小點、檢查或更新中轉圈、檢查失敗警告色、還沒檢查過只顯示版本
+  const s = srv, c = s.check, j = s.job, ver = s.version + (s.commit ? '・' + s.commit.slice(0, 7) : '');
+  const spin = '<i class="spin"></i>';
+  let [kind, ic, title, sub] = ['', icon('info'), '版本 ' + s.version, (s.commit ? s.commit.slice(0, 7) + '・' : '') + '還沒檢查更新'];
+  if (j.running) [kind, ic, title, sub] = ['', spin, '更新中…', j.step || ver];
+  else if (c.checking) [kind, ic, title, sub] = ['', spin, '檢查更新中…', ver];
+  else if (c.available) [kind, ic, title, sub] = ['new', icon('download'), `有新版本${c.behind ? `（${c.behind}）` : ''}`, '目前 ' + ver];
+  else if (c.error) [kind, ic, title, sub] = ['bad', icon('alert'), '檢查更新失敗', ver];
+  else if (c.at) [kind, ic, title, sub] = ['ok', icon('check'), '已是最新版', ver];
+  else if (!s.git) sub = '不是用 git 安裝的';
+  $('verBtn').className = 'vercard ' + kind;
+  $('verIcon').innerHTML = ic; $('verTitle').textContent = title; $('verSub').textContent = sub;
+  $('verBtn').title = `${title}（${sub}），按一下看版本與更新`;
 }
 function dismissUpdate() {
   try { localStorage.setItem('mi302-skip', srv.check.remote); } catch (e) {}

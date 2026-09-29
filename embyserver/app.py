@@ -145,7 +145,7 @@ def create_app(config: Config, db_path: Optional[str] = None, scan_on_start: boo
     app.state.moviepilot = MoviePilot(config.moviepilot, config, on_done=scanner.scan_paths, db=db)
     app.state.prober = MediaProber(config.mediainfo, config, app.state.p115, db)
     app.state.backup = Backup(db, config)
-    app.state.updater = Updater(config)  # 網頁上的檢查更新、更新、重新啟動
+    app.state.updater = Updater(config, db=db)  # 網頁上的檢查更新、更新、重新啟動
     app.state.people = PeopleStore(db, config)
     app.state.intro = IntroLearner(db, config)
     app.state.person_names = PersonNames(db, config, app.state.moviepilot)

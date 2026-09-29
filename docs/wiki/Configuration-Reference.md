@@ -78,7 +78,7 @@ These live in the database `<data_dir>/library.db`, not in the config file, and 
 | `chinese_genres` | `true` | Show genres in Chinese (Action → 动作), Traditional converted to Simplified; turning it off takes effect after a rescan | Settings → Chinese → **Show genres in Chinese** (類型顯示中文) |
 | `intro_skip` | `true` | Learn intros and credits from playback, for players' "skip intro" | Tools tab (整理) → Intro and credits (片頭片尾) → Settings (設定) → **Learn intros and credits and send them to players** (學片頭片尾並給播放器) |
 | `allow_download` | `true` | Players may download videos (login required). When off, players show no download option and the download URL is refused | Settings → Playback (播放) → **Allow players to download videos** (允許播放器下載影片) |
-| `update_check` | `true` | Check GitHub for a new version every 6 hours and show a notice on every page when there is one. When off, **Check for updates** (檢查更新) on the web page still works | Version button in the sidebar → Version and updates (版本與更新) → **Check for updates automatically** (自動檢查更新) |
+| `update_check` | `true` | Check GitHub for a new version every 6 hours and show a notice on every page when there is one. When off, **Check for updates** (檢查更新) on the web page still works | Version card in the sidebar → Version and updates (版本與更新) → **Check for updates automatically** (自動檢查更新) |
 
 Related pages: [Logs and FAQ](Logs-and-FAQ), [Library and Scanning](Library-and-Scanning), [Intro and Credits](Intro-and-Credits), [Playback](Playback), [Backup and Restore](Backup-and-Restore).
 

@@ -14,6 +14,7 @@ install.sh 本身管的東西（服務設定、ffprobe、Python 版本）網頁�
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import shutil
@@ -38,6 +39,7 @@ GIT_TIMEOUT = 90
 PIP_TIMEOUT = 900
 MAX_COMMITS = 50  # 更新內容最多列幾個提交
 RESTART_DELAY = 1.0  # 先讓「要重新啟動了」的回應送出去
+CHECK_META_KEY = "update_check"  # 上次檢查的結果，重新啟動後還看得到「已是最新版」
 
 
 class UpdateError(Exception):
@@ -94,8 +96,10 @@ def restart_env() -> dict:
 
 
 class Updater:
-    def __init__(self, config: Config, root: Path = ROOT, python: str = sys.executable, import_check: str = "embyserver.app"):
+    def __init__(self, config: Config, root: Path = ROOT, python: str = sys.executable, import_check: str = "embyserver.app",
+                 db=None):
         self.config = config
+        self.db = db
         self.root = Path(root)
         self.python = python
         self.import_check = import_check
@@ -107,6 +111,40 @@ class Updater:
         self._busy = threading.Lock()  # 檢查和更新不同時跑
         self._stop = threading.Event()
         self._notified = ""  # 日誌只在發現新的遠端版本時寫一次
+        self._load_check()
+
+    # ---------------- 上次檢查的結果 ----------------
+
+    def _head(self) -> str:
+        if not self.is_git():
+            return ""
+        try:
+            return self._git("rev-parse", "HEAD", timeout=15)
+        except UpdateError:
+            return ""
+
+    def _save_check(self) -> None:
+        if self.db is None or not self.check_result.at:
+            return
+        data = {k: v for k, v in asdict(self.check_result).items() if k != "checking"}
+        self.db.set_meta(CHECK_META_KEY, json.dumps({**data, "head": self._head()}, ensure_ascii=False))
+
+    def _load_check(self) -> None:
+        """重新啟動後接著用上次的結果：程式沒換就照舊；換成了上次查到的新版（網頁上更新的）就是最新版。"""
+        if self.db is None:
+            return
+        try:
+            data = json.loads(self.db.get_meta(CHECK_META_KEY) or "{}")
+        except ValueError:
+            return
+        head = self._head() if data else ""
+        if not head:
+            return
+        if data.get("head") == head:
+            fields = {k: data[k] for k in ("at", "error", "remote", "behind", "ahead", "commits") if k in data}
+            self.check_result = CheckResult(**fields)
+        elif data.get("remote") == head:
+            self.check_result = CheckResult(at=float(data.get("at") or 0), behind=0)
 
     # ---------------- git ----------------
 
@@ -204,6 +242,7 @@ class Updater:
             res.checking = False
             res.at = time.time()
             self._busy.release()
+        self._save_check()
         return self.status()
 
     def start(self) -> None:
@@ -261,6 +300,7 @@ class Updater:
                 raise
             log.info("Mi302 已更新：%s → %s", job.old[:7], job.new[:7])
             self.check_result = CheckResult(at=time.time(), behind=0)
+            self._save_check()
             if self.restart_cb:
                 job.step = "重新啟動"
                 job.restarting = True

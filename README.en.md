@@ -85,7 +85,7 @@ After a one-line install, manage Mi302 with `mi302`:
 | `mi302 update` | Update to the latest version; settings and data are kept |
 | `mi302 reset-password admin <new password>` | Reset a forgotten password |
 
-Checking for updates, updating and restarting also work from the version button and **Restart** (重新啟動) at the bottom of the left sidebar, above **Log out**; when a new version is out, every page shows a notice.
+Checking for updates, updating and restarting also work from the version card and **Restart** (重新啟動) at the bottom of the left sidebar; when a new version is out, every page shows a notice.
 
 ## License
 

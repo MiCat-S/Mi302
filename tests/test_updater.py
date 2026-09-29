@@ -180,3 +180,21 @@ def test_server_api(tmp_path: Path, monkeypatch):
     assert c.post("/web/api/server/restart", headers=h).status_code == 200 and done.wait(5)
     app.state.scanner.scanning = True
     assert c.get("/web/api/server", headers=h).json()["busy"] == ["媒體庫掃描"]
+
+
+def test_last_check_survives_restart(repos):
+    """重新啟動後接著用上次檢查的結果；網頁上更新到查到的新版後，重新啟動就是最新版。"""
+    from embyserver.db import Database
+
+    origin, app, up, restarts, _ = repos
+    db = Database(":memory:")
+    up.db = db
+    commit(origin, {"fakeapp/a.py": "A = 1\n"}, "新功能")
+    up.check()
+    again = Updater(Config(), root=app, import_check="fakeapp", db=db)
+    c = again.status()["check"]
+    assert c["available"] and c["behind"] == 1 and c["commits"][0]["subject"] == "新功能" and c["at"]
+    assert not run_update(up).error  # 換成新版，重新啟動
+    after = Updater(Config(), root=app, import_check="fakeapp", db=db).status()["check"]
+    assert (after["available"], after["behind"], after["error"]) == (False, 0, "") and after["at"]
+    assert Updater(Config(), root=app, import_check="fakeapp").status()["check"]["at"] == 0  # 沒有資料庫：沒有紀錄
