@@ -1,4 +1,4 @@
-"""MoviePilot：測試連線、刮削、補全缺集、交給 MoviePilot 整理集號不對的劇。"""
+"""MoviePilot：測試連線、刮削、補全缺集、集號不對的劇交給 MoviePilot 整理或刪除。"""
 
 from __future__ import annotations
 
@@ -112,6 +112,30 @@ def reorganize_plan(request: Request, ctx: AuthContext = Depends(require_admin))
     try:
         return st.reorganizer.plan(q_int(request, "series") or 0, q_int(request, "season") or 0)
     except ReorgError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@router.get("/web/api/moviepilot/reorganize/files")
+def reorganize_delete_files(request: Request, ctx: AuthContext = Depends(require_admin)):
+    """一季裡集號是猜的、或認不出的集（給網頁勾要刪哪些），和這部劇在 115 上的資料夾。只看資料庫，不向 115 請求。"""
+    st = state(request)
+    try:
+        return st.reorganizer.delete_candidates(q_int(request, "series") or 0, q_int(request, "season") or 0)
+    except ReorgError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@router.post("/web/api/moviepilot/reorganize/delete")
+async def reorganize_delete(request: Request, ctx: AuthContext = Depends(require_admin)):
+    """刪掉一季裡集號不對的集：{series_id, season, file_ids, remove_folder}。送進 115 回收站（可以還原），
+    本機 strm、nfo 和媒體庫跟著拿掉；remove_folder 時劇集資料夾刪完沒有影片就一起移到回收站。要用掃碼登入 115。"""
+    st = state(request)
+    body = await json_body(request)
+    ids = [int(i) for i in body.get("file_ids") or [] if str(i).isdigit()]
+    try:
+        return await run_in_threadpool(st.reorganizer.delete_episodes, int(body.get("series_id") or 0),
+                                       int(body.get("season") or 0), ids, bool(body.get("remove_folder")))
+    except (ReorgError, ValueError) as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
 

@@ -157,6 +157,30 @@ def _is_metadata(f: Path) -> bool:
     return f.suffix.lower() in METADATA_EXTS or f.name.lower().endswith(MEDIAINFO_SUFFIX)
 
 
+def _clear_tree(path: Path) -> Tuple[int, List[str]]:
+    """刪掉資料夾裡 Mi302 產生的東西（strm 和中繼資料，其他檔案不動），再刪空的子資料夾和它自己。
+    回傳 (刪了幾個檔案, 刪掉的 strm 路徑)。"""
+    count, strms = 0, []
+    if not path.is_dir():
+        return count, strms
+    for f in sorted(path.rglob("*"), key=lambda p: len(p.parts), reverse=True):
+        if f.is_file() and (f.suffix.lower() == ".strm" or _is_metadata(f)):
+            if f.suffix.lower() == ".strm":
+                strms.append(str(f))
+            f.unlink(missing_ok=True)
+            count += 1
+        elif f.is_dir():
+            try:
+                f.rmdir()
+            except OSError:
+                pass
+    try:
+        path.rmdir()
+    except OSError:
+        pass
+    return count, strms
+
+
 def _sidecars(folder: Path, stem: str) -> List[Path]:
     """跟著某支影片的中繼資料：X.nfo、X-poster.jpg、X.zh.srt、X-mediainfo.json 這類同名檔案。
 
@@ -464,9 +488,10 @@ class StrmSync:
     # ---------------- 115 上刪掉了（例如刪重複） ----------------
 
     def remove_local(self, file_ids: Iterable[int]) -> List[str]:
-        """115 上刪掉了這些檔案：本機的 strm 和同名的中繼資料一起刪、清掉對照表，回傳刪掉的 strm 路徑。
+        """115 上刪掉了這些檔案（或資料夾）：本機的 strm 和同名的中繼資料一起刪、清掉對照表，回傳刪掉的 strm 路徑。
 
-        不看「跟著刪」的設定，因為是使用者自己在 Mi302 刪的。正在同步時等同步做完。
+        資料夾只刪裡面的 strm 和中繼資料，其他檔案不動。不看「跟著刪」的設定，因為是使用者自己在 Mi302 刪的。
+        正在同步時等同步做完。
         """
         ids = [int(i) for i in file_ids]
         removed: List[str] = []
@@ -475,9 +500,13 @@ class StrmSync:
                 ctx = _Ctx(task, self.p115.db)
                 for fid in ids:
                     old = ctx.index.get(fid)
-                    if not old or old[1]:
+                    if not old:
                         continue
                     path = ctx.local / old[0]
+                    if old[1]:
+                        removed += _clear_tree(path)[1]
+                        ctx.index.delete_tree(old[0])
+                        continue
                     if path.suffix.lower() == ".strm":
                         for f in _sidecars(path.parent, path.stem):
                             f.unlink(missing_ok=True)
@@ -1021,20 +1050,7 @@ class StrmSync:
         """115 上刪除或移出任務目錄：刪掉 strm 和它的中繼資料，其他檔案不動。"""
         path = ctx.local / rel
         if is_dir:
-            if path.is_dir():
-                for f in sorted(path.rglob("*"), key=lambda p: len(p.parts), reverse=True):
-                    if f.is_file() and (f.suffix.lower() == ".strm" or _is_metadata(f)):
-                        f.unlink(missing_ok=True)
-                        self.result.removed += 1
-                    elif f.is_dir():
-                        try:
-                            f.rmdir()
-                        except OSError:
-                            pass
-                try:
-                    path.rmdir()
-                except OSError:
-                    pass
+            self.result.removed += _clear_tree(path)[0]
             ctx.index.delete_tree(rel)
         else:
             if path.suffix.lower() == ".strm":

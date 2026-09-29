@@ -233,6 +233,15 @@ Click **Run reorganisation (N)** (執行整理（N 個）) and confirm:
 - Afterwards Mi302 deletes the old local nfo files that have no episode number, so they do not follow the strm to its new name. About 20 seconds later it runs an incremental 115 sync, the strm files move to their new names, and the affected series is rescanned.
 - If a 115 sync is already running, the changes are picked up by the next sync.
 
+### Deleting
+
+If you would rather not reorganise, click **Delete…** (刪除…) on the row and tick the files to delete:
+
+- The episodes of that season with wrong numbers are listed, unrecognised ones first and pre-ticked. Episodes whose number was guessed from the file name are usually real episodes with non-standard names, better reorganised than deleted, so they are not ticked by default; use **Select all** (全選), **Only unrecognised** (只勾認不出集號的) or **Select none** (全不選).
+- Ticked files are moved to the 115 recycle bin (restorable on 115); the local strm and nfo files and these episodes in the library are removed too.
+- When the show has no other episodes, there is an extra option (ticked by default) to move the show folder to the 115 recycle bin as well if no videos are left (刪完沒有影片留下的話，劇集資料夾也移到 115 回收站). Mi302 checks on 115 that the folder really holds no videos before moving it, together with the leftover nfo files and images, and removes the show from the library.
+- Deleting needs the QR-code (cookie) login to 115, and waits while a 115 sync or a MoviePilot reorganisation is running.
+
 ### Reorganising a folder on 115
 
 Besides the seasons listed on this card, you can pick any folder in **Browse 115** on the 115 tab (see [115 Cloud Sync](115-Cloud-Sync#browsing-115)) and hand it to MoviePilot, for example a folder you just saved and have not organised yet, or a series that looks wrong. The flow is the same: preview first, then run. The differences:

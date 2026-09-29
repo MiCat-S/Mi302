@@ -20,6 +20,9 @@ Mi302 再用增量同步把本機的 strm 跟著搬過去。以後哪個工具�
 類型、TMDB 編號、季都可以不填，讓 MoviePilot 自己辨識；檔名看不出集號的照樣送（可能是電影）。
 原本在同步目錄裡的檔案不能搬出同步目錄；原本不在的只提醒。
 
+不想整理的也可以直接刪（delete_episodes）：一季裡集號不對的集送進 115 回收站（可以還原），本機 strm、nfo
+和媒體庫跟著拿掉；劇集資料夾刪完沒有影片時，可以一起移到回收站。
+
 「整理 115 網盤」（organize115）的預覽也交給這裡執行：它的每一批是整個資料夾（或一季）一個項目，
 幾個預覽一起執行，執行完把沒有影片留下的舊資料夾移到 115 回收站（cleanup）。
 """
@@ -40,6 +43,7 @@ from typing import Dict, List, Optional, Tuple
 from .browse115 import library_info
 from .config import StrmTask
 from .db import Database
+from .dupes import DELETE_BATCH
 from .filetypes import VIDEO_EXTS
 from .moviepilot import MoviePilot, MoviePilotError
 from .p115 import P115Error
@@ -191,10 +195,11 @@ class ReorgJob:
 
 
 class Reorganizer:
-    def __init__(self, db: Database, strm_sync, moviepilot: MoviePilot):
+    def __init__(self, db: Database, strm_sync, moviepilot: MoviePilot, scanner=None):
         self.db = db
         self.strm_sync = strm_sync
         self.mp = moviepilot
+        self.scanner = scanner  # 刪集之後把它們從媒體庫拿掉
         self.job = ReorgJob()
         self.sync_delay = 20.0  # 等 115 記下這次的移動、改名，再跑增量同步
         self._lock = threading.Lock()
@@ -373,6 +378,84 @@ class Reorganizer:
             raise ReorgError("這個資料夾裡沒有影片")
         files.sort(key=lambda f: f.remote)
         return files
+
+    # ---------------- 刪除 ----------------
+
+    def delete_candidates(self, series_id: int, season: int) -> dict:
+        """一季裡集號是猜的、或認不出的集（認不出的排前面），給網頁勾要刪哪些；附上這部劇在 115 上的資料夾。"""
+        series = self.db.one("SELECT id, name, year, path FROM items WHERE id=? AND type='Series'", (series_id,))
+        if not series:
+            raise ReorgError("找不到這部劇")
+        task, series_rel = self._locate(series["path"])
+        if not task:
+            raise ReorgError("這部劇不在任何 115 同步任務的本機資料夾裡，刪不到 115 上的檔案")
+        key = task_key(task)
+        rows = self.db.query(
+            "SELECT path, index_number, ep_from FROM items WHERE series_id=? AND parent_index_number=? AND type='Episode' "
+            "AND is_strm=1 AND ep_from IN ('name','none') ORDER BY ep_from DESC, index_number, path", (series_id, season))
+        files = []
+        for r in rows:
+            rel = self._locate(r["path"])[1]
+            row = self.db.one("SELECT file_id FROM p115_index WHERE task=? AND path=? AND is_dir=0", (key, rel))
+            files.append({"file_id": row["file_id"] if row else None, "name": posixpath.splitext(posixpath.basename(rel))[0],
+                          "folder": posixpath.dirname(rel), "episode": r["index_number"] if r["ep_from"] == "name" else None,
+                          "ep_from": r["ep_from"]})
+        others = self.db.one(
+            "SELECT COUNT(*) AS c FROM items WHERE series_id=? AND type='Episode' "
+            "AND NOT (parent_index_number=? AND ep_from IN ('name','none'))", (series_id, season))["c"]
+        folder = self.db.one("SELECT file_id FROM p115_index WHERE task=? AND path=? AND is_dir=1", (key, series_rel))
+        return {"series_id": series_id, "season": season, "name": series["name"], "year": series["year"], "files": files,
+                "folder": {"cid": folder["file_id"] if folder else None, "others": others,
+                           "path": posixpath.join(remote_root(task), series_rel) if series_rel != "." else remote_root(task)}}
+
+    def delete_episodes(self, series_id: int, season: int, file_ids: List[int], remove_folder: bool) -> dict:
+        """把這一季勾選的集送進 115 回收站，本機 strm、nfo 和媒體庫跟著拿掉。
+
+        只能刪 delete_candidates 列出的檔案。remove_folder 時，劇集資料夾刪完沒有影片（115 上實際去看）就一起移到
+        回收站，裡面剩下的 nfo、圖片一起走；資料夾 id 對不上原本的路徑時不動它。
+        """
+        plan = self.delete_candidates(series_id, season)
+        allowed = {f["file_id"] for f in plan["files"] if f["file_id"]}
+        ids = list(dict.fromkeys(int(i) for i in file_ids))
+        if not ids:
+            raise ReorgError("沒有勾要刪的集")
+        if any(i not in allowed for i in ids):
+            raise ReorgError("只能刪這一季集號不對的集，請重新整理清單")
+        if self.strm_sync.result.running:
+            raise ReorgError("115 正在同步，等同步完成再刪")
+        if not self._lock.acquire(blocking=False):
+            raise ReorgError("MoviePilot 正在整理，等它完成再刪")
+        deleted: List[int] = []
+        removed: List[str] = []
+        folder, folder_removed, note = plan["folder"], False, ""
+        try:
+            for start in range(0, len(ids), DELETE_BATCH):
+                batch = ids[start:start + DELETE_BATCH]
+                self.p115.delete_files(batch)
+                deleted += batch
+            if remove_folder and folder["cid"]:
+                if self._folder_path(folder["cid"]) != folder["path"]:
+                    note = "劇集資料夾已經不在原本的位置，沒有動它"
+                else:
+                    left = self._videos_left(folder["cid"])
+                    if left:
+                        note = f"劇集資料夾還有 {left} 支影片，資料夾保留"
+                    else:
+                        self.p115.delete_files([folder["cid"]])
+                        folder_removed = True
+        except P115Error as exc:
+            raise ReorgError(f"115 刪除失敗：{exc}" + (f"（已經刪了 {len(deleted)} 個）" if deleted else ""))
+        finally:
+            try:
+                removed = self.strm_sync.remove_local(deleted + ([folder["cid"]] if folder_removed else []))
+                if removed and self.scanner:
+                    series_path = self.db.one("SELECT path FROM items WHERE id=?", (series_id,))
+                    self.scanner.scan_paths(removed + ([series_path["path"]] if folder_removed and series_path else []))
+            finally:
+                self._lock.release()
+        log.info("刪除「%s」第 %s 季集號不對的 %s 集（移到 115 回收站）%s", plan["name"], season, len(deleted),
+                 "，劇集資料夾也移到回收站" if folder_removed else "")
+        return {"deleted": len(deleted), "folder_removed": folder_removed, "note": note}
 
     # ---------------- 預覽 ----------------
 

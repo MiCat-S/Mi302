@@ -654,7 +654,7 @@ dialog .card-b{max-height:70vh;overflow:auto}
       <div class="card" id="mpReorg">
         <div class="card-h"><div class="t"><svg class="i"><use href="#i-tool"/></svg><h2>集號不對的劇：交給 MoviePilot 整理</h2></div></div>
         <div class="card-b stack">
-          <p class="hint">這些集的集號是 Mi302 從「10.xxx」「第10集」這類檔名猜的，或認不出來。交給 MoviePilot 在 115 上改成標準檔名並刮削，<b>會真的改 115 上的檔名和位置</b>，所以一定先預覽再執行。 <a class="doc" href="https://github.com/MiCat-S/Mi302/wiki/MoviePilot-整合#整理集號不對的劇" target="_blank" rel="noopener">說明</a></p>
+          <p class="hint">這些集的集號是 Mi302 從「10.xxx」「第10集」這類檔名猜的，或認不出來。交給 MoviePilot 在 115 上改成標準檔名並刮削，<b>會真的改 115 上的檔名和位置</b>，所以一定先預覽再執行。不要的按「刪除…」移到 115 回收站。 <a class="doc" href="https://github.com/MiCat-S/Mi302/wiki/MoviePilot-整合#整理集號不對的劇" target="_blank" rel="noopener">說明</a></p>
           <div id="reoReady"></div>
           <div id="reoJob"></div>
           <div class="logbar"><input id="reoQ" type="search" placeholder="搜尋劇名" oninput="soon('reoQ', () => loadReorg(1))"></div>
@@ -827,6 +827,17 @@ dialog .card-b{max-height:70vh;overflow:auto}
     <p class="hint">網頁上的更新和終端機的 <code>mi302 update</code> 一樣下載新版、需要時安裝相依套件；新版啟動不了會退回原本的版本。安裝腳本管的服務設定、ffprobe 還是要用 <code>mi302 update</code> 更新。 <a class="doc" href="https://github.com/MiCat-S/Mi302/wiki/安裝#在網頁上更新和重新啟動" target="_blank" rel="noopener">說明</a></p>
   </div>
   <div class="card-f"><button class="btn" id="srvCheck" onclick="checkUpdate()">檢查更新</button><button class="btn" id="srvRestart" onclick="restartServer()">重新啟動</button><span class="grow"></span><button class="btn" onclick="srvDlg.close()">關閉</button></div>
+</dialog>
+<dialog id="delDlg" class="wide" aria-labelledby="delTitle">
+  <div class="card-h"><div class="t"><svg class="i"><use href="#i-trash"/></svg><h2 id="delTitle">刪除集號不對的集</h2></div></div>
+  <div class="card-b stack">
+    <p class="hint">勾選的檔案移到 115 回收站（在 115 可以還原），本機的 strm、nfo 和媒體庫裡的這幾集一起拿掉。集號是從檔名猜的通常是真的集，只是檔名不標準，交給 MoviePilot 整理比刪掉好，所以預設只勾認不出集號的。</p>
+    <div class="row wrap gap6"><button class="btn sm" onclick="delPick('none')">只勾認不出集號的</button><button class="btn sm" onclick="delPick('all')">全選</button><button class="btn sm" onclick="delPick('')">全不選</button></div>
+    <div id="delList"></div>
+    <label class="switch hidden" id="delFolderRow"><input type="checkbox" id="delFolder" checked><span class="track"></span><span class="lbl" id="delFolderLbl"></span></label>
+    <p id="delMsg" aria-live="polite" class="notice hidden"></p>
+  </div>
+  <div class="card-f"><span class="hint grow" id="delInfo" aria-live="polite"></span><button class="btn" onclick="delDlg.close()">取消</button><button class="btn danger solid" id="delRun" onclick="delRun()" disabled>刪除</button></div>
 </dialog>
 <dialog id="reoDlg" class="wide" aria-labelledby="reoTitle">
   <div class="card-h"><div class="t"><svg class="i"><use href="#i-tool"/></svg><h2 id="reoTitle">交給 MoviePilot 整理</h2></div></div>
@@ -2193,8 +2204,10 @@ async function loadReorg(page) {
     const whole = it.folder_nonstandard;  // 資料夾命名不照格式：整個資料夾一起整理，不只送這幾集
     row.innerHTML = `<div class="main"><div class="row wrap"><b>${esc(it.name)}</b>${it.year ? `<span class="hint">${it.year}</span>` : ''}<span class="pill">第 ${it.season} 季</span>${whole ? '<span class="pill warn">資料夾命名不規範</span>' : ''}</div>
       <div class="sub">這一季 ${it.season_total} 集裡${guessed ? `，${guessed} 集的集號是從檔名猜的` : ''}${it.unknown ? `，<span class="t-warn">${it.unknown} 集認不出集號</span>` : ''}</div></div>
-      <button class="btn sm"${lack || running ? ' disabled' : ''}>${whole ? '整個資料夾整理…' : '預覽整理…'}</button>`;
-    row.querySelector('button').onclick = () => whole ? organizeFind(it.name) : openReorg(it);
+      <div class="row gap6"><button class="btn sm ghost danger js-del"${running ? ' disabled' : ''}>刪除…</button>
+      <button class="btn sm js-reo"${lack || running ? ' disabled' : ''}>${whole ? '整個資料夾整理…' : '預覽整理…'}</button></div>`;
+    row.querySelector('.js-reo').onclick = () => whole ? organizeFind(it.name) : openReorg(it);
+    row.querySelector('.js-del').onclick = () => openDelete(it);
     box.appendChild(row);
   }
   const pages = Math.max(1, Math.ceil(r.total / REO_PAGE));
@@ -2317,6 +2330,54 @@ async function reoPreview() {
     $('reoInfo').textContent = '沒有可以整理的檔案，調整設定後再預覽';
   }
 }
+// ---- 刪除集號不對的集 ----
+let del = null;  // 目前對話框裡的：{it, plan}
+async function openDelete(it) {
+  del = {it, plan: null};
+  $('delTitle').textContent = `刪除：${it.name} 第 ${it.season} 季`;
+  $('delList').innerHTML = '<p class="hint row"><span class="spin"></span>讀取中…</p>';
+  $('delFolderRow').classList.add('hidden'); note($('delMsg'), ''); $('delRun').disabled = true; $('delInfo').textContent = '';
+  delDlg.showModal();
+  try { del.plan = await api(`/web/api/moviepilot/reorganize/files?series=${it.series_id}&season=${it.season}`); }
+  catch (e) { $('delList').innerHTML = failHtml(e); return; }
+  const p = del.plan;
+  $('delList').innerHTML = p.files.map(f => `<label class="dupm"><input type="checkbox" data-fid="${f.file_id ?? ''}"${f.file_id ? '' : ' disabled'}${f.ep_from === 'none' && f.file_id ? ' checked' : ''}>
+    <span class="grow"><span class="p">${esc(f.name)}</span><span class="row wrap mt4">${f.ep_from === 'none' ? '<span class="pill warn">認不出集號</span>'
+      : `<span class="pill">檔名猜是第 ${f.episode} 集</span>`}${f.file_id ? '' : '<span class="pill bad">同步紀錄裡沒有，先同步一次</span>'}<span class="hint">${esc(f.folder)}</span></span></span></label>`).join('');
+  // 這部劇沒有別的集：刪完可以連劇集資料夾一起移走
+  $('delFolderRow').classList.toggle('hidden', !p.folder.cid || p.folder.others > 0);
+  $('delFolderLbl').innerHTML = `刪完沒有影片留下的話，劇集資料夾也移到 115 回收站<small>${esc(p.folder.path)}，裡面剩下的 nfo、圖片一起移走</small>`;
+  for (const b of $('delList').querySelectorAll('input')) b.onchange = delCount;
+  delCount();
+}
+function delPick(kind) {
+  for (const b of $('delList').querySelectorAll('input:not(:disabled)')) {
+    const f = del.plan.files.find(x => String(x.file_id) === b.dataset.fid);
+    b.checked = kind === 'all' || (kind === 'none' && f?.ep_from === 'none');
+  }
+  delCount();
+}
+const delPicked = () => [...$('delList').querySelectorAll('input:checked')].map(b => Number(b.dataset.fid));
+function delCount() {
+  const n = delPicked().length;
+  $('delRun').disabled = !n; $('delRun').textContent = n ? `刪除 ${n} 個` : '刪除';
+  $('delInfo').textContent = n ? `勾了 ${n} / ${del.plan.files.length} 個` : '';
+}
+async function delRun() {
+  const ids = delPicked(), it = del.it;
+  if (!ids.length) return;
+  const folder = !$('delFolderRow').classList.contains('hidden') && $('delFolder').checked;
+  if (!await ask({title: `刪除 ${ids.length} 個檔案？`, text: `「${it.name}」第 ${it.season} 季勾選的檔案移到 115 回收站（在 115 可以還原），本機的 strm、nfo 和媒體庫裡的這幾集一起拿掉。${folder ? '刪完沒有影片留下的話，劇集資料夾也移到回收站。' : ''}`,
+    ok: '刪除', danger: true})) return;
+  $('delRun').disabled = true; note($('delMsg'), '刪除中…');
+  let r;
+  try { r = await api('/web/api/moviepilot/reorganize/delete', {method: 'POST', body: JSON.stringify({series_id: it.series_id, season: it.season, file_ids: ids, remove_folder: folder})}); }
+  catch (e) { note($('delMsg'), e.message, 'bad'); $('delRun').disabled = false; return; }
+  delDlg.close();
+  toast(`已刪除 ${r.deleted} 個檔案（移到 115 回收站）` + (r.folder_removed ? '，劇集資料夾也移走了' : '') + (r.note ? `；${r.note}` : ''));
+  loadReorg();
+}
+
 function reoItemsHtml(items) {
   // 預覽裡每個檔案的新位置和 Mi302 的檢查（整理對話框和整理 115 網盤共用）
   return items.map(i => {
