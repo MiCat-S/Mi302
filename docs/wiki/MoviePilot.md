@@ -235,11 +235,12 @@ Click **Run reorganisation (N)** (執行整理（N 個）) and confirm:
 
 ### Deleting
 
-If you would rather not reorganise, click **Delete…** (刪除…) on the row and tick the files to delete:
+If you would rather not reorganise, click **Delete…** (刪除…) on the row. You can delete any episode of the show, or the whole show:
 
-- The episodes of that season with wrong numbers are listed, unrecognised ones first and pre-ticked. Episodes whose number was guessed from the file name are usually real episodes with non-standard names, better reorganised than deleted, so they are not ticked by default; use **Select all** (全選), **Only unrecognised** (只勾認不出集號的) or **Select none** (全不選).
+- Every episode of the show in the library is listed, grouped by season, with this season expanded. By default only this season's episodes whose number could not be recognised are ticked; episodes whose number was guessed from the file name are usually real episodes with non-standard names, better reorganised than deleted. The buttons at the top tick **This season's unrecognised** (這一季認不出集號的), **This season's wrong numbers** (這一季集號不對的), **All of this season** (這一季全部), **Every episode of the show** (整部劇每一集), or **Select none** (全不選).
 - Ticked files are moved to the 115 recycle bin (restorable on 115); the local strm and nfo files and these episodes in the library are removed too.
-- When the show has no other episodes, there is an extra option (ticked by default) to move the show folder to the 115 recycle bin as well if no videos are left (刪完沒有影片留下的話，劇集資料夾也移到 115 回收站). Mi302 checks on 115 that the folder really holds no videos before moving it, together with the leftover nfo files and images, and removes the show from the library.
+- **Also move the show folder to the 115 recycle bin if no videos are left** (刪完沒有影片留下的話，劇集資料夾也移到 115 回收站), ticked by default: Mi302 checks on 115 that the folder really holds no videos before moving it, together with the leftover nfo files and images, and removes the show from the library.
+- **Delete the whole show…** (整部劇刪掉…) moves the show folder on 115 to the recycle bin with everything in it, including files that never made it into the library, and removes the show locally and from the library. It is not available when the show folder is the sync folder itself; tick the episodes instead.
 - Deleting needs the QR-code (cookie) login to 115, and waits while a 115 sync or a MoviePilot reorganisation is running.
 
 ### Reorganising a folder on 115

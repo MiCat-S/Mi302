@@ -29,6 +29,7 @@ from .people import PeopleStore, PersonNames
 from .prober import MediaProber
 from .redirect import Redirector
 from .routes import items, p115, playback, system, web
+from .routes.common import SafeJSONResponse
 from . import logs, settings
 from .scanner import Scanner
 from .strm_sync import FULL, StrmSync
@@ -192,6 +193,6 @@ def create_app(config: Config, db_path: Optional[str] = None, scan_on_start: boo
     app.include_router(system.router)
     app.include_router(items.router)
     app.include_router(playback.router)
-    app.include_router(p115.router)
+    app.include_router(p115.router, default_response_class=SafeJSONResponse)  # 115 的 id 用字串給網頁
     app.include_router(web.router)
     return app

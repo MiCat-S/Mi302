@@ -381,52 +381,63 @@ class Reorganizer:
 
     # ---------------- 刪除 ----------------
 
-    def delete_candidates(self, series_id: int, season: int) -> dict:
-        """一季裡集號是猜的、或認不出的集（認不出的排前面），給網頁勾要刪哪些；附上這部劇在 115 上的資料夾。"""
+    def _series_folder(self, series_id: int) -> Tuple[dict, object, str, Optional[int], str]:
+        """劇、它所在的同步任務、相對路徑、115 上的資料夾 id 和完整路徑（劇集資料夾就是同步目錄本身時 id 是 None）。"""
         series = self.db.one("SELECT id, name, year, path FROM items WHERE id=? AND type='Series'", (series_id,))
         if not series:
             raise ReorgError("找不到這部劇")
-        task, series_rel = self._locate(series["path"])
+        task, rel = self._locate(series["path"])
         if not task:
             raise ReorgError("這部劇不在任何 115 同步任務的本機資料夾裡，刪不到 115 上的檔案")
-        key = task_key(task)
-        rows = self.db.query(
-            "SELECT path, index_number, ep_from FROM items WHERE series_id=? AND parent_index_number=? AND type='Episode' "
-            "AND is_strm=1 AND ep_from IN ('name','none') ORDER BY ep_from DESC, index_number, path", (series_id, season))
+        row = self.db.one("SELECT file_id FROM p115_index WHERE task=? AND path=? AND is_dir=1", (task_key(task), rel)) \
+            if rel != "." else None
+        return dict(series), task, rel, row["file_id"] if row else None, \
+            posixpath.join(remote_root(task), rel) if rel != "." else remote_root(task)
+
+    def series_files(self, series_id: int, season: int) -> dict:
+        """整部劇在媒體庫裡的每一集（照季、集排），給網頁勾要刪哪些。problem 是這一季集號是猜的、或認不出的集。
+        附上劇集資料夾：115 上的路徑、同步紀錄裡有幾支影片（含沒進媒體庫的）。只看資料庫，不向 115 請求。"""
+        series, task, rel, cid, path = self._series_folder(series_id)
+        key, local = task_key(task), str(Path(task.local).expanduser())
+        prefix = "" if rel == "." else rel + "/"
+        ids = {r["path"]: r["file_id"] for r in self.db.query(
+            "SELECT file_id, path FROM p115_index WHERE task=? AND is_dir=0 AND path>=? AND path<?",
+            (key, prefix, prefix + "\U0010ffff"))}
         files = []
-        for r in rows:
-            rel = self._locate(r["path"])[1]
-            row = self.db.one("SELECT file_id FROM p115_index WHERE task=? AND path=? AND is_dir=0", (key, rel))
-            files.append({"file_id": row["file_id"] if row else None, "name": posixpath.splitext(posixpath.basename(rel))[0],
-                          "folder": posixpath.dirname(rel), "episode": r["index_number"] if r["ep_from"] == "name" else None,
-                          "ep_from": r["ep_from"]})
-        others = self.db.one(
-            "SELECT COUNT(*) AS c FROM items WHERE series_id=? AND type='Episode' "
-            "AND NOT (parent_index_number=? AND ep_from IN ('name','none'))", (series_id, season))["c"]
-        folder = self.db.one("SELECT file_id FROM p115_index WHERE task=? AND path=? AND is_dir=1", (key, series_rel))
+        for r in self.db.query(
+                "SELECT path, parent_index_number AS season, index_number, ep_from FROM items WHERE series_id=? "
+                "AND type='Episode' AND is_strm=1 ORDER BY parent_index_number, index_number, path", (series_id,)):
+            file_rel = Path(r["path"]).relative_to(local).as_posix() if r["path"].startswith(local + "/") else ""
+            problem = r["season"] == season and r["ep_from"] in ("name", "none")
+            files.append({"file_id": ids.get(file_rel), "name": posixpath.splitext(posixpath.basename(file_rel))[0],
+                          "folder": posixpath.dirname(file_rel), "season": r["season"],
+                          "episode": r["index_number"] if r["ep_from"] != "none" else None, "ep_from": r["ep_from"],
+                          "problem": problem})
+        videos = sum(1 for p in ids if p.endswith(".strm"))
         return {"series_id": series_id, "season": season, "name": series["name"], "year": series["year"], "files": files,
-                "folder": {"cid": folder["file_id"] if folder else None, "others": others,
-                           "path": posixpath.join(remote_root(task), series_rel) if series_rel != "." else remote_root(task)}}
+                "folder": {"cid": cid, "path": path, "videos": videos}}
 
-    def delete_episodes(self, series_id: int, season: int, file_ids: List[int], remove_folder: bool) -> dict:
-        """把這一季勾選的集送進 115 回收站，本機 strm、nfo 和媒體庫跟著拿掉。
+    def _begin_delete(self) -> None:
+        if self.strm_sync.result.running:
+            raise ReorgError("115 正在同步，等同步完成再刪")
+        if not self._lock.acquire(blocking=False):
+            raise ReorgError("MoviePilot 正在整理，等它完成再刪")
 
-        只能刪 delete_candidates 列出的檔案。remove_folder 時，劇集資料夾刪完沒有影片（115 上實際去看）就一起移到
-        回收站，裡面剩下的 nfo、圖片一起走；資料夾 id 對不上原本的路徑時不動它。
+    def delete_episodes(self, series_id: int, file_ids: List[int], remove_folder: bool) -> dict:
+        """把這部劇勾選的集送進 115 回收站，本機 strm、nfo 和媒體庫跟著拿掉。只能刪這部劇的集（任何一季都可以）。
+
+        remove_folder 時，劇集資料夾刪完沒有影片（115 上實際去看）就一起移到回收站，裡面剩下的 nfo、圖片一起走；
+        資料夾 id 對不上原本的路徑時不動它。
         """
-        plan = self.delete_candidates(series_id, season)
+        plan = self.series_files(series_id, -1)
         allowed = {f["file_id"] for f in plan["files"] if f["file_id"]}
         ids = list(dict.fromkeys(int(i) for i in file_ids))
         if not ids:
             raise ReorgError("沒有勾要刪的集")
         if any(i not in allowed for i in ids):
-            raise ReorgError("只能刪這一季集號不對的集，請重新整理清單")
-        if self.strm_sync.result.running:
-            raise ReorgError("115 正在同步，等同步完成再刪")
-        if not self._lock.acquire(blocking=False):
-            raise ReorgError("MoviePilot 正在整理，等它完成再刪")
+            raise ReorgError("勾的檔案不在這部劇裡（清單可能已經過期），請重新打開")
+        self._begin_delete()
         deleted: List[int] = []
-        removed: List[str] = []
         folder, folder_removed, note = plan["folder"], False, ""
         try:
             for start in range(0, len(ids), DELETE_BATCH):
@@ -446,16 +457,40 @@ class Reorganizer:
         except P115Error as exc:
             raise ReorgError(f"115 刪除失敗：{exc}" + (f"（已經刪了 {len(deleted)} 個）" if deleted else ""))
         finally:
-            try:
-                removed = self.strm_sync.remove_local(deleted + ([folder["cid"]] if folder_removed else []))
-                if removed and self.scanner:
-                    series_path = self.db.one("SELECT path FROM items WHERE id=?", (series_id,))
-                    self.scanner.scan_paths(removed + ([series_path["path"]] if folder_removed and series_path else []))
-            finally:
-                self._lock.release()
-        log.info("刪除「%s」第 %s 季集號不對的 %s 集（移到 115 回收站）%s", plan["name"], season, len(deleted),
-                 "，劇集資料夾也移到回收站" if folder_removed else "")
+            self._after_delete(series_id, deleted + ([folder["cid"]] if folder_removed else []), folder_removed)
+        log.info("刪除「%s」的 %s 集（移到 115 回收站）%s", plan["name"], len(deleted), "，劇集資料夾也移到回收站" if folder_removed else "")
         return {"deleted": len(deleted), "folder_removed": folder_removed, "note": note}
+
+    def delete_series(self, series_id: int) -> dict:
+        """整部劇刪掉：劇集資料夾整個移到 115 回收站（裡面所有檔案，包括沒進媒體庫的），本機和媒體庫跟著拿掉。"""
+        series, task, rel, cid, path = self._series_folder(series_id)
+        if not cid:
+            raise ReorgError("這部劇的資料夾就是同步目錄本身（或同步紀錄裡沒有），不能整個刪；請勾要刪的集")
+        self._begin_delete()
+        try:
+            if self._folder_path(cid) != path:
+                raise ReorgError("劇集資料夾已經不在原本的位置（可能在 115 上搬過），請先同步一次")
+            self.p115.delete_files([cid])
+        except P115Error as exc:
+            self._lock.release()
+            raise ReorgError(f"115 刪除失敗：{exc}")
+        except ReorgError:
+            self._lock.release()
+            raise
+        self._after_delete(series_id, [cid], True)
+        log.info("整部「%s」移到 115 回收站：%s", series["name"], path)
+        return {"deleted": 1, "folder_removed": True, "note": ""}
+
+    def _after_delete(self, series_id: int, ids: List[int], folder_removed: bool) -> None:
+        """115 上刪了：本機 strm、nfo 拿掉，重新掃描那些位置（劇集資料夾刪了就連劇一起拿掉）；最後放開鎖。"""
+        try:
+            removed = self.strm_sync.remove_local(ids) if ids else []
+            series = self.db.one("SELECT path FROM items WHERE id=?", (series_id,))
+            paths = removed + ([series["path"]] if folder_removed and series else [])
+            if paths and self.scanner:
+                self.scanner.scan_paths(paths)
+        finally:
+            self._lock.release()
 
     # ---------------- 預覽 ----------------
 

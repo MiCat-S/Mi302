@@ -5,9 +5,33 @@ from __future__ import annotations
 from typing import List, Optional
 
 from fastapi import HTTPException, Request
+from fastapi.responses import JSONResponse
 
 from ..auth import AuthContext, lower_query
 from ..dto import user_data_dto
+
+MAX_SAFE_INT = 2 ** 53 - 1  # JavaScript 的 Number 能精確表示的最大整數
+
+
+def js_safe(value):
+    """比 JavaScript 能精確表示的還大的整數改成字串。115 的檔案、資料夾 id 有 19 位，當成數字給網頁會被四捨五入，
+    送回來就對不上（刪錯、列錯資料夾）。伺服器收到 id 一律 int() 轉回來，字串、數字都接受。"""
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, int):
+        return str(value) if abs(value) > MAX_SAFE_INT else value
+    if isinstance(value, dict):
+        return {k: js_safe(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [js_safe(v) for v in value]
+    return value
+
+
+class SafeJSONResponse(JSONResponse):
+    """管理網頁的 API 用：大整數（115 的 id）改成字串再送出。"""
+
+    def render(self, content) -> bytes:
+        return super().render(js_safe(content))
 
 
 def q(request: Request, name: str, default: Optional[str] = None) -> Optional[str]:

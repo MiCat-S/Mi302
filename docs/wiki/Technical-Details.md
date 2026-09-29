@@ -126,7 +126,7 @@ Endpoints that return empty results so players do not fail: `/Users/{id}/Items/{
 
 ## Admin API
 
-The API behind the web admin page `/web`. Apart from `/web/api/setup`, it needs the token of a logged-in admin account (sent in the `X-Emby-Token` header); API keys are rejected. Requests and responses are JSON.
+The API behind the web admin page `/web`. 115 file and folder IDs have 19 digits, more than JavaScript can represent exactly, so responses always carry them as strings; requests accept strings or numbers. Apart from `/web/api/setup`, it needs the token of a logged-in admin account (sent in the `X-Emby-Token` header); API keys are rejected. Requests and responses are JSON.
 
 | Path | Purpose |
 | --- | --- |
@@ -143,7 +143,7 @@ The API behind the web admin page `/web`. Apart from `/web/api/setup`, it needs 
 | `POST /web/api/moviepilot/test`, `GET /web/api/moviepilot/status`, `POST /web/api/moviepilot/scrape` | MoviePilot connection test, status, scrape items missing metadata |
 | `GET /web/api/series`, `POST /web/api/moviepilot/fill` | Series and episode-gap list; fill missing episodes |
 | `GET /web/api/moviepilot/reorganize`, `GET /web/api/moviepilot/reorganize/plan`, `GET /web/api/moviepilot/reorganize/folder`, `POST /web/api/moviepilot/reorganize/preview`, `POST /web/api/moviepilot/reorganize/execute` | Reorganise series with wrong episode numbers through MoviePilot: the list (with the current job and missing settings), one season's plan (`series`, `season`; batches and episode formats), a 115 folder's plan (`cid`, `path`), a preview (takes the plan's `plan_id`, returns a `token`), and running a preview by its token (`token`, or several at once with `tokens`; `cleanup` moves source folders with no videos left to the recycle bin afterwards) |
-| `GET /web/api/moviepilot/reorganize/files`, `POST /web/api/moviepilot/reorganize/delete` | Deleting episodes with wrong numbers: the season's episodes with guessed or unrecognised numbers and the show folder (`series`, `season`); delete the ticked ones (`series_id`, `season`, `file_ids`, `remove_folder`) to the 115 recycle bin, removing the local strm files and library entries |
+| `GET /web/api/moviepilot/reorganize/files`, `POST /web/api/moviepilot/reorganize/delete` | Deleting a show's files: every episode of the show and the show folder (`series`, `season`; this season's episodes with wrong numbers are marked `problem`); delete the ticked ones (`series_id`, `file_ids`, `remove_folder`, any episode of the show) or the whole show folder (`series_id`, `whole`) to the 115 recycle bin, removing the local strm files and library entries |
 | `GET /web/api/intro/status`, `POST /web/api/intro/clear` | Intro and credits (`{"season_id": id}` clears one season's learned records) |
 | `GET /web/api/intro/seasons?q=`, `PUT /web/api/intro/seasons/{season id}` | Season list and search for intro and credits; manual settings for a season (`all_seasons` applies them to the whole series) |
 | `GET /web/api/people/status`, `POST /web/api/people/resolve` | Chinese names for cast and crew |

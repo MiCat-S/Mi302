@@ -10,8 +10,10 @@
 
 from fastapi import APIRouter
 
+from ..common import SafeJSONResponse
 from . import intro, moviepilot, p115, scan, server, setup
 
 router = APIRouter()
 for _module in (setup, scan, p115, moviepilot, intro, server):
-    router.include_router(_module.router)
+    # 115 的 id 超過 JavaScript 數字的精確範圍：一律用 SafeJSONResponse 改成字串
+    router.include_router(_module.router, default_response_class=SafeJSONResponse)

@@ -53,7 +53,7 @@ code{font:13px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;background:v
 .btn.primary:hover{filter:brightness(1.07)}
 .btn.danger{color:var(--danger)}
 .btn.danger.solid{background:var(--danger);border-color:var(--danger);color:#fff}
-.btn.ghost{border-color:transparent;background:transparent;color:var(--muted)}
+.btn.ghost{border-color:transparent;background:transparent;color:var(--muted)}.btn.ghost.danger{color:var(--danger)}
 .btn.ghost:hover{background:var(--panel2);color:var(--fg)}
 .btn.sm{padding:5px 10px;font-size:13px;border-radius:8px}
 .btn.icon{padding:6px}
@@ -846,15 +846,17 @@ dialog .card-b{max-height:70vh;overflow:auto}
   <div class="card-f"><button class="btn" id="srvCheck" onclick="checkUpdate()">檢查更新</button><button class="btn" id="srvRestart" onclick="restartServer()">重新啟動</button><span class="grow"></span><button class="btn" onclick="srvDlg.close()">關閉</button></div>
 </dialog>
 <dialog id="delDlg" class="wide" aria-labelledby="delTitle">
-  <div class="card-h"><div class="t"><svg class="i"><use href="#i-trash"/></svg><h2 id="delTitle">刪除集號不對的集</h2></div></div>
+  <div class="card-h"><div class="t"><svg class="i"><use href="#i-trash"/></svg><h2 id="delTitle">刪除</h2></div></div>
   <div class="card-b stack">
-    <p class="hint">勾選的檔案移到 115 回收站（在 115 可以還原），本機的 strm、nfo 和媒體庫裡的這幾集一起拿掉。集號是從檔名猜的通常是真的集，只是檔名不標準，交給 MoviePilot 整理比刪掉好，所以預設只勾認不出集號的。</p>
-    <div class="row wrap gap6"><button class="btn sm" onclick="delPick('none')">只勾認不出集號的</button><button class="btn sm" onclick="delPick('all')">全選</button><button class="btn sm" onclick="delPick('')">全不選</button></div>
+    <p class="hint">勾選的檔案移到 115 回收站（在 115 可以還原），本機的 strm、nfo 和媒體庫裡的這幾集一起拿掉。預設只勾這一季認不出集號的；集號是從檔名猜的通常是真的集，交給 MoviePilot 整理比刪掉好。</p>
+    <div class="row wrap gap6" id="delPicks"><button class="btn sm" onclick="delPick('none')">這一季認不出集號的</button><button class="btn sm" onclick="delPick('problem')">這一季集號不對的</button>
+      <button class="btn sm" onclick="delPick('season')">這一季全部</button><button class="btn sm" onclick="delPick('all')">整部劇每一集</button><button class="btn sm" onclick="delPick('')">全不選</button></div>
     <div id="delList"></div>
     <label class="switch hidden" id="delFolderRow"><input type="checkbox" id="delFolder" checked><span class="track"></span><span class="lbl" id="delFolderLbl"></span></label>
     <p id="delMsg" aria-live="polite" class="notice hidden"></p>
   </div>
-  <div class="card-f"><span class="hint grow" id="delInfo" aria-live="polite"></span><button class="btn" onclick="delDlg.close()">取消</button><button class="btn danger solid" id="delRun" onclick="delRun()" disabled>刪除</button></div>
+  <div class="card-f"><button class="btn danger ghost" id="delWhole" onclick="delWhole()">整部劇刪掉…</button><span class="hint grow" id="delInfo" aria-live="polite"></span>
+    <button class="btn" onclick="delDlg.close()">取消</button><button class="btn danger solid" id="delRun" onclick="delRun()" disabled>刪除</button></div>
 </dialog>
 <dialog id="reoDlg" class="wide" aria-labelledby="reoTitle">
   <div class="card-h"><div class="t"><svg class="i"><use href="#i-tool"/></svg><h2 id="reoTitle">交給 MoviePilot 整理</h2></div></div>
@@ -2003,7 +2005,7 @@ function dupMemberHtml(m, g, versions) {
   const named = m.complete === false ? `<span class="pill warn" title="${g.kind === 'movie' ? '電影的檔名要有年份' : '劇集的檔名要有 S01E02 這種季和集都寫明的編號'}">檔名編號不完整</span>` : '';
   const pills = (m.keep ? '<span class="pill ok">建議保留</span>' : '') + named + (versions ? qualityPills(m.quality) + `<span class="pill">${fmtSize(m.size)}</span>`
     : (m.local ? '<span class="pill">有 strm</span>' : '<span class="pill">不在同步目錄</span>')) + (m.watched ? '<span class="pill">有觀看紀錄</span>' : '');
-  return `<label class="dupm"><input type="checkbox" data-fid="${m.file_id}"${dupWanted(m) ? ' checked' : ''}>` +
+  return `<label class="dupm"><input type="checkbox" data-fid="${esc(m.file_id)}"${dupWanted(m) ? ' checked' : ''}>` +
     `<span class="grow"><span class="p">${esc(m.path)}</span><span class="row wrap mt4">${pills}` +
     `<span class="hint">${m.mtime ? '上傳於 ' + fmtTime(m.mtime) : ''}${!versions && title ? '・' + esc(title) : ''}</span></span></span></label>`;
 }
@@ -2347,52 +2349,75 @@ async function reoPreview() {
     $('reoInfo').textContent = '沒有可以整理的檔案，調整設定後再預覽';
   }
 }
-// ---- 刪除集號不對的集 ----
+// ---- 刪除：這部劇的任何一集，或整部劇 ----
 let del = null;  // 目前對話框裡的：{it, plan}
 async function openDelete(it) {
   del = {it, plan: null};
-  $('delTitle').textContent = `刪除：${it.name} 第 ${it.season} 季`;
+  $('delTitle').textContent = `刪除：${it.name}`;
   $('delList').innerHTML = '<p class="hint row"><span class="spin"></span>讀取中…</p>';
-  $('delFolderRow').classList.add('hidden'); note($('delMsg'), ''); $('delRun').disabled = true; $('delInfo').textContent = '';
+  $('delFolderRow').classList.add('hidden'); note($('delMsg'), ''); $('delRun').disabled = $('delWhole').disabled = true; $('delInfo').textContent = '';
   delDlg.showModal();
   try { del.plan = await api(`/web/api/moviepilot/reorganize/files?series=${it.series_id}&season=${it.season}`); }
   catch (e) { $('delList').innerHTML = failHtml(e); return; }
-  const p = del.plan;
-  $('delList').innerHTML = p.files.map(f => `<label class="dupm"><input type="checkbox" data-fid="${f.file_id ?? ''}"${f.file_id ? '' : ' disabled'}${f.ep_from === 'none' && f.file_id ? ' checked' : ''}>
-    <span class="grow"><span class="p">${esc(f.name)}</span><span class="row wrap mt4">${f.ep_from === 'none' ? '<span class="pill warn">認不出集號</span>'
-      : `<span class="pill">檔名猜是第 ${f.episode} 集</span>`}${f.file_id ? '' : '<span class="pill bad">同步紀錄裡沒有，先同步一次</span>'}<span class="hint">${esc(f.folder)}</span></span></span></label>`).join('');
-  // 這部劇沒有別的集：刪完可以連劇集資料夾一起移走
-  $('delFolderRow').classList.toggle('hidden', !p.folder.cid || p.folder.others > 0);
+  const p = del.plan, seasons = [...new Set(p.files.map(f => f.season))];
+  // 115 的 id 是字串（19 位數字，當成數字會被四捨五入），比對、送回都用字串
+  $('delList').innerHTML = seasons.map(sn => {
+    const fs = p.files.filter(f => f.season === sn);
+    return `<details class="more mt8"${sn === p.season ? ' open' : ''}><summary>${sn == null ? '不知道第幾季' : sn === 0 ? '特別篇' : `第 ${sn} 季`}（${fs.length} 集）</summary><div class="in">` +
+      fs.map(f => `<label class="dupm"><input type="checkbox" data-fid="${esc(f.file_id ?? '')}"${f.file_id ? '' : ' disabled'}${f.problem && f.ep_from === 'none' && f.file_id ? ' checked' : ''}>
+        <span class="grow"><span class="p">${esc(f.name)}</span><span class="row wrap mt4">${f.ep_from === 'none' ? '<span class="pill warn">認不出集號</span>'
+          : f.ep_from === 'name' ? `<span class="pill">檔名猜是第 ${f.episode} 集</span>` : `<span class="pill ok">第 ${f.episode} 集</span>`}${f.file_id ? '' : '<span class="pill bad">同步紀錄裡沒有，先同步一次</span>'}<span class="hint">${esc(f.folder)}</span></span></span></label>`).join('') +
+      '</div></details>';
+  }).join('') || '<p class="hint">媒體庫裡這部劇沒有集</p>';
+  $('delFolderRow').classList.toggle('hidden', !p.folder.cid);
   $('delFolderLbl').innerHTML = `刪完沒有影片留下的話，劇集資料夾也移到 115 回收站<small>${esc(p.folder.path)}，裡面剩下的 nfo、圖片一起移走</small>`;
+  $('delWhole').disabled = !p.folder.cid;
   for (const b of $('delList').querySelectorAll('input')) b.onchange = delCount;
   delCount();
 }
 function delPick(kind) {
+  // 快速勾選：這一季認不出集號的、這一季集號不對的、這一季全部、整部劇、全不選
+  const p = del.plan;
   for (const b of $('delList').querySelectorAll('input:not(:disabled)')) {
-    const f = del.plan.files.find(x => String(x.file_id) === b.dataset.fid);
-    b.checked = kind === 'all' || (kind === 'none' && f?.ep_from === 'none');
+    const f = p.files.find(x => String(x.file_id) === b.dataset.fid);
+    b.checked = !!f && (kind === 'all' || (kind === 'season' && f.season === p.season) || (kind === 'problem' && f.problem)
+      || (kind === 'none' && f.problem && f.ep_from === 'none'));
   }
+  if (kind === 'all') for (const d of $('delList').querySelectorAll('details')) d.open = true;
   delCount();
 }
-const delPicked = () => [...$('delList').querySelectorAll('input:checked')].map(b => Number(b.dataset.fid));
+const delPicked = () => [...$('delList').querySelectorAll('input:checked')].map(b => b.dataset.fid);
 function delCount() {
-  const n = delPicked().length;
-  $('delRun').disabled = !n; $('delRun').textContent = n ? `刪除 ${n} 個` : '刪除';
-  $('delInfo').textContent = n ? `勾了 ${n} / ${del.plan.files.length} 個` : '';
+  const n = delPicked().length, total = del.plan.files.length;
+  $('delRun').disabled = !n; $('delRun').textContent = n ? `刪除 ${n} 集` : '刪除';
+  $('delInfo').textContent = n ? `勾了 ${n} / ${total} 集` : '';
+}
+async function delDone(r, whole) {
+  delDlg.close();
+  toast(whole ? `整部「${del.it.name}」已移到 115 回收站` :
+    `已刪除 ${r.deleted} 集（移到 115 回收站）` + (r.folder_removed ? '，劇集資料夾也移走了' : '') + (r.note ? `；${r.note}` : ''));
+  loadReorg();
 }
 async function delRun() {
   const ids = delPicked(), it = del.it;
   if (!ids.length) return;
+  const all = ids.length === del.plan.files.filter(f => f.file_id).length;
   const folder = !$('delFolderRow').classList.contains('hidden') && $('delFolder').checked;
-  if (!await ask({title: `刪除 ${ids.length} 個檔案？`, text: `「${it.name}」第 ${it.season} 季勾選的檔案移到 115 回收站（在 115 可以還原），本機的 strm、nfo 和媒體庫裡的這幾集一起拿掉。${folder ? '刪完沒有影片留下的話，劇集資料夾也移到回收站。' : ''}`,
+  if (!await ask({title: `刪除「${it.name}」的 ${ids.length} 集？`, text: `勾選的檔案移到 115 回收站（在 115 可以還原），本機的 strm、nfo 和媒體庫裡的這幾集一起拿掉。${folder ? '刪完沒有影片留下的話，劇集資料夾也移到回收站。' : ''}${all ? '整部劇每一集都勾了；要連資料夾裡沒進媒體庫的檔案一起刪，用「整部劇刪掉」。' : ''}`,
     ok: '刪除', danger: true})) return;
   $('delRun').disabled = true; note($('delMsg'), '刪除中…');
-  let r;
-  try { r = await api('/web/api/moviepilot/reorganize/delete', {method: 'POST', body: JSON.stringify({series_id: it.series_id, season: it.season, file_ids: ids, remove_folder: folder})}); }
-  catch (e) { note($('delMsg'), e.message, 'bad'); $('delRun').disabled = false; return; }
-  delDlg.close();
-  toast(`已刪除 ${r.deleted} 個檔案（移到 115 回收站）` + (r.folder_removed ? '，劇集資料夾也移走了' : '') + (r.note ? `；${r.note}` : ''));
-  loadReorg();
+  try { delDone(await api('/web/api/moviepilot/reorganize/delete', {method: 'POST', body: JSON.stringify({series_id: it.series_id, file_ids: ids, remove_folder: folder})})); }
+  catch (e) { note($('delMsg'), e.message, 'bad'); $('delRun').disabled = false; }
+}
+async function delWhole() {
+  // 整個劇集資料夾移到回收站：裡面每個檔案都走，包括沒進媒體庫的
+  const p = del.plan, it = del.it;
+  if (!p?.folder.cid) return;
+  if (!await ask({title: `整部「${it.name}」刪掉？`, text: `115 上的劇集資料夾「${p.folder.path}」整個移到 115 回收站（在 115 可以還原），裡面 ${p.folder.videos} 支影片和其他檔案都一起，包括沒進媒體庫的；本機的 strm、nfo 和媒體庫裡的這部劇也拿掉。`,
+    ok: '整部刪掉', danger: true})) return;
+  $('delWhole').disabled = $('delRun').disabled = true; note($('delMsg'), '刪除中…');
+  try { delDone(await api('/web/api/moviepilot/reorganize/delete', {method: 'POST', body: JSON.stringify({series_id: it.series_id, whole: true})}), true); }
+  catch (e) { note($('delMsg'), e.message, 'bad'); $('delWhole').disabled = false; delCount(); }
 }
 
 function reoItemsHtml(items) {
@@ -2593,7 +2618,7 @@ async function organizeExecute() {
     text: `MoviePilot 會照剛才預覽的位置在 115 上移動、改名並刮削。${warn ? `有 ${warn} 個要看一下的，確定沒問題再執行。` : ''}${clean ? '整理完，沒有影片留下的舊資料夾移到 115 回收站。' : ''}檔案多的要比較久（115 每秒只能處理幾個請求），完成後約 20 秒同步 115。`,
     ok: '執行', danger: true})) return;
   const tokens = ready.map(st => st.preview.token);
-  const cleanup = clean ? ready.filter(st => st.unit.kind !== 'movie_file').map(st => ({cid: Number(st.unit.id.slice(1)), path: st.unit.path})) : [];
+  const cleanup = clean ? ready.filter(st => st.unit.kind !== 'movie_file').map(st => ({cid: st.unit.id.slice(1), path: st.unit.path})) : [];  // id 用字串，數字會被四捨五入
   try { S.reo = (await api('/web/api/moviepilot/reorganize/execute', {method: 'POST', body: JSON.stringify({tokens, cleanup})})).job; }
   catch (e) { toast(e.message, 'bad'); return; }
   for (const st of ready) st.running = true;

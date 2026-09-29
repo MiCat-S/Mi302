@@ -344,43 +344,59 @@ def test_folder_mode_only_drops_nfo_with_negative_numbers(tmp_path: Path):
 
 
 def test_delete_episodes_with_wrong_numbers(tmp_path: Path):
-    """不想整理的直接刪：只能刪清單上的集，115 回收站、本機 strm、媒體庫一起處理；劇集資料夾刪空了可以一起移走。"""
+    """不想整理的直接刪：這部劇的任何一集都能刪，也能整部刪；115 回收站、本機 strm、媒體庫一起處理。
+    115 的 id 有 19 位，網頁拿到的是字串（JavaScript 的數字會四捨五入），送回來照樣認得。"""
     from embyserver.strm_sync import FULL
 
     app, fake, mp, media, c, h = build(tmp_path)
     sid = app.state.db.one("SELECT id FROM items WHERE type='Series' AND name='中国新说唱'")["id"]
-    r = c.get("/web/api/moviepilot/reorganize/files", params={"series": sid, "season": 1}, headers=h).json()
-    # 認不出集號的排前面，其餘照猜的集號
-    assert [(f["name"], f["ep_from"], f["episode"]) for f in r["files"]] == [
-        ("特辑", "none", None), ("01-嘻哈首战-蓝光4K", "name", 1), ("03-比赛惊现死亡之组-蓝光4K", "name", 3),
-        ("中国新说唱 EP05", "name", 5), ("10.潘玮柏战队面临团危机-蓝光4K", "name", 10)]
-    assert r["folder"]["path"] == SHOW and r["folder"]["others"] == 0
-    ids = {f["name"]: f["file_id"] for f in r["files"]}
+    files = "/web/api/moviepilot/reorganize/files"
     delete = "/web/api/moviepilot/reorganize/delete"
-    assert c.post(delete, json={"series_id": sid, "season": 1, "file_ids": [2]}, headers=h).status_code == 400  # 別部劇的檔案
-    assert c.post(delete, json={"series_id": sid, "season": 1, "file_ids": []}, headers=h).status_code == 400
-    assert c.post(delete, json={"series_id": sid, "season": 1, "file_ids": [ids["特辑"]]}).status_code == 401
+    r = c.get(files, params={"series": sid, "season": 1}, headers=h).json()
+    # 整部劇的每一集，照季、集排；這一季集號不對的標 problem
+    assert [(f["name"], f["ep_from"], f["episode"], f["problem"]) for f in r["files"]] == [
+        ("特辑", "none", None, True), ("01-嘻哈首战-蓝光4K", "name", 1, True), ("03-比赛惊现死亡之组-蓝光4K", "name", 3, True),
+        ("中国新说唱 EP05", "name", 5, True), ("10.潘玮柏战队面临团危机-蓝光4K", "name", 10, True)]
+    assert r["folder"] == {"cid": 106, "path": SHOW, "videos": 5}
+    ids = {f["name"]: f["file_id"] for f in r["files"]}
+    assert c.post(delete, json={"series_id": sid, "file_ids": [2]}, headers=h).status_code == 400  # 別部劇的檔案
+    assert c.post(delete, json={"series_id": sid, "file_ids": []}, headers=h).status_code == 400
+    assert c.post(delete, json={"series_id": sid, "file_ids": [ids["特辑"]]}).status_code == 401
 
-    res = c.post(delete, json={"series_id": sid, "season": 1, "file_ids": [ids["特辑"]], "remove_folder": True}, headers=h).json()
+    res = c.post(delete, json={"series_id": sid, "file_ids": [ids["特辑"]], "remove_folder": True}, headers=h).json()
     assert res == {"deleted": 1, "folder_removed": False, "note": "劇集資料夾還有 4 支影片，資料夾保留"}
     assert str(ids["特辑"]) in fake.deleted
     season = media / "劇集" / "中国新说唱 (2017)" / "Season 01"
     assert not (season / "特辑.strm").exists() and not (season / "特辑.nfo").exists()
     assert not app.state.db.one("SELECT 1 FROM items WHERE path=?", (str(season / "特辑.strm"),))
-    left = c.get("/web/api/moviepilot/reorganize/files", params={"series": sid, "season": 1}, headers=h).json()
-    assert "特辑" not in [f["name"] for f in left["files"]]
 
-    # 整部都是認不出集號的：刪完劇集資料夾也移到回收站，媒體庫裡的劇跟著拿掉
-    fake.dirs[130] = ("春晚 (2026)", 102)
+    # 整部刪掉：劇集資料夾整個移到回收站
+    res = c.post(delete, json={"series_id": sid, "whole": True}, headers=h).json()
+    assert res == {"deleted": 1, "folder_removed": True, "note": ""} and fake.deleted[-1] == "106"
+    assert not (media / "劇集" / "中国新说唱 (2017)").exists()
+    assert not app.state.db.one("SELECT 1 FROM items WHERE id=?", (sid,))
+    assert c.post(delete, json={"series_id": sid, "whole": True}, headers=h).status_code == 400  # 已經沒有這部劇
+
+    # 115 真的 id：19 位，超過 JavaScript 能精確表示的範圍
+    big, big_dir = 2856394156427519845, 2856394156427519000
+    fake.dirs[big_dir] = ("春晚 (2026)", 102)
     for i, n in enumerate(["开场.mp4", "零点.mp4"]):
-        fake.files.append({"fid": 70 + i, "cid": 130, "n": n, "pc": f"sw{i}".ljust(17, "x"), "s": 900_000_000, "te": T0 + 200 + i})
+        fake.files.append({"fid": big + i, "cid": big_dir, "n": n, "pc": f"sw{i}".ljust(17, "x"), "s": 900_000_000, "te": T0 + 200 + i})
     assert not app.state.strm_sync.run(FULL).errors
     app.state.scanner.scan_all()
     gala = app.state.db.one("SELECT id FROM items WHERE type='Series' AND name='春晚'")["id"]
-    r = c.get("/web/api/moviepilot/reorganize/files", params={"series": gala, "season": 1}, headers=h).json()
-    assert len(r["files"]) == 2 and r["folder"]["others"] == 0 and r["folder"]["cid"] == 130
-    res = c.post(delete, json={"series_id": gala, "season": 1, "file_ids": [f["file_id"] for f in r["files"]],
-                               "remove_folder": True}, headers=h).json()
-    assert res == {"deleted": 2, "folder_removed": True, "note": ""} and fake.deleted[-1] == "130"
+    r = c.get(files, params={"series": gala, "season": 1}, headers=h).json()
+    assert [f["file_id"] for f in r["files"]] == [str(big), str(big + 1)] and r["folder"]["cid"] == str(big_dir)
+    res = c.post(delete, json={"series_id": gala, "file_ids": [f["file_id"] for f in r["files"]], "remove_folder": True},
+                 headers=h).json()
+    assert res == {"deleted": 2, "folder_removed": True, "note": ""} and fake.deleted[-3:] == [str(big), str(big + 1), str(big_dir)]
     assert not (media / "劇集" / "春晚 (2026)").exists()
     assert not app.state.db.one("SELECT 1 FROM items WHERE id=?", (gala,))
+
+
+def test_big_ids_are_sent_as_strings():
+    from embyserver.routes.common import js_safe
+
+    big = 2856394156427519845
+    assert js_safe({"a": [big, 5, True, {"b": -big}], "c": 2 ** 53 - 1, "d": 1.5}) == \
+        {"a": [str(big), 5, True, {"b": str(-big)}], "c": 2 ** 53 - 1, "d": 1.5}
