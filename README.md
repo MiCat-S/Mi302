@@ -85,7 +85,7 @@ curl -fsSL https://raw.githubusercontent.com/MiCat-S/Mi302/main/install.sh | bas
 | `mi302 update` | 更新到最新版，設定和資料不動 |
 | `mi302 reset-password admin 新密碼` | 忘記密碼時重設 |
 
-檢查更新、更新和重新啟動也可以在網頁「設定」頁的「版本與更新」卡片做，有新版時每一頁上方會提示。
+檢查更新、更新和重新啟動也可以在網頁左側欄最下面（「登出」上面）的版本按鈕和「重新啟動」做，有新版時每一頁上方會提示。
 
 ## 授權
 

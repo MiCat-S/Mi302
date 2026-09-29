@@ -29,7 +29,8 @@ def _user_view(u: dict) -> dict:
 
 @router.get("/web")
 def web_page():
-    return HTMLResponse(PAGE.read_text(encoding="utf-8"))
+    # 網頁上更新 Mi302 後，瀏覽器要拿新的頁面，不能用快取的舊版
+    return HTMLResponse(PAGE.read_text(encoding="utf-8"), headers={"Cache-Control": "no-cache"})
 
 
 @router.get("/web/115")

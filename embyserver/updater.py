@@ -196,7 +196,7 @@ class Updater:
                 res.remote = remote if remote and remote != self._git("rev-parse", "HEAD") else ""
             if res.available and res.remote != self._notified:
                 self._notified = res.remote
-                log.info("Mi302 有新版本%s，可以在網頁「設定」頁更新", f"（{res.behind} 個更新）" if res.behind else "")
+                log.info("Mi302 有新版本%s，可以在網頁側欄的版本按鈕更新", f"（{res.behind} 個更新）" if res.behind else "")
         except UpdateError as exc:
             res.error = str(exc)
             log.info("檢查 Mi302 更新失敗：%s", exc)

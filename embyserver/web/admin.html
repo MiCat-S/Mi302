@@ -115,8 +115,10 @@ main{min-width:0;padding:28px 32px 80px}
 .page-h{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;margin-bottom:20px;flex-wrap:wrap}
 .page-h .sub{color:var(--muted);margin-top:4px;max-width:640px}
 .banner{display:flex;gap:10px;align-items:flex-start;padding:12px 14px;border-radius:10px;background:var(--warn-soft);color:var(--warn);margin:0 auto 18px;max-width:1040px;font-size:14px}
-.banner.info{background:var(--accent-soft);color:var(--fg);align-items:center;flex-wrap:wrap}.banner.info>.i{color:var(--accent)}
-.navdot{width:7px;height:7px;border-radius:50%;background:var(--accent);margin-left:auto;flex:none}
+.banner.info{background:var(--accent-soft);color:var(--fg);align-items:center;flex-wrap:wrap}.banner.info>.i{color:var(--accent)}.banner.info>#updText{flex:1 1 240px}
+.side .ver{justify-content:flex-start;position:relative}.side .ver.new{color:var(--accent);background:var(--accent-soft)}
+.updot{width:7px;height:7px;border-radius:50%;background:var(--accent);margin-left:auto;flex:none}
+@media (max-width:860px){.side .ver .updot{position:absolute;top:6px;right:6px;margin:0}}
 .changes{margin:0;padding-left:18px;display:flex;flex-direction:column;gap:4px}.changes li{word-break:break-all}.changes .hint{margin-left:8px;white-space:nowrap}
 .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow);margin-bottom:16px;min-width:0;scroll-margin-top:16px}
 .card-h{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:14px 18px;border-bottom:1px solid var(--line);flex-wrap:wrap}
@@ -324,9 +326,11 @@ dialog .card-b{max-height:70vh;overflow:auto}
       <a href="#moviepilot" data-tab="moviepilot" id="nav-moviepilot" role="tab" aria-controls="tab-moviepilot" aria-selected="false" aria-label="MoviePilot"><svg class="i"><use href="#i-spark"/></svg><span>MoviePilot</span></a>
       <a href="#users" data-tab="users" id="nav-users" role="tab" aria-controls="tab-users" aria-selected="false" aria-label="使用者"><svg class="i"><use href="#i-users"/></svg><span>使用者</span></a>
       <a href="#logs" data-tab="logs" id="nav-logs" role="tab" aria-controls="tab-logs" aria-selected="false" aria-label="日誌"><svg class="i"><use href="#i-doc"/></svg><span>日誌</span></a>
-      <a href="#settings" data-tab="settings" id="nav-settings" role="tab" aria-controls="tab-settings" aria-selected="false" aria-label="設定"><svg class="i"><use href="#i-sliders"/></svg><span>設定</span><span class="navdot hidden" id="navUpd" title="有新版本"></span></a>
+      <a href="#settings" data-tab="settings" id="nav-settings" role="tab" aria-controls="tab-settings" aria-selected="false" aria-label="設定"><svg class="i"><use href="#i-sliders"/></svg><span>設定</span></a>
     </nav>
     <div class="foot">
+      <button class="btn ghost full ver" id="verBtn" onclick="openServer()" title="版本與更新" aria-label="版本與更新"><svg class="i"><use href="#i-download"/></svg><span id="verText">版本與更新</span><i class="updot hidden" id="navUpd" title="有新版本"></i></button>
+      <button class="btn ghost full" id="restartSide" onclick="restartServer()" title="重新啟動 Mi302" aria-label="重新啟動 Mi302"><svg class="i"><use href="#i-refresh"/></svg><span>重新啟動</span></button>
       <a class="star" href="https://github.com/MiCat-S/Mi302" target="_blank" rel="noopener" title="Mi302 在 GitHub 上，覺得好用請點個 Star" aria-label="Mi302 在 GitHub，點個 Star"><svg class="i"><use href="#i-github"/></svg><span>GitHub 點個 Star</span><svg class="i gold"><use href="#i-star"/></svg></a>
       <button class="btn ghost full" onclick="logoutWeb()" title="登出" aria-label="登出"><svg class="i"><use href="#i-logout"/></svg><span>登出</span></button></div>
   </aside>
@@ -334,7 +338,7 @@ dialog .card-b{max-height:70vh;overflow:auto}
   <main>
     <div id="fileErr" class="banner hidden"><svg class="i"><use href="#i-alert"/></svg><span></span></div>
     <div id="updBanner" class="banner info hidden" role="status"><svg class="i"><use href="#i-download"/></svg><span class="grow" id="updText"></span>
-      <a class="btn sm" href="#settings">看更新內容</a><button class="btn sm primary" id="updNow" onclick="updateServer()">立即更新</button>
+      <button class="btn sm" onclick="openServer()">看更新內容</button><button class="btn sm primary" id="updNow" onclick="updateServer()">立即更新</button>
       <button class="btn sm ghost" onclick="dismissUpdate()" title="這一版先不提示">先不要</button></div>
 
     <!-- 概覽 -->
@@ -717,15 +721,6 @@ dialog .card-b{max-height:70vh;overflow:auto}
       <div class="page-h">
         <div><h1>設定</h1><p class="sub">設定都存在設定檔 <code id="cfgPath"></code>，儲存時自動寫入（舊檔留成 .bak）。直接改檔案也可以，重新整理網頁就會套用。</p></div>
       </div>
-      <div class="card" id="srvCard">
-        <div class="card-h"><div class="t"><svg class="i"><use href="#i-download"/></svg><h2>版本與更新</h2></div>
-          <div class="row wrap gap6"><button class="btn" id="srvCheck" onclick="checkUpdate()">檢查更新</button><button class="btn" id="srvRestart" onclick="restartServer()">重新啟動</button></div></div>
-        <div class="card-b stack">
-          <div id="srvInfo" aria-live="polite"><p class="hint row"><span class="spin"></span>讀取中…</p></div>
-          <label class="switch"><input type="checkbox" data-key="server.update_check" onchange="saveToggle(this, loadServer)"><span class="track"></span><span class="lbl">自動檢查更新<small>每 6 小時向 GitHub 查一次，有新版時每一頁上方都會提示</small></span></label>
-          <p class="hint">網頁上的更新和終端機的 <code>mi302 update</code> 一樣下載新版、需要時安裝相依套件；新版啟動不了會退回原本的版本。安裝腳本管的服務設定、ffprobe 還是要用 <code>mi302 update</code> 更新。 <a class="doc" href="https://github.com/MiCat-S/Mi302/wiki/安裝#在網頁上更新和重新啟動" target="_blank" rel="noopener">說明</a></p>
-        </div>
-      </div>
       <div class="card">
         <div class="card-h"><div class="t"><h2>伺服器</h2></div></div>
         <div class="card-b stack">
@@ -824,6 +819,15 @@ dialog .card-b{max-height:70vh;overflow:auto}
   <div class="card-f"><span class="grow"></span><button class="btn" onclick="bulkDlg.close()">取消</button><button class="btn primary" id="blkOk" onclick="bulkSave()" disabled>新增並掃描</button></div>
 </dialog>
 
+<dialog id="srvDlg" aria-labelledby="srvTitle">
+  <div class="card-h"><div class="t"><svg class="i"><use href="#i-download"/></svg><h2 id="srvTitle">版本與更新</h2></div></div>
+  <div class="card-b stack">
+    <div id="srvInfo" aria-live="polite"><p class="hint row"><span class="spin"></span>讀取中…</p></div>
+    <label class="switch"><input type="checkbox" data-key="server.update_check" onchange="saveToggle(this, loadServer)"><span class="track"></span><span class="lbl">自動檢查更新<small>每 6 小時向 GitHub 查一次，有新版時每一頁上方都會提示</small></span></label>
+    <p class="hint">網頁上的更新和終端機的 <code>mi302 update</code> 一樣下載新版、需要時安裝相依套件；新版啟動不了會退回原本的版本。安裝腳本管的服務設定、ffprobe 還是要用 <code>mi302 update</code> 更新。 <a class="doc" href="https://github.com/MiCat-S/Mi302/wiki/安裝#在網頁上更新和重新啟動" target="_blank" rel="noopener">說明</a></p>
+  </div>
+  <div class="card-f"><button class="btn" id="srvCheck" onclick="checkUpdate()">檢查更新</button><button class="btn" id="srvRestart" onclick="restartServer()">重新啟動</button><span class="grow"></span><button class="btn" onclick="srvDlg.close()">關閉</button></div>
+</dialog>
 <dialog id="reoDlg" class="wide" aria-labelledby="reoTitle">
   <div class="card-h"><div class="t"><svg class="i"><use href="#i-tool"/></svg><h2 id="reoTitle">交給 MoviePilot 整理</h2></div></div>
   <div class="card-b stack">
@@ -980,7 +984,7 @@ async function boot() {
   catch (e) { return token ? bootFailed(e) : undefined; }  // token 被清掉是 401，api() 已經改顯示登入
   bootTries = 0;
   show('main'); route();
-  if (!location.hash.startsWith('#settings')) loadServer(true);  // 設定頁自己會讀
+  loadServer(true);  // 側欄的版本按鈕、頁首的更新提示
   const done = sessionGet('mi302-done');
   if (done) { sessionSet('mi302-done', ''); toast(done); }
 }
@@ -1013,7 +1017,7 @@ async function login() {
 }
 async function logoutWeb() { try { await api('/Sessions/Logout', {method: 'POST'}); } catch (e) {} token = ''; localStorage.removeItem('mi302'); show('login'); }
 
-const PAGES = {overview: () => loadOverview(), libraries: () => loadLibs(), '115': () => { load115(false); organizePending(); }, tools: () => loadTools(), moviepilot: () => loadMP(), users: () => loadUsers(), logs: () => loadLogs(true), settings: () => { loadServer(); loadBackups(); pollPeople(); }};
+const PAGES = {overview: () => loadOverview(), libraries: () => loadLibs(), '115': () => { load115(false); organizePending(); }, tools: () => loadTools(), moviepilot: () => loadMP(), users: () => loadUsers(), logs: () => loadLogs(true), settings: () => { loadBackups(); pollPeople(); }};
 function route() {
   let tab = (location.hash || '#overview').slice(1);
   if (!PAGES[tab]) tab = 'overview';
@@ -2774,11 +2778,18 @@ function renderServer() {
   $('srvRestart').disabled = !s.can_restart || j.running;
   renderUpdateBanner();
 }
+function openServer() {
+  srvDlg.showModal();
+  loadServer();
+}
 function renderUpdateBanner() {
-  // 每一頁上方的「有新版本」；按「先不要」的那一版不再提示，下一版還是會
+  // 側欄的版本按鈕、每一頁上方的「有新版本」；按「先不要」的那一版不再提示，下一版還是會
   const c = srv?.check, avail = !!c?.available;
   const show = avail && !srv.job.running && localGet('mi302-skip') !== c.remote;
   $('navUpd').classList.toggle('hidden', !avail);
+  $('verBtn').classList.toggle('new', avail);
+  $('verText').textContent = avail ? `有新版本${c.behind ? `（${c.behind}）` : ''}` : `版本 ${srv.version}${srv.commit ? '・' + srv.commit.slice(0, 7) : ''}`;
+  $('restartSide').disabled = !srv.can_restart || srv.job.running;
   $('updBanner').classList.toggle('hidden', !show);
   if (!show) return;
   const latest = c.commits[0]?.subject;
@@ -2829,6 +2840,7 @@ async function restartServer() {
 async function waitRestart(oldBoot, done) {
   // 等 Mi302 回來：boot 變了就是新的程序。網頁本身可能也更新了，所以整頁重新載入
   for (const k in timers) cancel(k);
+  for (const d of document.querySelectorAll('dialog[open]')) d.close();
   show('boot');
   $('bootRetry').classList.add('hidden');
   $('bootMsg').className = 'hint row';
