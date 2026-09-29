@@ -12,7 +12,7 @@ from starlette.concurrency import run_in_threadpool
 
 from ..auth import AuthContext, client_info, require_admin, require_user
 from ..dto import user_dto
-from .common import q, state
+from .common import as_user, q, state
 
 router = APIRouter()
 
@@ -176,11 +176,7 @@ def users_list(request: Request, ctx: AuthContext = Depends(require_admin)):
 @router.get("/users/{user_id}")
 def user_get(user_id: str, request: Request, ctx: AuthContext = Depends(require_user)):
     st = state(request)
-    if user_id.lower() != ctx.user_id.lower() and not ctx.user["is_admin"]:
-        raise HTTPException(status_code=403, detail="Forbidden")
-    user = st.auth.get_user(user_id)
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
+    user = as_user(request, ctx, user_id).user  # 只能看自己；管理員看得到別人
     return user_dto(user, st.server_id, st.config.server.allow_download)
 
 

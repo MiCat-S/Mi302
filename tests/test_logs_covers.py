@@ -54,7 +54,8 @@ def test_cover_plugin_uploads_library_cover(tmp_path: Path):
     r = c.post(f"/emby/Items/{lib}/Images/Primary", params={"api_key": key},
                content=base64.b64encode(PNG), headers={"Content-Type": "image/png"})
     assert r.status_code == 204
-    views = c.get("/Users/x/Views", headers=h).json()["Items"]
+    uid = app.state.auth.list_users()[0]["id"]
+    views = c.get(f"/Users/{uid}/Views", headers=h).json()["Items"]
     tag = next(v for v in views if v["Name"] == "電影")["ImageTags"]["Primary"]
     img = c.get(f"/emby/Items/{lib}/Images/Primary", params={"tag": tag})
     assert img.status_code == 200 and img.content == PNG

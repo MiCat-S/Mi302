@@ -304,6 +304,74 @@ def test_other_users_data(client):
     assert client.get("/Items", params={**params, "UserId": "nobody"}, headers=admin).status_code == 404
 
 
+def test_user_in_path_decides_whose_data(client):
+    """/Users/{id}/… 讀寫的是路徑上那個人的觀看紀錄、收藏、續播點：管理員代標記寫到對方身上，不是自己；
+    一般使用者碰別人的一律 403。"""
+    admin_token, admin_id = login(client)
+    kid_id = client.app.state.auth.create_user("kid", "pw", False)["id"]
+    kid_token = client.post("/Users/AuthenticateByName", json={"Username": "kid", "Pw": "pw"}).json()["AccessToken"]
+    admin, kid = {"X-Emby-Token": admin_token}, {"X-Emby-Token": kid_token}
+    find = lambda term: client.get("/Items", params={"Recursive": "true", "SearchTerm": term}, headers=admin).json()["Items"][0]["Id"]  # noqa: E731
+    movie = find("全面")
+    ep = client.get("/Items", params={"Recursive": "true", "IncludeItemTypes": "Episode"}, headers=admin).json()["Items"][0]["Id"]
+
+    assert client.post(f"/Users/{kid_id}/PlayedItems/{movie}", headers=admin).json()["Played"] is True
+    assert client.post(f"/Users/{kid_id}/FavoriteItems/{movie}", headers=admin).json()["IsFavorite"] is True
+    client.post(f"/Users/{kid_id}/PlayingItems/{ep}/Progress", params={"PositionTicks": 600_000_000}, headers=admin)
+    theirs = client.get(f"/Users/{kid_id}/Items/{movie}", headers=kid).json()["UserData"]
+    assert theirs["Played"] and theirs["IsFavorite"]
+    mine = client.get(f"/Users/{admin_id}/Items/{movie}", headers=admin).json()["UserData"]
+    assert not mine["Played"] and not mine["IsFavorite"]
+    resume = lambda uid, h: [i["Id"] for i in client.get(f"/Users/{uid}/Items/Resume", headers=h).json()["Items"]]  # noqa: E731
+    assert resume(kid_id, kid) == [ep] and resume(kid_id, admin) == [ep] and resume(admin_id, admin) == []
+    # 有的播放器把 id 寫成 GUID（有連字號）
+    dashed = f"{kid_id[:8]}-{kid_id[8:12]}-{kid_id[12:16]}-{kid_id[16:20]}-{kid_id[20:]}".upper()
+    assert client.get(f"/Items/{movie}", params={"UserId": dashed}, headers=admin).json()["UserData"]["Played"] is True
+    assert client.get(f"/Users/{dashed}/Items/Resume", headers=kid).status_code == 200
+    # 取消也是對那個人
+    assert client.delete(f"/Users/{kid_id}/FavoriteItems/{movie}", headers=admin).json()["IsFavorite"] is False
+
+    for method, path in [
+        ("get", f"/Users/{admin_id}/Views"), ("get", f"/Users/{admin_id}/Items/Latest"),
+        ("get", f"/Users/{admin_id}/Items/Resume"), ("get", f"/Users/{admin_id}/Items/{movie}"),
+        ("get", f"/Items/{movie}?UserId={admin_id}"), ("get", f"/Shows/NextUp?UserId={admin_id}"),
+        ("post", f"/Users/{admin_id}/PlayedItems/{movie}"), ("delete", f"/Users/{admin_id}/PlayedItems/{movie}"),
+        ("post", f"/Users/{admin_id}/FavoriteItems/{movie}"), ("post", f"/Users/{admin_id}/PlayingItems/{movie}"),
+    ]:
+        assert getattr(client, method)(path, headers=kid).status_code == 403, path
+    assert client.get("/Users/nobody/Items/Resume", headers=admin).status_code == 404
+    assert client.get(f"/Users/{admin_id}/Items/{movie}", headers=admin).json()["UserData"]["Played"] is False
+
+
+def test_paging_ignores_negative_values(client):
+    token, uid = login(client)
+    h = {"X-Emby-Token": token}
+    everything = client.get("/Items", params={"Recursive": "true"}, headers=h).json()
+    odd = client.get("/Items", params={"Recursive": "true", "Limit": -1, "StartIndex": -5}, headers=h).json()
+    assert odd["StartIndex"] == 0 and odd["TotalRecordCount"] == everything["TotalRecordCount"]
+    assert [i["Id"] for i in odd["Items"]] == [i["Id"] for i in everything["Items"]]
+    counted = client.get("/Items", params={"Recursive": "true", "Limit": 0}, headers=h).json()
+    assert counted["Items"] == [] and counted["TotalRecordCount"] == everything["TotalRecordCount"]  # Limit=0：只要總數
+    assert len(client.get(f"/Users/{uid}/Items/Latest", params={"Limit": -1}, headers=h).json()) == 4  # 預設 20
+    series = client.get("/Items", params={"Recursive": "true", "IncludeItemTypes": "Series"}, headers=h).json()["Items"][0]["Id"]
+    eps = client.get(f"/Shows/{series}/Episodes", params={"Limit": -2, "StartIndex": -1}, headers=h).json()
+    assert len(eps["Items"]) == 3 and eps["StartIndex"] == 0  # 以前負數會變成 Python 切片「少最後兩集」
+    assert client.get("/Shows/NextUp", params={"Limit": 0}, headers=h).json()["Items"] == []
+
+
+def test_shutdown_closes_database_and_connections(media: Path, tmp_path: Path):
+    import sqlite3
+
+    app = create_app(config_from_dict({"server": {"data_dir": str(tmp_path / "data")}}), scan_on_start=False)
+    with TestClient(app):
+        pass
+    st = app.state
+    with pytest.raises(sqlite3.ProgrammingError):
+        st.db.query("SELECT 1")
+    assert st.p115._client.is_closed and st.p115.open._client.is_closed
+    assert st.redirector._client.is_closed and st.strm_sync._http.is_closed
+
+
 def test_resolve_redirect_chain(media: Path, tmp_path: Path):
     """resolve_redirects 開啟時，先跟隨上游重導向，把最終網址交給播放器。"""
     import threading
@@ -346,6 +414,7 @@ def test_resolve_redirect_chain(media: Path, tmp_path: Path):
             assert r.headers["location"] == f"http://127.0.0.1:{port}/final/signed?sig=abc"
     finally:
         server.shutdown()
+        server.server_close()
 
 
 def test_image_index_is_not_validated(client):

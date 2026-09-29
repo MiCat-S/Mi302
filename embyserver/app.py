@@ -103,6 +103,16 @@ async def _normalize_path(request: Request, call_next):
     return response
 
 
+def close_app(app: FastAPI) -> None:
+    """程式結束時關掉連線池和資料庫。還在跑的背景工作之後再碰資料庫會出錯，所以呼叫前先停工作。"""
+    st = app.state
+    for close in (st.p115.close, st.redirector.close, st.strm_sync.close, st.db.close):
+        try:
+            close()
+        except Exception:  # 一個關不掉不影響其他的
+            log.warning("關閉時出錯", exc_info=True)
+
+
 def create_app(config: Config, db_path: Optional[str] = None, scan_on_start: bool = True) -> FastAPI:
     logs.attach()
     db = Database(db_path or config.data_path / "library.db")
@@ -111,8 +121,9 @@ def create_app(config: Config, db_path: Optional[str] = None, scan_on_start: boo
         server_id = uuid.uuid4().hex
         db.set_meta("server_id", server_id)
 
-    # 網頁上存過的設定蓋過設定檔
+    # 網頁上存過的設定蓋過設定檔；再照網頁的規則檢查一次（手動改的設定檔沒檢查過）
     settings.load_saved(db, config)
+    settings.check_loaded(config)
     auth = AuthService(db, config.api_keys)
     for user in config.users:
         auth.ensure_user(user.name, user.password, user.admin)
@@ -127,11 +138,14 @@ def create_app(config: Config, db_path: Optional[str] = None, scan_on_start: boo
             app.state.person_names.start()
             app.state.updater.start()
         yield
-        app.state.strm_sync.stop()
-        app.state.prober.stop()
-        app.state.backup.stop()
-        app.state.person_names.stop()
-        app.state.updater.stop()
+        try:
+            app.state.strm_sync.stop()
+            app.state.prober.stop()
+            app.state.backup.stop()
+            app.state.person_names.stop()
+            app.state.updater.stop()
+        finally:
+            close_app(app)
 
     app = FastAPI(title="Emby 相容伺服器", lifespan=lifespan, docs_url="/api-docs", redoc_url=None)
     app.state.config = config

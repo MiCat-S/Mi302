@@ -94,6 +94,12 @@ class P115OpenClient:
         self._sessions: Dict[str, tuple[str, str]] = {}  # uid -> (app_id, verifier)
         self._refresh_lock = threading.Lock()
 
+    def set_timeout(self, seconds: float) -> None:
+        self._client.timeout = seconds  # 之後的請求就用新的逾時
+
+    def close(self) -> None:
+        self._client.close()
+
     # ---------------- token ----------------
 
     def _load(self) -> Optional[dict]:

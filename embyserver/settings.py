@@ -195,10 +195,19 @@ def load_saved(db: Database, config: Config) -> None:
     """啟動時：把舊版存在資料庫的網頁設定、同步任務搬進設定檔；沒有設定檔時產生一個。"""
     raw = db.get_meta(SETTINGS_META_KEY)
     tasks = db.get_meta(TASKS_META_KEY)
-    if raw:
-        apply_settings(config, json.loads(raw))
-    if tasks is not None:
-        config.p115.strm.tasks[:] = _tasks(json.loads(tasks))
+
+    def migrate(target: Config) -> None:
+        if raw:
+            apply_settings(target, json.loads(raw))
+        if tasks is not None:
+            target.p115.strm.tasks[:] = _tasks(json.loads(tasks))
+
+    try:
+        migrate(copy.deepcopy(config))  # 先在副本上試，有錯不留下搬一半的設定
+    except (SettingsError, ValueError) as exc:
+        log.error("舊版存在資料庫的網頁設定有錯，沒有搬進設定檔：%s", exc)
+        return
+    migrate(config)
     if not config.path or (raw is None and tasks is None and Path(config.path).exists()):
         return
     try:
@@ -209,6 +218,38 @@ def load_saved(db: Database, config: Config) -> None:
     if raw is not None or tasks is not None:
         log.info("已把網頁上的設定搬進設定檔 %s", config.path)
         db.execute("DELETE FROM meta WHERE key IN (?, ?)", (SETTINGS_META_KEY, TASKS_META_KEY))
+
+
+def _problems(config: Config, drop_bad_tasks: bool = False) -> List[str]:
+    """照網頁儲存時的規則檢查整份設定，回傳錯在哪裡。drop_bad_tasks：有錯的同步任務從執行中的設定拿掉。"""
+    problems: List[str] = []
+    good: List[StrmTask] = []
+    for t in config.p115.strm.tasks:
+        try:
+            _tasks([{"remote": k.remote, "local": k.local} for k in good + [t]])
+        except SettingsError as exc:
+            problems.append(f"同步任務「{t.remote} → {t.local}」先不用：{exc}")
+            continue
+        good.append(t)
+    if drop_bad_tasks:
+        config.p115.strm.tasks[:] = good
+    trial = copy.deepcopy(config)
+    trial.p115.strm.tasks[:] = good
+    try:
+        apply_settings(trial, export_settings(trial))
+    except SettingsError as exc:
+        problems.append(str(exc))
+    return problems
+
+
+def check_loaded(config: Config) -> List[str]:
+    """啟動時：手動改的設定檔沒經過網頁的檢查，這裡補做。起不來的話連網頁都打不開、沒辦法修，所以照常啟動：
+    有錯的同步任務先不用（本機資料夾是相對路徑時，strm 會寫到、多餘的會從服務的工作目錄刪），
+    其他的錯只記下來；都寫進日誌，網頁上方也會提示。"""
+    config.problems[:] = _problems(config, drop_bad_tasks=True)
+    for problem in config.problems:
+        log.error("設定檔有錯：%s", problem)
+    return config.problems
 
 
 def reload_if_changed(config: Config) -> bool:
@@ -228,12 +269,14 @@ def reload_if_changed(config: Config) -> bool:
     except (ValueError, OSError) as exc:
         raise SettingsError(f"設定檔有錯，沒有套用：{exc}") from exc
     apply_settings(config, export_settings(new))
-    # 這些只在啟動時使用，先記下來；server 的 host、port、data_dir 要重新啟動才生效
+    # users、p115.cookies 只在啟動時使用，先記下來；api_keys 馬上生效（AuthService 拿的是同一個 list）；
+    # p115.timeout 由 after_change 交給 115 的連線；server 的 host、port、data_dir 要重新啟動才生效
     config.users[:] = new.users
     config.api_keys[:] = new.api_keys
     config.p115.cookies = new.p115.cookies
     config.p115.timeout = new.p115.timeout
     config.file_mtime = mtime
+    config.problems[:] = _problems(config)  # 整份檢查過才套用的，啟動時記的錯已經改好
     log.info("設定檔 %s 被修改，已重新套用", path)
     return True
 
@@ -246,6 +289,25 @@ def save(db: Database, config: Config, raw: dict) -> None:
     _write(trial)
     apply_settings(config, raw)
     config.file_mtime = trial.file_mtime
+    config.problems[:] = _problems(config)  # 設定檔照執行中的設定重寫了：先不用的同步任務已經不在檔案裡
+
+
+def forget_user(config: Config, name: str) -> bool:
+    """網頁上刪掉的帳號也從設定檔的 users 拿掉，不然下次啟動又會照設定檔建立回來。有拿掉回傳 True。
+    設定檔有錯、寫不進去時丟 SettingsError（帳號已經刪了，只是設定檔沒改到）。"""
+    key = name.strip().lower()
+    if not any(u.name.strip().lower() == key for u in config.users):
+        return False
+    reload_if_changed(config)  # 先接上手動改過的內容，免得被蓋掉
+    trial = copy.deepcopy(config)
+    trial.users[:] = [u for u in trial.users if u.name.strip().lower() != key]
+    if len(trial.users) == len(config.users):
+        return False
+    _write(trial)
+    config.users[:] = trial.users
+    config.file_mtime = trial.file_mtime
+    config.problems[:] = _problems(config)  # 設定檔照執行中的設定重寫了：先不用的同步任務已經不在檔案裡
+    return True
 
 
 def refresh(st) -> None:
@@ -259,9 +321,10 @@ def after_change(st, libraries_before: list) -> List[str]:
     """設定改了之後跟著要做的事；回傳要告訴使用者的說明。"""
     notes: List[str] = []
     logs.set_level(st.config.server.log_level)
-    # P115Service 建立時複製了這兩個值，要同步過去
+    # P115Service 建立時複製了這幾個值，要同步過去
     st.p115.app = st.config.p115.app
     st.p115.open.default_app_id = st.config.p115.open_app_id
+    st.p115.set_timeout(st.config.p115.timeout)
     st.strm_sync.prune_index()
     after = export_settings(st.config)["libraries"]
     if after != libraries_before:

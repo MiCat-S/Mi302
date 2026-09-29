@@ -189,3 +189,87 @@ def test_field_lists_stay_in_sync():
     exported = settings.export_settings(Config())
     assert set(exported["server"]) == set(settings.SERVER_FIELDS)
     assert set(exported["p115"]["strm"]) == set(settings.STRM_FIELDS) | {"tasks"}
+
+
+def touch_later(path: Path) -> None:
+    os.utime(path, (time.time() + 5, time.time() + 5))  # 確保修改時間不同，網頁會重新讀
+
+
+def test_bad_file_settings_are_checked_at_startup(tmp_path: Path):
+    """手動改的設定檔沒經過網頁的檢查：啟動時補做。有錯的同步任務先不用（相對路徑的 strm 會寫到工作目錄），
+    其他錯只提示；照常啟動，網頁上方看得到。"""
+    path = tmp_path / "config.yaml"
+    raw = base(tmp_path)
+    good = str(tmp_path / "media" / "115")
+    raw["p115"] = {"strm": {"tasks": [{"remote": "/a", "local": "relative/dir"}, {"remote": "/b", "local": good},
+                                      {"remote": "/c", "local": good + "/sub"}]}}
+    raw["moviepilot"] = {"url": "mp:3000"}
+    write_yaml(path, raw)
+    c = start(path)
+    h = login(c)
+    assert [t.remote for t in c.app.state.strm_sync.tasks] == ["/b"]
+    s = c.get("/web/api/settings", headers=h).json()
+    assert [t["remote"] for t in s["p115"]["strm"]["tasks"]] == ["/b"]
+    assert len(s["problems"]) == 3 and "/a → relative/dir" in s["problems"][0] and "完整路徑" in s["problems"][0]
+    assert "互相包含" in s["problems"][1] and "http://" in s["problems"][2]
+
+    # 修正設定檔：重新整理網頁就套用，提示不見
+    raw["p115"]["strm"]["tasks"] = [{"remote": "/a", "local": str(tmp_path / "a")}, {"remote": "/b", "local": good}]
+    raw["moviepilot"] = {"url": "http://mp:3000"}
+    write_yaml(path, raw)
+    touch_later(path)
+    s = c.get("/web/api/settings", headers=h).json()
+    assert s["problems"] == [] and [t.remote for t in c.app.state.strm_sync.tasks] == ["/a", "/b"]
+
+
+def test_saving_on_the_web_drops_bad_tasks_from_file(tmp_path: Path):
+    path = tmp_path / "config.yaml"
+    raw = base(tmp_path)
+    raw["p115"] = {"strm": {"tasks": [{"remote": "/a", "local": "relative"}, {"remote": "/b", "local": str(tmp_path / "b")}]}}
+    write_yaml(path, raw)
+    c = start(path)
+    h = login(c)
+    r = c.put("/web/api/settings", json={"server": {"name": "家"}}, headers=h)
+    assert r.status_code == 200 and r.json()["problems"] == []
+    assert [t.remote for t in load_config(str(path)).p115.strm.tasks] == ["/b"]
+
+
+def test_deleted_config_user_does_not_come_back(tmp_path: Path):
+    """設定檔 users 裡的帳號在網頁上刪掉：一起從設定檔拿掉，重新啟動不會再建立回來。"""
+    path = tmp_path / "config.yaml"
+    raw = base(tmp_path)
+    raw["users"] += [{"name": "Kid", "password": "pw2", "admin": False}, {"name": "ADMIN", "password": "x", "admin": True}]
+    raw["p115"] = {"strm": {"tasks": [{"remote": "/a", "local": "relative"}]}}  # 刪帳號會重寫設定檔，這個一起拿掉
+    write_yaml(path, raw)
+    c = start(path)  # ADMIN 和 admin 算同一個帳號，不會因為「已存在」起不來
+    h = login(c)
+    users = {u["name"]: u for u in c.get("/web/api/users", headers=h).json()}
+    assert sorted(users) == ["Kid", "admin"]
+    r = c.delete(f"/web/api/users/{users['Kid']['id']}", headers=h)
+    assert r.status_code == 200 and "設定檔" in r.json()["note"]
+    assert [u.name for u in load_config(str(path)).users] == ["admin", "ADMIN"]
+    assert c.get("/web/api/settings", headers=h).json()["problems"] == []
+
+    c = start(path)
+    h = login(c)
+    assert [u["name"] for u in c.get("/web/api/users", headers=h).json()] == ["admin"]
+    # 網頁上新增的帳號不在設定檔裡：刪掉時不用改檔案
+    new = c.post("/web/api/users", json={"name": "guest", "password": "p"}, headers=h).json()
+    assert c.delete(f"/web/api/users/{new['id']}", headers=h).status_code == 204
+
+
+def test_timeouts_apply_without_restart(tmp_path: Path):
+    path = tmp_path / "config.yaml"
+    write_yaml(path, base(tmp_path))
+    c = start(path)
+    h = login(c)
+    st = c.app.state
+    assert st.p115._client.timeout.read == 15
+    raw = yaml.safe_load(path.read_text(encoding="utf-8"))
+    raw["p115"] = {"timeout": 42}
+    raw["redirect"] = {"resolve_timeout": 7}
+    write_yaml(path, raw)
+    touch_later(path)
+    c.get("/web/api/settings", headers=h)
+    assert st.p115._client.timeout.read == 42 and st.p115.open._client.timeout.read == 42
+    assert st.redirector.config.resolve_timeout == 7  # 每次解析重導向時照目前的設定

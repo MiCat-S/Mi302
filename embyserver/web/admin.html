@@ -1084,8 +1084,11 @@ function fillFields(only) {
   $('srvName').textContent = cfg.server.name;
   $('port').textContent = cfg.port;
   $('cfgPath').textContent = cfg.config_path || '（沒有設定檔）';
-  $('fileErr').querySelector('span').textContent = cfg.file_error ? cfg.file_error + '。網頁目前用的是上次讀到的設定，修正設定檔後重新整理網頁。' : '';
-  $('fileErr').classList.toggle('hidden', !cfg.file_error);
+  // 設定檔改壞了（繼續用上次讀到的），或啟動時檢查不過（有錯的同步任務先不用）
+  const bad = cfg.file_error ? cfg.file_error + '。網頁目前用的是上次讀到的設定，修正設定檔後重新整理網頁。'
+    : cfg.problems?.length ? '設定檔有錯：' + cfg.problems.join('；') + '。修正設定檔後重新整理網頁就會套用；網頁寫回設定檔時（例如儲存設定），先不用的同步任務會從設定檔拿掉。' : '';
+  $('fileErr').querySelector('span').textContent = bad;
+  $('fileErr').classList.toggle('hidden', !bad);
   if (!only || only.redirect?.path_rules) $('rules').value = cfg.redirect.path_rules.map(r => r.from + ' => ' + r.to).join('\n');
   for (const el of document.querySelectorAll('.js-origin')) el.textContent = location.origin;
 }
@@ -1664,7 +1667,7 @@ async function loadUsers() {
         <div class="sub">${usr.last_login ? '上次登入 ' + esc(fmtDate(new Date(usr.last_login))) : '還沒登入過'}</div></div>
       <div class="row"><button class="btn sm">改密碼</button><button class="btn sm">${usr.admin ? '取消管理員' : '設為管理員'}</button><button class="btn sm ghost icon danger" title="刪除" aria-label="刪除使用者 ${esc(usr.name)}">${icon('trash')}</button></div>`;
     const [pw, adm, del] = r.querySelectorAll('button');
-    const act = async (fn, msg) => { try { await fn(); toast(msg); loadUsers(); } catch (e) { toast(e.message, 'bad'); } };
+    const act = async (fn, msg) => { try { const r = await fn(); toast(r?.note ? msg + '，' + r.note : msg); loadUsers(); } catch (e) { toast(e.message, 'bad'); } };
     pw.onclick = async () => { const v = await ask({title: '「' + usr.name + '」的新密碼', input: 'password', ok: '更改'}); if (v) act(() => api('/web/api/users/' + usr.id, {method: 'PUT', body: JSON.stringify({password: v})}), '密碼已更改'); };
     adm.onclick = () => act(() => api('/web/api/users/' + usr.id, {method: 'PUT', body: JSON.stringify({admin: !usr.admin})}), '已更新');
     del.onclick = async () => { if (await ask({title: '刪除使用者「' + usr.name + '」？', text: '這個帳號的觀看紀錄也會一起刪除。', ok: '刪除', danger: true})) act(() => api('/web/api/users/' + usr.id, {method: 'DELETE'}), '已刪除'); };

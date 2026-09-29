@@ -75,6 +75,7 @@ def _settings_view(request: Request, file_error: str = "") -> dict:
         "port": st.config.server.port,
         "config_path": str(Path(st.config.path).resolve()) if st.config.path else "",
         "file_error": file_error,
+        "problems": list(st.config.problems),  # 設定檔裡檢查不過的地方（有錯的同步任務先不用）
     }
 
 
@@ -153,12 +154,21 @@ async def edit_user(user_id: str, request: Request, ctx: AuthContext = Depends(r
 
 @router.delete("/web/api/users/{user_id}")
 def delete_user(user_id: str, request: Request, ctx: AuthContext = Depends(require_admin)):
+    """刪帳號；設定檔的 users 裡有這個帳號時一起拿掉（不然下次啟動會被建立回來），note 說明。"""
+    st = state(request)
+    user = st.auth.get_user(user_id)
     try:
-        state(request).auth.delete_user(user_id)
+        st.auth.delete_user(user_id)
     except KeyError:
         raise HTTPException(status_code=404, detail="找不到使用者")
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
+    try:
+        settings.refresh(st)  # 先接上手動改過的設定檔（跟著要做的事照常做），再改寫
+        if settings.forget_user(st.config, user["name"]):
+            return {"note": "也從設定檔的 users 拿掉了"}
+    except SettingsError as exc:
+        return {"note": f"設定檔沒改到（{exc}），它的 users 裡還有這個帳號，下次啟動會重新建立"}
     return Response(status_code=204)
 
 

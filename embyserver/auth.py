@@ -139,8 +139,9 @@ class AuthService:
 
     # ---- users ----
     def ensure_user(self, name: str, password: str, admin: bool) -> None:
-        """設定檔裡的帳號：不存在才建立，之後以網頁上的修改為準。"""
-        if self.db.one("SELECT id FROM users WHERE name=?", (name,)):
+        """設定檔裡的帳號：不存在才建立，之後以網頁上的修改為準（網頁上刪掉時也從設定檔拿掉，見 settings.forget_user）。
+        名稱不分大小寫，和 create_user 一樣，Admin 和 admin 算同一個。"""
+        if self.db.one("SELECT id FROM users WHERE lower(name)=lower(?)", (name.strip(),)):
             return
         self.create_user(name, password, admin)
 

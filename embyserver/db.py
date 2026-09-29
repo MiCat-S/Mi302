@@ -245,6 +245,11 @@ class Database:
         for sql in self.COLUMN_INDEXES:
             self.conn.execute(sql)
 
+    def close(self) -> None:
+        """程式結束時關閉連線，WAL 裡的內容併回資料庫檔。之後再查會丟 sqlite3.ProgrammingError。"""
+        with self.lock:
+            self.conn.close()
+
     def execute(self, sql: str, params: Iterable[Any] = ()) -> sqlite3.Cursor:
         with self.lock:
             cur = self.conn.execute(sql, tuple(params))

@@ -41,6 +41,8 @@ The token is looked for in this order:
 
 Tokens are issued by `POST /Users/AuthenticateByName`. When the same user logs in again from the same device (`DeviceId`), the old token is revoked. API keys (from `api_keys` in the config file, or created in the web admin page) act as an admin (the first admin by name) and are meant for programs such as MoviePilot; they cannot call `/web/api/…` or `/p115/…`.
 
+When the path names a user (`/Users/{id}/…`) or the request has a `UserId` parameter, watch history, resume points and favourites are read and written for that user. A regular user can only name themselves and gets 403 otherwise; admins and API keys can name another user and get 404 if that user does not exist. The id is case-insensitive, and the GUID form with dashes is accepted. Without one, the logged-in user is used.
+
 ## Implemented Emby endpoints
 
 Paths are written in Emby's usual casing but matched case-insensitively. Everything not marked "no login" needs a token.
@@ -90,6 +92,8 @@ Paths are written in Emby's usual casing but matched case-insensitively. Everyth
 | `POST /Users/{id}/FavoriteItems/{itemId}`; `DELETE` (or `POST …/Delete`) | Add or remove a favourite |
 
 Query parameters for `/Items`: `ParentId`, `Recursive`, `IncludeItemTypes` (including `Person` also searches people), `ExcludeItemTypes`, `Ids`, `PersonIds`, `Person`, `IsFolder`, `SearchTerm`, `NameStartsWith`, `Years`, `Genres`, `Filters` (`IsPlayed`, `IsUnplayed`, `IsFavorite`, `IsResumable`), `IsPlayed`, `IsFavorite`, `SortBy`, `SortOrder`, `StartIndex`, `Limit`, `Fields` (`MediaSources`, `People`, `Chapters`), `UserId`.
+
+Negative or unreadable `StartIndex` and `Limit` values are ignored. Without `Limit`, `/Items` and `/Shows/{id}/Episodes` return everything, as Emby does. Latest, resume and next up default to 20 items and people search to 50, with at most 500 for these. `Limit=0` returns only the total count.
 
 `SortBy` accepts `SortName`, `Name`, `DateCreated`, `DateLastContentAdded`, `PremiereDate`, `ProductionYear`, `CommunityRating`, `CriticRating`, `Runtime`, `Random`, `DatePlayed`, `PlayCount`, `IndexNumber`, `ParentIndexNumber` and `AiredEpisodeOrder`.
 
@@ -214,21 +218,17 @@ Tables in `library.db`: `meta` (server id, 115 login state, sync progress and so
 Python 3.10 or later is required. In a virtual environment:
 
 ```bash
-pip install -r requirements.txt pytest
+pip install -r requirements.txt pytest ruff
 python -m pytest
+ruff check embyserver tests
 ```
+
+The tests also check the admin page's JavaScript syntax with `node --check` (skipped without node) and the documentation: wiki links and anchors resolve, every page is in the sidebar, and the config reference in all three languages covers every key. On pushes to main and on pull requests, GitHub Actions runs Ruff and the tests on Python 3.10 to 3.13; see `.github/workflows/test.yml`.
 
 After changing `install.sh`:
 
 ```bash
 shellcheck install.sh
-```
-
-After changing `embyserver/web/admin.html`, extract the `<script>` and check the JavaScript syntax:
-
-```bash
-python3 -c "import re; print(re.search(r'<script>(.*)</script>', open('embyserver/web/admin.html', encoding='utf-8').read(), re.S).group(1))" > /tmp/admin.js
-node --check /tmp/admin.js
 ```
 
 ## Credits

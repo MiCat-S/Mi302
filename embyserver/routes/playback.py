@@ -18,7 +18,7 @@ from ..auth import AuthContext, now_iso, require_user
 from ..dto import media_source_dto
 from ..mediainfo import MediaInfoStore
 from ..p115 import P115Error
-from .common import q, q_int, set_user_data, state
+from .common import as_user, q, q_int, set_user_data, state
 
 log = logging.getLogger(__name__)
 router = APIRouter()
@@ -210,15 +210,15 @@ def playing_ping():
 # 舊版 API：/Users/{uid}/PlayingItems/{id}
 @router.post("/users/{user_id}/playingitems/{item_id}")
 def legacy_start(user_id: str, item_id: str, request: Request, ctx: AuthContext = Depends(require_user)):
-    return _report(request, ctx, {"ItemId": item_id}, stopped=False)
+    return _report(request, as_user(request, ctx, user_id), {"ItemId": item_id}, stopped=False)
 
 
 @router.post("/users/{user_id}/playingitems/{item_id}/progress")
 def legacy_progress(user_id: str, item_id: str, request: Request, ctx: AuthContext = Depends(require_user)):
-    return _report(request, ctx, {"ItemId": item_id}, stopped=False)
+    return _report(request, as_user(request, ctx, user_id), {"ItemId": item_id}, stopped=False)
 
 
 @router.delete("/users/{user_id}/playingitems/{item_id}")
 @router.post("/users/{user_id}/playingitems/{item_id}/delete")
 def legacy_stop(user_id: str, item_id: str, request: Request, ctx: AuthContext = Depends(require_user)):
-    return _report(request, ctx, {"ItemId": item_id}, stopped=True)
+    return _report(request, as_user(request, ctx, user_id), {"ItemId": item_id}, stopped=True)

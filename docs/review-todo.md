@@ -7,13 +7,23 @@
 ## 接手須知
 
 - 直接在 main 上提交，提交訊息用繁體中文，結尾加 `Co-Authored-By` 那一行；做完就推送，不用等使用者說。
-- 每一批修改都要有回歸測試；目前 `pytest -q` 是 175 個全過。
-- 動到 `embyserver/web/admin.html` 時，把 `<script>` 抽出來跑 `node --check`。
+- 每一批修改都要有回歸測試；`pytest -q` 要全過，`ruff check embyserver tests` 要乾淨。推到 GitHub 後 Actions 在 Python 3.10–3.13 各跑一次。
+- 管理網頁的 `node --check`、Wiki 連結和設定鍵的檢查都在測試裡（`tests/test_admin_page.py`、`tests/test_docs.py`）。
 - 不要加回任何 Docker 相關檔案或說明（已經整個移除；install.sh 裡的 docker 字樣只是拒絕舊參數和搬遷舊安裝用的）。
 - 使用者用 MoviePilot V3（看 V3 分支的原始碼），播放器是 SenPlayer。
 - 安裝依賴：雲端工作階段由 `.claude/hooks/session-start.sh` 自動裝進 `.venv`（用 uv 照 uv.lock），並設好 PATH、PYTHONPATH，直接 `pytest -q` 就能跑。
   手動裝：`uv sync --extra test --no-install-project`，或在 venv 裡 `pip install -r requirements.txt pytest`（需要 Python 3.10 以上）。
   雲端容器的系統 pip（Debian 版）建不起 zhconv，不要用它；venv 裡的 pip 沒問題，所以使用者用 install.sh 不受影響。
+
+## 2026-09-29 審閱
+
+審閱結果在另一份（`review-2026-09-29.md`，不在這個倉庫）。六項都對照程式碼確認屬實，已修：
+啟動時檢查設定檔；`/Users/{id}/…` 讀寫路徑上那個人的資料（管理員代標記不再寫到自己身上）；
+p115.timeout、redirect.resolve_timeout 熱套用；網頁上刪掉的設定檔帳號從設定檔拿掉；程式結束時關資料庫和連線池；
+StartIndex、Limit 的負數當成沒給。另外加了 GitHub Actions（Python 3.10–3.13、Ruff、node --check、Wiki 檢查），
+因此發現 p115cipher 在 Python 3.10 上取直鏈會丟 TypeError，已在 `p115.py` 補上。
+
+沒做的：審閱建議把 strm_sync.py、p115.py、scanner.py、admin.html 照職責拆開，也說了還沒到必須重構的程度，先不動。
 
 ## 已完成
 
@@ -99,10 +109,10 @@
 
 wiki 已經照程式實際行為寫；下面是程式本身值得改、或註解要跟著改的。
 
-1. **設定檔的 `users` 每次啟動都會建立。** `app.create_app` 每次啟動都對 `users` 裡的每個帳號呼叫 `auth.ensure_user`，在網頁上刪掉的帳號，只要還寫在設定檔裡，下次啟動又會出現。但 `config_file.render` 的註解、config.example.yaml 都說「只在第一次啟動時用」。二選一：真的只在資料庫還沒有任何帳號時建立，或改註解。
-2. **手改設定檔啟動時不做檢查。** `settings.apply_settings` 的檢查和範圍限制（任務資料夾要絕對路徑、不能互相包含，各數值的上下限）只在網頁儲存或執行中重讀檔案時跑，啟動時讀到的值原樣使用。啟動時跑同一套檢查，有問題寫警告。
+1. ~~**設定檔的 `users` 每次啟動都會建立。** `app.create_app` 每次啟動都對 `users` 裡的每個帳號呼叫 `auth.ensure_user`，在網頁上刪掉的帳號，只要還寫在設定檔裡，下次啟動又會出現。但 `config_file.render` 的註解、config.example.yaml 都說「只在第一次啟動時用」。二選一：真的只在資料庫還沒有任何帳號時建立，或改註解。~~（見 review-2026-09-29：網頁上刪掉的帳號一起從設定檔拿掉）
+2. ~~**手改設定檔啟動時不做檢查。** `settings.apply_settings` 的檢查和範圍限制（任務資料夾要絕對路徑、不能互相包含，各數值的上下限）只在網頁儲存或執行中重讀檔案時跑，啟動時讀到的值原樣使用。啟動時跑同一套檢查，有問題寫警告。~~（見 review-2026-09-29：啟動時照網頁的規則檢查，有錯的同步任務先不用）
 3. **`moviepilot.timeout` 沒有範圍限制。**
-4. **要重新啟動才生效的設定不只 host、port、data_dir。** `users`、`p115.cookies`、`p115.timeout`、`redirect.resolve_timeout` 也只在啟動時讀。改成執行中也能套用，或更新 `config_file.render` 開頭的註解（config.example.yaml 同步）。
+4. ~~**要重新啟動才生效的設定不只 host、port、data_dir。** `users`、`p115.cookies`、`p115.timeout`、`redirect.resolve_timeout` 也只在啟動時讀。改成執行中也能套用，或更新 `config_file.render` 開頭的註解（config.example.yaml 同步）。~~（見 review-2026-09-29：p115.timeout、redirect.resolve_timeout 改成不用重新啟動，註解和 wiki 跟著改）
 5. ~~**過時的說明文字。** admin.html `fillAll()` 的確認框和 `app.py` `after_sync` 的註解說「已經齊全的季 MoviePilot 會拒絕」；現在 Mi302 自己先查 TMDB，齊全的不建訂閱。~~（見 review-2026-09-28）
 6. **熔斷恢復後放慢只作用在探測。** `p115.Breaker` 的說明寫「背景工作先放慢」，實際只有 `prober.pace` 用到，同步不會放慢。二選一：同步也放慢，或改說明。
 7. **`request_delay` 的註解不完整。** 除了列每個目錄前，查資料夾路徑（`strm_sync._remote_ancestors`）前也會等。

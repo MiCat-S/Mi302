@@ -148,6 +148,8 @@ class Config:
     # 設定檔的位置與讀取時的修改時間；網頁儲存時寫回這個檔案，檔案被手動改過時重新讀取
     path: Optional[str] = field(default=None, repr=False, compare=False)
     file_mtime: float = field(default=0.0, repr=False, compare=False)
+    # 設定檔裡照網頁的規則檢查不過的地方（手動改的不會經過網頁），網頁上方提示；見 settings.check_loaded
+    problems: List[str] = field(default_factory=list, repr=False, compare=False)
 
     @property
     def data_path(self) -> Path:

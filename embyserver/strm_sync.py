@@ -670,6 +670,10 @@ class StrmSync:
         """停掉定時同步的執行緒（程式關閉、測試結束時；正在跑的那一次會做完）。"""
         self._stop.set()
 
+    def close(self) -> None:
+        """程式結束時關掉下載 nfo、圖片用的連線池。"""
+        self._http.close()
+
     def _full_due(self, now: float) -> bool:
         if self.cfg.full_interval <= 0:
             return False

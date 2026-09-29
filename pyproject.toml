@@ -21,3 +21,16 @@ include = ["embyserver*"]
 
 [tool.setuptools.package-data]
 embyserver = ["web/*.html"]
+
+[tool.ruff]
+target-version = "py310"
+
+[tool.ruff.lint]
+# F：沒用到的 import、未定義的名稱；E9：語法錯誤；C90：函式太複雜
+select = ["F", "E9", "C90"]
+
+[tool.ruff.lint.mccabe]
+max-complexity = 15
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["C90"]  # 測試裡的假 115、假 MoviePilot 用一個函式分派所有 API，本來就長

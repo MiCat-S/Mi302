@@ -56,7 +56,11 @@ class Redirector:
         self.p115 = p115
         self._cache: Dict[Tuple[int, str], Tuple[str, float]] = {}
         self._lock = threading.Lock()
-        self._client = httpx.Client(follow_redirects=True, timeout=config.resolve_timeout)
+        self._client = httpx.Client(follow_redirects=True)
+
+    def close(self) -> None:
+        """程式結束時關掉連線池。"""
+        self._client.close()
 
     def strm_target(self, item) -> Optional[str]:
         """回傳 strm 指向的位置（套用路徑規則後）；非 strm 回傳 None。"""
@@ -113,7 +117,8 @@ class Redirector:
         """跟隨重導向鏈取最終網址（例如 alist / 115 直鏈），失敗就用原網址。"""
         try:
             headers = {"User-Agent": ua} if ua else {}
-            resp = self._client.head(url, headers=headers)
+            # 每次照目前的設定：設定檔改了 resolve_timeout 不必重新啟動
+            resp = self._client.head(url, headers=headers, timeout=self.config.resolve_timeout)
             return str(resp.url)
         except Exception:
             log.warning("解析重導向失敗，使用原網址：%s", url, exc_info=True)

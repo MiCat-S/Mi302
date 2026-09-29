@@ -18,6 +18,7 @@ Use `-c <path>` at startup to choose a file. Without it, Mi302 uses the environm
 - **Written back from the web page**: saving settings in the web admin page regenerates the whole file from a template. The previous file is kept as `config.yaml.bak`. Your own comments and unknown keys are not kept.
 - **Editing the file by hand**: after editing, open or refresh the web admin page. Mi302 notices that the file changed, reads it again and applies it.
 - **Mistakes**: if the file is broken at startup (invalid YAML, a required key missing), Mi302 does not start. The reason is printed to the startup output, not to the log file: `journalctl -u mi302` for the Linux service, `data/logs/console.log` on macOS and on systems without systemd, or the terminal for a manual start. If you break it while Mi302 is running, the web page shows an error at the top and Mi302 keeps using the last good settings.
+- **Checks at startup**: edits made directly in the file skip the web page's checks, so Mi302 runs the same checks at startup (see "Checks and ranges" below). A sync task whose local folder is not a full path, or whose local folder overlaps another task's, is not used; other failed checks are only reported. Mi302 still starts, logs the problem and shows it at the top of the web page. Fix the file and reload the web page to apply it. Whenever the web page writes the file (for example when you save settings), the unused sync tasks are removed from it.
 - **Unknown keys**: typos and keys left over from old versions are ignored with a warning (設定檔 … 底下不認得 …，已略過, "unknown key … under …, ignored"). Startup continues.
 
 ### Keys that need a restart
@@ -26,8 +27,7 @@ These are only read at startup. Restart Mi302 after changing them (`mi302 restar
 
 - `server.host`, `server.port`, `server.data_dir`
 - `users`
-- `p115.cookies`, `p115.timeout`
-- `redirect.resolve_timeout`
+- `p115.cookies`
 
 Every other key takes effect as soon as you save it in the web page, or when you refresh the web page after editing the file.
 
@@ -100,8 +100,8 @@ users:
 | `admin` | `false` | Administrator. Only administrators can open the web admin page |
 
 - File only; restart.
-- At every start, accounts in this list that do not exist yet are created. Existing accounts are not changed, so changing a password here has no effect.
-- An account deleted in the web page is created again at the next start if it is still in this list.
+- At every start, accounts in this list that do not exist yet are created (names are compared case-insensitively). Existing accounts are not changed, so changing a password here has no effect.
+- Deleting an account in the web page also removes it from this list, so it is not created again at the next start. If the config file is broken and cannot be written, the web page says so; remove the account from the list yourself.
 - Passwords are in plaintext, also in `config.yaml.bak` and in the `.yaml` backups. Once the accounts exist you can delete this block; the accounts stay in the database.
 
 ## libraries
@@ -136,7 +136,7 @@ The 115 login. Log in with the QR code in the web page; see [115 Cloud Sync](115
 | --- | --- | --- | --- |
 | `cookies` | empty | A 115 cookie, same as pasting one in the web page. Only read at startup, and only when the database has no 115 login yet. ASCII only, on one line | File only; restart. A cookie pasted in the web page is stored in the database, not here |
 | `app` | `alipaymini` | 115 device type taken by the QR login; another login of the same type is kicked out. One of `alipaymini`, `wechatmini`, `tv`, `qandroid`, `ios`, `android`, `web` | 115 Cloud (115 網盤) → Account (帳號) → **Advanced: device type used by QR login, 115 open platform** (進階：掃碼佔用的裝置類型、115 開放平台) → **Device type used by QR login** (掃碼登入佔用的 115 裝置類型), then **Save device type and AppID** (儲存裝置類型和 AppID); applies at the next scan |
-| `timeout` | `15.0` | Timeout in seconds for requests to 115 | File only; restart |
+| `timeout` | `15.0` | Timeout in seconds for requests to 115 | File only |
 | `open_app_id` | empty | 115 open-platform AppID; only for people who registered their own application | 115 Cloud → Account → Advanced: device type used by QR login, 115 open platform → **AppID**, then **Save device type and AppID** |
 
 ## p115.strm
@@ -217,7 +217,7 @@ How strm contents are handled at playback, mainly for strm files made by other t
 | Key | Default | Meaning | In the web page |
 | --- | --- | --- | --- |
 | `resolve_redirects` | `false` | Let the server follow the upstream redirects to the end and give the player the final URL | Settings → strm from other tools (其他工具產生的 strm) → **Follow upstream redirects on the server** (由伺服器先跟著上游的重導向走到底) |
-| `resolve_timeout` | `10.0` | Timeout in seconds when following redirects | File only; restart |
+| `resolve_timeout` | `10.0` | Timeout in seconds when following redirects | File only |
 | `cache_ttl` | `90` | Seconds to cache the final URL | File only |
 | `require_auth` | `true` | Require login for playback URLs, as official Emby does. Turn it off only if a player cannot play | Settings → Playback → **Require login for playback URLs** (播放網址要求登入) |
 | `default_container` | `mkv` | Container format to assume when a strm file does not reveal it | Settings → strm from other tools → **Default video format** (看不出格式時預設的影片格式) |

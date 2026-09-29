@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import sys
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -224,6 +225,16 @@ class P115Service:
                 self.set_cookies(initial_cookies, source="config")
             except P115Error as exc:
                 log.warning("設定檔裡的 115 cookie 不能用：%s", exc)
+
+    def set_timeout(self, seconds: float) -> None:
+        """設定檔的 p115.timeout 改了：之後的請求（含開放平台）就用新的逾時，不必重新啟動。"""
+        self._client.timeout = seconds
+        self.open.set_timeout(seconds)
+
+    def close(self) -> None:
+        """程式結束時關掉連線池。"""
+        self._client.close()
+        self.open.close()
 
     # ---------------- cookie ----------------
 
@@ -867,6 +878,29 @@ class P115Service:
         if not url:
             raise P115Error(f"115 回傳內容沒有網址：{detail}")
         return url
+
+
+def _p115cipher_on_py310() -> None:
+    """p115cipher 用了 Python 3.11 才有的預設參數：int.from_bytes／int.to_bytes 不給 byteorder（3.11 起預設 big）、
+    to_bytes 不給長度（預設 1）。3.10 上用 cookie 取直鏈會丟 TypeError，播不了；它都是透過模組裡的別名呼叫，
+    換成帶 3.11 預設值的版本就好。3.11 以上不動。"""
+    if sys.version_info >= (3, 11):
+        return
+    import p115cipher
+    from p115cipher import aes, util
+
+    def from_bytes(data, byteorder="big", *, signed=False):
+        return int.from_bytes(data, byteorder, signed=signed)
+
+    def to_bytes(n, length=1, byteorder="big", *, signed=False):
+        return n.to_bytes(length, byteorder, signed=signed)
+
+    for mod in (p115cipher, util):
+        mod.from_bytes, mod.to_bytes = from_bytes, to_bytes
+    aes.int_from_bytes = from_bytes
+
+
+_p115cipher_on_py310()
 
 
 def rsa_decrypt(cipher_data) -> bytes:

@@ -16,7 +16,7 @@ from ..auth import AuthContext, now_iso, require_admin, require_user
 from ..dto import Prefetch, episode_fallback_image, item_dto, query_result, user_data_dto
 from ..scanner import image_ext
 from ..textutil import title_match
-from .common import q, q_bool, q_int, q_list, set_user_data, state
+from .common import SHELF_LIMIT, as_user, paging, q, q_bool, q_int, q_list, set_user_data, state
 
 log = logging.getLogger(__name__)
 MAX_IMAGE_BYTES = 30 * 1024 * 1024
@@ -76,16 +76,9 @@ def _libraries(request: Request) -> List[Any]:
     )
 
 
-def _as_user(request: Request, ctx: AuthContext, user_id: Optional[str]) -> AuthContext:
-    """路徑或 UserId 指定的使用者。只能查自己；管理員可以代查別人，播放紀錄、收藏用那個人的。"""
-    if not user_id or user_id.lower() == ctx.user_id.lower():
-        return ctx
-    if not ctx.user["is_admin"]:
-        raise HTTPException(status_code=403, detail="Forbidden")
-    user = state(request).auth.get_user(user_id)
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
-    return AuthContext(user, ctx.token, via_api_key=ctx.via_api_key)
+def _query_user(request: Request, ctx: AuthContext) -> AuthContext:
+    """沒有 /Users/{id} 的端點：UserId 參數指定的使用者（見 as_user）。"""
+    return as_user(request, ctx, q(request, "UserId"))
 
 
 # ---------------- 媒體庫 ----------------
@@ -93,7 +86,7 @@ def _as_user(request: Request, ctx: AuthContext, user_id: Optional[str]) -> Auth
 
 @router.get("/users/{user_id}/views")
 def user_views(user_id: str, request: Request, ctx: AuthContext = Depends(require_user)):
-    items = _dtos(request, ctx, _libraries(request))
+    items = _dtos(request, as_user(request, ctx, user_id), _libraries(request))
     return query_result(items, len(items))
 
 
@@ -231,8 +224,7 @@ def _query_items(request: Request, ctx: AuthContext) -> dict:
     all_params = [ctx.user_id or ""] + params
     total = st.db.one(f"SELECT COUNT(*) AS c {base}", all_params)["c"]
     sql = f"SELECT i.* {base} ORDER BY {_order_by(request)}"
-    start = q_int(request, "StartIndex", 0) or 0
-    limit = q_int(request, "Limit")
+    start, limit = paging(request)  # 沒給 Limit 就是全部，和 Emby 一樣（播放器同步整個媒體庫時會這樣要）
     if limit is not None:
         sql += " LIMIT ? OFFSET ?"
         all_params += [limit, start]
@@ -350,18 +342,19 @@ def _order_by(request: Request) -> str:
 
 @router.get("/users/{user_id}/items")
 def user_items(user_id: str, request: Request, ctx: AuthContext = Depends(require_user)):
-    return _query_items(request, _as_user(request, ctx, user_id))
+    return _query_items(request, as_user(request, ctx, user_id))
 
 
 @router.get("/items")
 def items(request: Request, ctx: AuthContext = Depends(require_user)):
-    return _query_items(request, _as_user(request, ctx, q(request, "UserId")))
+    return _query_items(request, _query_user(request, ctx))
 
 
 @router.get("/users/{user_id}/items/latest")
 def latest(user_id: str, request: Request, ctx: AuthContext = Depends(require_user)):
     st = state(request)
-    limit = q_int(request, "Limit", 20)
+    ctx = as_user(request, ctx, user_id)
+    limit = paging(request, 20, SHELF_LIMIT)[1]
     parent_id = q(request, "ParentId")
     params: List[Any] = []
     where = "i.type IN ('Movie','Series')"
@@ -385,7 +378,8 @@ def latest(user_id: str, request: Request, ctx: AuthContext = Depends(require_us
 @router.get("/users/{user_id}/items/resume")
 def resume(user_id: str, request: Request, ctx: AuthContext = Depends(require_user)):
     st = state(request)
-    limit = q_int(request, "Limit", 20)
+    ctx = as_user(request, ctx, user_id)
+    limit = paging(request, 20, SHELF_LIMIT)[1]
     rows = st.db.query(
         "SELECT i.* FROM items i JOIN user_data u ON u.item_id=i.id AND u.user_id=? "
         "WHERE u.position_ticks>0 AND u.played=0 AND i.type IN ('Movie','Episode') "
@@ -399,6 +393,7 @@ def resume(user_id: str, request: Request, ctx: AuthContext = Depends(require_us
 @router.get("/users/{user_id}/items/{item_id}")
 def user_item(user_id: str, item_id: str, request: Request, ctx: AuthContext = Depends(require_user)):
     st = state(request)
+    ctx = as_user(request, ctx, user_id)
     if item_id[:1].lower() == "p":  # 人物（p{tmdbid} 或 pn{名稱雜湊}）
         person = st.people.person_dto(item_id, st.server_id)
         if not person:
@@ -417,7 +412,7 @@ def persons(request: Request, ctx: AuthContext = Depends(require_user)):
     """搜尋人物（原名、中文名都認）。"""
     st = state(request)
     term = q(request, "SearchTerm") or q(request, "NameStartsWith") or ""
-    limit = q_int(request, "Limit", 50) or 50
+    limit = paging(request, 50, SHELF_LIMIT)[1] or 50
     out = [d for d in (st.people.person_dto(pid, st.server_id) for pid in st.people.search(term, limit)) if d] if term else []
     return query_result(out, len(out))
 
@@ -448,12 +443,13 @@ def _person_image(st, pid: str):
 
 @router.get("/items/{item_id}")
 def item_get(item_id: str, request: Request, ctx: AuthContext = Depends(require_user)):
-    return user_item("", item_id, request, ctx)
+    return user_item(q(request, "UserId") or "", item_id, request, ctx)
 
 
 @router.get("/items/{item_id}/ancestors")
 def ancestors(item_id: str, request: Request, ctx: AuthContext = Depends(require_user)):
     st = state(request)
+    ctx = _query_user(request, ctx)
     rows = []
     row = st.db.get_item(item_id)
     while row and row["parent_id"] and row["parent_id"] != row["id"]:
@@ -469,6 +465,7 @@ def ancestors(item_id: str, request: Request, ctx: AuthContext = Depends(require
 @router.get("/shows/{series_id}/seasons")
 def seasons(series_id: str, request: Request, ctx: AuthContext = Depends(require_user)):
     st = state(request)
+    ctx = _query_user(request, ctx)
     rows = st.db.query(
         "SELECT * FROM items WHERE type='Season' AND series_id=? ORDER BY index_number",
         (int(series_id) if series_id.isdigit() else -1,),
@@ -480,6 +477,7 @@ def seasons(series_id: str, request: Request, ctx: AuthContext = Depends(require
 @router.get("/shows/{series_id}/episodes")
 def episodes(series_id: str, request: Request, ctx: AuthContext = Depends(require_user)):
     st = state(request)
+    ctx = _query_user(request, ctx)
     params: List[Any] = [int(series_id) if series_id.isdigit() else -1]
     where = "type='Episode' AND series_id=?"
     season_id = q(request, "SeasonId")
@@ -494,8 +492,7 @@ def episodes(series_id: str, request: Request, ctx: AuthContext = Depends(requir
         f"SELECT * FROM items WHERE {where} ORDER BY parent_index_number, index_number, sort_name",
         params,
     )
-    start = q_int(request, "StartIndex", 0) or 0
-    limit = q_int(request, "Limit")
+    start, limit = paging(request)
     sliced = rows[start: start + limit] if limit is not None else rows[start:]
     fields = {f.lower() for f in q_list(request, "Fields")}
     items = _dtos(request, ctx, sliced, full="mediasources" in fields)
@@ -505,7 +502,8 @@ def episodes(series_id: str, request: Request, ctx: AuthContext = Depends(requir
 @router.get("/shows/nextup")
 def next_up(request: Request, ctx: AuthContext = Depends(require_user)):
     st = state(request)
-    limit = q_int(request, "Limit", 20)
+    ctx = _query_user(request, ctx)
+    limit = paging(request, 20, SHELF_LIMIT)[1]
     series_filter = q(request, "SeriesId")
     params: List[Any] = [ctx.user_id]
     extra = ""
@@ -521,6 +519,8 @@ def next_up(request: Request, ctx: AuthContext = Depends(require_user)):
     )
     rows = []
     for r in last:
+        if len(rows) >= limit:  # 先看：Limit=0 一集都不要
+            break
         nxt = st.db.one(
             "SELECT * FROM items WHERE type='Episode' AND series_id=? "
             f"AND parent_index_number*{SEASON_KEY_BASE} + COALESCE(index_number,0) > ? "
@@ -529,8 +529,6 @@ def next_up(request: Request, ctx: AuthContext = Depends(require_user)):
         )
         if nxt:
             rows.append(nxt)
-        if len(rows) >= limit:
-            break
     out = _dtos(request, ctx, rows)
     return query_result(out, len(out))
 
@@ -561,24 +559,24 @@ def mark_played(request: Request, ctx: AuthContext, item_id: str, played: bool) 
 
 @router.post("/users/{user_id}/playeditems/{item_id}")
 def played_add(user_id: str, item_id: str, request: Request, ctx: AuthContext = Depends(require_user)):
-    return mark_played(request, ctx, item_id, True)
+    return mark_played(request, as_user(request, ctx, user_id), item_id, True)
 
 
 @router.delete("/users/{user_id}/playeditems/{item_id}")
 @router.post("/users/{user_id}/playeditems/{item_id}/delete")
 def played_remove(user_id: str, item_id: str, request: Request, ctx: AuthContext = Depends(require_user)):
-    return mark_played(request, ctx, item_id, False)
+    return mark_played(request, as_user(request, ctx, user_id), item_id, False)
 
 
 @router.post("/users/{user_id}/favoriteitems/{item_id}")
 def fav_add(user_id: str, item_id: str, request: Request, ctx: AuthContext = Depends(require_user)):
-    return set_user_data(request, ctx, item_id, is_favorite=1)
+    return set_user_data(request, as_user(request, ctx, user_id), item_id, is_favorite=1)
 
 
 @router.delete("/users/{user_id}/favoriteitems/{item_id}")
 @router.post("/users/{user_id}/favoriteitems/{item_id}/delete")
 def fav_remove(user_id: str, item_id: str, request: Request, ctx: AuthContext = Depends(require_user)):
-    return set_user_data(request, ctx, item_id, is_favorite=0)
+    return set_user_data(request, as_user(request, ctx, user_id), item_id, is_favorite=0)
 
 
 # ---------------- 空結果的周邊端點 ----------------
