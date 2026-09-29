@@ -4,7 +4,7 @@ Mi302 不自己刮削，这件事交给 [MoviePilot](https://github.com/jxxghp/M
 
 Mi302 是按 MoviePilot V3 开发的。旧版大多能用，但有几项功能会打折扣，见[旧版 MoviePilot](#旧版-moviepilot)。
 
-管理页面的“MoviePilot”页从上到下是“连线”“刮削”“补全缺集”“让 MoviePilot 把 Mi302 当成 Emby”四张卡片。页面最上方那一排按钮（“连线”“刮削”“补全缺集”“当成 Emby”）点一下就直接滚动到对应的卡片。
+管理页面的“MoviePilot”页上方有“连线”“刮削”“补全缺集”“当成 Emby”四个按钮，点哪个就只显示那张卡片（“当成 Emby”是“让 MoviePilot 把 Mi302 当成 Emby”卡片），下次打开这一页会回到上次看的那个。
 
 ## 工作方式
 

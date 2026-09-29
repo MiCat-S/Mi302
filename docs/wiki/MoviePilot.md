@@ -4,7 +4,7 @@ Mi302 does not scrape (fetch metadata and artwork) by itself; it hands this to [
 
 Mi302 was built against MoviePilot V3. Older versions mostly work, with a few features reduced; see [Older MoviePilot versions](#older-moviepilot-versions).
 
-The **MoviePilot** tab of the web admin page has four cards, top to bottom: **Connection** (連線), **Scrape** (刮削), **Fill missing episodes** (補全缺集) and **Let MoviePilot treat Mi302 as Emby** (讓 MoviePilot 把 Mi302 當成 Emby). The row of buttons at the top of the page — **Connection** (連線), **Scrape** (刮削), **Fill missing episodes** (補全缺集) and **As Emby** (當成 Emby) — scrolls straight to the matching card.
+The **MoviePilot** tab of the web admin page has four buttons at the top: **Connection** (連線), **Scrape** (刮削), **Fill missing episodes** (補全缺集) and **As Emby** (當成 Emby). Each one shows only its card; **As Emby** is the **Let MoviePilot treat Mi302 as Emby** card (讓 MoviePilot 把 Mi302 當成 Emby). The page reopens on the one you looked at last.
 
 ## How it works
 

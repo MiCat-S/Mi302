@@ -2,6 +2,8 @@
 
 This page covers logging in to 115 Cloud (115 網盤), turning 115 folders into local `.strm` files, how incremental sync, full sync, deletion and the circuit breaker work, how to browse folders on 115 and hand a wrong one to MoviePilot, and how to empty the 115 recycle bin. The web admin page is only in Traditional Chinese, so button and field names below are given in English with the original label in parentheses.
 
+The **115 Cloud** tab has four buttons at the top: **Account** (帳號), **Sync** (同步), **Organise 115** (整理 115 網盤) and **Recycle bin** (回收站). Each one shows only its group of cards, and the tab reopens on the one you looked at last. **Sync** holds the **Sync tasks** (同步任務), **Sync** (同步) and **Sync options** (同步選項) cards. **Browse 115** (瀏覽 115) is a separate page in the sidebar.
+
 ## Logging in to 115
 
 Mi302 logs in to 115 by itself. You do not need MoviePilot or any other 115 tool. The login is stored in the database (`data/library.db`), not in the config file.
@@ -335,7 +337,7 @@ If you would rather not organise something, click **Delete…** (刪除…) on i
 
 Files deleted on 115 first go to 115's recycle bin, where they can still be restored in 115; Mi302 also sends deleted duplicates there. The **115 recycle bin** (115 回收站) card on the 115 tab:
 
-- **View** (查看) loads the bin and lists each item's name, size, deletion time and original folder, 50 per page.
+- The bin is read when you open **Recycle bin** (回收站) at the top of the page. It lists each item's name, size, deletion time and original folder, 50 per page. **Refresh** (重新整理) reads it again.
 - **Empty recycle bin…** (清空回收站…) permanently deletes everything in the bin. After that, the files cannot be recovered in 115 either.
 
 Emptying asks for confirmation twice:

@@ -49,7 +49,7 @@ Folders are paths on the machine that runs Mi302, and the account running Mi302 
 115 Cloud (115 網盤) is a Chinese cloud drive. On the **115 Cloud** page (115 網盤):
 
 1. In the **Account** card (帳號), click **Scan QR code** (掃碼登入), scan the code with the 115 mobile app and confirm. QR-code login occupies one 115 device type (by default the Alipay mini program); other logins of the same type are signed out. You can change the type under **Advanced: device type used by QR login, 115 open platform** (進階：掃碼佔用的裝置類型、115 開放平台) on the same card.
-2. In the **Sync tasks** card (同步任務):
+2. Click **Sync** (同步) at the top of the page. In the **Sync tasks** card (同步任務):
    - Next to **115 folder** (115 目錄), click **Browse** (瀏覽) and choose a folder on 115.
    - Next to **Local folder** (放到本機資料夾), click **Browse** and choose the local folder for the `.strm` files.
    - Click **Add task** (新增任務).

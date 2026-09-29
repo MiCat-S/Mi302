@@ -68,7 +68,7 @@ The **Playback** card on the **Settings** tab has **Allow players to download vi
 
 ## strm files from other tools
 
-The settings in the **Other tools' strm** card (其他工具產生的 strm) on the **Settings** tab only matter when the strm contents were not written by Mi302 (for example alist URLs or local paths). Click **Save settings** (儲存設定) at the bottom of the page after changing them.
+The settings in the **Other tools' strm** card (其他工具產生的 strm), under **Other strm** (其他 strm) on the **Settings** tab, only matter when the strm contents were not written by Mi302 (for example alist URLs or local paths). Click **Save settings** (儲存設定) at the bottom of the page after changing them.
 
 **Path rules** (路徑替換, `redirect.path_rules`): one rule per line, written as `old prefix => new prefix`. The strm content is rewritten before anything else happens.
 

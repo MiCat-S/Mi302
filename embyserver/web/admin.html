@@ -43,7 +43,6 @@ code{font:13px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;background:v
 .link:hover{text-decoration:underline}
 .doc{white-space:nowrap}  /* 說明文字結尾連到 wiki 的「說明」 */
 .pager{padding-top:12px}
-.jump{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:16px}  /* 頁內分段導覽：點了捲到那張卡片 */
 
 /* 按鈕與表單 */
 .btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;font:inherit;font-size:14px;font-weight:500;padding:8px 14px;border-radius:9px;border:1px solid var(--line);background:var(--panel);color:var(--fg);cursor:pointer;white-space:nowrap;transition:background .15s,border-color .15s}
@@ -80,7 +79,7 @@ textarea{resize:vertical;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,
 .ogpart{display:inline-flex;align-items:center;gap:6px;font-size:13px;padding:4px 8px;border:1px solid var(--line);border-radius:8px}
 .dupbar{position:sticky;top:0;z-index:2;background:var(--panel);padding:8px 0;border-bottom:1px solid var(--line)}
 .seg{display:inline-flex;border:1px solid var(--line);border-radius:9px;overflow:hidden;flex-wrap:wrap}
-.seg button{border:0;background:transparent;padding:7px 14px;font:inherit;font-size:13.5px;color:var(--muted);cursor:pointer}
+.seg button{border:0;background:transparent;padding:7px 14px;font:inherit;font-size:13.5px;color:var(--muted);cursor:pointer;white-space:nowrap}
 .seg button.on{background:var(--accent-soft);color:var(--accent);font-weight:600}
 .switch input{position:absolute;opacity:0;width:1px;height:1px}
 .switch .track{flex:none;width:38px;height:22px;border-radius:11px;background:var(--line);position:relative;transition:background .15s;margin-top:1px}
@@ -377,7 +376,7 @@ dialog .card-b{max-height:70vh;overflow:auto}
       </div>
       <div class="grid2">
         <div class="card">
-          <div class="card-h"><div class="t"><svg class="i"><use href="#i-cloud"/></svg><h2>115 帳號</h2></div><a href="#115" class="btn sm ghost">管理</a></div>
+          <div class="card-h"><div class="t"><svg class="i"><use href="#i-cloud"/></svg><h2>115 帳號</h2></div><a href="#115/acct" class="btn sm ghost">管理</a></div>
           <div class="card-b" id="ovAcct"><p class="hint">讀取中…</p></div>
         </div>
         <div class="card">
@@ -386,7 +385,7 @@ dialog .card-b{max-height:70vh;overflow:auto}
           <div class="card-b stack"><div class="js-sync"><p class="hint">讀取中…</p></div><p class="hint sp" id="ovSched"></p></div>
         </div>
         <div class="card">
-          <div class="card-h"><div class="t"><svg class="i"><use href="#i-spark"/></svg><h2>MoviePilot 刮削</h2></div><a href="#moviepilot" class="btn sm ghost">設定</a></div>
+          <div class="card-h"><div class="t"><svg class="i"><use href="#i-spark"/></svg><h2>MoviePilot 刮削</h2></div><a href="#moviepilot/scrape" class="btn sm ghost">查看</a></div>
           <div class="card-b js-mp"><p class="hint">讀取中…</p></div>
         </div>
         <div class="card">
@@ -415,7 +414,8 @@ dialog .card-b{max-height:70vh;overflow:auto}
       <div class="page-h">
         <div><h1>115 網盤</h1><p class="sub">登入 115、選擇要產生 strm 的目錄，播放時 302 到 115 直鏈。</p></div>
       </div>
-      <div class="card">
+      <div class="seg mb16 subtabs" role="tablist" aria-label="115 網盤的項目"><button data-act="sub" data-sub="acct" role="tab" aria-selected="false">帳號</button><button data-act="sub" data-sub="sync" role="tab" aria-selected="false">同步</button><button data-act="sub" data-sub="organize" role="tab" aria-selected="false">整理 115 網盤</button><button data-act="sub" data-sub="recycle" role="tab" aria-selected="false">回收站</button></div>
+      <div class="card" data-sub="acct" role="tabpanel">
         <div class="card-h"><div class="t"><svg class="i"><use href="#i-cloud"/></svg><h2>帳號</h2></div>
           <div class="row"><button class="btn sm ghost" onclick="load115(true)"><svg class="i"><use href="#i-refresh"/></svg>重新整理</button></div></div>
         <div class="card-b">
@@ -449,7 +449,7 @@ dialog .card-b{max-height:70vh;overflow:auto}
         </div>
       </div>
 
-      <div class="card">
+      <div class="card" data-sub="sync" role="tabpanel">
         <div class="card-h"><div class="t"><svg class="i"><use href="#i-folder"/></svg><h2>同步任務</h2></div><span class="hint">115 目錄 → 本機資料夾</span></div>
         <div class="card-b stack">
           <div id="tasks" class="list"></div>
@@ -464,7 +464,7 @@ dialog .card-b{max-height:70vh;overflow:auto}
         </div>
       </div>
 
-      <div class="card">
+      <div class="card" data-sub="sync" role="tabpanel">
         <div class="card-h"><div class="t"><svg class="i"><use href="#i-sync"/></svg><h2>同步</h2></div>
           <div class="row"><button class="btn primary" onclick="syncStrm('incremental')">增量同步</button><button class="btn" onclick="syncStrm('full')">全量同步</button></div></div>
         <div class="card-b stack">
@@ -478,7 +478,25 @@ dialog .card-b{max-height:70vh;overflow:auto}
         </div>
       </div>
 
-      <div class="card" id="ogCard">
+      <div class="card" id="syncOpts" data-sub="sync" role="tabpanel">
+        <div class="card-h"><div class="t"><svg class="i"><use href="#i-sliders"/></svg><h2>同步選項</h2></div></div>
+        <div class="card-b stack">
+          <div class="fields">
+            <label class="field"><span>自動增量同步間隔（分鐘）</span><input type="number" min="0" data-key="p115.strm.interval"><small>0 = 不自動，建議 5</small></label>
+            <label class="field"><span>自動全量同步間隔（小時）</span><input type="number" min="0" data-key="p115.strm.full_interval"><small>0 = 不自動，168 = 每週</small></label>
+            <label class="field"><span>略過小於這個大小的影片（MB）</span><input type="number" min="0" data-key="p115.strm.min_size_mb"><small>例如 50 可略過預告片</small></label>
+            <label class="field"><span>每列一個 115 目錄前等待的秒數</span><input type="number" step="0.1" min="0" data-key="p115.strm.request_delay"><small>太快可能被 115 限制</small></label>
+          </div>
+          <label class="switch"><input type="checkbox" data-key="p115.strm.download_metadata"><span class="track"></span><span class="lbl">一併下載 115 上的 nfo、海報、字幕</span></label>
+          <label class="switch"><input type="checkbox" data-key="p115.strm.delete_stale"><span class="track"></span><span class="lbl">跟著刪<small>115 上刪掉或移出同步目錄的影片，本機的 strm 和刮削資料也跟著刪</small></span></label>
+          <label class="switch"><input type="checkbox" data-key="p115.strm.scan_after_sync"><span class="track"></span><span class="lbl">同步完自動重新掃描媒體庫</span></label>
+          <label class="field"><span>strm 裡的伺服器網址</span><input type="text" data-key="p115.strm.base_url" placeholder="例如 https://emby.example.com"><small>留空 = 自動使用你開這個網頁的網址。放在反向代理後面時填對外的網址。儲存後，現有的 strm 會在背景一起改成新網址（只改本機檔案，不連 115）。</small></label>
+          <label class="switch"><input type="checkbox" data-key="p115.strm.include_name"><span class="track"></span><span class="lbl">strm 網址後附上原檔名<small>方便人工辨識，伺服器會忽略這一段；儲存後現有的 strm 會一起改</small></span></label>
+        </div>
+        <div class="card-f"><button class="btn primary" onclick="saveFields($('syncOpts'))">儲存同步選項</button></div>
+      </div>
+
+      <div class="card" id="ogCard" data-sub="organize" role="tabpanel">
         <div class="card-h"><div class="t"><svg class="i"><use href="#i-tool"/></svg><h2>整理 115 網盤</h2></div>
           <div class="row wrap gap6"><button class="btn" id="ogCheck" onclick="organizeCheck(false)">問 MoviePilot 檢查</button><button class="btn ghost" id="ogRecheck" onclick="organizeCheck(true)">全部重新檢查</button></div></div>
         <div class="card-b stack">
@@ -504,9 +522,9 @@ dialog .card-b{max-height:70vh;overflow:auto}
         </div>
       </div>
 
-      <div class="card">
+      <div class="card" data-sub="recycle" role="tabpanel">
         <div class="card-h"><div class="t"><svg class="i"><use href="#i-trash"/></svg><h2>115 回收站</h2></div>
-          <div class="row"><button class="btn" onclick="loadRecycle(0)">查看</button><button class="btn danger" id="rbClean" onclick="cleanRecycle()" disabled>清空回收站…</button></div></div>
+          <div class="row"><button class="btn ghost" onclick="loadRecycle(0)"><svg class="i"><use href="#i-refresh"/></svg>重新整理</button><button class="btn danger" id="rbClean" onclick="cleanRecycle()" disabled>清空回收站…</button></div></div>
         <div class="card-b stack">
           <p class="hint">115 上刪掉的檔案（包括 Mi302 刪重複檔案時送進去的）先留在這裡，在 115 還能還原。清空就永久刪除；只用掃碼登入時要填 115 的安全密鑰。 <a class="doc" href="https://github.com/MiCat-S/Mi302/wiki/115-網盤與同步#115-回收站" target="_blank" rel="noopener">說明</a></p>
           <div id="rbInfo"></div>
@@ -514,23 +532,6 @@ dialog .card-b{max-height:70vh;overflow:auto}
         </div>
       </div>
 
-      <div class="card" id="syncOpts">
-        <div class="card-h"><div class="t"><svg class="i"><use href="#i-sliders"/></svg><h2>同步選項</h2></div></div>
-        <div class="card-b stack">
-          <div class="fields">
-            <label class="field"><span>自動增量同步間隔（分鐘）</span><input type="number" min="0" data-key="p115.strm.interval"><small>0 = 不自動，建議 5</small></label>
-            <label class="field"><span>自動全量同步間隔（小時）</span><input type="number" min="0" data-key="p115.strm.full_interval"><small>0 = 不自動，168 = 每週</small></label>
-            <label class="field"><span>略過小於這個大小的影片（MB）</span><input type="number" min="0" data-key="p115.strm.min_size_mb"><small>例如 50 可略過預告片</small></label>
-            <label class="field"><span>每列一個 115 目錄前等待的秒數</span><input type="number" step="0.1" min="0" data-key="p115.strm.request_delay"><small>太快可能被 115 限制</small></label>
-          </div>
-          <label class="switch"><input type="checkbox" data-key="p115.strm.download_metadata"><span class="track"></span><span class="lbl">一併下載 115 上的 nfo、海報、字幕</span></label>
-          <label class="switch"><input type="checkbox" data-key="p115.strm.delete_stale"><span class="track"></span><span class="lbl">跟著刪<small>115 上刪掉或移出同步目錄的影片，本機的 strm 和刮削資料也跟著刪</small></span></label>
-          <label class="switch"><input type="checkbox" data-key="p115.strm.scan_after_sync"><span class="track"></span><span class="lbl">同步完自動重新掃描媒體庫</span></label>
-          <label class="field"><span>strm 裡的伺服器網址</span><input type="text" data-key="p115.strm.base_url" placeholder="例如 https://emby.example.com"><small>留空 = 自動使用你開這個網頁的網址。放在反向代理後面時填對外的網址。儲存後，現有的 strm 會在背景一起改成新網址（只改本機檔案，不連 115）。</small></label>
-          <label class="switch"><input type="checkbox" data-key="p115.strm.include_name"><span class="track"></span><span class="lbl">strm 網址後附上原檔名<small>方便人工辨識，伺服器會忽略這一段；儲存後現有的 strm 會一起改</small></span></label>
-        </div>
-        <div class="card-f"><button class="btn primary" onclick="saveFields($('syncOpts'))">儲存同步選項</button></div>
-      </div>
     </section>
 
     <!-- 瀏覽 115 -->
@@ -560,8 +561,8 @@ dialog .card-b{max-height:70vh;overflow:auto}
       <div class="page-h">
         <div><h1>整理</h1><p class="sub">補齊媒體資訊、校正片頭片尾、刪掉 115 上重複的影片。</p></div>
       </div>
-      <div class="seg mb16" id="toolTabs" role="tablist" aria-label="整理的項目"><button data-tool="mi" class="on" role="tab" aria-selected="true" onclick="showTool('mi')">媒體資訊</button><button data-tool="intro" role="tab" aria-selected="false" onclick="showTool('intro')">片頭片尾</button><button data-tool="dup" role="tab" aria-selected="false" onclick="showTool('dup')">重複檔案</button></div>
-      <div class="card tool" id="miCard" data-tool="mi" role="tabpanel">
+      <div class="seg mb16 subtabs" role="tablist" aria-label="整理的項目"><button data-act="sub" data-sub="mi" role="tab" aria-selected="false">媒體資訊</button><button data-act="sub" data-sub="intro" role="tab" aria-selected="false">片頭片尾</button><button data-act="sub" data-sub="dup" role="tab" aria-selected="false">重複檔案</button></div>
+      <div class="card" id="miCard" data-sub="mi" role="tabpanel">
         <div class="card-h"><div class="t"><svg class="i"><use href="#i-film"/></svg><h2>媒體資訊</h2></div></div>
         <div class="card-b stack">
           <p class="hint">解析度、HDR、音軌和字幕軌，播放器靠它標出 4K、HDR，讓人選音軌和字幕。影片旁邊有 X-mediainfo.json 就直接讀，沒有的可以在這裡用 ffprobe 從 115 提取（每支要取一次直鏈、讀幾 MB）。 <a class="doc" href="https://github.com/MiCat-S/Mi302/wiki/媒體資訊與探測" target="_blank" rel="noopener">說明</a></p>
@@ -594,7 +595,7 @@ dialog .card-b{max-height:70vh;overflow:auto}
         </div>
       </div>
 
-      <div class="card tool hidden" id="introCard" data-tool="intro" role="tabpanel">
+      <div class="card" id="introCard" data-sub="intro" role="tabpanel">
         <div class="card-h"><div class="t"><svg class="i"><use href="#i-play"/></svg><h2>片頭片尾</h2></div><button class="btn ghost" onclick="clearIntro()">清除全部</button></div>
         <div class="card-b stack">
           <p class="hint">從播放行為學：有人在開頭跳過一段、在片尾切下一集，就記成這一季的片頭片尾，播放器會顯示「跳過片頭」。學得不準的可以搜尋劇名、按「編輯」手動設定，手動的優先。 <a class="doc" href="https://github.com/MiCat-S/Mi302/wiki/片頭片尾跳過" target="_blank" rel="noopener">說明</a></p>
@@ -607,7 +608,7 @@ dialog .card-b{max-height:70vh;overflow:auto}
         </div>
       </div>
 
-      <div class="card tool hidden" id="dupCard" data-tool="dup" role="tabpanel">
+      <div class="card" id="dupCard" data-sub="dup" role="tabpanel">
         <div class="card-h"><div class="t"><svg class="i"><use href="#i-copy"/></svg><h2>重複檔案</h2></div>
           <div class="row"><button class="btn" onclick="pickDupRoot()">改選 115 目錄…</button><button class="btn primary" id="dupScanBtn" onclick="scanDupes()">找重複</button></div></div>
         <div class="card-b stack">
@@ -635,10 +636,8 @@ dialog .card-b{max-height:70vh;overflow:auto}
       <div class="page-h">
         <div><h1>MoviePilot</h1><p class="sub">Mi302 不自己刮削：同步產生新的 strm 後交給 MoviePilot 查影片資料，把 nfo 和海報寫到同一個資料夾，Mi302 再重新掃描。</p></div>
       </div>
-      <nav class="jump" aria-label="跳到這一頁的卡片">
-        <button class="btn sm" data-act="jump" data-target="mpConn">連線</button><button class="btn sm" data-act="jump" data-target="mpScrape">刮削</button><button class="btn sm" data-act="jump" data-target="mpFill">補全缺集</button><button class="btn sm" data-act="jump" data-target="mpEmby">當成 Emby</button>
-      </nav>
-      <div class="card" id="mpConn">
+      <div class="seg mb16 subtabs" role="tablist" aria-label="MoviePilot 的項目"><button data-act="sub" data-sub="conn" role="tab" aria-selected="false">連線</button><button data-act="sub" data-sub="scrape" role="tab" aria-selected="false">刮削</button><button data-act="sub" data-sub="fill" role="tab" aria-selected="false">補全缺集</button><button data-act="sub" data-sub="emby" role="tab" aria-selected="false">當成 Emby</button></div>
+      <div class="card" id="mpConn" data-sub="conn" role="tabpanel">
         <div class="card-h"><div class="t"><svg class="i"><use href="#i-spark"/></svg><h2>連線</h2></div><span id="mpPill"></span></div>
         <div class="card-b stack">
           <div class="fields">
@@ -659,17 +658,17 @@ dialog .card-b{max-height:70vh;overflow:auto}
         </div>
         <div class="card-f"><button class="btn primary" onclick="saveMP()">儲存</button><button class="btn" onclick="testMP(this)">測試連線</button></div>
       </div>
-      <div class="card" id="mpScrape">
+      <div class="card" id="mpScrape" data-sub="scrape" role="tabpanel">
         <div class="card-h"><div class="t"><svg class="i"><use href="#i-film"/></svg><h2>刮削</h2></div><button class="btn" onclick="scrapeMP()">刮削缺少資料的項目</button></div>
         <div class="card-b stack">
           <div class="js-mp"></div>
           <p class="hint">把媒體庫裡還沒有 nfo 的影片、以及有 nfo 卻沒有劇照的集送去 MoviePilot 刮削。 <a class="doc" href="https://github.com/MiCat-S/Mi302/wiki/MoviePilot-整合#送出規則" target="_blank" rel="noopener">說明</a></p>
         </div>
       </div>
-      <div class="card" id="mpFill">
+      <div class="card" id="mpFill" data-sub="fill" role="tabpanel">
         <div class="card-h"><div class="t"><svg class="i"><use href="#i-tv"/></svg><h2>補全缺集</h2></div><button class="btn" onclick="fillAll()">全部補全</button></div>
         <div class="card-b stack">
-          <p class="hint">對照 TMDB 上已經播出的集，真的缺集的季才向 MoviePilot 建訂閱並馬上搜尋。要先把 Mi302 加成 MoviePilot 的媒體伺服器（見下方），並填上面的 MoviePilot 帳號密碼。 <a class="doc" href="https://github.com/MiCat-S/Mi302/wiki/MoviePilot-整合#補全缺集" target="_blank" rel="noopener">說明</a></p>
+          <p class="hint">對照 TMDB 上已經播出的集，真的缺集的季才向 MoviePilot 建訂閱並馬上搜尋。要先把 Mi302 加成 MoviePilot 的媒體伺服器（見「當成 Emby」），並在「連線」填 MoviePilot 帳號密碼。 <a class="doc" href="https://github.com/MiCat-S/Mi302/wiki/MoviePilot-整合#補全缺集" target="_blank" rel="noopener">說明</a></p>
           <div id="fill"></div>
           <div class="logbar"><input id="seriesQ" type="search" placeholder="搜尋劇名" oninput="soon('seriesQ', () => loadSeries(1))">
             <select id="seriesYear" onchange="loadSeries(1)"><option value="">全部年份</option></select>
@@ -682,7 +681,7 @@ dialog .card-b{max-height:70vh;overflow:auto}
           </div></details>
         </div>
       </div>
-      <div class="card" id="mpEmby">
+      <div class="card" id="mpEmby" data-sub="emby" role="tabpanel">
         <div class="card-h"><div class="t"><svg class="i"><use href="#i-key"/></svg><h2>讓 MoviePilot 把 Mi302 當成 Emby</h2></div></div>
         <div class="card-b stack">
           <p class="hint">MoviePilot 可以把 Mi302 加成媒體伺服器，用來判斷片子是否已經有了、整理完自動通知 Mi302 重新掃描。在 MoviePilot 的「設定 → 媒體伺服器」新增一個 Emby：</p>
@@ -742,7 +741,8 @@ dialog .card-b{max-height:70vh;overflow:auto}
       <div class="page-h">
         <div><h1>設定</h1><p class="sub">設定都存在設定檔 <code id="cfgPath"></code>，儲存時自動寫入（舊檔留成 .bak）。直接改檔案也可以，重新整理網頁就會套用。</p></div>
       </div>
-      <div class="card">
+      <div class="seg mb16 subtabs" role="tablist" aria-label="設定的項目"><button data-act="sub" data-sub="general" role="tab" aria-selected="false">一般</button><button data-act="sub" data-sub="strm" role="tab" aria-selected="false">其他 strm</button><button data-act="sub" data-sub="zh" role="tab" aria-selected="false">中文化</button><button data-act="sub" data-sub="backup" role="tab" aria-selected="false">備份</button><button data-act="sub" data-sub="about" role="tab" aria-selected="false">關於</button></div>
+      <div class="card" data-sub="general" role="tabpanel">
         <div class="card-h"><div class="t"><h2>伺服器</h2></div></div>
         <div class="card-b stack">
           <label class="field"><span>伺服器名稱</span><input type="text" data-key="server.name"><small>播放器裡顯示的名稱</small></label>
@@ -750,14 +750,14 @@ dialog .card-b{max-height:70vh;overflow:auto}
           <p class="hint">埠號目前是 <b id="port"></b>。要改埠號：改設定檔的 <code>server.port</code>，然後重新啟動。115 的設定在「115 網盤」分頁，媒體資訊、片頭片尾的設定在「整理」分頁各卡片的「設定」裡。</p>
         </div>
       </div>
-      <div class="card">
+      <div class="card" data-sub="general" role="tabpanel">
         <div class="card-h"><div class="t"><svg class="i"><use href="#i-play"/></svg><h2>播放</h2></div></div>
         <div class="card-b stack">
           <label class="switch"><input type="checkbox" data-key="redirect.require_auth"><span class="track"></span><span class="lbl">播放網址要求登入<small>和官方 Emby 一樣，建議開著；關掉的話，知道項目編號的人不用登入就能拿到 115 直鏈。某個播放器播不了時再關</small></span></label>
           <label class="switch"><input type="checkbox" data-key="server.allow_download"><span class="track"></span><span class="lbl">允許播放器下載影片<small>要登入才能下載；關掉後播放器不顯示下載，直接打下載網址也會被拒絕</small></span></label>
         </div>
       </div>
-      <div class="card">
+      <div class="card" data-sub="strm" role="tabpanel">
         <div class="card-h"><div class="t"><h2>其他工具產生的 strm</h2></div><span class="hint">strm 內容不是 Mi302 產生的（例如 alist 網址或本機路徑）時才需要</span></div>
         <div class="card-b stack">
           <label class="field"><span>路徑替換</span><textarea id="rules" rows="3" placeholder="/mnt/115 => http://alist:5244/d/115"></textarea><small>一行一條，格式：原本開頭 =&gt; 替換成</small></label>
@@ -765,7 +765,7 @@ dialog .card-b{max-height:70vh;overflow:auto}
           <label class="switch"><input type="checkbox" data-key="redirect.resolve_redirects"><span class="track"></span><span class="lbl">由伺服器先跟著上游的重導向走到底<small>再把最終網址給播放器</small></span></label>
         </div>
       </div>
-      <div class="card" id="zhCard">
+      <div class="card" id="zhCard" data-sub="zh" role="tabpanel">
         <div class="card-h"><div class="t"><svg class="i"><use href="#i-users"/></svg><h2>中文化</h2></div><button class="btn" id="zhBtn" onclick="resolvePeople()">現在查中文名</button></div>
         <div class="card-b stack">
           <div id="zhStat"><p class="hint">讀取中…</p></div>
@@ -773,7 +773,7 @@ dialog .card-b{max-height:70vh;overflow:auto}
           <label class="switch"><input type="checkbox" data-key="server.chinese_genres"><span class="track"></span><span class="lbl">類型顯示中文<small>Action → 动作、Sci-Fi &amp; Fantasy → 科幻奇幻，繁體換成簡體。關掉後重新掃描即還原。</small></span></label>
         </div>
       </div>
-      <div class="card">
+      <div class="card" data-sub="backup" role="tabpanel">
         <div class="card-h"><div class="t"><svg class="i"><use href="#i-download"/></svg><h2>備份</h2></div><button class="btn" id="bkBtn" onclick="backupNow()">立即備份</button></div>
         <div class="card-b stack">
           <p class="hint">每天自動備份資料庫（使用者、觀看紀錄、115 登入狀態、同步索引、媒體資訊）和設定檔，放在 <code id="bkDir"></code>。備份含 115 登入資訊和密碼雜湊，下載後請妥善保管。</p>
@@ -783,7 +783,7 @@ dialog .card-b{max-height:70vh;overflow:auto}
             <p>1. 停止 Mi302。2. 把要還原的 <code>.db</code> 複製成資料夾裡的 <code>library.db</code>，並刪掉 <code>library.db-wal</code>、<code>library.db-shm</code>。3. 需要的話把同時間的 <code>.yaml</code> 換成 <code>config.yaml</code>。4. 啟動 Mi302。 <a class="doc" href="https://github.com/MiCat-S/Mi302/wiki/備份與還原#還原" target="_blank" rel="noopener">說明</a></p></div></details>
         </div>
       </div>
-      <div class="card">
+      <div class="card" data-sub="about" role="tabpanel">
         <div class="card-h"><div class="t"><svg class="i"><use href="#i-github"/></svg><h2>關於 Mi302</h2></div></div>
         <div class="card-b stack">
           <p>Mi302 的原始碼公開在 GitHub。覺得好用的話，請到 GitHub 點個 Star，讓更多人看到；遇到問題或有建議，歡迎開 Issue。</p>
@@ -795,7 +795,7 @@ dialog .card-b{max-height:70vh;overflow:auto}
           <p class="hint">授權：PolyForm Noncommercial 1.0.0。個人、家庭、學習研究、非營利組織都可以免費使用和修改，<b>不能用在商業用途</b>（例如拿來賣、做成收費服務）。<a href="https://github.com/MiCat-S/Mi302/blob/main/LICENSE.md" target="_blank" rel="noopener">授權全文</a></p>
         </div>
       </div>
-      <div class="savebar"><span class="hint grow">儲存會寫進設定檔</span><button class="btn primary" onclick="saveFields($('tab-settings'), true)">儲存設定</button></div>
+      <div class="savebar" data-sub="general strm zh backup"><span class="hint grow">儲存會寫進設定檔</span><button class="btn primary" onclick="saveFields($('tab-settings'), true)">儲存設定</button></div>
     </section>
   </main>
 </div>
@@ -1026,9 +1026,31 @@ async function login() {
 }
 async function logoutWeb() { try { await api('/Sessions/Logout', {method: 'POST'}); } catch (e) {} token = ''; localStorage.removeItem('mi302'); show('login'); }
 
-const PAGES = {overview: () => loadOverview(), libraries: () => loadLibs(), '115': () => { load115(false); organizeLoad(1); }, browse: () => openBrowse(), tools: () => loadTools(), moviepilot: () => loadMP(), users: () => loadUsers(), logs: () => loadLogs(true), settings: () => { loadBackups(); pollPeople(); }};
+const PAGES = {overview: () => loadOverview(), libraries: () => loadLibs(), '115': () => load115(false), browse: () => openBrowse(), tools: () => {}, moviepilot: () => loadMP(), users: () => loadUsers(), logs: () => loadLogs(true), settings: () => {}};
+// 頁內分頁：頁面上方一排按鈕（data-sub），一次只顯示那一組卡片；網址是 #頁/分頁，沒指定就回到上次看的那個。
+// 值是切到那個分頁時要讀的資料（null = 頁面本身讀過了）
+const SUBS = {
+  '115': {acct: null, sync: null, organize: () => organizeLoad(1), recycle: () => loadRecycle(0)},
+  tools: {mi: () => { restoreMiPrefs(); pollMI(); }, intro: () => pollIntro(), dup: () => loadDupes()},
+  moviepilot: {conn: null, scrape: null, fill: () => { restoreSeriesLimit(); loadSeries(1); }, emby: () => loadKeys()},
+  settings: {general: null, strm: null, zh: () => pollPeople(), backup: () => loadBackups(), about: null},
+};
+function subOf(page, want) {
+  const subs = SUBS[page];
+  if (!Object.hasOwn(subs, want || '')) { try { want = localStorage.getItem('mi302.sub.' + page); } catch (e) {} }
+  return Object.hasOwn(subs, want || '') ? want : Object.keys(subs)[0];
+}
+function showSub(page, sub) {
+  const box = $('tab-' + page);
+  for (const b of box.querySelectorAll('.subtabs button')) { b.classList.toggle('on', b.dataset.sub === sub); b.setAttribute('aria-selected', b.dataset.sub === sub); }
+  for (const el of box.querySelectorAll(':scope > [data-sub]')) el.classList.toggle('hidden', !el.dataset.sub.split(' ').includes(sub));
+  try { localStorage.setItem('mi302.sub.' + page, sub); } catch (e) {}
+  if (location.hash !== `#${page}/${sub}`) history.replaceState(null, '', `#${page}/${sub}`);  // 不觸發 hashchange，重新整理網頁還在這裡
+  SUBS[page][sub]?.();
+}
+ACTS.sub = el => showSub(el.closest('section.page').id.slice(4), el.dataset.sub);
 function route() {
-  let tab = (location.hash || '#overview').slice(1);
+  let [tab, sub] = (location.hash || '#overview').slice(1).split('/');
   if (!PAGES[tab]) tab = 'overview';
   for (const a of document.querySelectorAll('nav a[data-tab]')) {
     a.classList.toggle('on', a.dataset.tab === tab);
@@ -1039,11 +1061,11 @@ function route() {
   document.title = document.querySelector(`nav a[data-tab="${tab}"] span`).textContent + ' · Mi302';
   fillFields();
   PAGES[tab]();
+  if (SUBS[tab]) showSub(tab, subOf(tab, sub));
   window.scrollTo(0, 0);
 }
 window.addEventListener('hashchange', () => { if (token && cfg) route(); });
 ACTS.copyOrigin = () => copyText(location.origin);
-ACTS.jump = el => $(el.dataset.target)?.scrollIntoView({behavior: 'smooth', block: 'start'});  // 不用 href="#…"：網址的 # 拿來切分頁
 
 // ---- 表單欄位 data-key="a.b.c" 對應設定 ----
 function getKey(obj, key) { return key.split('.').reduce((o, k) => o?.[k], obj); }
@@ -1104,9 +1126,9 @@ function renderSteps() {
   if (!S.sync) return;  // 還不知道有沒有同步任務就先不畫步驟卡，免得閃一下
   const steps = [
     ['建立媒體庫', cfg.libraries.length > 0, '#libraries'],
-    ['登入 115', !!S.p115?.logged_in, '#115'],
-    ['新增同步任務並同步', !!(S.sync?.tasks.length && S.sync.tasks.some(t => t.state?.full_at)), '#115'],
-    ['設定 MoviePilot 刮削（選用）', !!S.mp?.enabled, '#moviepilot'],
+    ['登入 115', !!S.p115?.logged_in, '#115/acct'],
+    ['新增同步任務並同步', !!(S.sync?.tasks.length && S.sync.tasks.some(t => t.state?.full_at)), '#115/sync'],
+    ['設定 MoviePilot 刮削（選用）', !!S.mp?.enabled, '#moviepilot/conn'],
   ];
   const need = steps.slice(0, 3).some(s => !s[1]);
   $('ovStart').classList.toggle('hidden', !need);
@@ -1117,19 +1139,6 @@ function renderSteps() {
 // ---- 媒體庫 ----
 let libs = [], libsShape = null;
 function loadLibs() { libs = structuredClone(cfg.libraries); renderLibs(); refreshScan(); }
-// 「整理」分頁：媒體資訊、片頭片尾、重複檔案一次只顯示一個，記住上次看的
-const TOOLS = {mi: () => { restoreMiPrefs(); pollMI(); }, intro: () => pollIntro(), dup: () => loadDupes()};
-function loadTools() {
-  let t = 'mi';
-  try { t = localStorage.getItem('mi302.tool') || 'mi'; } catch (e) {}
-  showTool(TOOLS[t] ? t : 'mi');
-}
-function showTool(t) {
-  for (const b of document.querySelectorAll('#toolTabs button')) { b.classList.toggle('on', b.dataset.tool === t); b.setAttribute('aria-selected', b.dataset.tool === t); }
-  for (const c of document.querySelectorAll('#tab-tools .card.tool')) c.classList.toggle('hidden', c.dataset.tool !== t);
-  try { localStorage.setItem('mi302.tool', t); } catch (e) {}
-  TOOLS[t]();
-}
 // 掃描狀態裡數量以外的部分；沒變就只改數字，不必整格重畫（封面會閃）
 function libShape(status) { return JSON.stringify((status?.libraries || []).map(({count, ...rest}) => rest)); }
 function libStatus(name) { return S.scan?.libraries.find(s => s.name === name); }
@@ -1704,7 +1713,7 @@ function renderAccount() {
   $('logoutBtn').classList.toggle('hidden', !s.logged_in);
   if (!s.logged_in) {
     $('acct').innerHTML = emptyState('還沒登入 115', '按「掃碼登入」，用手機 115 App 掃描確認。');
-    $('ovAcct').innerHTML = emptyState('還沒登入 115', '登入後才能從 115 產生 strm。', '#115', '去登入');
+    $('ovAcct').innerHTML = emptyState('還沒登入 115', '登入後才能從 115 產生 strm。', '#115/acct', '去登入');
     return;
   }
   // 115 限流或登入失效：背景同步暫停，播放照常
@@ -1815,7 +1824,7 @@ async function syncStrm(mode) {
 }
 function syncHtml(s) {
   const r = s.result;
-  if (!s.tasks.length) return emptyState('還沒有同步任務', '到「115 網盤」新增「115 目錄 → 本機資料夾」。', '#115', '新增任務');
+  if (!s.tasks.length) return emptyState('還沒有同步任務', '到「115 網盤」的「同步」新增「115 目錄 → 本機資料夾」。', '#115/sync', '新增任務');
   if (!r.started) return '<p class="hint">還沒同步過。按「增量同步」開始，第一次會自動先跑全量。</p>';
   const kind = r.mode === 'incremental' ? '增量' : '全量';
   let h = '<div class="row wrap mb12">';
@@ -2056,7 +2065,7 @@ async function loadDupLog() {
 function mpRulesText() { return (cfg.moviepilot.path_mappings || []).map(r => r.from + ' => ' + r.to).join('\n'); }
 function loadMP() {
   $('mpMap').value = mpRulesText();
-  loadKeys(); pollMP(); restoreSeriesLimit(); loadSeries(1);
+  pollMP();
 }
 async function saveMP(quiet) {
   const body = {moviepilot: {}};
@@ -2080,10 +2089,9 @@ async function scrapeMP() {
   try { await api('/web/api/moviepilot/scrape', {method: 'POST'}); } catch (e) { toast(e.message, 'bad'); return; }
   toast('開始刮削'); pollMP();
 }
-function mpHtml(s, here) {
-  // here：畫在 MoviePilot 頁自己身上（設定就在上面，不用「去設定」）
+function mpHtml(s) {
   const r = s.result;
-  if (!s.enabled) return emptyState('還沒設定 MoviePilot', here ? '在上面填好網址和 API 令牌後，同步出的新片會自動送去刮削。' : '填好網址和 API 令牌後，同步出的新片會自動送去刮削。', here ? '' : '#moviepilot', '去設定');
+  if (!s.enabled) return emptyState('還沒設定 MoviePilot', '在「連線」填好網址和 API 令牌後，同步出的新片會自動送去刮削。', '#moviepilot/conn', '去設定');
   if (!r.started) return '<p class="hint">還沒有刮削紀錄。</p>';
   let h = '';
   if (r.running) {
@@ -2104,7 +2112,7 @@ async function pollMP() {
   let s;
   try { s = await api('/web/api/moviepilot/status'); } catch (e) { return; }
   S.mp = s;
-  for (const el of document.querySelectorAll('.js-mp')) setHtml(el, mpHtml(s, !!el.closest('#tab-moviepilot')));
+  for (const el of document.querySelectorAll('.js-mp')) setHtml(el, mpHtml(s));
   if (!$('mpPill').innerHTML || !s.enabled) $('mpPill').innerHTML = s.enabled ? '<span class="pill">已設定</span>' : '<span class="pill">未設定</span>';
   setHtml($('fill'), fillHtml(s.fill || {}));
   if (s.result.running || s.fill?.running) later('mp', pollMP);
@@ -2394,7 +2402,6 @@ async function organizeLoad(page, quiet) {
   organizeButtons();
   if (r.reorg_job.running) pollReorgJob();
   b115.added = new Set(r.pinned.map(p => p.id.slice(1)));
-  if (og.scrollTo) { og.scrollTo = false; $('ogCard').scrollIntoView({block: 'start'}); }
 }
 function ogState(u) {
   const st = og.state[u.id] ||= {on: false, parts: {}, target: og.target, targetPath: og.targetPath, targetCustom: false, preview: null, error: '', sent: false};
@@ -2610,11 +2617,7 @@ async function openBrowse() {
   } catch (e) {}
 }
 function b115GoLabel() { $('b115Go').textContent = b115.added.size ? `去整理（${b115.added.size}）` : '去整理'; }
-function goOrganize() {
-  // 到「115 網盤」頁的「整理 115 網盤」卡片
-  og.scrollTo = true;
-  location.hash = '#115';
-}
+function goOrganize() { location.hash = '#115/organize'; }
 const joinPath = (dir, name) => (dir === '/' ? '' : dir.replace(/\/+$/, '')) + '/' + name;
 const parentPath = path => path.replace(/\/[^/]*$/, '') || '/';
 function browse115Start() {
