@@ -7,6 +7,7 @@ import logging
 import os
 import re
 import threading
+import time
 import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 from pathlib import Path
@@ -321,6 +322,7 @@ class Scanner:
         self._lock = threading.Lock()
         self._full_waiting = False
         self.scanning = False
+        self.finished_at = 0.0  # 上次掃描完成的時間
         self.current = ""  # 正在掃描什麼範圍，給網頁顯示
         self.item = ""  # 正在處理哪部片
         self.touched = 0  # 這次已處理的項目數
@@ -430,6 +432,7 @@ class Scanner:
         self.scanning = False
         self.current = ""
         self.item = ""
+        self.finished_at = time.time()  # 別的地方（整理 115 網盤）看這個知道媒體庫變了
 
     def _count(self, where: str = "1=1", params: Tuple = ()) -> int:
         return self.db.one(f"SELECT COUNT(*) AS c FROM items WHERE type<>'CollectionFolder' AND {where}", params)["c"]

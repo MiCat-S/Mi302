@@ -1,19 +1,15 @@
-"""MoviePilot：測試連線、刮削、補全缺集、集號不對的劇交給 MoviePilot 整理或刪除。"""
+"""MoviePilot：測試連線、刮削、補全缺集。"""
 
 from __future__ import annotations
 
-import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from starlette.concurrency import run_in_threadpool
 
 from ...auth import AuthContext, require_admin
 from ...moviepilot import library_series
-from ...reorganize import ReorgError, candidates as reorg_candidates
 from ..common import q, q_int, state
 from .common import json_body
-
-log = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -84,104 +80,3 @@ async def moviepilot_fill(request: Request, ctx: AuthContext = Depends(require_a
         raise HTTPException(status_code=400, detail="沒有可以送的劇：要先刮削過、有 tmdbid")
     started = mp.fill_in_background(shows, "manual")
     return {"started": started, "result": mp.fill_result.as_dict()}
-
-
-# ---------------- 交給 MoviePilot 整理集號不對的劇 ----------------
-
-
-@router.get("/web/api/moviepilot/reorganize")
-def reorganize_list(request: Request, ctx: AuthContext = Depends(require_admin)):
-    """集號從檔名猜的、或認不出來的集，一季一列；附上目前的整理工作和缺什麼設定。"""
-    st = state(request)
-    offset, limit = max(q_int(request, "offset") or 0, 0), min(max(q_int(request, "limit") or 20, 1), 200)
-    items, total = reorg_candidates(st.db, q(request, "q") or "", offset, limit)
-    try:
-        flagged = st.organizer.nonstandard_series()
-    except Exception:  # 找不規範資料夾出錯不影響這個清單
-        log.exception("找命名不規範的資料夾時發生錯誤")
-        flagged = set()
-    for it in items:
-        it["folder_nonstandard"] = it["series_id"] in flagged  # 資料夾不規範：網頁改成整個資料夾整理
-    return {"items": items, "total": total, "job": st.reorganizer.job.as_dict(), "ready": st.reorganizer.ready()}
-
-
-@router.get("/web/api/moviepilot/reorganize/plan")
-def reorganize_plan(request: Request, ctx: AuthContext = Depends(require_admin)):
-    """一季要送哪些 115 檔案、分成幾批、每批的集數定位模板。會列 115 的資料夾，可能要幾秒。"""
-    st = state(request)
-    try:
-        return st.reorganizer.plan(q_int(request, "series") or 0, q_int(request, "season") or 0)
-    except ReorgError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
-
-
-@router.get("/web/api/moviepilot/reorganize/files")
-def reorganize_delete_files(request: Request, ctx: AuthContext = Depends(require_admin)):
-    """整部劇的每一集（給網頁勾要刪哪些），這一季（season）集號不對的標 problem；附上劇集資料夾。只看資料庫。"""
-    st = state(request)
-    try:
-        return st.reorganizer.series_files(q_int(request, "series") or 0, q_int(request, "season") or 0)
-    except ReorgError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
-
-
-@router.post("/web/api/moviepilot/reorganize/delete")
-async def reorganize_delete(request: Request, ctx: AuthContext = Depends(require_admin)):
-    """刪掉劇的檔案：{series_id, file_ids, remove_folder} 刪勾選的集（這部劇的任何一集），或 {series_id, whole: true}
-    整個劇集資料夾刪掉。都是送進 115 回收站（可以還原），本機 strm、nfo 和媒體庫跟著拿掉。要用掃碼登入 115。"""
-    st = state(request)
-    body = await json_body(request)
-    ids = [int(i) for i in body.get("file_ids") or [] if str(i).isdigit()]
-    try:
-        series_id = int(body.get("series_id") or 0)
-        if body.get("whole"):
-            return await run_in_threadpool(st.reorganizer.delete_series, series_id)
-        return await run_in_threadpool(st.reorganizer.delete_episodes, series_id, ids, bool(body.get("remove_folder")))
-    except (ReorgError, ValueError) as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
-
-
-@router.get("/web/api/moviepilot/reorganize/folder")
-def reorganize_folder_plan(request: Request, ctx: AuthContext = Depends(require_admin)):
-    """「瀏覽 115」裡的一個資料夾：裡面（含子資料夾）的影片、建議的類型、TMDB 編號、季、分批。"""
-    st = state(request)
-    try:
-        return st.reorganizer.folder_plan(q_int(request, "cid") or 0, q(request, "path") or "")
-    except ReorgError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
-
-
-@router.post("/web/api/moviepilot/reorganize/preview")
-async def reorganize_preview(request: Request, ctx: AuthContext = Depends(require_admin)):
-    """請 MoviePilot 只算不做：{plan_id（或 series_id + season）, tmdbid, type: auto|tv|movie, season,
-    target: auto|parent|path, target_path, scrape, groups: [{key, template, enabled}]}。"""
-    st = state(request)
-    body = await json_body(request)
-    if not st.reorganizer.ready()["login"]:
-        raise HTTPException(status_code=400, detail="MoviePilot 的手動整理只接受帳號登入，請在「MoviePilot 帳號密碼」填好再儲存")
-    plan_id = str(body.get("plan_id") or "") or f"s{int(body.get('series_id') or 0)}-{int(body.get('season') or 0)}"
-    season = body.get("season")
-    try:
-        return await run_in_threadpool(
-            st.reorganizer.preview, plan_id, str(body.get("tmdbid") or ""), str(body.get("type") or "auto"),
-            int(season) if str(season if season is not None else "").strip().isdigit() else None,
-            str(body.get("target") or "auto"), str(body.get("target_path") or ""), bool(body.get("scrape", True)),
-            [g for g in body.get("groups") or [] if isinstance(g, dict)],
-        )
-    except ReorgError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
-
-
-@router.post("/web/api/moviepilot/reorganize/execute")
-async def reorganize_execute(request: Request, ctx: AuthContext = Depends(require_admin)):
-    """照預覽執行：{"token": 預覽代碼} 或 {"tokens": [...], "cleanup": [{cid, path}]}（整理 115 網盤：幾個預覽一起，
-    整理完沒有影片留下的來源資料夾移到 115 回收站）。只送預覽成功的檔案，在背景跑，進度看 GET /web/api/moviepilot/reorganize。"""
-    st = state(request)
-    body = await json_body(request)
-    tokens = body.get("tokens") if isinstance(body.get("tokens"), list) else [body.get("token")]
-    cleanup = [c for c in body.get("cleanup") or [] if isinstance(c, dict) and str(c.get("cid") or "").isdigit()]
-    try:
-        st.reorganizer.execute_in_background([str(t or "") for t in tokens], cleanup)
-    except ReorgError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
-    return {"job": st.reorganizer.job.as_dict()}

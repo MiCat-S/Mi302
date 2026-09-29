@@ -160,7 +160,7 @@ def create_app(config: Config, db_path: Optional[str] = None, scan_on_start: boo
     app.state.dupes = DupeFinder(db, app.state.p115, app.state.strm_sync, scanner)  # 115 上的重複檔案
     app.state.reorganizer = Reorganizer(db, app.state.strm_sync, app.state.moviepilot, scanner)  # 集號不對的劇：整理或刪除
     # 整理 115 網盤：命名不照 MoviePilot 格式的資料夾整個交給它整理
-    app.state.organizer = Organizer(db, app.state.strm_sync, app.state.moviepilot, app.state.reorganizer)
+    app.state.organizer = Organizer(db, app.state.strm_sync, app.state.moviepilot, app.state.reorganizer, scanner)
 
     app.add_middleware(
         CORSMiddleware,

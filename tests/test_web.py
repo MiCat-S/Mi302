@@ -182,7 +182,8 @@ def test_non_object_json_body_is_400(tmp_path: Path):
     for method, path in (
         ("post", "/web/api/users"), ("put", "/web/api/settings"), ("post", "/web/api/scan"),
         ("post", "/web/api/intro/clear"), ("post", "/web/api/apikeys"), ("post", "/web/api/dupes/scan"),
-        ("post", "/web/api/moviepilot/fill"), ("post", "/web/api/moviepilot/reorganize/execute"),
+        ("post", "/web/api/moviepilot/fill"), ("post", "/web/api/115/organize/execute"),
+        ("post", "/web/api/115/organize/delete"), ("post", "/web/api/115/organize/preview"),
     ):
         for body in ("[1]", '"x"', "3"):
             r = c.request(method, path, content=body, headers={**h, "Content-Type": "application/json"})

@@ -137,13 +137,14 @@ The API behind the web admin page `/web`. 115 file and folder IDs have 19 digits
 | `GET /web/api/browse`, `/web/api/115/browse` | Pick a folder on the server, pick a 115 directory |
 | `GET /web/api/115/recyclebin`, `POST /web/api/115/recyclebin/clean` | One page of the 115 recycle bin (`offset`, `limit`); emptying it (permanent; needs `{"confirm": "清空"}`, plus the `password` security key on the cookie channel) |
 | `GET /web/api/115/files` | Browse 115: subfolders and files of a folder (`cid` and `path`, or only `path`), with what the library made of each video (`lib`) |
-| `GET /web/api/115/organize`, `POST /web/api/115/organize/check`, `POST /web/api/115/organize/preview` | Organise 115: folders whose name differs from what MoviePilot answered (`q`, `kind`, `offset`, `limit`; with the background check progress `job` and the number not asked yet `unchecked`); ask MoviePilot in the background (`refresh` asks again for everything); preview one folder (`id`, with optional per-part settings `parts: {part: {type, tmdbid, season}}`), returning a `token` to run with `/web/api/moviepilot/reorganize/execute` |
+| `GET /web/api/115/organize`, `POST /web/api/115/organize/check`, `GET /web/api/115/organize/job` | Organise 115: folders to organise (name differs from MoviePilot's answer, or wrong episode numbers; `q`, `kind` as `series`/`movie`/`episodes`, `offset`, `limit`; folders added from Browse 115 are in `pinned`), with the background check progress `job` and the number not asked yet `unchecked`; ask MoviePilot in the background (`refresh` asks again for everything); progress of the reorganise job |
+| `POST /web/api/115/organize/folder`, `DELETE /web/api/115/organize/folder/{id}` | Pin a folder picked in Browse 115 (`cid`, `path`) at the top of the list; unpin it |
+| `POST /web/api/115/organize/preview`, `POST /web/api/115/organize/recommend`, `POST /web/api/115/organize/execute` | Preview one folder (`id`; per-part settings `parts: {part: {type, tmdbid, season, format}}`; `target` as `parent`/`auto`/`path` plus `target_path`), returning a `token`; episode format for a part (`id`, `part`, asking MoviePilot first); run previews by token (`tokens`; `cleanup` moves source folders with no videos left to the recycle bin) |
+| `GET /web/api/115/organize/episodes`, `POST /web/api/115/organize/delete` | Deleting: every episode of a show and its folder (`series`; wrong numbers marked `problem`); delete ticked episodes (`series_id`, `file_ids`, `remove_folder`) or one list entry entirely (`id`), all to the 115 recycle bin, removing local strm files and library entries |
 | `GET /web/api/server`, `POST /web/api/server/check`, `POST /web/api/server/update`, `POST /web/api/server/restart` | Version and the last update check (`boot` differs on every start); check now; update to the latest version (runs in the background, progress in `job`); restart |
 | `GET /web/api/libraries/suggest?path=` | Bulk add libraries: list the subfolders with a suggested type and the reason, the video count (`complete` when fully counted), whether a library already uses the folder (`used`), and whether to tick it by default; `partial` means some folders were not fully read |
 | `POST /web/api/moviepilot/test`, `GET /web/api/moviepilot/status`, `POST /web/api/moviepilot/scrape` | MoviePilot connection test, status, scrape items missing metadata |
 | `GET /web/api/series`, `POST /web/api/moviepilot/fill` | Series and episode-gap list; fill missing episodes |
-| `GET /web/api/moviepilot/reorganize`, `GET /web/api/moviepilot/reorganize/plan`, `GET /web/api/moviepilot/reorganize/folder`, `POST /web/api/moviepilot/reorganize/preview`, `POST /web/api/moviepilot/reorganize/execute` | Reorganise series with wrong episode numbers through MoviePilot: the list (with the current job and missing settings), one season's plan (`series`, `season`; batches and episode formats), a 115 folder's plan (`cid`, `path`), a preview (takes the plan's `plan_id`, returns a `token`), and running a preview by its token (`token`, or several at once with `tokens`; `cleanup` moves source folders with no videos left to the recycle bin afterwards) |
-| `GET /web/api/moviepilot/reorganize/files`, `POST /web/api/moviepilot/reorganize/delete` | Deleting a show's files: every episode of the show and the show folder (`series`, `season`; this season's episodes with wrong numbers are marked `problem`); delete the ticked ones (`series_id`, `file_ids`, `remove_folder`, any episode of the show) or the whole show folder (`series_id`, `whole`) to the 115 recycle bin, removing the local strm files and library entries |
 | `GET /web/api/intro/status`, `POST /web/api/intro/clear` | Intro and credits (`{"season_id": id}` clears one season's learned records) |
 | `GET /web/api/intro/seasons?q=`, `PUT /web/api/intro/seasons/{season id}` | Season list and search for intro and credits; manual settings for a season (`all_seasons` applies them to the whole series) |
 | `GET /web/api/people/status`, `POST /web/api/people/resolve` | Chinese names for cast and crew |
@@ -192,7 +193,7 @@ Each module under `embyserver/`:
 | `probe_select.py` | Media info: picking titles to probe (filters, order) |
 | `people.py` | Cast and crew, Chinese names, Chinese genres |
 | `redirect.py` | Resolves the real URL behind a strm, path rules, redirect cache |
-| `reorganize.py` | Handing files to MoviePilot to reorganise: plan, preview, run |
+| `reorganize.py` | Running reorganisations (sending previews to MoviePilot, cleaning up emptied folders, the incremental sync afterwards) and deletion; episode-format templates (fallback when MoviePilot cannot recommend one) |
 | `scanner.py` | Library scanning |
 | `strm_sync.py` | Creates strm files from 115 and downloads metadata |
 | `textutil.py` | Pinyin sorting, pinyin search, Traditional/Simplified conversion |
@@ -201,7 +202,7 @@ Each module under `embyserver/`:
 | `routes/items.py` | Libraries, item queries, user data, images |
 | `routes/playback.py` | PlaybackInfo, streaming, progress reports, intro endpoints |
 | `routes/p115.py` | Admin API for 115 login and sync, pickcode short links |
-| `routes/web/` | The web admin page and its API, split by page into `setup`, `scan`, `intro`, `moviepilot`, `p115` and `server` |
+| `routes/web/` | The web admin page and its API, split by page into `setup`, `scan`, `intro`, `moviepilot`, `organize`, `p115` and `server` |
 | `routes/common.py` | Small helpers shared by the routes |
 | `web/admin.html` | The web admin page (one file with HTML, CSS and JavaScript) |
 
