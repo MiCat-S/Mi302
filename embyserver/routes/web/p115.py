@@ -1,4 +1,4 @@
-"""115：瀏覽、回收站、選同步目錄；115 上的重複檔案；媒體資訊（從 115 探測）。"""
+"""115：瀏覽、回收站、選同步目錄、雲下載（離線下載）；115 上的重複檔案；媒體資訊（從 115 探測）。"""
 
 from __future__ import annotations
 
@@ -10,6 +10,7 @@ from starlette.concurrency import run_in_threadpool
 
 from ...auth import AuthContext, require_admin
 from ...browse115 import list_folder
+from ...offline115 import OfflineError
 from ...p115 import P115Error
 from ...p115_open import P115OpenError
 from ...reorganize import ReorgError
@@ -20,6 +21,49 @@ from .common import json_body
 log = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+# ---------------- 雲下載（離線下載） ----------------
+
+
+def _offline(fn, *args):
+    try:
+        return fn(*args)
+    except OfflineError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@router.get("/web/api/115/offline")
+async def offline_tasks(request: Request, ctx: AuthContext = Depends(require_admin)):
+    """115 雲下載的任務（page；一頁 30 個）和這個月還能加幾個（quota）。"""
+    st = state(request)
+    return await run_in_threadpool(_offline, st.offline.tasks, q_int(request, "page") or 1)
+
+
+@router.post("/web/api/115/offline")
+async def offline_add(request: Request, ctx: AuthContext = Depends(require_admin)):
+    """加雲下載任務：{urls: 一行一個（磁力、ed2k、http、https、ftp），folder: 存到的 115 資料夾路徑，空的用 115 預設}。
+    回傳每個連結的結果；看不懂的連結在 rejected。"""
+    st = state(request)
+    body = await json_body(request)
+    return await run_in_threadpool(_offline, st.offline.add, str(body.get("urls") or ""), str(body.get("folder") or ""))
+
+
+@router.post("/web/api/115/offline/delete")
+async def offline_delete(request: Request, ctx: AuthContext = Depends(require_admin)):
+    """刪雲下載任務：{hashes: [info_hash], files: 連同 115 上下載好的檔案一起刪}。"""
+    st = state(request)
+    body = await json_body(request)
+    hashes = body.get("hashes") if isinstance(body.get("hashes"), list) else []
+    return await run_in_threadpool(_offline, st.offline.delete, [str(h) for h in hashes], bool(body.get("files")))
+
+
+@router.post("/web/api/115/offline/clear")
+async def offline_clear(request: Request, ctx: AuthContext = Depends(require_admin)):
+    """清掉已完成（{what: "done"}）或已失敗（"failed"）的任務紀錄，不動檔案。"""
+    st = state(request)
+    body = await json_body(request)
+    return await run_in_threadpool(_offline, st.offline.clear, str(body.get("what") or ""))
 
 
 # ---------------- 瀏覽 115、回收站 ----------------

@@ -139,6 +139,7 @@ The API behind the web admin page `/web`. 115 file and folder IDs have 19 digits
 | `GET, POST /web/api/scan` | Scan progress and item counts per library; start a scan with `{"library": name}`, `{"path": path}`, or neither for everything |
 | `GET, POST /web/api/users`; `PUT, DELETE /web/api/users/{id}` | Users |
 | `GET /web/api/browse`, `/web/api/115/browse` | Pick a folder on the server, pick a 115 directory |
+| `GET /web/api/115/offline`, `POST /web/api/115/offline`, `POST /web/api/115/offline/delete`, `POST /web/api/115/offline/clear` | 115 cloud download: task list (`page`, with how many can still be added this month); add tasks (`urls` one per line, `folder` the 115 path to save to, empty for 115's default); delete tasks (`hashes`, `files` also deletes the downloaded files); clear finished or failed records (`what`: `done`/`failed`) |
 | `GET /web/api/115/recyclebin`, `POST /web/api/115/recyclebin/clean` | One page of the 115 recycle bin (`offset`, `limit`); emptying it (permanent; needs `{"confirm": "清空"}`, plus the `password` security key on the cookie channel) |
 | `GET /web/api/115/files` | Browse 115: subfolders and files of a folder (`cid` and `path`, or only `path`), with what the library made of each video (`lib`) |
 | `POST /web/api/115/delete` | Delete what is ticked in Browse 115 (`parent` is the folder being viewed, `ids`): the folder is listed again and only items really in it are moved to the 115 recycle bin; for sync folders the local strm files and library entries are removed too |

@@ -2,7 +2,7 @@
 
 This page covers logging in to 115 Cloud (115 網盤), turning 115 folders into local `.strm` files, how incremental sync, full sync, deletion and the circuit breaker work, how to browse folders on 115 and hand a wrong one to MoviePilot, and how to empty the 115 recycle bin. The web admin page is only in Traditional Chinese, so button and field names below are given in English with the original label in parentheses.
 
-The **115 Cloud** tab has four buttons at the top: **Account** (帳號), **Sync** (同步), **Organise 115** (整理 115 網盤) and **Recycle bin** (回收站). Each one shows only its group of cards, and the tab reopens on the one you looked at last. **Sync** holds the **Sync tasks** (同步任務), **Sync** (同步) and **Sync options** (同步選項) cards. **Browse 115** (瀏覽 115) is a separate page in the sidebar.
+The **115 Cloud** tab has five buttons at the top: **Account** (帳號), **Sync** (同步), **Offline download** (離線下載), **Organise 115** (整理 115 網盤) and **Recycle bin** (回收站). Each one shows only its group of cards, and the tab reopens on the one you looked at last. **Sync** holds the **Sync tasks** (同步任務), **Sync** (同步) and **Sync options** (同步選項) cards. **Browse 115** (瀏覽 115) is a separate page in the sidebar.
 
 ## Logging in to 115
 
@@ -251,6 +251,23 @@ When 115 returns an error or rate-limits the request, the whole task fails inste
 If a file on 115 only changed the letter case of its name: on a case-insensitive disk such as macOS, old and new are the same file and nothing is deleted; on a case-sensitive disk the old strm file is deleted and its nfo and posters are renamed to the new name.
 
 Deleting a sync task never deletes the strm files it created, whether this option is on or off.
+
+## Offline download
+
+**Offline download** (離線下載) on the **115 Cloud** tab hands magnet, ed2k, http, https and ftp links to 115, which downloads them into your cloud drive (115's cloud download). Nothing goes through this machine or uses its bandwidth.
+
+1. Paste the links under **Links** (連結), one per line. A bare torrent info hash (40 hex characters) also works and becomes a magnet link. Lines that are not links are not sent; the result says how many were left out.
+2. Under **Save to** (存到), type a 115 folder or pick one with **Choose…** (選擇…); leave it empty for 115's default cloud-download folder. The last one used is remembered in this browser.
+3. Click **Add download** (加入下載). A link 115 already has a task for is reported as already existing (任務已存在).
+
+**Download tasks** (下載任務) below lists the cloud-download tasks on 115: name, size, progress (refreshed every 5 seconds while something is downloading), finished or failed. **Open folder** (打開資料夾) on a finished task shows the files in Browse 115. The top right shows how many tasks you can still add this month (115's quota, which depends on the membership level).
+
+- **Saved inside a sync folder**: once downloaded, the next incremental sync creates the strm files and adds them to the library (and sends them to MoviePilot for scraping if that is on).
+- **Saved elsewhere**: use **Organise…** (整理…) in Browse 115 to let MoviePilot move them into the library.
+- **Delete…** (刪除…) removes only the task record; the downloaded files stay on 115. To delete the files as well, type 刪檔案 ("delete files") in the confirmation.
+- **Clear finished** (清除已完成) and **Clear failed** (清除失敗的) remove those task records in one go without touching files.
+
+With [115 open platform](#115-open-platform-advanced) authorisation its cloud-download API is used; otherwise the QR-code login cookie. The cookie path uses the 115 mobile app's interface, which has no official documentation, so it fails when 115 changes it; the error message is shown as is.
 
 ## Browsing 115
 

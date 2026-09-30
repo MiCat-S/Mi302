@@ -87,6 +87,7 @@ textarea{resize:vertical;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,
 .dupbar{position:sticky;top:0;z-index:2;background:var(--panel);padding:8px 0;border-bottom:1px solid var(--line)}
 .seg{display:inline-flex;border:1px solid var(--line);border-radius:9px;overflow:hidden;flex-wrap:wrap}
 .seg button{border:0;background:transparent;padding:7px 14px;font:inherit;font-size:13.5px;color:var(--muted);cursor:pointer;white-space:nowrap}
+@media (max-width:420px){.subtabs button{padding:7px 10px}}
 .seg button.on{background:var(--accent-soft);color:var(--accent);font-weight:600}
 .switch input{position:absolute;opacity:0;width:1px;height:1px}
 .switch .track{flex:none;width:38px;height:22px;border-radius:11px;background:var(--line);position:relative;transition:background .15s;margin-top:1px}
@@ -423,7 +424,7 @@ dialog .card-b{max-height:70vh;overflow:auto}
       <div class="page-h">
         <div><h1>115 網盤</h1><p class="sub">登入 115、選擇要產生 strm 的目錄，播放時 302 到 115 直鏈。</p></div>
       </div>
-      <div class="seg mb16 subtabs" role="tablist" aria-label="115 網盤的項目"><button data-act="sub" data-sub="acct" role="tab" aria-selected="false">帳號</button><button data-act="sub" data-sub="sync" role="tab" aria-selected="false">同步</button><button data-act="sub" data-sub="organize" role="tab" aria-selected="false">整理 115 網盤</button><button data-act="sub" data-sub="recycle" role="tab" aria-selected="false">回收站</button></div>
+      <div class="seg mb16 subtabs" role="tablist" aria-label="115 網盤的項目"><button data-act="sub" data-sub="acct" role="tab" aria-selected="false">帳號</button><button data-act="sub" data-sub="sync" role="tab" aria-selected="false">同步</button><button data-act="sub" data-sub="offline" role="tab" aria-selected="false">離線下載</button><button data-act="sub" data-sub="organize" role="tab" aria-selected="false">整理 115 網盤</button><button data-act="sub" data-sub="recycle" role="tab" aria-selected="false">回收站</button></div>
       <div class="card" data-sub="acct" role="tabpanel">
         <div class="card-h"><div class="t"><svg class="i"><use href="#i-cloud"/></svg><h2>帳號</h2></div>
           <div class="row"><button class="btn sm ghost" onclick="load115(true)"><svg class="i"><use href="#i-refresh"/></svg>重新整理</button></div></div>
@@ -531,6 +532,23 @@ dialog .card-b{max-height:70vh;overflow:auto}
             <button class="btn primary" id="ogAll" onclick="organizeAll()">全部整理</button>
             <button class="btn" id="ogPreview" onclick="organizePreview()">預覽選取的</button><button class="btn danger solid" id="ogRun" onclick="organizeExecute()" disabled>執行</button></div>
         </div>
+      </div>
+
+      <div class="card" id="olCard" data-sub="offline" role="tabpanel">
+        <div class="card-h"><div class="t"><svg class="i"><use href="#i-download"/></svg><h2>離線下載</h2></div><span class="hint" id="olQuota"></span></div>
+        <div class="card-b stack">
+          <p class="hint">把磁力、ed2k、http 連結交給 115 下載到網盤（115 的「雲下載」），不經過這台機器。存到同步目錄裡的，下載完下一次增量同步就會產生 strm；存到其他地方的，可以到「瀏覽 115」整理。 <a class="doc" href="https://github.com/MiCat-S/Mi302/wiki/115-網盤與同步#離線下載" target="_blank" rel="noopener">說明</a></p>
+          <label class="field"><span>連結</span><textarea id="olUrls" rows="4" placeholder="一行一個：magnet:?xt=urn:btih:…、ed2k://|file|…|/、https://…"></textarea></label>
+          <div class="row wrap gap6"><span class="hint">存到</span><input id="olFolder" type="text" class="grow" placeholder="空白 = 115 預設的「雲下載」資料夾" aria-label="存到的 115 資料夾">
+            <button class="btn sm" onclick="olPick()">選擇…</button><button class="btn primary" id="olAdd" onclick="olAdd()">加入下載</button></div>
+          <p id="olMsg" class="notice hidden" aria-live="polite"></p>
+        </div>
+      </div>
+      <div class="card" data-sub="offline" role="tabpanel">
+        <div class="card-h"><div class="t"><h2>下載任務</h2></div>
+          <div class="row wrap gap6"><button class="btn sm ghost" onclick="loadOffline()"><svg class="i"><use href="#i-refresh"/></svg>重新整理</button>
+            <button class="btn sm" onclick="olClear('done')">清除已完成</button><button class="btn sm" onclick="olClear('failed')">清除失敗的</button></div></div>
+        <div class="card-b"><div id="olList" class="list"><p class="hint">讀取中…</p></div></div>
       </div>
 
       <div class="card" data-sub="recycle" role="tabpanel">
@@ -1049,7 +1067,8 @@ const PAGES = {overview: () => loadOverview(), libraries: () => loadLibs(), '115
 // 頁內分頁：頁面上方一排按鈕（data-sub），一次只顯示那一組卡片；網址是 #頁/分頁，沒指定就回到上次看的那個。
 // 值是切到那個分頁時要讀的資料（null = 頁面本身讀過了）
 const SUBS = {
-  '115': {acct: null, sync: null, organize: () => organizeLoad(1), recycle: () => loadRecycle(0)},
+  '115': {acct: null, sync: null, offline: () => { if (!$('olFolder').value) $('olFolder').value = localGet('mi302-ol-folder'); loadOffline(1); },
+    organize: () => organizeLoad(1), recycle: () => loadRecycle(0)},
   tools: {mi: () => { restoreMiPrefs(); pollMI(); }, intro: () => pollIntro(), dup: () => loadDupes()},
   moviepilot: {conn: null, scrape: null, fill: () => { restoreSeriesLimit(); loadSeries(1); }, emby: () => loadKeys()},
   settings: {general: null, strm: null, zh: () => pollPeople(), backup: () => loadBackups(), about: null},
@@ -2711,6 +2730,70 @@ function organizeSent() {
   organizeButtons();
 }
 
+// ---- 離線下載（115 雲下載）----
+let ol = {page: 1};
+const OL_STATE = {done: ['ok', '完成'], downloading: ['accent', '下載中'], waiting: ['', '等待中'], failed: ['bad', '失敗']};
+async function loadOffline(page) {
+  // 下載中、等待中的每 5 秒更新一次（只在這個分頁開著的時候）
+  cancel('ol');
+  ol.page = page || ol.page;
+  const box = $('olList');
+  let r;
+  try { r = await api(`/web/api/115/offline?page=${ol.page}`); } catch (e) { box.innerHTML = failHtml(e); return; }
+  const q = r.quota || {};
+  $('olQuota').textContent = q.left != null ? `這個月還能加 ${q.left} 個${q.total ? ` / ${q.total}` : ''}` : '';
+  box.innerHTML = r.tasks.length ? '' : '<p class="hint">沒有下載任務。</p>';
+  for (const t of r.tasks) {
+    const [cls, label] = OL_STATE[t.state] || ['', t.state], d = document.createElement('div');
+    d.className = 'li top';
+    d.innerHTML = `<div class="main"><b class="brk">${esc(t.name || t.url)}</b>
+      <div class="sub">${[t.size ? fmtSize(t.size) : '', t.added ? '加入於 ' + fmtTime(t.added) : ''].filter(Boolean).join('・')}</div>
+      ${t.state === 'downloading' ? `<div class="meter mt6"><div style="width:${t.percent}%"></div></div>` : ''}</div>
+      <span class="pill ${cls}">${label}${t.state === 'downloading' ? ` ${t.percent}%` : ''}</span>
+      <div class="stack gap6">${t.state === 'done' && t.folder_id ? `<button class="btn sm" data-act="olOpen" data-cid="${esc(t.folder_id)}">打開資料夾</button>` : ''}
+      <button class="btn sm ghost danger" data-act="olDel" data-hash="${esc(t.hash)}" data-name="${esc(t.name || t.url)}">刪除…</button></div>`;
+    box.appendChild(d);
+  }
+  pager(box, {page: r.page, pages: r.pages, onPage: p => loadOffline(p), total: r.total, unit: '個'});
+  if (r.tasks.some(t => t.state === 'downloading' || t.state === 'waiting') && !$('olCard').classList.contains('hidden')) later('ol', () => loadOffline(), 5000);
+}
+async function olPick() {
+  const v = await pickDir('115', $('olFolder').value || '/');
+  if (v) $('olFolder').value = v;
+}
+async function olAdd() {
+  const urls = $('olUrls').value.trim(), folder = $('olFolder').value.trim();
+  if (!urls) { note($('olMsg'), '先貼上連結', 'warn'); return; }
+  $('olAdd').disabled = true;
+  let r;
+  try { r = await api('/web/api/115/offline', {method: 'POST', body: JSON.stringify({urls, folder})}); }
+  catch (e) { note($('olMsg'), e.message, 'bad'); $('olAdd').disabled = false; return; }
+  $('olAdd').disabled = false;
+  try { localStorage.setItem('mi302-ol-folder', folder); } catch (e) {}
+  const failed = r.results.filter(x => !x.ok);
+  note($('olMsg'), `加了 ${r.added} 個下載任務，存到 ${r.folder || '115 預設的「雲下載」資料夾'}`
+    + (failed.length ? `；${failed.length} 個沒加：${failed.slice(0, 3).map(x => `${x.name || x.url.slice(0, 60)}（${x.message}）`).join('、')}` : '')
+    + (r.rejected.length ? `；${r.rejected.length} 行看不懂，沒送` : ''), failed.length || r.rejected.length ? 'warn' : 'ok');
+  if (r.added && !failed.length) $('olUrls').value = '';
+  loadOffline(1);
+}
+ACTS.olDel = async el => {
+  // 只刪任務紀錄；要連 115 上下載好的檔案一起刪，要打字確認
+  const v = await ask({title: `刪除「${el.dataset.name}」這個下載任務？`,
+    text: '只刪任務紀錄，下載好的檔案留在 115。要連檔案一起刪，在下面輸入「刪檔案」。', input: 'text', ok: '刪除', danger: true});
+  if (v === null) return;
+  const files = v.trim() === '刪檔案';
+  try { await api('/web/api/115/offline/delete', {method: 'POST', body: JSON.stringify({hashes: [el.dataset.hash], files})}); }
+  catch (e) { toast(e.message, 'bad'); return; }
+  toast(files ? '已刪除任務和下載好的檔案' : '已刪除任務'); loadOffline();
+};
+ACTS.olOpen = el => { b115.want = el.dataset.cid; location.hash = '#browse'; };
+async function olClear(what) {
+  try { await api('/web/api/115/offline/clear', {method: 'POST', body: JSON.stringify({what})}); }
+  catch (e) { toast(e.message, 'bad'); return; }
+  toast(what === 'done' ? '已清除完成的任務（檔案還在）' : '已清除失敗的任務'); loadOffline(1);
+}
+
 // ---- 115 回收站 ----
 let rb = {offset: 0, count: 0, via: ''};
 const RB_PAGE = 50;
@@ -2756,7 +2839,8 @@ async function cleanRecycle() {
 let b115 = {cid: null, path: '', seq: 0, added: new Set()};  // added：加進「整理 115 網盤」的資料夾 id（字串）
 async function openBrowse() {
   // 第一次打開從同步目錄開始；之後回到上次看的資料夾。順便讀已經加進整理的資料夾和整理進度
-  if (!b115.path) browse115Start(); else b115Open(b115.cid, b115.path);
+  if (b115.want) { const cid = b115.want; b115.want = null; b115Open(cid, ''); }  // 離線下載的「打開資料夾」
+  else if (!b115.path) browse115Start(); else b115Open(b115.cid, b115.path);
   try {
     const r = await api('/web/api/115/organize?limit=1');
     b115.added = new Set(r.pinned.map(u => u.id.slice(1)));

@@ -21,6 +21,7 @@ from .db import Database
 from .dupes import DupeFinder
 from .intro import IntroLearner
 from .moviepilot import MoviePilot, library_series
+from .offline115 import OfflineDownloads
 from .organize115 import Organizer
 from .reorganize import Reorganizer
 from .p115 import P115Service
@@ -176,6 +177,7 @@ def create_app(config: Config, db_path: Optional[str] = None, scan_on_start: boo
         port=config.server.port,
     )
     app.state.dupes = DupeFinder(db, app.state.p115, app.state.strm_sync, scanner)  # 115 上的重複檔案
+    app.state.offline = OfflineDownloads(app.state.p115)  # 115 雲下載（離線下載）
     app.state.reorganizer = Reorganizer(db, app.state.strm_sync, app.state.moviepilot, scanner)  # 集號不對的劇：整理或刪除
     # 整理 115 網盤：命名不照 MoviePilot 格式的資料夾整個交給它整理
     app.state.organizer = Organizer(db, app.state.strm_sync, app.state.moviepilot, app.state.reorganizer, scanner)
