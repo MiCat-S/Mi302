@@ -318,6 +318,29 @@ class Reorganizer:
         finally:
             self._lock.release()
 
+    # ---- 給全部整理用：整批拿著同一把鎖，一個一個照預覽做，最後同步一次 ----
+
+    def hold(self) -> bool:
+        return self._lock.acquire(blocking=False)
+
+    def release(self) -> None:
+        self._lock.release()
+
+    def take_preview(self, token: str) -> dict:
+        return self._previews.pop(token)
+
+    def run_plan(self, pv: dict, cleanup: List[dict], job: ReorgJob) -> None:
+        """照一個預覽做：每一批交給 MoviePilot，再把搬空的舊資料夾移到回收站（呼叫的人要拿著鎖）。"""
+        for batch in pv["batches"]:
+            self._run_items(pv, batch, job)
+        if cleanup:
+            self._remove_empty_folders(cleanup, job)
+
+    def sync_later(self) -> str:
+        """等 115 記下這次的移動、改名，再跑增量同步；回傳 started／busy。"""
+        time.sleep(self.sync_delay)
+        return "started" if self.strm_sync.run_in_background(INCREMENTAL) else "busy"
+
     def remember_preview(self, token: str, payload: dict) -> None:
         """別的地方（整理 115 網盤）做好的預覽，交給這裡照它執行。"""
         now = time.time()

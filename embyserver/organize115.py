@@ -47,7 +47,7 @@ from .db import Database
 from .filetypes import VIDEO_EXTS
 from .moviepilot import MoviePilot, MoviePilotError
 from .p115 import P115Error
-from .reorganize import episode_template
+from .reorganize import ReorgJob, episode_template
 from .strm_sync import remote_root, task_key
 
 log = logging.getLogger(__name__)
@@ -58,6 +58,8 @@ PREVIEW_TIMEOUT = 600
 SAMPLES = 2  # 一部劇挑幾支影片問 MoviePilot 檔名
 MAX_WORKERS = 4  # 同時問 MoviePilot 幾個
 MAX_PINNED = 20  # 從瀏覽 115 加進來的資料夾最多留幾個
+BATCH_RESULTS = 2000  # 全部整理最多記幾個跳過、失敗的
+BATCH_GIVE_UP = 5  # 全部整理時連續幾個預覽出錯（MoviePilot、115 連不上）就停下
 RECOMMEND_FILES = 50  # 請 MoviePilot 推薦集數定位時最多給幾個檔名
 
 
@@ -390,6 +392,37 @@ class CheckJob:
         return asdict(self)
 
 
+@dataclass
+class BatchJob:
+    """全部整理：一個一個預覽，沒問題的直接整理，有問題的跳過記下來。"""
+
+    running: bool = False
+    started: float = 0.0
+    finished: float = 0.0
+    total: int = 0  # 這次要處理的資料夾
+    done: int = 0  # 處理過的（不管結果）
+    organized: int = 0  # 整理了的資料夾
+    files: int = 0  # MoviePilot 整理好的檔案
+    queued: int = 0  # 放進它背景佇列的檔案（結果在它的整理記錄）
+    nothing: int = 0  # 預覽後沒有要整理的（都已經照格式命名，或都不送）
+    skipped: int = 0  # 有問題跳過的，要人看
+    failed: int = 0  # 執行時有檔案失敗的資料夾
+    current: str = ""
+    stopping: bool = False
+    stopped: bool = False
+    synced: str = ""  # 之後的增量同步：started / busy
+    error: str = ""
+    target: str = ""
+    results: List[dict] = field(default_factory=list)  # 跳過、失敗的：id、name、path、kind（skipped／failed）、why
+
+    def as_dict(self, results: bool = True) -> dict:
+        d = asdict(self)
+        if not results:
+            d["results"] = []
+        d["result_count"] = len(self.results)
+        return d
+
+
 class Organizer:
     def __init__(self, db: Database, strm_sync, moviepilot: MoviePilot, reorganizer, scanner=None):
         self.db = db
@@ -399,6 +432,7 @@ class Organizer:
         self.scanner = scanner
         self._stamp: tuple = ()  # 上次算清單時媒體庫掃描、115 同步完成的時間；變了就重算
         self.job = CheckJob()
+        self.batch = BatchJob()
         self._lock = threading.Lock()  # 同時只跑一個檢查
         self._units: Dict[str, Unit] = {}
         self._order: List[str] = []
@@ -587,11 +621,8 @@ class Organizer:
 
     # ---- 清單 ----
 
-    def list(self, q: str = "", kind: str = "", offset: int = 0, limit: int = 50) -> dict:
-        units = self.units()
-        found = [u for u in units if u.listed]
-        counts = {"series": sum(1 for u in found if u.kind == "series"), "movie": sum(1 for u in found if u.kind != "series"),
-                  "episodes": sum(1 for u in found if u.ep_guessed or u.ep_unknown)}
+    def _matching(self, units: List[Unit], q: str, kind: str) -> List[Unit]:
+        """清單上看得到的（要整理的），照搜尋和種類篩選；不含瀏覽 115 釘上來的。"""
         text = q.strip().casefold()
 
         def wanted(u: Unit) -> bool:
@@ -601,9 +632,16 @@ class Organizer:
                 return False
             return not text or text in u.name.casefold() or text in (u.title or "").casefold() or text in u.path.casefold()
 
-        shown = [u for u in found if wanted(u) and u.id not in self._pinned]
+        return [u for u in units if u.listed and wanted(u) and u.id not in self._pinned]
+
+    def list(self, q: str = "", kind: str = "", offset: int = 0, limit: int = 50) -> dict:
+        units = self.units()
+        found = [u for u in units if u.listed]
+        counts = {"series": sum(1 for u in found if u.kind == "series"), "movie": sum(1 for u in found if u.kind != "series"),
+                  "episodes": sum(1 for u in found if u.ep_guessed or u.ep_unknown)}
+        shown = self._matching(units, q, kind)
         return {
-            "job": self.job.as_dict(), "total": len(shown), "folders": len(units),
+            "job": self.job.as_dict(), "batch": self.batch.as_dict(results=False), "total": len(shown), "folders": len(units),
             "unchecked": sum(1 for u in units if not u.checked), "counts": counts,
             "pinned": [u.view() for u in self._pinned.values()],
             "items": [u.view() for u in shown[offset:offset + limit]],
@@ -667,7 +705,11 @@ class Organizer:
                 scrape: bool = False) -> dict:
         """請 MoviePilot 只算不做，一個部分一次。overrides：{部分: {type, tmdbid, season, format}}，沒給的讓它自己認。
         target：auto（照 MoviePilot 的目錄設定，預設）、parent（同一層）、path（target_path）。"""
-        unit = self.unit(unit_id)
+        return self._preview(self.unit(unit_id), overrides, target, target_path, scrape)
+
+    def _preview(self, unit: Unit, overrides: Dict[str, dict], target: str, target_path: str, scrape: bool) -> dict:
+        """preview 的本體（全部整理直接拿 Unit 呼叫，中途清單更新也不影響）。回傳的 review 是要人看一下的原因：
+        有檔案 MoviePilot 不會整理、有要看一下的、認成的季和媒體庫不一樣、查不到整理紀錄或目標資料夾；全部整理時跳過這些。"""
         try:
             self.mp.check_transfer_preview()  # 舊版 MoviePilot 會把預覽當成真的整理
         except MoviePilotError as exc:
@@ -679,6 +721,7 @@ class Organizer:
         items: List[dict] = []
         batches: List[dict] = []
         notes: List[str] = [tgt.note] if tgt.note else []
+        review: List[str] = []
         parts: List[dict] = []
         listings: Dict[str, List[dict]] = {}
         for part in unit.parts:
@@ -697,13 +740,14 @@ class Organizer:
                 raise OrganizeError(f"MoviePilot 預覽失敗：{exc}")
             views = [_view(r, part, roots, tgt.overwrite) for r in results]
             _mark_duplicates(views)
-            self._mark_existing(views, part, tgt.overwrite, listings, notes)
+            self._mark_existing(views, part, tgt.overwrite, listings, notes, review)
             recognized = _recognized(views)
             if part.lib_season is not None and o["season"] is None:
                 for r in recognized:
                     if r["season"] is not None and r["season"] != part.lib_season and r["type"] != "电影":
                         notes.append(f"「{part.label}」MoviePilot 認成第 {r['season']} 季，媒體庫裡是第 {part.lib_season} 季；"
                                      "不對的話在這一部分指定季，再預覽一次")
+                        review.append(f"「{part.label}」MoviePilot 認成第 {r['season']} 季，媒體庫裡是第 {part.lib_season} 季")
             skipped = Counter(v["skip"] for v in views if v["skip"])
             if skipped:
                 notes.append(f"「{part.label}」" + "、".join(f"{n} 個{SKIP_LABELS[k]}" for k, n in skipped.items()) + "，這些不送")
@@ -725,6 +769,7 @@ class Organizer:
                 except MoviePilotError as exc:
                     history = 0
                     notes.append(f"「{part.label}」查不到 MoviePilot 的整理紀錄（{exc}），整理過的可能會被它跳過")
+                    review.append(f"「{part.label}」查不到 MoviePilot 的整理紀錄")
                 if history:
                     notes.append(f"「{part.label}」MoviePilot 有 {history} 條成功整理的紀錄，執行時會和它的網頁一樣重新整理："
                                  "清掉舊紀錄；舊紀錄是複製、連結整理的，舊的目標檔案也會刪掉")
@@ -733,16 +778,11 @@ class Organizer:
                                 "count": ok, "label": part.label, "local": part.local, "reorganize": bool(history)})
         folders = sorted({posixpath.dirname(v["target"]) for v in items if v["ok"] and v["target"]})
         token = self._remember(unit, batches, tgt, scrape) if batches else None
-        return {
-            "token": token, "items": items, "notes": notes, "folders": folders, "parts": parts, "target": target,
-            "summary": {"total": len(items), "ok": sum(1 for i in items if i["ok"]),
-                        "failed": sum(1 for i in items if not i["ok"] and not i["skip"]),
-                        "skipped": sum(1 for i in items if i["skip"]),
-                        "warnings": sum(1 for i in items if i["ok"] and i["warnings"])},
-        }
+        return {"token": token, "items": items, "notes": notes, "folders": folders, "parts": parts, "target": target,
+                "summary": _summary(items, review), "review": review}
 
     def _mark_existing(self, views: List[dict], part: Part, overwrite: str, listings: Dict[str, List[dict]],
-                       notes: List[str]) -> None:
+                       notes: List[str], review: List[str]) -> None:
         """MoviePilot 預覽不看目標是不是已經有同名檔案，真的整理時才發現：覆蓋模式「不覆蓋」（或沒設）時失敗
         「媒体库存在同名文件」；之前失敗過的，它還會照上次的計畫在背景重試。所以到 115 上看目標資料夾：
         有同名檔案、不會覆蓋的不送（多半是 115 加了「(1)」的重複檔案），附上兩邊的大小和這支的 id，
@@ -758,6 +798,7 @@ class Organizer:
             except P115Error as exc:
                 if "找不到目錄" not in str(exc):  # 還沒有這個資料夾：當然沒有同名檔案
                     notes.append(f"看不到 {folder} 裡有沒有同名的檔案（{exc}），整理時已經有的可能會失敗")
+                    review.append(f"看不到 {folder} 裡有沒有同名的檔案")
                 continue
             for v in vs:
                 there = existing.get(posixpath.basename(v["target"]))
@@ -828,6 +869,90 @@ class Organizer:
         token = hashlib.sha1(json.dumps(payload, sort_keys=True, default=str).encode()).hexdigest()[:16]
         self.reorg.remember_preview(token, payload)
         return token
+
+    # ---- 全部整理 ----
+
+    def organize_all(self, q: str, kind: str, target: str, target_path: str, cleanup: bool) -> dict:
+        """清單上符合搜尋、種類的（加上瀏覽 115 釘上來的）全部整理：在背景一個一個請 MoviePilot 預覽，沒問題的直接照預覽
+        整理，有問題的（見 _preview 的 review）跳過記下來；最後同步一次。和單獨整理共用一把鎖，同時只有一批在動 115。"""
+        if self.batch.running:
+            raise OrganizeError("已經在全部整理了")
+        units = list(self._pinned.values()) + self._matching(self.units(), q, kind)
+        if not units:
+            raise OrganizeError("清單上沒有要整理的")
+        if target == "path" and _dir_path(target_path) == "/":
+            raise OrganizeError("請填要整理到哪個 115 資料夾")
+        if not self.reorg.hold():
+            raise OrganizeError("已經有一批在整理或刪除，等它完成再開始")
+        self.batch = BatchJob(running=True, started=time.time(), total=len(units), target=target or "auto")
+        threading.Thread(target=self._organize_all, args=(units, target or "auto", target_path, cleanup), daemon=True).start()
+        return self.batch.as_dict(results=False)
+
+    def stop_all(self) -> dict:
+        """做完手上這一個就停。"""
+        if self.batch.running:
+            self.batch.stopping = True
+        return self.batch.as_dict(results=False)
+
+    def _organize_all(self, units: List[Unit], target: str, target_path: str, cleanup: bool) -> None:
+        job = self.batch
+        errors = 0  # 連續出錯的預覽
+        try:
+            for u in units:
+                if job.stopping:
+                    job.stopped = True
+                    break
+                job.current = u.name
+                errors = 0 if self._organize_one(u, target, target_path, cleanup, job) else errors + 1
+                job.done += 1
+                if errors >= BATCH_GIVE_UP:
+                    job.error = f"連續 {errors} 個預覽出錯，先停下：{job.results[-1]['why']}"
+                    break
+            log.info("全部整理：%s 個資料夾，整理了 %s 個（%s 個檔案），跳過 %s 個，失敗 %s 個",
+                     job.done, job.organized, job.files, job.skipped, job.failed)
+            if job.files:
+                job.current = f"等 115 記下變動，{int(self.reorg.sync_delay)} 秒後同步"
+                job.synced = self.reorg.sync_later()
+        except Exception as exc:  # 背景執行緒：記下來，不讓網頁一直顯示「整理中」
+            job.error = f"{type(exc).__name__}: {exc}"
+            log.exception("全部整理時發生錯誤")
+        finally:
+            job.current = ""
+            job.running = False
+            job.finished = time.time()
+            self._units_at = 0  # 清單重新算
+            self.reorg.release()
+
+    def _organize_one(self, u: Unit, target: str, target_path: str, cleanup: bool, job: BatchJob) -> bool:
+        """預覽一個，沒問題就整理。預覽出錯（連不上、目錄設定對不上…）回傳 False，其他 True。"""
+        def record(kind: str, why: str) -> None:
+            setattr(job, kind, getattr(job, kind) + 1)
+            if len(job.results) < BATCH_RESULTS:
+                job.results.append({"id": u.id, "name": u.name, "path": u.path, "kind": kind, "why": why})
+
+        try:
+            pv = self._preview(u, {}, target, target_path, scrape=False)
+        except OrganizeError as exc:
+            record("skipped", str(exc))
+            return False
+        if pv["review"]:
+            record("skipped", "；".join(pv["review"]))
+            return True
+        if not pv["token"]:
+            job.nothing += 1
+            return True
+        plan = self.reorg.take_preview(pv["token"])
+        run = ReorgJob()
+        folders = [{"cid": int(c["cid"]), "path": c["path"]} for c in u.cleanup_folders()] if cleanup else []
+        self.reorg.run_plan(plan, folders, run)
+        job.files += run.done
+        job.queued += run.queued
+        if run.done or run.queued:
+            job.organized += 1
+        if run.failed or run.errors:
+            bad = next((i for i in run.items if i["state"] not in ("completed", "accepted", "retry_wait", "kept", "removed")), None)
+            record("failed", run.errors[0] if run.errors else f"{bad['name']}：{bad['message'] or bad['state']}" if bad else "有檔案整理失敗")
+        return True
 
     # ---- 集數定位 ----
 
@@ -924,6 +1049,18 @@ def _view(r: dict, part: Part, roots: List[str], overwrite: str = "never") -> di
     return {"name": posixpath.basename(source.rstrip("/")), "source": source, "target": target, "episode": episode,
             "season": season, "title": str(r.get("title") or ""), "type": str(r.get("type") or ""), "ok": ok,
             "skip": skip, "message": message, "warnings": warnings, "part": part.label}
+
+
+def _summary(items: List[dict], review: List[str]) -> dict:
+    """預覽的統計；MoviePilot 不會整理的、要看一下的也寫進 review（要人看的原因）最前面。"""
+    failed = [i for i in items if not i["ok"] and not i["skip"]]
+    warned = [i for i in items if i["ok"] and i["warnings"]]
+    if failed:
+        review.insert(0, f"{len(failed)} 個 MoviePilot 不會整理（{failed[0]['message']}）")
+    if warned:
+        review.insert(0, f"{len(warned)} 個要看一下（{warned[0]['warnings'][0]}）")
+    return {"total": len(items), "ok": sum(1 for i in items if i["ok"]), "failed": len(failed),
+            "skipped": sum(1 for i in items if i["skip"]), "warnings": len(warned)}
 
 
 def _recognized(views: List[dict]) -> List[dict]:

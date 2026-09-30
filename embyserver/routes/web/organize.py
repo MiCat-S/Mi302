@@ -1,4 +1,4 @@
-"""整理 115 網盤：清單、問 MoviePilot 檢查、預覽、執行、集數定位推薦、瀏覽 115 裡挑的資料夾、刪除、整理工作的進度。"""
+"""整理 115 網盤：清單、問 MoviePilot 檢查、預覽、執行、全部整理、集數定位推薦、瀏覽 115 裡挑的資料夾、刪除、整理工作的進度。"""
 
 from __future__ import annotations
 
@@ -36,9 +36,35 @@ def organize_list(request: Request, ctx: AuthContext = Depends(require_admin)):
 
 @router.get("/web/api/115/organize/job")
 def organize_job(request: Request, ctx: AuthContext = Depends(require_admin)):
-    """目前（或上一次）的整理工作。"""
+    """目前（或上一次）的整理工作，和全部整理的進度（不含跳過、失敗的明細，明細看 GET /web/api/115/organize/all）。"""
     st = state(request)
-    return {"job": st.reorganizer.job.as_dict(), "ready": st.reorganizer.ready()}
+    return {"job": st.reorganizer.job.as_dict(), "batch": st.organizer.batch.as_dict(results=False),
+            "ready": st.reorganizer.ready()}
+
+
+@router.get("/web/api/115/organize/all")
+def organize_all_status(request: Request, ctx: AuthContext = Depends(require_admin)):
+    """全部整理的進度，和跳過、失敗的每一個（名稱、路徑、原因）。"""
+    return state(request).organizer.batch.as_dict()
+
+
+@router.post("/web/api/115/organize/all")
+async def organize_all(request: Request, ctx: AuthContext = Depends(require_admin)):
+    """全部整理：{q, kind（清單上的搜尋、種類）, target, target_path, cleanup}。清單上符合的（加上瀏覽 115 釘上來的）
+    在背景一個一個預覽，沒問題的直接整理，有問題的跳過記下來；進度看 GET /web/api/115/organize/job。"""
+    st = state(request)
+    body = await json_body(request)
+    if not st.reorganizer.ready()["login"]:
+        raise HTTPException(status_code=400, detail=LOGIN_NEEDED)
+    return {"batch": await run_in_threadpool(
+        _run, st.organizer.organize_all, str(body.get("q") or ""), str(body.get("kind") or ""), str(body.get("target") or ""),
+        str(body.get("target_path") or ""), bool(body.get("cleanup", True)))}
+
+
+@router.post("/web/api/115/organize/all/stop")
+def organize_all_stop(request: Request, ctx: AuthContext = Depends(require_admin)):
+    """全部整理做完手上這一個就停。"""
+    return {"batch": state(request).organizer.stop_all()}
 
 
 @router.post("/web/api/115/organize/check")

@@ -225,7 +225,7 @@ dialog.wide{width:min(720px,calc(100vw - 32px))}
 .lg.ERROR,.lg.CRITICAL{background:var(--danger-soft)}.lg.ERROR .lv,.lg.CRITICAL .lv{color:var(--danger)}
 .lg.DEBUG .m{color:var(--muted)}
 .ogacts{flex:0 0 auto;display:flex;flex-direction:column;gap:6px}.ogacts .btn{justify-content:center}  /* 整理每一列右邊：預覽、整理、刪除，直排不佔寬度 */
-.savebar.wrap{flex-wrap:wrap}#ogSel{flex:1 1 240px}  /* 窄螢幕上說明自己一行，按鈕排在下面 */
+.savebar.wrap{flex-wrap:wrap}#ogSel,#ogBatchBar{flex:1 1 240px}#ogBatchBar .meter{margin-bottom:6px}  /* 窄螢幕上說明自己一行，按鈕排在下面 */
 .savebar{position:sticky;bottom:16px;display:flex;gap:10px;align-items:center;justify-content:flex-end;padding:10px 12px;background:var(--panel);border:1px solid var(--line);border-radius:var(--r);box-shadow:0 6px 20px rgba(16,24,40,.12);margin-top:8px}
 
 /* 登入 */
@@ -504,6 +504,7 @@ dialog .card-b{max-height:70vh;overflow:auto}
         <div class="card-b stack">
           <p class="hint">問 MoviePilot 媒體庫裡每一部劇、每一部電影該叫什麼，和它給的名稱不一樣的、集號不對的列出來，整個資料夾交給它整理（影片、字幕一起搬），先預覽再執行；不要的直接刪。辨識、命名都是 MoviePilot 做的。 <a class="doc" href="https://github.com/MiCat-S/Mi302/wiki/115-網盤與同步#整理-115-網盤" target="_blank" rel="noopener">說明</a></p>
           <div id="ogJob"></div>
+          <div id="ogBatch"></div>
           <p id="ogMsg" class="notice hidden" aria-live="polite"></p>
           <div id="ogProgress" aria-live="polite"></div>
           <div id="ogHead" class="stack hidden">
@@ -517,8 +518,10 @@ dialog .card-b{max-height:70vh;overflow:auto}
           </div>
           <div id="ogPinned" class="list"></div>
           <div id="ogList" class="list"></div>
-          <div id="ogBar" class="savebar wrap hidden"><span class="hint grow" id="ogSel" aria-live="polite">每一列右邊可以單獨預覽、整理；要一次做好幾個就勾選</span>
-            <button class="btn sm" onclick="organizeToggleAll()">全選這一頁</button>
+          <div id="ogBar" class="savebar wrap hidden"><div id="ogBatchBar" class="hidden" aria-live="polite"></div>
+            <span class="hint grow" id="ogSel" aria-live="polite">「全部整理」一次做完清單上的，有問題的跳過；也可以在每一列右邊單獨整理，或勾選幾個</span>
+            <button class="btn sm danger hidden" id="ogStop" onclick="organizeStopAll()">停止</button>
+            <button class="btn primary" id="ogAll" onclick="organizeAll()">全部整理</button>
             <button class="btn" id="ogPreview" onclick="organizePreview()">預覽選取的</button><button class="btn danger solid" id="ogRun" onclick="organizeExecute()" disabled>執行</button></div>
         </div>
       </div>
@@ -2418,7 +2421,11 @@ async function organizeLoad(page, quiet) {
   try { r = await api(`/web/api/115/organize?q=${encodeURIComponent($('ogQ').value)}&kind=${$('ogKind').value}&offset=${(og.page - 1) * OG_PAGE}&limit=${OG_PAGE}`); }
   catch (e) { if (seq === og.seq) box.innerHTML = failHtml(e); return; }
   if (seq !== og.seq) return;
-  og.ready = r.ready; og.items = r.items; og.pinned = r.pinned; S.reo = r.reorg_job;
+  og.ready = r.ready; og.items = r.items; og.pinned = r.pinned; og.total = r.total; S.reo = r.reorg_job;
+  if (!og.batch?.running || r.batch.running) og.batch = r.batch;
+  organizeBatchShow();
+  if (r.batch.running) pollBatch();
+  else if (r.batch.result_count && og.batchResults === undefined) organizeBatchResults().then(organizeBatchShow);  // 上次全部整理跳過的
   note($('ogMsg'), organizeLack(), 'warn');
   organizeTargetUi();
   organizeProgress(r);
@@ -2546,11 +2553,83 @@ function organizeShow(st) {
     `<details class="more mt6"><summary>看每個檔案的新位置（${r.items.length}）</summary><div class="in"><div class="list">${reoItemsHtml(r.items)}</div></div></details>`;
 }
 const organizeSelected = () => Object.values(og.state).filter(st => st.on && !st.sent);
+const OG_TARGET = {auto: '照 MoviePilot 的目錄設定', parent: '同一層'};
+async function organizeAll() {
+  // 清單上符合搜尋、種類的全部（不只這一頁），在 Mi302 背景一個一個做；有問題的跳過，做完列出來
+  const n = (og.total || 0) + (og.pinned?.length || 0), q = $('ogQ').value.trim(), clean = $('ogClean').checked;
+  if (!n) return;
+  const where = OG_TARGET[og.target] || og.targetPath || '指定的 115 資料夾';
+  if (!await ask({title: `全部整理 ${n} 個？`, text: `${q || $('ogKind').value ? '清單上符合目前搜尋、種類的，' : '清單上的，'}一個一個請 MoviePilot 預覽，沒問題的直接整理（整理到：${where}）。`
+    + '預覽有問題的跳過：MoviePilot 認不出來、有檔案它不會整理、有要看一下的提醒、認成的季和媒體庫不一樣、連不上目標資料夾；做完列出來給你處理。'
+    + '已經照格式命名的、目標已經有同名檔案的照樣不送。'
+    + (clean ? '整理完，沒有影片留下的舊資料夾移到 115 回收站。' : '')
+    + '在 Mi302 背景做，關掉網頁也會繼續，可以隨時停止；資料夾多的要很久（115 每秒只能處理幾個請求）。', ok: '開始', danger: true})) return;
+  try {
+    og.batch = (await api('/web/api/115/organize/all', {method: 'POST', body: JSON.stringify({
+      q: $('ogQ').value, kind: $('ogKind').value, target: og.target, target_path: og.targetPath, cleanup: clean})})).batch;
+  } catch (e) { toast(e.message, 'bad'); return; }
+  og.batchResults = null;
+  organizeBatchShow(); organizeButtons(); pollBatch();
+}
+async function organizeStopAll() {
+  try { og.batch = (await api('/web/api/115/organize/all/stop', {method: 'POST'})).batch; } catch (e) { toast(e.message, 'bad'); return; }
+  toast('做完手上這一個就停'); organizeBatchShow();
+}
+async function pollBatch() {
+  // 全部整理中：每兩秒看一次進度；做完拿跳過、失敗的明細，清單重新整理
+  cancel('ogall');
+  let r;
+  try { r = await api('/web/api/115/organize/job'); } catch (e) { later('ogall', pollBatch, 5000); return; }
+  const was = og.batch?.running;
+  og.batch = r.batch; S.reo = r.job;
+  if (og.batch.running) { organizeBatchShow(); organizeButtons(); later('ogall', pollBatch, 2000); return; }
+  if (was) {
+    const b = og.batch;
+    toast(b.error ? '全部整理停下來了：' + b.error : `全部整理${b.stopped ? '已停止' : '完成'}：整理了 ${b.organized} 個，跳過 ${b.skipped} 個${b.failed ? `，失敗 ${b.failed} 個` : ''}`, b.error || b.failed ? 'bad' : '');
+    organizeLoad(og.page, true);
+  }
+  await organizeBatchResults();
+  organizeBatchShow(); organizeButtons();
+}
+async function organizeBatchResults() {
+  if (!og.batch?.result_count) { og.batchResults = []; return; }
+  try { og.batchResults = (await api('/web/api/115/organize/all')).results; } catch (e) { og.batchResults = null; }
+}
+function organizeBatchShow() {
+  // 底部列：進度條和停止；卡片上方：上次全部整理的結果和跳過、失敗的明細
+  const b = og.batch, bar = $('ogBatchBar');
+  const running = !!b?.running;
+  bar.classList.toggle('hidden', !running); $('ogSel').classList.toggle('hidden', running); $('ogStop').classList.toggle('hidden', !running);
+  $('ogStop').disabled = !!b?.stopping;
+  if (running) {
+    const pct = b.total ? b.done / b.total * 100 : 0;
+    setHtml(bar, `<div class="meter"><div style="width:${pct.toFixed(1)}%"></div></div><div class="hint sp"><span><b>全部整理中 ${b.done} / ${b.total}</b></span>`
+      + `<span>整理了 ${b.organized} 個（${b.files} 個檔案）</span><span>跳過 ${b.skipped}</span>${b.failed ? `<span class="t-bad">失敗 ${b.failed}</span>` : ''}`
+      + `${b.stopping ? '<span>停止中…</span>' : b.current ? `<span class="brk">${esc(b.current)}</span>` : ''}</div>`);
+  }
+  if (!b?.started) { setHtml($('ogBatch'), ''); return; }
+  let h = `<div class="notice ${b.error || b.failed ? 'warn' : ''} stack"><div class="row wrap gap6"><b>${running ? '全部整理中' : b.stopped ? '全部整理已停止' : b.error ? '全部整理停下來了' : '全部整理完成'}</b>`
+    + `<span class="hint">${running ? '' : ago(b.finished) + '・'}${b.done} / ${b.total} 個</span></div>`
+    + `<div class="chips">${chip(b.organized, '整理了', true)}${chip(b.files, '個檔案')}${b.queued ? chip(b.queued, 'MoviePilot 背景處理') : ''}${chip(b.nothing, '不用整理')}${chip(b.skipped, '跳過')}${chip(b.failed, '失敗')}</div>`;
+  if (b.error) h += `<p class="t-bad">${esc(b.error)}</p>`;
+  if (!running && b.synced) h += `<p class="hint">${b.synced === 'started' ? '已經開始增量同步 115，本機的 strm 會跟著搬，再重新掃描。' : '115 同步正在進行，這次的變動會在下一次同步時帶到。'}</p>`;
+  const res = og.batchResults;
+  if (res?.length) h += `<details class="more"><summary>跳過、失敗的（${b.result_count}）：看原因，再一個一個處理</summary><div class="in list">${res.slice(0, 300).map(x =>
+    `<div class="li top"><div class="main"><b>${esc(x.name)}</b> <span class="pill ${x.kind === 'failed' ? 'bad' : 'warn'}">${x.kind === 'failed' ? '失敗' : '跳過'}</span>
+      <div class="sub brk">${esc(x.path)}</div><div class="sub">${esc(x.why)}</div></div>
+      <button class="btn sm" data-act="ogFind" data-name="${esc(x.name)}">在清單上找</button></div>`).join('')}${res.length > 300 ? `<p class="hint">還有 ${res.length - 300} 個沒列出來</p>` : ''}</div></details>`;
+  setHtml($('ogBatch'), h + '</div>');
+}
+ACTS.ogFind = el => { $('ogQ').value = el.dataset.name; organizeLoad(1); $('ogCard').scrollIntoView({block: 'start'}); };
 function organizeButtons() {
-  const sel = organizeSelected(), ready = sel.filter(st => st.preview?.token), running = !!S.reo?.running, lack = !!organizeLack();
+  const sel = organizeSelected(), ready = sel.filter(st => st.preview?.token), lack = !!organizeLack();
+  const running = !!S.reo?.running || !!og.batch?.running, all = (og.total || 0) + (og.pinned?.length || 0);
+  $('ogAll').disabled = !all || running || lack;
+  $('ogAll').textContent = `全部整理（${all} 個）`;
+  $('ogAll').title = '清單上符合搜尋、種類的全部（不只這一頁）：一個一個預覽，沒問題的直接整理，有問題的跳過';
   const busy = Object.values(og.state).some(st => st.busy);
   $('ogSel').textContent = sel.length ? `勾選了 ${sel.length} 個` + (ready.length ? `，${ready.length} 個預覽過可以執行` : '')
-    : '每一列右邊可以單獨預覽、整理；要一次做好幾個就勾選';
+    : '「全部整理」一次做完清單上的，有問題的跳過；也可以在每一列右邊單獨整理，或勾選幾個';
   $('ogPreview').disabled = !sel.length || lack || running || busy;
   $('ogRun').disabled = !ready.length || running || busy;
   $('ogRun').textContent = ready.length ? `執行（${ready.length} 個）` : '執行';
@@ -2562,11 +2641,6 @@ function organizeButtons() {
     run.textContent = st.preview?.token ? `整理（${st.preview.summary.ok}）` : '整理';
     run.title = st.preview?.token ? '照剛才的預覽整理' : st.preview ? '預覽後沒有可以整理的，看下面的說明' : '先預覽，確認後整理';
   }
-}
-function organizeToggleAll() {
-  const rows = [...og.pinned, ...og.items].map(u => og.state[u.id]).filter(st => st && !st.sent), all = rows.every(st => st.on);
-  for (const st of rows) { st.on = !all; const box = st.el?.querySelector('.js-on'); if (box) box.checked = !all; }
-  organizeButtons();
 }
 async function organizePreviewOne(st, count = '') {
   // 請 MoviePilot 預覽這一列；換頁、檢查中的自動重新整理都不中斷：結果記在 state，回到那一頁還看得到

@@ -685,3 +685,72 @@ def test_same_level_goes_above_a_folder_named_after_the_movie(tmp_path: Path):
     wait(lambda: not app.state.reorganizer.job.running)
     folders = {i["name"]: i["state"] for i in app.state.reorganizer.job.items if i["state"] in ("kept", "removed")}
     assert folders == {f"{holder}/画江湖之天罡 (2023) {{tmdbid=1221210}}": "removed", holder: "kept"}
+
+
+def run_all(app, c, h, **body):
+    r = c.post("/web/api/115/organize/all", json={"target": "parent", "cleanup": True, **body}, headers=h)
+    assert r.status_code == 200, r.text
+    wait(lambda: not app.state.organizer.batch.running)
+    return c.get("/web/api/115/organize/all", headers=h).json()
+
+
+def test_organize_all_skips_the_ones_that_need_a_look(tmp_path: Path):
+    """全部整理：清單上的一個一個預覽，沒問題的直接整理，有問題的跳過並寫原因；最後同步一次。"""
+    app, fake, mp, media, c, h = setup(tmp_path)
+    check(app, c, h)
+    mp.calls.clear()
+    b = run_all(app, c, h)
+    assert (b["total"], b["done"], b["organized"], b["files"], b["skipped"], b["failed"], b["error"], b["synced"]) == \
+        (7, 7, 3, 3, 4, 0, "", "started")
+    why = {x["id"]: x["why"] for x in b["results"]}
+    assert set(why) == {"d114", "d103", "d110", "f1"}
+    assert "不會整理（未识别到文件集数）" in why["d114"]  # 特别篇.mp4 認不出集號：整部劇跳過，不整理一半
+    assert "只會留一個" in why["d110"] and "認成第 2 季，媒體庫裡是第 1 季" in why["d110"]
+    ran = {posixpath.basename((b_.get("fileitem") or b_["fileitems"][0])["path"].rstrip("/"))
+           for b_ in sent_bodies(mp) if not b_["preview"]}
+    assert ran == {"康熙来了 EP01.mp4", "Up.2009.1080p.mkv", "星际穿越 Interstellar 2014 4K"}
+    # 進度（不含明細）也在清單和工作狀態裡
+    assert listing(c, h)["batch"]["result_count"] == 4
+    assert c.get("/web/api/115/organize/job", headers=h).json()["batch"]["results"] == []
+
+
+def test_organize_all_can_be_stopped_and_holds_the_lock(tmp_path: Path):
+    import threading
+
+    app, fake, mp, media, c, h = setup(tmp_path)
+    check(app, c, h)
+    unit = {u["id"]: u for u in listing(c, h)["items"]}["d111"]
+    token = preview(c, h, unit).json()["token"]
+    org, gate, started = app.state.organizer, threading.Event(), threading.Event()
+    real = org._organize_one
+
+    def slow(*a):
+        started.set()
+        gate.wait(5)
+        return real(*a)
+
+    org._organize_one = slow
+    assert c.post("/web/api/115/organize/all", json={"target": "parent"}, headers=h).status_code == 200
+    assert started.wait(5)
+    assert c.post("/web/api/115/organize/all", json={}, headers=h).status_code == 400  # 已經在全部整理
+    r = c.post(EXECUTE, json={"tokens": [token]}, headers=h)
+    assert r.status_code == 400 and "已經有一批" in r.text  # 同一把鎖：這時候不能單獨整理
+    assert c.post("/web/api/115/organize/all/stop", headers=h).json()["batch"]["stopping"]
+    gate.set()
+    wait(lambda: not org.batch.running)
+    assert org.batch.stopped and org.batch.done == 1
+    assert c.post(EXECUTE, json={"tokens": [token]}, headers=h).status_code == 200  # 停下來後鎖放開了
+
+
+def test_organize_all_gives_up_when_previews_keep_failing(tmp_path: Path):
+    from embyserver.organize115 import OrganizeError
+
+    app, fake, mp, media, c, h = setup(tmp_path)
+    check(app, c, h)
+
+    def down(*a, **k):
+        raise OrganizeError("MoviePilot 預覽失敗：連不上 mp.test")
+
+    app.state.organizer._preview = down
+    b = run_all(app, c, h)
+    assert b["done"] == 5 and b["skipped"] == 5 and "連續 5 個預覽出錯" in b["error"] and "連不上" in b["error"]
