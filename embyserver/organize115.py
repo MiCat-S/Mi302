@@ -671,7 +671,7 @@ class Organizer:
                 raise OrganizeError(f"MoviePilot 預覽失敗：{exc}")
             views = [_view(r, part, roots, tgt.overwrite) for r in results]
             _mark_duplicates(views)
-            self._mark_existing(views, tgt.overwrite, listings, notes)
+            self._mark_existing(views, part, tgt.overwrite, listings, notes)
             recognized = _recognized(views)
             if part.lib_season is not None and o["season"] is None:
                 for r in recognized:
@@ -715,10 +715,12 @@ class Organizer:
                         "warnings": sum(1 for i in items if i["ok"] and i["warnings"])},
         }
 
-    def _mark_existing(self, views: List[dict], overwrite: str, listings: Dict[str, List[dict]], notes: List[str]) -> None:
+    def _mark_existing(self, views: List[dict], part: Part, overwrite: str, listings: Dict[str, List[dict]],
+                       notes: List[str]) -> None:
         """MoviePilot 預覽不看目標是不是已經有同名檔案，真的整理時才發現：覆蓋模式「不覆蓋」（或沒設）時失敗
         「媒体库存在同名文件」；之前失敗過的，它還會照上次的計畫在背景重試。所以到 115 上看目標資料夾：
-        有同名檔案、不會覆蓋的不送（多半是 115 加了「(1)」的重複檔案），會覆蓋的提醒。"""
+        有同名檔案、不會覆蓋的不送（多半是 115 加了「(1)」的重複檔案），附上兩邊的大小和這支的 id，
+        網頁上可以直接「刪掉這支」；會覆蓋的提醒。"""
         folders: Dict[str, List[dict]] = {}
         for v in views:
             if v["ok"] and v["target"]:
@@ -726,20 +728,36 @@ class Organizer:
         for folder, vs in folders.items():
             try:
                 cid = self.p115.dir_id(folder)
-                names = {e["name"] for e in self._listing(folder, cid, listings) if not e["is_dir"]}
+                existing = {e["name"]: e for e in self._listing(folder, cid, listings) if not e["is_dir"]}
             except P115Error as exc:
                 if "找不到目錄" not in str(exc):  # 還沒有這個資料夾：當然沒有同名檔案
                     notes.append(f"看不到 {folder} 裡有沒有同名的檔案（{exc}），整理時已經有的可能會失敗")
                 continue
             for v in vs:
-                if posixpath.basename(v["target"]) not in names:
+                there = existing.get(posixpath.basename(v["target"]))
+                if not there:
                     continue
                 if overwrite in ("", "never"):
-                    v.update(ok=False, skip="exists", message="目標已經有同名的檔案，MoviePilot 不會整理（覆蓋模式是「不覆蓋」）。"
-                                                                "這支多半是重複的，確認後用「刪除…」刪掉就好")
+                    v.update(ok=False, skip="exists", exists_size=int(there.get("size") or 0),
+                             message="目標已經有同名的檔案，MoviePilot 不會整理（覆蓋模式是「不覆蓋」）。這支多半是重複的："
+                                     "比一下大小，確認後按「刪掉這支」移到 115 回收站")
+                    v.update(self._source_file(v["source"], part, listings))
                 else:
                     v["warnings"].append(f"目標已經有同名的檔案，MoviePilot 的覆蓋模式是「{OVERWRITE_NAMES.get(overwrite, overwrite)}」，"
                                          + ("會用這支蓋掉它" if overwrite == "always" else "會照這個模式留下其中一個"))
+
+    def _source_file(self, source: str, part: Part, listings: Dict[str, List[dict]]) -> dict:
+        """預覽裡一個來源檔案在 115 上的 id、所在資料夾 id 和大小（給網頁上「刪掉這支」）；找不到回空的。"""
+        folder = posixpath.dirname(source.rstrip("/"))
+        try:
+            cid = part.cid if folder == part.remote.rstrip("/") else self.p115.dir_id(folder)
+            entry = next((e for e in self._listing(folder, cid, listings)
+                          if not e["is_dir"] and e["name"] == posixpath.basename(source)), None)
+        except P115Error:
+            return {}
+        if not entry:
+            return {}
+        return {"file_id": str(entry["id"]), "parent_cid": str(cid), "size": int(entry.get("size") or 0)}
 
     def _fileitems(self, unit: Unit, part: Part, listings: Dict[str, List[dict]]) -> Tuple[List[dict], bool]:
         """這一部分要送給 MoviePilot 的項目：整個資料夾一個（single），直接放著的影片照 115 上的檔名一個一個。"""

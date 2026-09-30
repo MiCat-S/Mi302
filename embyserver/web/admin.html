@@ -2215,9 +2215,31 @@ function reoItemsHtml(items) {
     return `<div class="li top"><div class="main"><b>${esc(i.name)}</b>
       ${i.target && !i.skip ? `<div class="reo-to">→ ${esc(i.target)}</div>` : ''}
       <div class="sub">${esc([i.episode != null ? `第 ${i.episode} 集` : '', !i.ok ? i.message : ''].filter(Boolean).join('・'))}</div>
+      ${i.skip === 'exists' ? reoDupHtml(i) : ''}
       ${i.warnings.map(w => `<div class="sub t-warn">${esc(w)}</div>`).join('')}</div>${pills}</div>`;
   }).join('');
 }
+function reoDupHtml(i) {
+  // 目標已經有同名檔案：兩邊的大小，和只刪這一支的按鈕（id 是字串，數字會被四捨五入）
+  const same = i.size && i.size === i.exists_size;
+  return `<div class="sub">目標那一份 ${esc(fmtSize(i.exists_size || 0))}：${esc(i.target)}</div>
+    <div class="row wrap gap6 mt6"><span class="hint">這支 ${i.size ? esc(fmtSize(i.size)) : '大小不明'}${same ? '，一樣大' : i.size ? '，大小不一樣，確認一下再刪' : ''}</span>
+    ${i.file_id ? `<button class="btn sm ghost danger" data-act="ogDelDup" data-parent="${esc(i.parent_cid)}" data-id="${esc(i.file_id)}" data-name="${esc(i.name)}" data-target="${esc(i.target)}">刪掉這支</button>` : ''}</div>`;
+}
+ACTS.ogDelDup = async el => {
+  // 只刪預覽裡這一支（移到 115 回收站），目標那一份不動；刪完重新整理清單
+  const {parent, id, name, target} = el.dataset;
+  if (!await ask({title: `刪掉「${name}」？`, text: `移到 115 回收站（在 115 可以還原），本機的 strm 和媒體庫裡的跟著拿掉。已經在目標的那一份（${target}）不動。`,
+    ok: '刪掉', danger: true})) return;
+  el.disabled = true;
+  try { await api('/web/api/115/delete', {method: 'POST', body: JSON.stringify({parent, ids: [id]})}); }
+  catch (e) { toast(e.message, 'bad'); el.disabled = false; return; }
+  toast(`已把「${name}」移到 115 回收站`);
+  const st = Object.values(og.state).find(s => s.el?.contains(el));
+  if (st) { st.preview = null; organizeShow(st); organizeButtons(); }
+  document.activeElement?.blur();  // 焦點還在清單裡時，安靜的重新整理不會重畫
+  organizeLoad(og.page, true);
+};
 async function pollReorgJob() {
   // 整理的進度顯示在「瀏覽 115」和「整理 115 網盤」；做完時把送出的標成已整理
   cancel('reo');

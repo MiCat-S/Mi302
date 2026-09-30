@@ -626,12 +626,21 @@ def test_existing_target_is_not_sent_unless_moviepilot_overwrites(tmp_path: Path
     unit = {u["id"]: u for u in listing(c, h)["items"]}["d111"]
     pv = preview(c, h, unit).json()
     assert [i["name"] for i in pv["items"] if i["ok"]] == ["康熙来了 EP01.mp4"] and pv["summary"]["skipped"] == 1
+    dup = next(i for i in pv["items"] if i["skip"] == "exists")
+    # 網頁上「刪掉這支」要的：這支的 id、所在資料夾、兩邊的大小
+    assert (dup["file_id"], dup["parent_cid"], dup["size"], dup["exists_size"]) == ("51", "111", 900_000_000, 900_000_000)
+    assert "刪掉這支" in dup["message"]
 
     # 那個媒體庫目錄會覆蓋：送，但提醒
     mp.dirs.append({**LIBRARY, "library_path": "/影視/劇集", "overwrite_mode": "always"})
     pv = preview(c, h, unit).json()
     ep02 = next(i for i in pv["items"] if i["name"] == "康熙来了 EP02.mp4")
     assert ep02["ok"] and "會用這支蓋掉它" in ep02["warnings"][0]
+
+    # 刪掉這支：只刪這一個檔案（移到 115 回收站），目標那一份不動
+    r = c.post("/web/api/115/delete", json={"parent": dup["parent_cid"], "ids": [dup["file_id"]]}, headers=h)
+    assert r.status_code == 200 and r.json()["names"] == ["康熙来了 EP02.mp4"] and fake.deleted[-1] == "51"
+    assert any(f["fid"] == 52 for f in fake.files)
 
     # 執行時 MoviePilot 放進背景重試：照實說
     from embyserver.reorganize import ReorgJob
