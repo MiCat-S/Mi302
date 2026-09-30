@@ -17,6 +17,8 @@ def describe(exc: httpx.HTTPError) -> str:
         reason = "連線逾時"
     elif isinstance(exc, httpx.ProxyError):
         reason = "代理伺服器拒絕連線"
+    elif isinstance(exc, httpx.ConnectError) and "refused" in str(exc).lower():
+        reason = "對方拒絕連線（那個埠上沒有程式在服務：沒在執行、正在重新啟動，或埠號不對）"
     elif isinstance(exc, httpx.ConnectError):
         reason = "無法連線（請檢查這台機器能否上網、DNS 是否正常）"
     else:

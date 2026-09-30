@@ -118,6 +118,7 @@ class ReorgJob:
     synced: str = ""  # 之後的增量同步：started / busy
     items: List[dict] = field(default_factory=list)
     errors: List[str] = field(default_factory=list)
+    down: str = ""  # MoviePilot 連線出事（MoviePilotError.kind）：offline＝連不上、dropped／timeout＝它可能還在背景做
 
     def as_dict(self) -> dict:
         return asdict(self)
@@ -337,9 +338,12 @@ class Reorganizer:
         return self._previews.pop(token)
 
     def run_plan(self, pv: dict, cleanup: List[dict], job: ReorgJob) -> None:
-        """照一個預覽做：每一批交給 MoviePilot，再把搬空的舊資料夾移到回收站（呼叫的人要拿著鎖）。"""
+        """照一個預覽做：每一批交給 MoviePilot，再把搬空的舊資料夾移到回收站（呼叫的人要拿著鎖）。
+        MoviePilot 連不上或途中斷線就不送後面的，也不清資料夾。"""
         for batch in pv["batches"]:
             self._run_items(pv, batch, job)
+            if job.down:
+                return
         if cleanup:
             self._remove_empty_folders(cleanup, job)
 
@@ -416,6 +420,7 @@ class Reorganizer:
         except MoviePilotError as exc:
             job.errors.append(f"{batch['label']}：{exc}")
             job.failed += batch["count"]
+            job.down = job.down or exc.kind
             log.warning("MoviePilot 整理 %s 失敗：%s", batch["label"], exc)
             return
         done = 0

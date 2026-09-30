@@ -45,7 +45,7 @@ from typing import Dict, List, Optional, Set, Tuple
 
 from .db import Database
 from .filetypes import VIDEO_EXTS
-from .moviepilot import MoviePilot, MoviePilotError
+from .moviepilot import FRONTEND_HINT, MoviePilot, MoviePilotError
 from .p115 import P115Error
 from .reorganize import ReorgJob, episode_template
 from .strm_sync import remote_root, task_key
@@ -60,13 +60,36 @@ SAMPLES = 2  # 一部劇挑幾支影片問 MoviePilot 檔名
 MAX_WORKERS = 4  # 同時問 MoviePilot 幾個
 MAX_PINNED = 20  # 從瀏覽 115 加進來的資料夾最多留幾個
 BATCH_RESULTS = 2000  # 全部整理最多記幾個跳過、失敗的（數量照算，明細只留前面這些）
-BATCH_GIVE_UP = 5  # 全部整理時連續幾個預覽出錯（MoviePilot、115 連不上）就停下
+BATCH_GIVE_UP = 5  # 全部整理時連續幾個預覽出錯（目錄設定對不上、115 讀不到…）就停下
+BIG_FOLDER = 300  # 全部整理預設跳過一次要送超過這麼多支影片的（MoviePilot 一次預覽、整理幾千支會吃光記憶體）
+HOLD_META_KEY = "organize_hold"  # 標了「先不整理」的資料夾（115 路徑）
+MP_DOWN_WAIT = 900  # 全部整理時 MoviePilot 連不上，最多等幾秒
+MP_DOWN_POLL = 15  # 等的時候幾秒問一次
+MP_COOLDOWN = 60  # MoviePilot 恢復、或途中斷線之後，再等幾秒才送下一個（它可能還在背景做剛才那一個）
+# 全部整理的一個資料夾做完的結果：OK；ERROR＝預覽出錯（連續太多就停）；RETRY＝MoviePilot 連不上、什麼都還沒做，
+# 等它回來再做一次；DOWN＝MoviePilot 途中斷線或等太久，它可能還在背景做，已經記下來，不重送
+OK, ERROR, RETRY, DOWN = "ok", "error", "retry", "down"
+DOWN_WORDS = {"offline": "連不上", "dropped": "斷線", "timeout": "等太久沒有回應"}
 RECOMMEND_FILES = 50  # 請 MoviePilot 推薦集數定位時最多給幾個檔名
 P115_NEEDED = "要先登入 115（掃碼或貼上 cookie）才能整理"
 
 
 class OrganizeError(Exception):
     pass
+
+
+def _mp_trouble(exc: Optional[BaseException]) -> str:
+    """錯誤是 MoviePilot 連線出事造成的（OrganizeError 是在接住 MoviePilotError 時丟的）就回傳它的 kind。"""
+    while exc is not None:
+        if isinstance(exc, MoviePilotError):
+            return exc.kind
+        exc = exc.__cause__ or exc.__context__
+    return ""
+
+
+def _biggest(u) -> int:
+    """一次要送給 MoviePilot 的影片最多幾支（每一部分各送一次；不知道的算 0）。"""
+    return max([p.videos or 0 for p in u.parts] or [u.videos or 0])
 
 
 @dataclass
@@ -409,6 +432,9 @@ class BatchJob:
     nothing: int = 0  # 預覽後沒有要整理的（都已經照格式命名，或都不送）
     skipped: int = 0  # 有問題跳過的，要人看
     failed: int = 0  # 執行時有檔案失敗的資料夾
+    held: int = 0  # 這次不做的：標了「先不整理」的、一次要送的影片超過 max_videos 的（不算在 total 裡）
+    max_videos: int = 0
+    mp_down: int = 0  # 中途 MoviePilot 連不上、斷線、等太久幾次（每次都等它恢復才繼續）
     current: str = ""
     stopping: bool = False
     stopped: bool = False
@@ -446,6 +472,10 @@ class Organizer:
         self._order: List[str] = []
         self._units_at = 0.0
         self._pinned: Dict[str, Unit] = {}  # 從瀏覽 115 加進來的資料夾（新的在前面）
+        try:
+            self._held: Set[str] = set(json.loads(db.get_meta(HOLD_META_KEY) or "[]"))
+        except (ValueError, TypeError):
+            self._held = set()
         try:
             tv, movie = json.loads(db.get_meta(LEVELS_META_KEY) or "[3, 2]")
             self._levels: Tuple[int, int] = (int(tv), int(movie))
@@ -645,24 +675,41 @@ class Organizer:
         def wanted(u: Unit) -> bool:
             if kind == "series" and u.kind != "series" or kind == "movie" and u.kind == "series":
                 return False
+            if kind == "held" and u.path not in self._held:
+                return False
             if kind == "episodes" and not (u.ep_guessed or u.ep_unknown):
                 return False
             return not text or text in u.name.casefold() or text in (u.title or "").casefold() or text in u.path.casefold()
 
-        return [u for u in units if u.listed and wanted(u) and u.id not in self._pinned]
+        found = [u for u in units if u.listed and wanted(u) and u.id not in self._pinned]
+        return sorted(found, key=lambda u: u.path in self._held)  # 先不整理的排在後面
 
     def list(self, q: str = "", kind: str = "", offset: int = 0, limit: int = 50) -> dict:
         units = self.units()
         found = [u for u in units if u.listed]
         counts = {"series": sum(1 for u in found if u.kind == "series"), "movie": sum(1 for u in found if u.kind != "series"),
-                  "episodes": sum(1 for u in found if u.ep_guessed or u.ep_unknown)}
+                  "episodes": sum(1 for u in found if u.ep_guessed or u.ep_unknown),
+                  "held": sum(1 for u in found if u.path in self._held)}
         shown = self._matching(units, q, kind)
         return {
             "job": self.job.as_dict(), "batch": self.batch.as_dict(results=False), "total": len(shown), "folders": len(units),
             "unchecked": sum(1 for u in units if not u.checked), "counts": counts,
-            "pinned": [u.view() for u in self._pinned.values()],
-            "items": [u.view() for u in shown[offset:offset + limit]],
+            "pinned": [self._view(u) for u in self._pinned.values()],
+            "items": [self._view(u) for u in shown[offset:offset + limit]],
         }
+
+    def _view(self, u: Unit) -> dict:
+        return {**u.view(), "held": u.path in self._held}
+
+    def hold(self, unit_id: str, on: bool) -> dict:
+        """「先不整理」：全部整理時跳過，排到清單後面；單獨整理還是可以。記 115 路徑，清單重算也還在。"""
+        unit = self.unit(unit_id)
+        with self._starting:
+            held = set(self._held)
+            (held.add if on else held.discard)(unit.path)
+            self.db.set_meta(HOLD_META_KEY, json.dumps(sorted(held), ensure_ascii=False))
+            self._held = held
+        return self._view(unit)
 
     def nonstandard_series(self) -> Set[int]:
         """要整理的劇（問過 MoviePilot 不一樣的，或集號不對的）。"""
@@ -784,6 +831,8 @@ class Organizer:
                 try:
                     history = self.mp.transfer_history(fileitems)
                 except MoviePilotError as exc:
+                    if exc.kind:
+                        raise OrganizeError(f"問 MoviePilot 的整理紀錄時失敗：{exc}")
                     history = 0
                     notes.append(f"「{part.label}」查不到 MoviePilot 的整理紀錄（{exc}），整理過的可能會被它跳過")
                     review.append(f"「{part.label}」查不到 MoviePilot 的整理紀錄")
@@ -889,10 +938,12 @@ class Organizer:
 
     # ---- 全部整理 ----
 
-    def organize_all(self, q: str, kind: str, target: str, target_path: str, cleanup: bool) -> dict:
+    def organize_all(self, q: str, kind: str, target: str, target_path: str, cleanup: bool,
+                     max_videos: int = BIG_FOLDER) -> dict:
         """清單上符合搜尋、種類的（加上瀏覽 115 釘上來的）全部整理：在背景一個一個請 MoviePilot 預覽，沒問題的直接照預覽
         整理，有問題的（見 _preview 的 review）跳過記下來；最後同步一次。和單獨整理共用一把鎖，同時只有一批在動 115；
-        「問 MoviePilot 檢查」在跑時不開始。"""
+        「問 MoviePilot 檢查」在跑時不開始。標了「先不整理」的（只看它們時除外）、一次要送的影片超過 max_videos 支的
+        （0 = 不限）這次不做。"""
         if not self.p115.logged_in:
             raise OrganizeError(P115_NEEDED)  # 不然每個資料夾都列不出來，連續出錯才停
         with self._starting:
@@ -903,12 +954,17 @@ class Organizer:
             units = list(self._pinned.values()) + self._matching(self.units(), q, kind)
             if not units:
                 raise OrganizeError("清單上沒有要整理的")
+            limit = max(0, int(max_videos or 0))
+            todo = [u for u in units if not (kind != "held" and u.path in self._held or limit and _biggest(u) > limit)]
+            if not todo:
+                raise OrganizeError(f"清單上的 {len(units)} 個都標了「先不整理」" + (f"，或一次要送超過 {limit} 支影片" if limit else ""))
             if target == "path" and _dir_path(target_path) == "/":
                 raise OrganizeError("請填要整理到哪個 115 資料夾")
             if not self.reorg.hold():
                 raise OrganizeError("已經有一批在整理或刪除，等它完成再開始")
-            self.batch = BatchJob(running=True, started=time.time(), total=len(units), target=target or "auto")
-        self.workers.start(self._organize_all, units, target or "auto", target_path, cleanup)
+            self.batch = BatchJob(running=True, started=time.time(), total=len(todo), target=target or "auto",
+                                  held=len(units) - len(todo), max_videos=limit)
+        self.workers.start(self._organize_all, todo, target or "auto", target_path, cleanup)
         return self.batch.as_dict(results=False)
 
     def stop_all(self) -> dict:
@@ -926,8 +982,17 @@ class Organizer:
                     job.stopped = True
                     break
                 job.current = u.name
-                errors = 0 if self._organize_one(u, target, target_path, cleanup, job) else errors + 1
+                state = self._organize_one(u, target, target_path, cleanup, job)
+                if state == RETRY:  # MoviePilot 連不上，這一個什麼都還沒做：等它回來再做一次
+                    if not self._wait_mp(job):
+                        break
+                    job.current = u.name
+                    state = self._organize_one(u, target, target_path, cleanup, job, retried=True)
                 job.done += 1
+                # 途中斷線、等太久：它可能還在背景做這一個，等它有回應、再等一下才送下一個，不要疊上去
+                if state == DOWN and not self._wait_mp(job):
+                    break
+                errors = errors + 1 if state == ERROR else 0
                 if errors >= BATCH_GIVE_UP:
                     job.error = f"連續 {errors} 個預覽出錯，先停下：{job.results[-1]['why']}"
                     break
@@ -947,8 +1012,10 @@ class Organizer:
             self._units_at = 0  # 清單重新算
             self.reorg.release()
 
-    def _organize_one(self, u: Unit, target: str, target_path: str, cleanup: bool, job: BatchJob) -> bool:
-        """預覽一個，沒問題就整理。預覽出錯（連不上、目錄設定對不上…）回傳 False，其他 True。"""
+    def _organize_one(self, u: Unit, target: str, target_path: str, cleanup: bool, job: BatchJob,
+                      retried: bool = False) -> str:
+        """預覽一個，沒問題就整理；回傳 OK、ERROR、RETRY、DOWN（見最上面）。retried：MoviePilot 連不上等過一次了，
+        這次再連不上就記下來，不再重做。"""
         def record(kind: str, why: str) -> None:
             setattr(job, kind, getattr(job, kind) + 1)
             if len(job.results) < BATCH_RESULTS:
@@ -957,26 +1024,70 @@ class Organizer:
         try:
             pv = self._preview(u, {}, target, target_path, scrape=False)
         except OrganizeError as exc:
+            trouble = _mp_trouble(exc)
+            if trouble == "offline" and not retried:
+                return RETRY
+            if trouble:
+                record("skipped", f"MoviePilot 預覽時{DOWN_WORDS.get(trouble, '連不上')}：{exc}"
+                       + ("。可能是資料夾太大，它可能還在背景預覽；先跳過" if trouble != "offline" else ""))
+                return DOWN
             record("skipped", str(exc))
-            return False
+            return ERROR
         if pv["review"]:
             record("skipped", "；".join(pv["review"]))
-            return True
+            return OK
         if not pv["token"]:
             job.nothing += 1
-            return True
+            return OK
         plan = self.reorg.take_preview(pv["token"])
         run = ReorgJob()
         folders = [{"cid": int(c["cid"]), "path": c["path"]} for c in u.cleanup_folders()] if cleanup else []
         self.reorg.run_plan(plan, folders, run)
+        if run.down == "offline" and not (run.done or run.queued) and not retried:
+            return RETRY  # 第一批就連不上：什麼都沒送出去，等它回來重新預覽、整理
         job.files += run.done
         job.queued += run.queued
         if run.done or run.queued:
             job.organized += 1
+        if run.down:
+            record("failed", f"MoviePilot 整理途中{DOWN_WORDS.get(run.down, '連不上')}：{run.errors[-1]}。"
+                   "送出去的它可能還在背景整理，沒送的這次不送；同步後再看這個資料夾")
+            return DOWN
         if run.failed or run.errors:
             bad = next((i for i in run.items if i["state"] not in ("completed", "accepted", "retry_wait", "kept", "removed")), None)
             record("failed", run.errors[0] if run.errors else f"{bad['name']}：{bad['message'] or bad['state']}" if bad else "有檔案整理失敗")
-        return True
+        return OK
+
+    def _wait_mp(self, job: BatchJob) -> bool:
+        """MoviePilot 連不上、途中斷線或等太久：等它有回應，再多等一下（它可能還在做剛才那個）才繼續。
+        等太久（job.error 寫明）、按了停止、程式要結束回傳 False。"""
+        job.mp_down += 1
+        started = time.monotonic()
+        while not self.mp.reachable():
+            waited = time.monotonic() - started
+            if waited >= MP_DOWN_WAIT:
+                job.error = (f"MoviePilot 連不上超過 {MP_DOWN_WAIT // 60} 分鐘，先停下。它可能被系統停掉了（記憶體不夠？），"
+                             "看它的日誌，重新啟動後再按「全部整理」")
+                if ":3000" in (self.mp.cfg.url or ""):
+                    job.error += FRONTEND_HINT
+                return False
+            job.current = f"MoviePilot 連不上，等它恢復（已等 {int(waited // 60)} 分鐘，最多等 {MP_DOWN_WAIT // 60} 分鐘）"
+            if self._pause(job, MP_DOWN_POLL):
+                return False
+        job.current = f"MoviePilot 有回應了，等 {MP_COOLDOWN} 秒讓它做完手上的再繼續"
+        return not self._pause(job, MP_COOLDOWN)
+
+    def _pause(self, job: BatchJob, seconds: float) -> bool:
+        """等幾秒，每秒看一次；按了停止或程式要結束回傳 True。"""
+        end = time.monotonic() + seconds
+        while True:
+            if job.stopping or self._stop.is_set():
+                job.stopped = True
+                return True
+            left = end - time.monotonic()
+            if left <= 0:
+                return False
+            self._stop.wait(min(1.0, left))
 
     # ---- 集數定位 ----
 

@@ -296,7 +296,7 @@ def test_moviepilot_decides_what_is_nonstandard(tmp_path: Path):
     # 名稱和 MoviePilot 給的一樣、集號也對的（康熙来了 {tmdbid=6836}、流浪）不列
     assert set(units) == {FANREN, "康熙来了 (2004)", "D 斗破苍穹{tmdbid-292388} 更186", "Dark", "星际穿越 Interstellar 2014 4K",
                           "Old Movie (2001)", "Up.2009.1080p"}
-    assert job["found"] == 7 and r["counts"] == {"series": 4, "movie": 3, "episodes": 3}
+    assert job["found"] == 7 and r["counts"] == {"series": 4, "movie": 3, "episodes": 3, "held": 0}
 
     fr = units[FANREN]
     assert fr["mp_name"] == "凡人修仙传 (2020) {tmdbid=106449}" and fr["error"] == "" and fr["checked"]
@@ -821,3 +821,69 @@ def test_shutdown_wakes_waiting_work_before_closing_the_database(tmp_path: Path)
         assert s.workers.join(0) == []
     with pytest.raises(sqlite3.ProgrammingError):
         st.db.query("SELECT 1")
+
+
+def flaky_mp(app, mp, fail):
+    """MoviePilot 前面插一層：fail(request) 回傳例外就丟出去（模擬它被系統停掉、途中斷線）。"""
+    def handler(request):
+        exc = fail(request)
+        if exc:
+            raise exc
+        return mp.handler(request)
+
+    app.state.moviepilot._transport = httpx.MockTransport(handler)
+
+
+def test_organize_all_waits_for_moviepilot_and_leaves_held_ones(tmp_path: Path, monkeypatch):
+    """MoviePilot 連不上（被系統停掉、重新啟動中）：等它回來再做同一個，不算跳過。標了「先不整理」的、
+    一次要送太多支影片的這次不做。"""
+    import embyserver.organize115 as og
+
+    monkeypatch.setattr(og, "MP_DOWN_POLL", 0)
+    monkeypatch.setattr(og, "MP_COOLDOWN", 0)
+    app, fake, mp, media, c, h = setup(tmp_path)
+    check(app, c, h)
+    held = c.post("/web/api/115/organize/hold", json={"id": "d120", "hold": True}, headers=h).json()
+    assert held["held"]
+    lst = listing(c, h)
+    assert lst["counts"]["held"] == 1 and lst["items"][-1]["id"] == "d120"  # 排到最後
+    assert [u["id"] for u in listing(c, h, kind="held")["items"]] == ["d120"]
+    refused = {"n": 3}  # 版本檢查、兩次等它的時候都連不上，之後恢復
+
+    def fail(request):
+        if refused["n"] > 0:
+            refused["n"] -= 1
+            return httpx.ConnectError("[Errno 111] Connection refused", request=request)
+
+    flaky_mp(app, mp, fail)
+    mp.calls.clear()
+    b = run_all(app, c, h, max_videos=2)  # 凡人修仙传那一部分有 3 支：這次不做
+    assert (b["total"], b["done"], b["organized"], b["skipped"], b["failed"], b["held"], b["mp_down"], b["error"]) == \
+        (5, 5, 2, 3, 0, 2, 1, "")
+    sent = [b_ for b_ in sent_bodies(mp)]
+    assert not any("星际穿越" in json.dumps(b_, ensure_ascii=False) for b_ in sent)
+    assert not any(FANREN in json.dumps(b_, ensure_ascii=False) for b_ in sent)
+
+
+def test_organize_all_does_not_resend_after_moviepilot_drops(tmp_path: Path, monkeypatch):
+    """真的整理到一半 MoviePilot 斷線：它可能還在背景做，這一個記成失敗、不重送；等它有回應再做下一個。"""
+    import embyserver.organize115 as og
+
+    monkeypatch.setattr(og, "MP_DOWN_POLL", 0)
+    monkeypatch.setattr(og, "MP_COOLDOWN", 0)
+    app, fake, mp, media, c, h = setup(tmp_path)
+    check(app, c, h)
+    runs = []
+
+    def fail(request):
+        if request.url.path == "/api/v1/transfer/manual" and not json.loads(request.content)["preview"]:
+            runs.append(request)
+            if len(runs) == 1:
+                return httpx.RemoteProtocolError("Server disconnected without sending a response.", request=request)
+
+    flaky_mp(app, mp, fail)
+    b = run_all(app, c, h)
+    assert (b["organized"], b["failed"], b["mp_down"], b["error"]) == (2, 1, 1, "")
+    assert len(runs) == 3  # 斷線的那一個沒有再送
+    failed = [x for x in b["results"] if x["kind"] == "failed"]
+    assert "斷線" in failed[0]["why"] and "不送" in failed[0]["why"]

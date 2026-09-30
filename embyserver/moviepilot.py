@@ -33,6 +33,7 @@ from datetime import date
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Callable, Dict, Iterable, List, Optional, Set, Tuple
+from urllib.parse import urlsplit
 
 import httpx
 
@@ -41,7 +42,7 @@ from .db import Database
 from .filetypes import IMAGE_EXTS, LIBRARY_VIDEO_EXTS as VIDEO_EXTS
 from .scanner import series_folder
 from .textutil import cjk_count, pinyin_full, simplified
-from .http_util import GuardedClient, describe
+from .http_util import describe
 from .workers import Workers
 
 log = logging.getLogger(__name__)
@@ -60,6 +61,8 @@ TRANSFER_HISTORY_API = "/api/v1/transfer/manual/history"  # 有沒有成功整�
 DIRECTORIES_API = "/api/v1/storage/directories"  # 目錄設定（V3）
 DIRECTORIES_V2_API = "/api/v1/system/setting/Directories"  # 目錄設定（V2）
 SYSTEM_ENV_API = "/api/v1/system/env"  # 系統設定，裡面有版本號（要管理員帳號）
+# MoviePilot 3000 埠是前端，API 轉給 3001 的後端；後端忙到沒回應健康檢查時，前端會自己停掉，之後一直連不上
+FRONTEND_HINT = "。3000 是 MoviePilot 的前端，後端忙的時候它會自己停掉；可以把網址改成後端的 3001 埠（例如 http://127.0.0.1:3001），不經過前端"
 # 手動整理的預覽模式從 v2.11.1-1 開始；更舊的版本不認 preview，「預覽」會變成真的整理
 PREVIEW_MIN_VERSION = (2, 11, 1, 1)
 MAX_CONCURRENCY = 8  # 同時送幾項刮削的上限
@@ -74,9 +77,22 @@ def parse_version(text: str) -> Optional[Tuple[int, int, int, int]]:
 
 
 class MoviePilotError(Exception):
-    def __init__(self, message: str, status: Optional[int] = None):
+    def __init__(self, message: str, status: Optional[int] = None, kind: str = ""):
         super().__init__(message)
         self.status = status  # MoviePilot 回的 HTTP 狀態碼；不是 HTTP 錯誤時是 None
+        # 連線出了什麼事：offline＝連不上（請求沒送到，它什麼都沒做）；dropped＝途中斷線、timeout＝等太久
+        # （這兩種它可能還在背景做）；其他錯誤是空的
+        self.kind = kind
+
+
+def _net_kind(exc: httpx.HTTPError) -> str:
+    if isinstance(exc, (httpx.ConnectError, httpx.ConnectTimeout)):
+        return "offline"
+    if isinstance(exc, httpx.TimeoutException):
+        return "timeout"
+    if isinstance(exc, (httpx.RemoteProtocolError, httpx.ReadError, httpx.WriteError)):
+        return "dropped"
+    return ""
 
 
 @dataclass
@@ -170,7 +186,8 @@ class MoviePilot:
     # ---------------- HTTP ----------------
 
     def _client(self, timeout: float) -> httpx.Client:
-        return GuardedClient(MoviePilotError, timeout=timeout, transport=self._transport)
+        # 連線錯誤由 _request 轉成 MoviePilotError，順便分出連不上、途中斷線、等太久
+        return httpx.Client(timeout=timeout, transport=self._transport)
 
     def _login(self, client: httpx.Client) -> str:
         resp = client.post(
@@ -204,10 +221,13 @@ class MoviePilot:
                     self._jwt = self._login(client)
                     resp = self._send(client, method, path, body, query)
                 return self._parse(resp, path)
-        except httpx.InvalidURL as exc:  # 網址填錯（例如埠號不是數字）；不是 httpx.HTTPError，GuardedClient 接不到
+        except httpx.InvalidURL as exc:  # 網址填錯（例如埠號不是數字）；不是 httpx.HTTPError
             raise MoviePilotError(f"MoviePilot 網址格式不對：{exc}") from exc
         except httpx.HTTPError as exc:
-            raise MoviePilotError(describe(exc)) from exc
+            message = describe(exc)
+            if isinstance(exc, httpx.ConnectError) and urlsplit(self.cfg.url).port == 3000:
+                message += FRONTEND_HINT
+            raise MoviePilotError(message, kind=_net_kind(exc)) from exc
 
     def _send(self, client: httpx.Client, method: str, path: str, body: Optional[dict], query: Optional[dict]):
         headers, params = {}, dict(query or {})
@@ -228,6 +248,9 @@ class MoviePilot:
             raise MoviePilotError(f"MoviePilot 拒絕存取（HTTP {resp.status_code}）：{hint}", resp.status_code)
         if resp.status_code == 404:
             raise MoviePilotError(f"MoviePilot 沒有這個 API（{path}），請確認網址或升級 MoviePilot", 404)
+        if resp.status_code in (502, 503, 504):  # 前面的反向代理連不到它
+            raise MoviePilotError(f"MoviePilot 回應 HTTP {resp.status_code}：它前面的代理連不到它（沒在執行、正在重新啟動，或忙到沒回應）",
+                                  resp.status_code, kind="offline")
         if resp.status_code >= 400:
             if resp.text.lstrip().startswith("<"):
                 raise MoviePilotError(f"MoviePilot 回應 HTTP {resp.status_code}，內容是網頁不是 API，請確認網址",
@@ -255,6 +278,14 @@ class MoviePilot:
             if path == src or path.startswith(src + "/"):
                 return rule.target.rstrip("/") + path[len(src):]
         return path
+
+    def reachable(self) -> bool:
+        """MoviePilot 有沒有在回應（回什麼都算，連不上、等太久才不算）。"""
+        try:
+            self._request("GET", SYSTEM_ENV_API, timeout=15)
+        except MoviePilotError as exc:
+            return not exc.kind
+        return True
 
     def test(self) -> dict:
         """用空路徑呼叫刮削 API 驗證網址與令牌。
@@ -648,6 +679,8 @@ class MoviePilot:
         try:
             res = self._request("GET", SYSTEM_ENV_API, timeout=15)
         except MoviePilotError as exc:
+            if exc.kind:  # 連不上：不是版本的問題
+                raise
             raise MoviePilotError(f"查不到 MoviePilot 的版本（{exc}）。舊版的整理不支援預覽、會直接執行，"
                                   f"所以確認版本之前不預覽；整理需要 MoviePilot {need} 以上，帳號要是管理員")
         data = res.get("data") if isinstance(res, dict) else None

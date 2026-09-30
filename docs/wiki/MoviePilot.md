@@ -22,7 +22,7 @@ So MoviePilot and Mi302 must see the same files: for example, both run on the sa
 The settings are in the **Connection** card (連線) on the **MoviePilot** tab.
 
 1. In MoviePilot, copy the **API token** from Settings → System.
-2. In Mi302, enter the **MoviePilot URL** (MoviePilot 網址), for example `http://192.168.1.10:3000` (it must start with `http://` or `https://`), and the **API token** (API 令牌).
+2. In Mi302, enter the **MoviePilot URL** (MoviePilot 網址), for example `http://192.168.1.10:3000` (it must start with `http://` or `https://`), and the **API token** (API 令牌). With a local (non-Docker) MoviePilot install, the frontend on port 3000 shuts itself down when the backend is very busy, so use the backend port 3001 instead.
 3. If the two programs see different paths, fill in **Path mappings** (路徑對應); see the next section.
 4. Click **Test connection** (測試連線). It saves first, then tests.
 

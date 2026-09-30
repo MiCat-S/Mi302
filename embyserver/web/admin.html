@@ -518,10 +518,12 @@ dialog .card-b{max-height:70vh;overflow:auto}
           <div id="ogHead" class="stack hidden">
             <div id="ogInfo"></div>
             <div class="row wrap gap6"><input id="ogQ" type="search" class="grow" placeholder="搜尋資料夾名稱或路徑" aria-label="搜尋資料夾" oninput="soon('og', () => organizeLoad(1), 400)">
-              <select id="ogKind" class="w-auto" aria-label="種類" onchange="organizeLoad(1)"><option value="">劇集和電影</option><option value="series">只看劇集</option><option value="movie">只看電影</option><option value="episodes">只看集號不對的</option></select></div>
+              <select id="ogKind" class="w-auto" aria-label="種類" onchange="organizeLoad(1)"><option value="">劇集和電影</option><option value="series">只看劇集</option><option value="movie">只看電影</option><option value="episodes">只看集號不對的</option><option value="held">只看先不整理的</option></select></div>
             <div class="row wrap gap6"><span class="hint">全部整理到</span><select id="ogTarget" class="w-auto" aria-label="全部整理到" onchange="organizeTargetAll()"><option value="auto">照 MoviePilot 的目錄設定</option><option value="parent">同一層</option><option value="path">指定的 115 資料夾</option></select>
               <input id="ogTargetPath" type="text" class="hidden" placeholder="/影視/電視劇" aria-label="全部整理到的 115 資料夾" onchange="organizeTargetAll()"><button class="btn sm hidden" id="ogTargetPick" onclick="organizeTargetPick()">選擇…</button>
               <span class="hint">每一列還是可以自己改</span></div>
+            <label class="field maxw320"><span>全部整理時，一次要送超過幾支影片的先不整理</span><input id="ogMaxV" type="number" min="0" step="50" onchange="organizeMaxV()">
+              <small>整季或整個資料夾一次送給 MoviePilot，幾千支會吃光它的記憶體；0 = 不限。標了「先不整理」的也跳過</small></label>
             <label class="switch"><input type="checkbox" id="ogClean" checked><span class="track"></span><span class="lbl">整理完後，沒有影片留下的舊資料夾移到 115 回收站<small>裡面剩下的 nfo、圖片一起移走；整理失敗或目標已有同一集的影片會留在原處，那個資料夾就保留</small></span></label>
           </div>
           <div id="ogPinned" class="list"></div>
@@ -2449,6 +2451,17 @@ async function organizeFolder(cid, path) {
   for (const el of document.querySelectorAll(`#b115List [data-cid="${CSS.escape(String(u.id.slice(1)))}"] .js-added`)) el.classList.remove('hidden');
   toast(`已加進「整理 115 網盤」：${u.name}${u.mp_name && u.mp_name !== u.name ? `（MoviePilot 會整理成 ${u.mp_name}）` : ''}`);
 }
+async function organizeHold(u) {
+  try { await api('/web/api/115/organize/hold', {method: 'POST', body: JSON.stringify({id: u.id, hold: !u.held})}); }
+  catch (e) { toast(e.message, 'bad'); return; }
+  toast(u.held ? `「${u.name}」恢復整理` : `「${u.name}」先不整理：全部整理時跳過`);
+  organizeLoad(og.page, true);
+}
+function organizeMaxV() {
+  const v = Math.max(0, parseInt($('ogMaxV').value, 10) || 0);
+  $('ogMaxV').value = v;
+  try { localStorage.setItem('mi302-og-maxv', v); } catch (e) {}
+}
 async function organizeUnpin(u) {
   try { await api('/web/api/115/organize/folder/' + encodeURIComponent(u.id), {method: 'DELETE'}); } catch (e) { toast(e.message, 'bad'); return; }
   delete og.state[u.id];
@@ -2485,7 +2498,8 @@ async function organizeLoad(page, quiet) {
   organizeProgress(r);
   const c = r.counts, n = c.series + c.movie;
   $('ogHead').classList.toggle('hidden', !n && !r.pinned.length);
-  $('ogInfo').innerHTML = n ? `<p class="hint"><b>${n}</b> 個要整理：劇集 ${c.series}、電影 ${c.movie}${c.episodes ? `；其中 ${c.episodes} 部劇的集號不對` : ''}</p>` : '';
+  $('ogInfo').innerHTML = n ? `<p class="hint"><b>${n}</b> 個要整理：劇集 ${c.series}、電影 ${c.movie}${c.episodes ? `；其中 ${c.episodes} 部劇的集號不對` : ''}${c.held ? `；${c.held} 個先不整理` : ''}</p>` : '';
+  if (!$('ogMaxV').value) $('ogMaxV').value = localGet('mi302-og-maxv') || 300;
   if (quiet && document.activeElement && ($('ogList').contains(document.activeElement) || $('ogPinned').contains(document.activeElement))) return;  // 正在填某一列：這次不重畫
   $('ogPinned').innerHTML = '';
   for (const u of r.pinned) $('ogPinned').appendChild(organizeRow(u));
@@ -2515,7 +2529,7 @@ function organizeRow(u) {
   const files = u.mp_files.filter(f => !ogSame(ogStem(f[0]), ogStem(f[1])));
   const count = u.videos != null ? `${u.videos} 支影片` : `${u.parts.length} 個部分`;
   d.innerHTML = `<input type="checkbox" class="chk js-on" aria-label="整理 ${esc(u.name)}"${st.on ? ' checked' : ''}${st.sent ? ' disabled' : ''}>
-    <div class="main"><div class="row wrap gap6"><b>${esc(u.name)}</b><span class="pill">${OG_KIND[u.kind]}</span>${u.pinned ? '<span class="pill accent">從瀏覽 115 加進來</span>' : ''}<span class="hint">${count}</span>${st.sent ? '<span class="pill ok">已送出整理</span>' : ''}</div>
+    <div class="main"><div class="row wrap gap6"><b>${esc(u.name)}</b><span class="pill">${OG_KIND[u.kind]}</span>${u.pinned ? '<span class="pill accent">從瀏覽 115 加進來</span>' : ''}${u.held ? '<span class="pill warn">先不整理</span>' : ''}<span class="hint">${count}</span>${st.sent ? '<span class="pill ok">已送出整理</span>' : ''}</div>
     <div class="sub">${esc(u.parent)}${u.in_sync ? '' : '・不在同步目錄裡'}</div>
     ${u.reasons.length ? `<ul class="reasons">${u.reasons.map(x => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}
     ${u.mp_name && !ogSame(u.mp_name, u.name) ? `<div class="ogmap mt6">MoviePilot 會整理成 <b>${esc(u.mp_name)}</b>${u.merge_into ? '（旁邊已經有，會併進去）' : ''}</div>` : ''}
@@ -2531,6 +2545,7 @@ function organizeRow(u) {
       <input class="sm fmt js-fmt" type="text" placeholder="集數定位：自動" aria-label="${esc(p.label)} 的集數定位"><button class="btn sm ghost js-rec-btn" title="請 MoviePilot 推薦集數定位">推薦</button></div></div>`).join('')}</div>
     <div class="row wrap gap6 mt6 js-st"></div><div class="js-pv"></div></div>
     <div class="ogacts"><button class="btn sm js-pv-btn">預覽</button><button class="btn sm primary js-run-btn">整理</button>
+      <button class="btn sm ghost js-hold" title="${u.held ? '全部整理時照常處理' : '全部整理時跳過，排到清單後面；單獨整理還是可以'}">${u.held ? '恢復整理' : '先不整理'}</button>
       <button class="btn sm ghost danger js-del">刪除…</button>${u.pinned ? '<button class="btn sm ghost js-unpin">不看了</button>' : ''}</div>`;
   const target = d.querySelector('.js-target'), tpath = d.querySelector('.js-tpath'), tpick = d.querySelector('.js-tpick');
   target.value = st.target; tpath.value = st.targetPath;
@@ -2567,6 +2582,7 @@ function organizeRow(u) {
   d.querySelector('.js-run-btn').onclick = () => organizeRunOne(st);
   d.querySelector('.js-del').onclick = () => openDelete(u);
   d.querySelector('.js-unpin')?.addEventListener('click', () => organizeUnpin(u));
+  d.querySelector('.js-hold').onclick = () => organizeHold(u);
   st.el = d;
   organizeShow(st);
   return d;
@@ -2612,15 +2628,17 @@ async function organizeAll() {
   // 清單上符合搜尋、種類的全部（不只這一頁），在 Mi302 背景一個一個做；有問題的跳過，做完列出來
   const n = (og.total || 0) + (og.pinned?.length || 0), q = $('ogQ').value.trim(), clean = $('ogClean').checked;
   if (!n) return;
-  const where = OG_TARGET[og.target] || og.targetPath || '指定的 115 資料夾';
+  const where = OG_TARGET[og.target] || og.targetPath || '指定的 115 資料夾', maxv = Math.max(0, parseInt($('ogMaxV').value, 10) || 0);
   if (!await ask({title: `全部整理 ${n} 個？`, text: `${q || $('ogKind').value ? '清單上符合目前搜尋、種類的，' : '清單上的，'}一個一個請 MoviePilot 預覽，沒問題的直接整理（整理到：${where}）。`
     + '預覽有問題的跳過：MoviePilot 認不出來、有檔案它不會整理、有要看一下的提醒、認成的季和媒體庫不一樣、連不上目標資料夾；做完列出來給你處理。'
     + '已經照格式命名的、目標已經有同名檔案的照樣不送。'
+    + ($('ogKind').value === 'held' ? '' : '標了「先不整理」的跳過。') + (maxv ? `一次要送超過 ${maxv} 支影片的（整季或整個資料夾）跳過。` : '')
+    + 'MoviePilot 連不上、途中斷線時，等它恢復再繼續（最多等 15 分鐘）。'
     + (clean ? '整理完，沒有影片留下的舊資料夾移到 115 回收站。' : '')
     + '在 Mi302 背景做，關掉網頁也會繼續，可以隨時停止；資料夾多的要很久（115 每秒只能處理幾個請求）。', ok: '開始', danger: true})) return;
   try {
     og.batch = (await api('/web/api/115/organize/all', {method: 'POST', body: JSON.stringify({
-      q: $('ogQ').value, kind: $('ogKind').value, target: og.target, target_path: og.targetPath, cleanup: clean})})).batch;
+      q: $('ogQ').value, kind: $('ogKind').value, target: og.target, target_path: og.targetPath, cleanup: clean, max_videos: maxv})})).batch;
   } catch (e) { toast(e.message, 'bad'); return; }
   og.batchResults = null;
   organizeBatchShow(); organizeButtons(); pollBatch();
@@ -2664,8 +2682,10 @@ function organizeBatchShow() {
   if (!b?.started) { setHtml($('ogBatch'), ''); return; }
   let h = `<div class="notice ${b.error || b.failed ? 'warn' : ''} stack"><div class="row wrap gap6"><b>${running ? '全部整理中' : b.stopped ? '全部整理已停止' : b.error ? '全部整理停下來了' : '全部整理完成'}</b>`
     + `<span class="hint">${running ? '' : ago(b.finished) + '・'}${b.done} / ${b.total} 個</span></div>`
-    + `<div class="chips">${chip(b.organized, '整理了', true)}${chip(b.files, '個檔案')}${b.queued ? chip(b.queued, 'MoviePilot 背景處理') : ''}${chip(b.nothing, '不用整理')}${chip(b.skipped, '跳過')}${chip(b.failed, '失敗')}</div>`;
+    + `<div class="chips">${chip(b.organized, '整理了', true)}${chip(b.files, '個檔案')}${b.queued ? chip(b.queued, 'MoviePilot 背景處理') : ''}${chip(b.nothing, '不用整理')}${chip(b.skipped, '跳過')}${chip(b.failed, '失敗')}${b.held ? chip(b.held, '先不整理') : ''}</div>`;
   if (b.queued) h += `<p class="hint">${REO_QUEUED}</p>`;
+  if (b.held) h += `<p class="hint">${b.held} 個這次沒做：標了「先不整理」的${b.max_videos ? `、一次要送超過 ${b.max_videos} 支影片的` : ''}。要整理時在清單上單獨整理，或改上限再全部整理。</p>`;
+  if (b.mp_down) h += `<p class="hint">中途 MoviePilot 連不上或斷線 ${b.mp_down} 次，每次都等它恢復才繼續。常常這樣的話看它的日誌，可能是記憶體不夠被系統停掉。</p>`;
   if (b.error) h += `<p class="t-bad">${esc(b.error)}</p>`;
   if (!running && b.synced) h += `<p class="hint">${b.synced === 'started' ? '已經開始增量同步 115，本機的 strm 會跟著搬，再重新掃描。' : '115 同步正在進行，這次的變動會在下一次同步時帶到。'}</p>`;
   const res = og.batchResults;
