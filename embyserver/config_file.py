@@ -60,6 +60,8 @@ def render(config: Config) -> str:
         _kv("  intro_skip", s.intro_skip, "從播放行為學片頭片尾（開頭跳過一段、片尾切下一集），給播放器「跳過片頭」用"),
         _kv("  allow_download", s.allow_download, "播放器可以下載影片（要登入）；關掉後播放器不顯示下載"),
         _kv("  update_check", s.update_check, "每 6 小時向 GitHub 查一次有沒有新版，有的話網頁上提示"),
+        _kv("  update_proxy", s.update_proxy, "檢查更新、更新用的代理，例如 http://127.0.0.1:7890；空的 = 直連"),
+        _kv("  update_github_proxy", s.update_github_proxy, "GitHub 加速網址，例如 https://ghfast.top/，接在 GitHub 網址前面下載新版"),
         "",
         "# 啟動時資料庫裡還沒有就建立的帳號；新增帳號、改密碼請用網頁，不會寫回這裡（網頁上刪掉的帳號會從這裡拿掉）",
     ]

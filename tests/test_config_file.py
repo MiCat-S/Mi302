@@ -273,3 +273,17 @@ def test_timeouts_apply_without_restart(tmp_path: Path):
     c.get("/web/api/settings", headers=h)
     assert st.p115._client.timeout.read == 42 and st.p115.open._client.timeout.read == 42
     assert st.redirector.config.resolve_timeout == 7  # 每次解析重導向時照目前的設定
+
+
+def test_update_proxy_settings_are_checked(tmp_path: Path):
+    path = tmp_path / "config.yaml"
+    write_yaml(path, base(tmp_path))
+    c = start(path)
+    h = login(c)
+    for bad, why in (({"update_proxy": "127.0.0.1:7890"}, "socks5://"), ({"update_github_proxy": "ghfast.top"}, "https://")):
+        r = c.put("/web/api/settings", json={"server": bad}, headers=h)
+        assert r.status_code == 400 and why in r.text
+    good = {"update_proxy": " socks5://127.0.0.1:1080 ", "update_github_proxy": "https://ghfast.top/"}
+    assert c.put("/web/api/settings", json={"server": good}, headers=h).status_code == 200
+    saved = load_config(str(path)).server
+    assert (saved.update_proxy, saved.update_github_proxy) == ("socks5://127.0.0.1:1080", "https://ghfast.top/")

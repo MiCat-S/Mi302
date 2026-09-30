@@ -843,6 +843,14 @@ dialog .card-b{max-height:70vh;overflow:auto}
   <div class="card-b stack">
     <div id="srvInfo" aria-live="polite"><p class="hint row"><span class="spin"></span>讀取中…</p></div>
     <label class="switch"><input type="checkbox" data-key="server.update_check" onchange="saveToggle(this, loadServer)"><span class="track"></span><span class="lbl">自動檢查更新<small>每 6 小時向 GitHub 查一次，有新版時每一頁上方都會提示</small></span></label>
+    <details class="more" id="updProxy"><summary>連不上 GitHub：代理、GitHub 加速</summary><div class="in stack">
+      <p class="hint">國內網路檢查更新失敗時填一個就好，用法和 MoviePilot 的「網路代理」「GitHub 加速代理」一樣。只用在檢查更新和更新（下載新版、安裝相依套件），播放、115 不經過這裡。</p>
+      <label class="field"><span>代理</span><input type="text" data-key="server.update_proxy" placeholder="例如 http://127.0.0.1:7890" autocomplete="off">
+        <small>http:// 或 socks5://，例如 Clash、v2rayN 開的本機埠。安裝相依套件時 socks5 要另外裝 PySocks，建議用 http</small></label>
+      <label class="field"><span>GitHub 加速網址</span><input type="text" data-key="server.update_github_proxy" placeholder="例如 https://ghfast.top/" autocomplete="off">
+        <small>下載新版時接在 GitHub 網址前面；加速站偶爾會失效，換一個就好</small></label>
+      <div><button class="btn" onclick="saveUpdateProxy()">儲存並檢查更新</button></div>
+    </div></details>
     <p class="hint">網頁上的更新和終端機的 <code>mi302 update</code> 一樣下載新版、需要時安裝相依套件；新版啟動不了會退回原本的版本。安裝腳本管的服務設定、ffprobe 還是要用 <code>mi302 update</code> 更新。 <a class="doc" href="https://github.com/MiCat-S/Mi302/wiki/安裝#在網頁上更新和重新啟動" target="_blank" rel="noopener">說明</a></p>
   </div>
   <div class="card-f"><button class="btn" id="srvCheck" onclick="checkUpdate()">檢查更新</button><button class="btn" id="srvRestart" onclick="restartServer()">重新啟動</button><span class="grow"></span><button class="btn" onclick="srvDlg.close()">關閉</button></div>
@@ -2979,6 +2987,14 @@ function renderVersion() {
 function dismissUpdate() {
   try { localStorage.setItem('mi302-skip', srv.check.remote); } catch (e) {}
   renderUpdateBanner();
+}
+async function saveUpdateProxy() {
+  // 代理、GitHub 加速：存好馬上用它檢查一次，看連不連得上
+  const body = {server: {}};
+  for (const el of $('updProxy').querySelectorAll('[data-key]')) setKey(body, el.dataset.key, el.value.trim());
+  try { await putSettings(body); } catch (e) { toast('儲存失敗：' + e.message, 'bad'); return; }
+  toast('已儲存，檢查更新中…');
+  checkUpdate();
 }
 async function checkUpdate() {
   $('srvCheck').disabled = true;

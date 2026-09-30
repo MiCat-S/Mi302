@@ -32,8 +32,9 @@ TASKS_META_KEY = "p115_strm_tasks"
 # 網頁可修改的欄位；port、host、data_dir 牽涉啟動方式，不開放在網頁改
 SERVER_FIELDS = (
     "name", "public_users", "log_level", "backup_keep", "chinese_people", "chinese_genres", "intro_skip", "allow_download",
-    "update_check",
+    "update_check", "update_proxy", "update_github_proxy",
 )
+PROXY_SCHEMES = ("http://", "https://", "socks5://", "socks5h://")
 STRM_FIELDS = (
     "base_url", "include_name", "download_metadata", "delete_stale",
     "min_size_mb", "interval", "full_interval", "request_delay", "scan_after_sync",
@@ -126,6 +127,11 @@ def apply_settings(config: Config, raw: dict) -> None:
         _set_fields(config.server, SERVER_FIELDS, raw["server"] or {})
         config.server.log_level = "debug" if str(config.server.log_level).lower() == "debug" else "info"
         config.server.backup_keep = max(0, min(config.server.backup_keep, 90))
+        s = config.server
+        if s.update_proxy and not s.update_proxy.lower().startswith(PROXY_SCHEMES):
+            raise SettingsError("更新用的代理要以 http://、https:// 或 socks5:// 開頭，例如 http://127.0.0.1:7890")
+        if s.update_github_proxy and not s.update_github_proxy.lower().startswith(("http://", "https://")):
+            raise SettingsError("GitHub 加速網址要以 http:// 或 https:// 開頭，例如 https://ghfast.top/")
     p115 = raw.get("p115") or {}
     _set_fields(config.p115, P115_FIELDS, p115)
     if "strm" in p115:

@@ -133,6 +133,8 @@ class ServerConfig:
     intro_skip: bool = True  # 從播放行為學片頭片尾，給播放器「跳過片頭」用（不碰 115）
     allow_download: bool = True  # 播放器的「下載」（/Items/{id}/Download）；關掉後播放器不顯示下載，直接打網址回 403
     update_check: bool = True  # 每 6 小時向 GitHub 查一次有沒有新版，有的話網頁上提示
+    update_proxy: str = ""  # 檢查更新、更新（git、安裝相依套件）用的代理，例如 http://127.0.0.1:7890；空的 = 直連
+    update_github_proxy: str = ""  # GitHub 加速網址，例如 https://ghfast.top/：接在 GitHub 網址前面下載新版
 
 
 @dataclass

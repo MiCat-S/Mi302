@@ -198,3 +198,42 @@ def test_last_check_survives_restart(repos):
     after = Updater(Config(), root=app, import_check="fakeapp", db=db).status()["check"]
     assert (after["available"], after["behind"], after["error"]) == (False, 0, "") and after["at"]
     assert Updater(Config(), root=app, import_check="fakeapp").status()["check"]["at"] == 0  # 沒有資料庫：沒有紀錄
+
+
+def test_update_proxy_and_github_mirror(repos, monkeypatch):
+    """連不上 GitHub 時：代理給 git 和安裝相依套件用，GitHub 加速網址接在 origin 的 GitHub 網址前面下載。"""
+    origin, app, up, _, _ = repos
+    s = up.config.server
+    s.update_github_proxy = "https://ghfast.top/"
+    git(app, "remote", "set-url", "origin", "git@github.com:MiCat-S/Mi302.git")
+    assert up._remote() == "https://ghfast.top/https://github.com/MiCat-S/Mi302.git"
+    git(app, "remote", "set-url", "origin", "https://github.com/MiCat-S/Mi302.git")
+    assert up._remote() == "https://ghfast.top/https://github.com/MiCat-S/Mi302.git"
+    git(app, "remote", "set-url", "origin", str(origin))
+    with pytest.raises(updater_mod.UpdateError, match="只能用在從 GitHub"):
+        up._remote()
+    s.update_github_proxy = ""
+    assert up._remote() == "origin"
+
+    # 代理：git 每個指令都帶 http.proxy（本機的遠端用不到，照樣查得到新版）；安裝相依套件帶代理的環境變數
+    s.update_proxy = "http://127.0.0.1:7890"
+    calls = []
+    real = up._run
+    monkeypatch.setattr(up, "_run", lambda cmd, timeout, env=None: calls.append((cmd, env)) or real(cmd, timeout, env))
+    commit(origin, {"fakeapp/a.py": "A = 1\n"}, "新功能")
+    assert up.check()["check"]["behind"] == 1
+    fetch = next(cmd for cmd, _ in calls if "fetch" in cmd)
+    assert "http.proxy=http://127.0.0.1:7890" in fetch
+    calls.clear()
+    monkeypatch.setattr(up, "_run", lambda cmd, timeout, env=None: calls.append((cmd, env)) or subprocess.CompletedProcess(cmd, 0, b"", b""))
+    Updater.install_requirements(up)
+    env = calls[-1][1]
+    assert env["HTTPS_PROXY"] == env["HTTP_PROXY"] == "http://127.0.0.1:7890"
+
+
+def test_unreachable_remote_suggests_a_proxy(repos, tmp_path: Path):
+    origin, app, up, _, _ = repos
+    git(app, "remote", "set-url", "origin", str(tmp_path / "gone"))
+    assert "填代理或 GitHub 加速網址" in up.check()["check"]["error"]
+    up.config.server.update_proxy = "http://127.0.0.1:7890"  # 已經設了就不再提示
+    assert "填代理" not in up.check()["check"]["error"]

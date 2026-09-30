@@ -10,6 +10,10 @@
    systemd、launchd、背景執行都不用另外處理。
 
 install.sh 本身管的東西（服務設定、ffprobe、Python 版本）網頁更新不會動，那些要在終端機執行 mi302 update。
+
+連不上 GitHub 時（國內網路），server.update_proxy 是 git 和安裝相依套件用的代理（http:// 或 socks5://），
+server.update_github_proxy 是 GitHub 加速網址（例如 https://ghfast.top/），下載時接在 GitHub 網址前面；
+和 MoviePilot 的「網路代理」「GitHub 加速代理」一樣的用法。pip 鏡像照 install.sh 記在 .env 的 PIP_MIRROR。
 """
 
 from __future__ import annotations
@@ -17,6 +21,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -40,6 +45,8 @@ PIP_TIMEOUT = 900
 MAX_COMMITS = 50  # 更新內容最多列幾個提交
 RESTART_DELAY = 1.0  # 先讓「要重新啟動了」的回應送出去
 CHECK_META_KEY = "update_check"  # 上次檢查的結果，重新啟動後還看得到「已是最新版」
+GITHUB_SSH = re.compile(r"^(?:ssh://)?git@github\.com[:/](.+)$")
+NO_ACCESS_HINT = "；連不上 GitHub 的話，在「版本與更新」填代理或 GitHub 加速網址"
 
 
 class UpdateError(Exception):
@@ -159,8 +166,32 @@ class Updater:
     def _git_proc(self, *args: str, timeout: float = GIT_TIMEOUT) -> subprocess.CompletedProcess:
         env = {**os.environ, "GIT_TERMINAL_PROMPT": "0", "LC_ALL": "C"}
         # 程式資料夾的擁有者可能不是執行 Mi302 的帳號，git 會拒絕（dubious ownership）；install.sh 也是這樣帶
-        return self._run(["git", "-c", f"safe.directory={self.root}", "-c", "core.quotepath=false", "-C", str(self.root), *args],
-                         timeout, env)
+        opts = ["-c", f"safe.directory={self.root}", "-c", "core.quotepath=false"]
+        if self._proxy():
+            opts += ["-c", f"http.proxy={self._proxy()}"]  # 只有連遠端的指令會用到
+        return self._run(["git", *opts, "-C", str(self.root), *args], timeout, env)
+
+    def _proxy(self) -> str:
+        return str(self.config.server.update_proxy or "").strip()
+
+    def _proxy_env(self) -> dict:
+        """安裝相依套件（pip、uv）用的代理環境變數；沒設代理是空的，照系統原本的。"""
+        p = self._proxy()
+        return {k: p for k in ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy")} if p else {}
+
+    def _remote(self) -> str:
+        """下載新版的來源：平常是 origin；設了 GitHub 加速就把 origin 的 GitHub 網址接在加速網址後面
+        （https://ghfast.top/https://github.com/…），抓下來的一樣記在 origin/分支。"""
+        mirror = str(self.config.server.update_github_proxy or "").strip()
+        if not mirror:
+            return "origin"
+        url = self._git("remote", "get-url", "origin")
+        ssh = GITHUB_SSH.match(url)
+        if ssh:
+            url = f"https://github.com/{ssh.group(1)}"
+        if not url.startswith("https://github.com/"):
+            raise UpdateError(f"GitHub 加速只能用在從 GitHub 下載的程式，這裡的遠端是 {url}；請清掉 GitHub 加速網址")
+        return mirror.rstrip("/") + "/" + url
 
     def _git(self, *args: str, timeout: float = GIT_TIMEOUT) -> str:
         r = self._git_proc(*args, timeout=timeout)
@@ -203,8 +234,17 @@ class Updater:
 
     # ---------------- 檢查 ----------------
 
+    def _remote_git(self, *args: str) -> str:
+        """連遠端的 git 指令；連不上又沒設代理時提示可以設。"""
+        try:
+            return self._git(*args)
+        except UpdateError as exc:
+            if self._proxy() or self.config.server.update_github_proxy:
+                raise
+            raise UpdateError(str(exc) + NO_ACCESS_HINT) from exc
+
     def _fetch(self, branch: str) -> None:
-        self._git("fetch", "-q", "origin", f"+refs/heads/{branch}:refs/remotes/origin/{branch}")
+        self._remote_git("fetch", "-q", self._remote(), f"+refs/heads/{branch}:refs/remotes/origin/{branch}")
 
     def check(self) -> dict:
         """向遠端查有沒有新版，結果記在 check_result。已經在檢查或更新時直接回傳目前的狀態。"""
@@ -229,7 +269,7 @@ class Updater:
                 if not res.behind:
                     res.remote = ""
             else:  # 沒有權限寫 .git：只比對遠端的提交編號
-                line = self._git("ls-remote", "origin", f"refs/heads/{branch}")
+                line = self._remote_git("ls-remote", self._remote(), f"refs/heads/{branch}")
                 remote = line.split()[0] if line else ""
                 res.remote = remote if remote and remote != self._git("rev-parse", "HEAD") else ""
             if res.available and res.remote != self._notified:
@@ -343,7 +383,7 @@ class Updater:
             raise UpdateError("目前的 Python 沒有 pip，裝不了新的相依套件；請在終端機執行 mi302 update")
         if mirror:
             cmd += ["-i", mirror]
-        r = self._run(cmd, PIP_TIMEOUT)
+        r = self._run(cmd, PIP_TIMEOUT, {**os.environ, **self._proxy_env()} if self._proxy() else None)
         if r.returncode:
             why = (r.stderr or r.stdout).decode("utf-8", "replace").strip().splitlines()
             raise UpdateError("安裝相依套件失敗：" + (why[-1] if why else str(r.returncode)))
