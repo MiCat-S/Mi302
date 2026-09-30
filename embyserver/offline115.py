@@ -102,14 +102,15 @@ class OfflineDownloads:
 
     # ---------------- 加任務 ----------------
 
-    def add(self, text: str, folder: str = "") -> dict:
-        """把連結交給 115 下載。folder 是存到的 115 資料夾路徑，空的是 115 預設的「雲下載」資料夾。"""
+    def add(self, text: str, folder: str = "", folder_id: int = 0) -> dict:
+        """把連結交給 115 下載。folder 是存到的 115 資料夾路徑，空的是 115 預設的「雲下載」資料夾；
+        給了 folder_id（重新加入失敗的任務時用原來的資料夾）就不查路徑。"""
         urls, bad = clean_urls(text)
         if not urls:
             raise OfflineError("沒有可以下載的連結：要是磁力（magnet:?）、ed2k://、http(s)://、ftp://，一行一個")
         folder = "/" + str(folder or "").strip().strip("/") if str(folder or "").strip("/ ") else ""
         try:
-            cid = self.p115.dir_id(folder) if folder else 0
+            cid = int(folder_id) if folder_id else self.p115.dir_id(folder) if folder else 0
         except P115Error as exc:
             raise OfflineError(f"找不到 115 資料夾 {folder}：{exc}")
         results: List[dict] = []
@@ -120,6 +121,16 @@ class OfflineDownloads:
         added = sum(1 for r in results if r["ok"])
         log.info("115 雲下載：加了 %s 個任務（%s 個失敗）到 %s", added, len(results) - added, folder or "預設資料夾")
         return {"added": added, "results": results, "rejected": bad, "folder": folder, "via": self.via}
+
+    def retry(self, info_hash: str, url: str, folder_id: int = 0) -> dict:
+        """重新加入失敗的任務：先刪掉那一筆失敗的紀錄（不動 115 上的檔案，不然 115 會說「任務已存在」），
+        再用原來的連結加到原來的資料夾。"""
+        if not clean_urls(url)[0]:
+            raise OfflineError("這個任務沒有原來的連結，沒辦法重新加入")
+        self.delete([info_hash], with_files=False)
+        result = self.add(url, "", folder_id)
+        log.info("115 雲下載：重新加入 %s", info_hash)
+        return result
 
     def _open_add(self, urls: List[str], cid: int) -> dict:
         form: Dict[str, str] = {"urls": "\n".join(urls)}

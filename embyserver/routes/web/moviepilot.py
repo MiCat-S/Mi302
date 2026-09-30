@@ -41,6 +41,16 @@ def moviepilot_scrape(request: Request, ctx: AuthContext = Depends(require_admin
     return {"started": started, "result": mp.result.as_dict()}
 
 
+@router.post("/web/api/moviepilot/stop")
+async def moviepilot_stop(request: Request, ctx: AuthContext = Depends(require_admin)):
+    """停止刮削或補全缺集：{"what": "scrape" | "fill"}。刮削送出去的做完、沒送的不送；補全做完手上這一季就停。"""
+    body = await json_body(request)
+    what = str(body.get("what") or "")
+    if what not in ("scrape", "fill"):
+        raise HTTPException(status_code=400, detail="what 要是 scrape 或 fill")
+    return {"stopped": state(request).moviepilot.cancel(what)}
+
+
 # ---------------- 補全缺集 ----------------
 
 

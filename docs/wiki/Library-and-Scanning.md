@@ -145,6 +145,8 @@ On the **Libraries** tab you can:
 
 While a scan runs, the top of the page shows "掃描中" (scanning), a percentage and the title being processed. The first scan does not know the total yet and shows a sliding progress bar instead. Only one scan runs at a time; others wait in line.
 
+**Stop** (停止) ends a running scan between two items. Items not reached are not removed from the library; the next scan picks them up.
+
 ### Automatic scans
 
 Automatic scans also cover only what changed:

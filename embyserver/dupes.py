@@ -205,6 +205,7 @@ class DupeJob:
     total: int = 0  # 刪重複：要刪幾個
     done: int = 0  # 刪重複：已經刪了幾個
     freed: int = 0  # 刪重複：省下幾個位元組
+    stopped: bool = False  # 按了停止
     current: str = ""
     errors: List[str] = field(default_factory=list)
 
@@ -317,9 +318,17 @@ class DupeFinder:
 
     # ---------------- 找重複 ----------------
 
+    def cancel(self) -> bool:
+        """按了停止：找重複在兩項之間停下，上次的結果不換；刪除做完手上這一批就停。沒在做回傳 False。"""
+        if not self.job.running:
+            return False
+        self.workers.cancel.set()
+        return True
+
     def scan_in_background(self, roots: Optional[List[str]] = None) -> bool:
         if self._lock.locked():
             return False
+        self.workers.cancel.clear()
         self.job = DupeJob(kind="scan", running=True, started=time.time())
         self.workers.start(self.scan, roots)
         return True
@@ -383,7 +392,8 @@ class DupeFinder:
             log.info("找重複：%s 看了 %s 支影片，完全相同的 %s 支、不同版本的 %s 支、1 GB 以上的 %s 支",
                      "、".join(roots), len(files), len(rows), len(versions), len(big_rows))
         except Stopped:
-            job.errors.append("程式要結束，找重複中途停下；上次的結果沒有換掉")
+            job.stopped = self.workers.by_user
+            job.errors.append(f"{'按了停止' if job.stopped else '程式要結束'}，找重複中途停下；上次的結果沒有換掉")
         except P115Error as exc:
             job.errors.append(str(exc))
             log.warning("找重複失敗：%s", exc)
@@ -506,7 +516,7 @@ class DupeFinder:
                 folders[parent] = None
             delay = getattr(self.strm_sync.cfg, "request_delay", 0) or 0
             if delay:
-                self._stop.wait(delay)
+                self.workers.wait(delay)
         base = folders[parent]
         return (posixpath.join(base, info["name"]) if base else info["name"]), None
 
@@ -662,6 +672,7 @@ class DupeFinder:
     def delete_in_background(self, plan: List[dict]) -> bool:
         if not plan or self._lock.locked():
             return False
+        self.workers.cancel.clear()
         self.job = DupeJob(kind="delete", running=True, started=time.time(), total=len(plan))
         self.workers.start(self.delete, plan)
         return True
@@ -677,8 +688,9 @@ class DupeFinder:
         removed: List[str] = []
         try:
             for start in range(0, len(plan), DELETE_BATCH):
-                if self._stop.is_set():
-                    job.errors.append(f"程式要結束，還有 {len(plan) - start} 個沒刪")
+                if self.workers.halted:
+                    job.stopped = self.workers.by_user
+                    job.errors.append(f"{'按了停止' if job.stopped else '程式要結束'}，還有 {len(plan) - start} 個沒刪")
                     break
                 batch = plan[start: start + DELETE_BATCH]
                 job.current = batch[0]["name"]
@@ -688,7 +700,7 @@ class DupeFinder:
                 job.freed += sum(r["size"] for r in batch)
                 delay = getattr(self.strm_sync.cfg, "request_delay", 0) or 0
                 if delay and start + DELETE_BATCH < len(plan):
-                    self._stop.wait(delay)
+                    self.workers.wait(delay)
             log.info("刪重複：%s 個檔案送進 115 回收站，省下 %.1f GB", job.done, job.freed / 1024 ** 3)
         except P115Error as exc:
             job.errors.append(f"刪到第 {job.done + 1} 個時失敗：{exc}")

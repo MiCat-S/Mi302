@@ -335,7 +335,8 @@ class Scanner:
         self.people = PeopleStore(db, config)  # nfo 裡的演職人員
         self._custom: Optional[Dict[Tuple[int, str], str]] = None
         self._custom_lock = threading.RLock()
-        self.workers = Workers()  # 背景掃描（開機、網頁、設定改了）；程式結束時停在兩項之間，不刪沒掃到的
+        self.workers = Workers()  # 背景掃描（開機、網頁、設定改了）；程式結束或按了停止時停在兩項之間，不刪沒掃到的
+        self.stopped = False  # 上一次掃描是按了停止才停下的
 
     def in_background(self, job, *args) -> None:
         """在背景掃描（job 是 scan_all、scan_libraries、scan_paths）；程式結束時會等它停下。"""
@@ -431,7 +432,20 @@ class Scanner:
         return item_id
 
     # ---- 掃描範圍 ----
+    def cancel(self) -> bool:
+        """按了停止：這一次掃描在兩項之間停下，不刪沒掃到的（下次掃描再補）。沒在掃描回傳 False。"""
+        if not self.scanning:
+            return False
+        self.workers.cancel.set()
+        return True
+
+    def _stopped(self) -> None:
+        self.stopped = self.workers.by_user
+        log.info("%s，掃描中途停下（沒掃到的不刪，下次掃描再補）", "按了停止" if self.stopped else "程式要結束")
+
     def _begin(self, what: str) -> None:
+        self.workers.cancel.clear()
+        self.stopped = False
         self.scanning = True
         self.current = what
         self.item = ""
@@ -487,7 +501,7 @@ class Scanner:
                 count = self.db.one("SELECT COUNT(*) AS c FROM items")["c"]
                 log.info("掃描完成：共 %s 個項目，移除 %s 個", count, removed)
             except Stopped:
-                log.info("程式要結束，掃描中途停下（下次掃描再補）")
+                self._stopped()
             finally:
                 self._end()
 
@@ -511,7 +525,7 @@ class Scanner:
                     log.info("掃描媒體庫「%s」完成：%s 個項目，移除 %s 個", lib.name, self.touched, removed)
                 self._drop_removed_libraries()
             except Stopped:
-                log.info("程式要結束，掃描中途停下（下次掃描再補）")
+                self._stopped()
             finally:
                 self._end()
 
@@ -563,7 +577,7 @@ class Scanner:
                 what = str(units[0][2]) if len(units) == 1 else f"{len(units)} 個位置"
                 log.info("掃描 %s 完成：%s 個項目，移除 %s 個", what, self.touched, removed)
             except Stopped:
-                log.info("程式要結束，掃描中途停下（下次掃描再補）")
+                self._stopped()
             finally:
                 self._end()
 

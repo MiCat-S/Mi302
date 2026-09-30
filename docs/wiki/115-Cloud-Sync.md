@@ -176,6 +176,7 @@ The sync result lists these tasks after "switched to full sync" (已改跑全量
 ## Starting a sync
 
 - **Buttons**: **Incremental sync** (增量同步) and **Full sync** (全量同步) on the **Sync** card of the 115 Cloud tab, or **Incremental sync** and **Full** (全量) on the **115 sync** card (115 同步) of the Overview tab. Only one sync runs at a time; clicking during a sync shows "already syncing" (已經在同步中).
+- **Stop** (停止): shown on the **Sync** card while a sync runs. It stops between two files; this run's progress is not saved and no strm file is deleted, and the next sync redoes the unfinished part. Scheduled syncs carry on.
 - **Schedule**: two fields on the **Sync options** card (同步選項). Click **Save sync options** (儲存同步選項) after changing them.
 - **Command line**: see below.
 
@@ -265,6 +266,7 @@ Deleting a sync task never deletes the strm files it created, whether this optio
 - **Saved inside a sync folder**: once downloaded, the next incremental sync creates the strm files and adds them to the library (and sends them to MoviePilot for scraping if that is on).
 - **Saved elsewhere**: use **Organise…** (整理…) in Browse 115 to let MoviePilot move them into the library.
 - **Delete…** (刪除…) removes only the task record; the downloaded files stay on 115. To delete the files as well, type 刪檔案 ("delete files") in the confirmation.
+- **Add again** (重新加入), on failed tasks, first removes that failed record (not the files; otherwise 115 says the task already exists) and then adds the original link again to the original folder.
 - **Clear finished** (清除已完成) and **Clear failed** (清除失敗的) remove those task records in one go without touching files.
 
 With [115 open platform](#115-open-platform-advanced) authorisation its cloud-download API is used; otherwise the QR-code login cookie. The cookie path uses the 115 mobile app's interface, which has no official documentation, so it fails when 115 changes it; the error message is shown as is.
@@ -275,7 +277,7 @@ The **Browse 115** (瀏覽 115) page in the sidebar shows what is inside folders
 
 - Subfolders: click the name to open one. **Organise…** (整理…) on the right adds that folder to **Organise 115** (整理 115 網盤).
 - Videos: size, upload time, and what Mi302's library made of them.
-- Other files (nfo, images, subtitles) are listed in grey. A folder lists at most 1000 files.
+- Other files (nfo, images, subtitles) are listed in grey. Files load 1000 at a time; click **Load more** (再載入) at the bottom for the rest. **Select all** (全選) only selects files already loaded, and the selection count says how many are not loaded yet.
 - Every row has a checkbox, with **Select all** (全選) above. **Organise selected…** (整理選取的…) adds the ticked folders to **Organise 115** (files cannot be organised on their own and are skipped); **Delete selected…** (刪除選取的…) moves them to the 115 recycle bin (restorable on 115), folders with everything inside, and for anything inside a sync folder also removes the local strm and nfo files and library entries. Before deleting, Mi302 lists the folder again and only deletes what really is in it. Deleting needs the QR-code (cookie) login to 115.
 
 Marks next to a video:
@@ -419,7 +421,7 @@ The **Duplicates and big files** card (重複和大檔案) on the **Tools** tab 
 ### Big files
 
 - The same scan records every video of 1 GB or more (115 includes the size in its listings, so this costs no extra requests), largest first, 20 per page.
-- At the top, choose **Larger than** (大於) 1, 2, 5, 10, 20, 40, 60 or 100 GB (remembered in this browser) and the kind: movies and episodes, movies only, episodes only, or not in the library; you can also search file names and paths. The top of the list shows how many match and their total size.
+- At the top, choose **Larger than** (大於) 1, 2, 5, 10, 20, 40, 60 or 100 GB (remembered in this browser) and the kind: movies and episodes, movies only, episodes only, or not in the library; you can also search file names and paths. The top of the list shows how many match and their total size. The default is larger than 20 GB; the **1 GB or more (all)** count in the summary covers everything the scan recorded, while the list shows only what matches. The delete confirmation repeats the conditions.
 - Each file shows its size, resolution, HDR, codec and audio (from media info when available, otherwise from the file name), whether it is a movie or an episode, **N other versions** (還有 N 個其他版本; the same movie or episode has other files, see Versions above) and **Has watch history** (有觀看紀錄).
 - These are not duplicates, so nothing is ticked and nothing has to be kept. Tick files one by one, or click **Tick everything that matches** (勾選符合條件的全部), which includes pages you have not opened; changing the size, kind or search cancels it, so nothing you have not seen gets ticked.
 - Deleted files leave the library. For files marked as having other versions, watch history moves to another version; otherwise it is gone.
@@ -432,6 +434,7 @@ The **Duplicates and big files** card (重複和大檔案) on the **Tools** tab 
 - The local strm and its same-name nfo, posters, subtitles and `X-mediainfo.json` are deleted too (regardless of the follow-deletions setting), and only the affected series or movies are rescanned.
 - Watch history of the deleted copy (played, resume position, favourite) moves to the kept copy, per user. For big files it moves to another version of the same title or an identical copy; if there is none, it is gone.
 - **Recently deleted** (最近刪掉的) at the bottom of the card lists what was deleted (duplicates and big files) and where, to find it in the recycle bin.
+- **Stop** (停止) is available while scanning or deleting: a stopped scan keeps the previous results; deleting stops after the current batch (up to 100 files), and files already in the recycle bin stay there.
 - Deleting needs QR-code (cookie) login; it is not available with only the open platform.
 - Results reflect the moment you clicked **Scan**. If files were moved, renamed or deleted on 115 since, scan again before deleting.
 

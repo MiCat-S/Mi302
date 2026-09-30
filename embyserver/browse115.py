@@ -14,7 +14,7 @@ from .db import Database
 from .filetypes import VIDEO_EXTS
 from .strm_sync import remote_root, task_key
 
-MAX_FILES = 1000  # 一個資料夾最多回傳幾個檔案（資料夾全部列出）
+MAX_FILES = 1000  # 一次最多回傳幾個檔案（資料夾全部列出）；更多的用 offset 再要下一批
 
 
 def _chunks(items: List, size: int = 500) -> Iterable[List]:
@@ -59,20 +59,22 @@ def sync_root(tasks, path: str) -> Optional[str]:
     return None
 
 
-def list_folder(p115, db: Database, tasks, cid: int, path: str) -> dict:
-    """列出 115 資料夾：子資料夾、檔案（影片附上媒體庫資訊）。path 空的時候向 115 查。"""
+def list_folder(p115, db: Database, tasks, cid: int, path: str, offset: int = 0) -> dict:
+    """列出 115 資料夾：子資料夾、檔案（影片附上媒體庫資訊）。path 空的時候向 115 查。
+    檔案照名稱排，一次給 MAX_FILES 個，從第 offset 個開始（網頁「再載入」用）。"""
     entries = p115.list_dir(cid)
     if not path:
         path = "/" + "/".join(name for _, name in p115.dir_ancestors(cid)) if cid else "/"
     path = "/" + path.strip("/") if path.strip("/") else "/"
     dirs = sorted(({"id": e["id"], "name": e["name"]} for e in entries if e["is_dir"]), key=lambda d: d["name"].lower())
     files = sorted((e for e in entries if not e["is_dir"]), key=lambda e: e["name"].lower())
-    shown = files[:MAX_FILES]
+    offset = max(0, int(offset or 0))
+    shown = files[offset:offset + MAX_FILES]
     videos = [e["id"] for e in shown if posixpath.splitext(e["name"])[1].lower() in VIDEO_EXTS]
     lib = library_info(db, tasks, videos)
     return {
         "cid": cid, "path": path, "sync_root": sync_root(tasks, path),
-        "dirs": dirs, "total_files": len(files),
+        "dirs": dirs, "total_files": len(files), "offset": offset,
         "files": [
             {"id": e["id"], "name": e["name"], "size": e.get("size") or 0, "mtime": e.get("mtime") or 0,
              "video": e["id"] in lib or posixpath.splitext(e["name"])[1].lower() in VIDEO_EXTS,

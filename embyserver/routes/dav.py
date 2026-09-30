@@ -33,7 +33,8 @@ def dav(request: Request, path: str = "") -> Response:
         return Response(status_code=200, headers={"DAV": "1", "Allow": ALLOW, "MS-Author-Via": "DAV"})
     user = dav.login(request.headers.get("authorization", ""))
     if not user:
-        return _text(401, "要用 Mi302 的帳號密碼登入", CHALLENGE)
+        # 管理網頁的「測試」帶 X-Mi302-Test：不回 WWW-Authenticate，瀏覽器才不會跳出自己的登入框
+        return _text(401, "要用 Mi302 的帳號密碼登入", None if request.headers.get("x-mi302-test") else CHALLENGE)
     if dav.cfg.admin_only and not user["is_admin"]:
         return _text(403, "WebDAV 設定成只讓管理員登入")
     if method not in READ:

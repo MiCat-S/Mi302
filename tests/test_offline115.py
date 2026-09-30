@@ -117,3 +117,19 @@ def test_open_platform_is_used_when_authorized():
     assert off.tasks()["tasks"][0]["state"] == "failed"
     off.delete([HASH], with_files=True)
     assert fake.calls[-1][1:4:2] == ("/open/offline/del_task", {"info_hash": HASH, "del_source_file": "1"})
+
+
+def test_retry_removes_only_the_failed_record(monkeypatch):
+    """重新加入：先刪那一筆失敗的紀錄（不刪檔案），再用原來的連結加回原來的資料夾（不必查路徑）。"""
+    import p115cipher
+
+    monkeypatch.setattr(p115cipher, "rsa_encrypt", lambda b: base64.b64encode(b))
+    off, fake = service()
+    r = off.retry(HASH, MAGNET, 777)
+    delete_form = next(c[3] for c in fake.calls if c[3].get("ac") == "task_del")
+    assert delete_form == {"hash[0]": HASH, "ac": "task_del", "flag": "0"}
+    sent = json.loads(base64.b64decode(fake.calls[-1][3]["data"]))
+    assert (sent["url[0]"], sent["wp_path_id"]) == (MAGNET, "777") and r["added"] == 1
+    assert not any(c[1] == "/files/getid" for c in fake.calls)
+    with pytest.raises(OfflineError):
+        off.retry(HASH, "", 777)  # 沒有原來的連結

@@ -88,7 +88,8 @@ textarea{resize:vertical;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,
 @media (max-width:520px){#dupSelInfo{flex-basis:100%}}  /* 窄螢幕上勾了幾個自己一行，不擠成一條 */
 .seg{display:inline-flex;border:1px solid var(--line);border-radius:9px;overflow:hidden;flex-wrap:wrap}
 .seg button{border:0;background:transparent;padding:7px 14px;font:inherit;font-size:13.5px;color:var(--muted);cursor:pointer;white-space:nowrap}
-@media (max-width:420px){.subtabs button{padding:7px}}  /* 窄螢幕上分頁按鈕窄一點，360 寬的手機也排得下一行 */
+@media (max-width:420px){.subtabs button{padding:7px}}
+@media (max-width:640px){input,select,textarea,.li .main select.sm,.li .main input.sm{font-size:16px}}  /* 小於 16px 時 iPhone 一點輸入框就放大整頁 */  /* 窄螢幕上分頁按鈕窄一點，360 寬的手機也排得下一行 */
 .seg button.on{background:var(--accent-soft);color:var(--accent);font-weight:600}
 .switch input{position:absolute;opacity:0;width:1px;height:1px}
 .switch .track{flex:none;width:38px;height:22px;border-radius:11px;background:var(--line);position:relative;transition:background .15s;margin-top:1px}
@@ -541,7 +542,7 @@ dialog .card-b{max-height:70vh;overflow:auto}
         <div class="card-h"><div class="t"><svg class="i"><use href="#i-download"/></svg><h2>離線下載</h2></div><span class="hint" id="olQuota"></span></div>
         <div class="card-b stack">
           <p class="hint">把磁力、ed2k、http 連結交給 115 下載到網盤（115 的「雲下載」），不經過這台機器。存到同步目錄裡的，下載完下一次增量同步就會產生 strm；存到其他地方的，可以到「瀏覽 115」整理。 <a class="doc" href="https://github.com/MiCat-S/Mi302/wiki/115-網盤與同步#離線下載" target="_blank" rel="noopener">說明</a></p>
-          <label class="field"><span>連結</span><textarea id="olUrls" rows="4" placeholder="一行一個：magnet:?xt=urn:btih:…、ed2k://|file|…|/、https://…"></textarea></label>
+          <label class="field"><span>連結</span><textarea id="olUrls" rows="4" placeholder="一行一個：magnet:?xt=urn:btih:…、ed2k://|file|…|/、http(s)://…、ftp://…，或只貼 40 位的 info hash"></textarea></label>
           <div class="row wrap gap6"><span class="hint">存到</span><input id="olFolder" type="text" class="grow" placeholder="空白 = 115 預設的「雲下載」資料夾" aria-label="存到的 115 資料夾">
             <button class="btn sm" onclick="olPick()">選擇…</button><button class="btn primary" id="olAdd" onclick="olAdd()">加入下載</button></div>
           <p id="olMsg" class="notice hidden" aria-live="polite"></p>
@@ -806,6 +807,11 @@ dialog .card-b{max-height:70vh;overflow:auto}
           <label class="switch"><input type="checkbox" data-key="webdav.admin_only"><span class="track"></span><span class="lbl">只讓管理員登入<small>露出整個 115（填 /）時建議打開，一般使用者就看不到網盤裡的其他檔案</small></span></label>
           <dl class="kv"><dt>地址</dt><dd><div class="row"><code id="davUrl"></code><button class="btn sm ghost icon" data-act="copyDav" title="複製" aria-label="複製 WebDAV 地址"><svg class="i"><use href="#i-copy"/></svg></button></div></dd>
             <dt>帳號密碼</dt><dd>Mi302 的使用者名稱和密碼（和播放器登入 Mi302 用的一樣）</dd></dl>
+          <div class="stack" id="davTestBox"><p class="hint">測試已儲存的設定：用一個 Mi302 帳號，從這個網址實際連一次 /dav/（經過反向代理的話也一起測到），再看每個露出的 115 資料夾讀不讀得到。</p>
+            <div class="row wrap gap6"><input id="davUser" type="text" class="w-auto grow" placeholder="Mi302 使用者名稱" aria-label="測試用的使用者名稱" autocomplete="username">
+              <input id="davPw" type="password" class="w-auto grow" placeholder="密碼" aria-label="測試用的密碼" autocomplete="current-password">
+              <button class="btn" id="davTestBtn" onclick="davTest()">測試 WebDAV</button></div>
+            <div id="davTestOut" aria-live="polite"></div></div>
           <details class="more"><summary>怎麼加到播放器</summary><div class="in hint stack">
             <p>在播放器新增一個 WebDAV 來源，伺服器填上面的地址（或分開填主機、埠號，路徑填 <code>/dav/</code>），帳號密碼用 Mi302 的。</p>
             <p><b>Infuse</b>：新增檔案來源（共享）→ WebDAV<br><b>VidHub</b>：新增網盤 → WebDAV<br><b>Kodi</b>：新增影片來源 → 瀏覽 → 新增網路位置 → 通訊協定選 WebDAV server (HTTP)</p>
@@ -850,7 +856,7 @@ dialog .card-b{max-height:70vh;overflow:auto}
           <p class="hint">授權：PolyForm Noncommercial 1.0.0。個人、家庭、學習研究、非營利組織都可以免費使用和修改，<b>不能用在商業用途</b>（例如拿來賣、做成收費服務）。<a href="https://github.com/MiCat-S/Mi302/blob/main/LICENSE.md" target="_blank" rel="noopener">授權全文</a></p>
         </div>
       </div>
-      <div class="savebar" data-sub="general webdav strm zh backup"><span class="hint grow">儲存會寫進設定檔</span><button class="btn primary" onclick="saveFields($('tab-settings'), true)">儲存設定</button></div>
+      <div class="savebar" data-sub="general webdav strm zh backup"><span class="hint grow">儲存會寫進設定檔</span><button class="btn primary" onclick="saveSettings()">儲存設定</button></div>
     </section>
   </main>
 </div>
@@ -1137,6 +1143,53 @@ function davShow() {
   const root = $('davRoot').value.trim(), tasks = cfg.p115.strm.tasks.map(t => '/' + t.remote.replace(/^\/+|\/+$/g, ''));
   $('davRoots').textContent = root ? `只露出 115 的 ${'/' + root.replace(/^\/+|\/+$/g, '')}`
     : tasks.length ? `露出同步任務的 115 目錄：${[...new Set(tasks)].join('、')}` : '還沒有同步任務，填一個 115 資料夾才看得到東西';
+}
+async function davTest() {
+  // 從這個網頁實際走一次 /dav/：分得出沒開、帳密不對、只限管理員、反向代理沒轉、115 讀不到
+  const name = $('davUser').value.trim(), out = $('davTestOut');
+  if (!name) { setHtml(out, '<p class="notice warn">填一個 Mi302 使用者名稱和密碼</p>'); return; }
+  const auth = 'Basic ' + btoa(String.fromCharCode(...new TextEncoder().encode(name + ':' + $('davPw').value)));
+  const dav = async (path, depth) => {
+    const r = await fetch('/dav' + path.split('/').map(encodeURIComponent).join('/') + (path.endsWith('/') ? '' : '/'),
+      {method: 'PROPFIND', headers: {Depth: depth, Authorization: auth, 'X-Mi302-Test': '1'}});
+    return {status: r.status, text: await r.text()};
+  };
+  $('davTestBtn').disabled = true;
+  setHtml(out, '<p class="hint row"><span class="spin"></span>測試中…</p>');
+  const lines = [];
+  let bad = false;
+  try {
+    const r = await dav('/', '1');
+    const ours = /WebDAV|Mi302|multistatus|115/.test(r.text);  // 回應是 Mi302 給的，不是反向代理的錯誤頁
+    if (r.status === 207) lines.push(['ok', `登入成功，連得到 ${location.origin}/dav/`]);
+    else if (r.status === 401) lines.push(['bad', '帳號或密碼不對']);
+    else if (r.status === 403) lines.push(['bad', '這個帳號不是管理員，但 WebDAV 設定成「只讓管理員登入」']);
+    else if (r.status === 404 && r.text.includes('沒有開啟')) lines.push(['bad', 'WebDAV 還沒開啟（改了開關要先按「儲存設定」）']);
+    else if (!ours) lines.push(['bad', `回應不是 Mi302 給的（HTTP ${r.status}）：反向代理可能沒有把 /dav/ 轉給 Mi302，或不允許 PROPFIND 方法`]);
+    else lines.push(['bad', `HTTP ${r.status}：${r.text.slice(0, 200)}`]);
+    bad = r.status !== 207;
+    if (!bad) {
+      const w = cfg.webdav || {}, roots = w.root ? [w.root] : [...new Set((cfg.p115.strm.tasks || []).map(t => '/' + t.remote.replace(/^\/+|\/+$/g, '')))];
+      if (!roots.length) lines.push(['warn', '還沒有同步任務，也沒有設定要露出的 115 資料夾，登入後看不到東西']);
+      for (const root of roots) {
+        const x = await dav(root, '0');
+        if (x.status === 207) lines.push(['ok', `讀得到 115 的 ${root}`]);
+        else { bad = true; lines.push(['bad', `${root}：${x.status === 404 ? '115 上沒有這個資料夾' : x.text.slice(0, 200) || 'HTTP ' + x.status}`]); }
+      }
+    }
+  } catch (e) { bad = true; lines.push(['bad', `連不上 ${location.origin}/dav/：${e.message}（反向代理可能沒有轉 /dav/）`]); }
+  $('davTestBtn').disabled = false;
+  setHtml(out, `<div class="notice ${bad ? 'warn' : 'ok'}">${lines.map(([k, t]) => `<div class="mt4"><span class="pill ${k}">${k === 'ok' ? '可以' : k === 'warn' ? '注意' : '不行'}</span> ${esc(t)}</div>`).join('')}</div>`);
+}
+async function saveSettings() {
+  // 設定頁的「儲存設定」：WebDAV 要改成露出整個 115、又沒打開「只讓管理員登入」時，先說清楚誰看得到什麼
+  const val = k => document.querySelector(`#tab-settings [data-key="webdav.${k}"]`);
+  const whole = val('enabled').checked && val('root').value.trim() && !val('root').value.replace(/\//g, '').trim() && !val('admin_only').checked;
+  const w = cfg.webdav || {}, was = w.enabled && w.root === '/' && !w.admin_only;
+  if (whole && !was && !await ask({title: 'WebDAV 要露出整個 115 網盤？',
+    text: '所有 Mi302 使用者（不只管理員）都能用自己的帳號密碼，透過 WebDAV 看到並播放 115 網盤裡的全部檔案，包括不在媒體庫裡的。只想自己用的話，取消後打開「只讓管理員登入」再儲存。',
+    ok: '照樣儲存', danger: true})) return;
+  saveFields($('tab-settings'), true);
 }
 async function davPick() { const p = await pickDir('115', $('davRoot').value || '/'); if (p) { $('davRoot').value = p; davShow(); } }
 
@@ -1723,7 +1776,7 @@ function scanHtml(s) {
   if (!s.scanning) return '';
   // 分母是上次掃描後的項目數；第一次掃描沒有分母，顯示來回滑動的忙碌條
   const p = s.progress || {}, pct = p.total ? Math.min(99, Math.floor(p.done / p.total * 100)) : null, label = p.item || s.current;
-  return `<div class="scanbar"><span class="row"><span class="spin"></span><span>掃描中${pct === null ? '' : ' ' + pct + '%'}${label ? '：' + esc(label) : ''}</span></span>` +
+  return `<div class="scanbar"><span class="row"><span class="spin"></span><span class="grow">掃描中${pct === null ? '' : ' ' + pct + '%'}${label ? '：' + esc(label) : ''}</span><button class="btn sm ghost danger" data-act="stopJob" data-job="scan">停止</button></span>` +
     `<div class="meter${pct === null ? ' busy' : ''}"><div style="width:${pct === null ? 35 : pct}%"></div></div></div>`;
 }
 
@@ -1904,8 +1957,8 @@ function syncHtml(s) {
   if (!r.started) return '<p class="hint">還沒同步過。按「增量同步」開始，第一次會自動先跑全量。</p>';
   const kind = r.mode === 'incremental' ? '增量' : '全量';
   let h = '<div class="row wrap mb12">';
-  if (r.running) h += `<span class="pill accent"><span class="spin"></span>${kind}同步中</span>`;
-  else h += `<span class="pill ${r.errors.length ? 'warn' : 'ok'}">${r.errors.length ? '有錯誤' : '完成'}</span><span class="hint">上次${kind}同步・${ago(r.finished)}（${fmtTime(r.finished)}）</span>`;
+  if (r.running) h += `<span class="pill accent"><span class="spin"></span>${kind}同步中</span><button class="btn sm ghost danger" data-act="stopJob" data-job="sync">停止</button>`;
+  else h += `<span class="pill ${r.errors.length || r.stopped ? 'warn' : 'ok'}">${r.stopped ? '已停止' : r.errors.length ? '有錯誤' : '完成'}</span><span class="hint">上次${kind}同步・${ago(r.finished)}（${fmtTime(r.finished)}）</span>`;
   h += '</div><div class="chips">';
   if (r.mode === 'incremental') h += chip(r.events, '生活事件') + chip(r.moved, '搬移', true);
   h += chip(r.new_files, '新檔案', true) + chip(r.strm_created - r.new_files, '更新') + chip(r.strm_unchanged, '未變') + chip(r.metadata_downloaded, '中繼資料') + chip(r.removed, '刪除');
@@ -1955,7 +2008,7 @@ let dupSelSeq = 0;
 const DUP_PAGE = 20;
 const DUP_HINT = {
   exact: '每組建議保留一份：本機有 strm 的優先，其次檔名編號格式完整的（劇集有 S01E02、電影有年份），再來最早上傳的；其餘預先勾選。',
-  big: '115 上 1 GB 以上的影片，大的在前；上面選多大以上、電影或劇集。挑了才刪，不必留一份：刪掉的從媒體庫拿掉；標著「還有其他版本」的，觀看紀錄轉到別的版本，沒有的就沒了。',
+  big: '掃描時記下 115 上 1 GB 以上的影片；清單只列符合上面條件的（預設大於 20 GB），大的在前。挑了才刪，不必留一份：刪掉的從媒體庫拿掉；標著「還有其他版本」的，觀看紀錄轉到別的版本，沒有的就沒了。',
   versions: '檔案內容不同，所以預設都不勾，由你挑。建議保留哪一份照下面選的解析度（預設 1080P，沒有再 4K，再沒有就留剩下最高的），一樣時保留檔名編號格式完整的（劇集有 S01E02、電影有年份），再來佔空間小的；要照建議一次勾好每一組，按「全部照建議勾選」。畫質看已經提取的媒體資訊，沒有的從檔名猜，看不出解析度的排最後。分段檔（CD1）、一個檔案好幾集、加長版這類不同剪輯不會列在一起；不知道第幾集的、檔名集號和媒體庫對不上的也不列。',
 };
 function setDupKind(kind) {
@@ -2037,14 +2090,14 @@ function dupStatHtml(s) {
   let h = `<p class="hint">範圍：${roots.length ? roots.map(r => `<code>${esc(r)}</code>`).join('、') : '還沒有同步任務，請按「改選 115 目錄…」'}` +
     (dupRoot ? '（自己選的，<button class="link" data-act="dupRootReset">改回同步任務的目錄</button>）' : roots.length ? '（同步任務的目錄）' : '') + '</p>';
   if (j.running && j.kind === 'scan') {
-    h += `<div class="row mt8"><span class="pill accent"><span class="spin"></span>掃描中</span><span class="hint sp"><span>已看 ${j.listed} 個檔案</span>${j.current ? `<span>${esc(j.current)}</span>` : ''}</span></div>`;
+    h += `<div class="row mt8"><span class="pill accent"><span class="spin"></span>掃描中</span><span class="hint sp grow"><span>已看 ${j.listed} 個檔案</span>${j.current ? `<span>${esc(j.current)}</span>` : ''}</span><button class="btn sm ghost danger" data-act="stopJob" data-job="dupes">停止</button></div>`;
   } else if (j.running) {
     const pct = j.total ? j.done / j.total * 100 : 0;
-    h += `<div class="row my8"><span class="pill accent"><span class="spin"></span>刪除中</span><span class="hint sp"><span>${j.done} / ${j.total}</span>${j.current ? `<span>${esc(j.current)}</span>` : ''}</span></div><div class="meter"><div style="width:${pct.toFixed(1)}%"></div></div>`;
+    h += `<div class="row my8"><span class="pill accent"><span class="spin"></span>刪除中</span><span class="hint sp grow"><span>${j.done} / ${j.total}</span>${j.current ? `<span>${esc(j.current)}</span>` : ''}</span><button class="btn sm ghost danger" data-act="stopJob" data-job="dupes">停止</button></div><div class="meter"><div style="width:${pct.toFixed(1)}%"></div></div>`;
   } else if (s.scanned_at) {
     const v = s.versions || {};
     h += `<div class="chips mt8">${chip(s.groups, '組完全相同', true)}${chip(fmtSize(s.reclaimable), '照建議刪可以省')}` +
-      `${chip(v.groups || 0, '組不同版本', true)}${chip(fmtSize(v.reclaimable || 0), '照建議刪可以省')}${chip(s.big?.files || 0, '支 1 GB 以上', true)}</div>
+      `${chip(v.groups || 0, '組不同版本', true)}${chip(fmtSize(v.reclaimable || 0), '照建議刪可以省')}${chip(s.big?.files || 0, '支 1 GB 以上（全部）', true)}</div>
       <p class="hint mt6">上次在 ${ago(s.scanned_at)} 掃描過（${s.roots.map(esc).join('、')}，看了 ${s.scanned_files} 支影片）。115 上有變動的話，先重新掃描一次。</p>`;
   } else {
     h += '<p class="hint mt8">還沒掃描過。按「掃描」開始，四萬支影片大約只要幾十次請求。</p>';
@@ -2145,9 +2198,10 @@ async function deleteDupes(group) {
   try { plan = await api('/web/api/dupes/delete', {method: 'POST', body: JSON.stringify({...body, dry_run: true})}); }
   catch (e) { toast(e.message, 'bad'); return; }
   if (!plan.count) { toast('沒有勾選要刪的檔案'); return; }
+  const cond = `大於 ${$('dupMin').value} GB・${$('dupType').selectedOptions[0].text}${$('dupQ').value.trim() ? `・搜尋「${$('dupQ').value.trim()}」` : ''}`;
   const text = dupKind === 'big'
     ? '會送進 115 回收站，需要時可以在 115 還原。本機的 strm 跟著刪，這些電影、集數從媒體庫拿掉；還有其他版本的，觀看紀錄轉到別的版本，沒有的觀看紀錄就沒了。'
-      + (dupSuggestAll.big ? '包含還沒翻到的頁面裡，符合條件的檔案。' : '')
+      + (dupSuggestAll.big ? `勾選的是符合「${cond}」的全部，包含還沒翻到的頁面。` : `目前的條件：${cond}。`)
     : '會送進 115 回收站，需要時可以在 115 還原。本機的 strm 跟著刪，觀看紀錄轉到保留的那份。' +
       (group ? '' : '包含還沒翻到的頁面裡，照建議勾選的檔案。');
   if (!await ask({title: `刪除 ${plan.count} 個檔案（共 ${fmtSize(plan.size)}）？`, text, ok: '刪除', danger: true})) return;
@@ -2215,10 +2269,10 @@ function mpHtml(s) {
   let h = '';
   if (r.running) {
     const n = r.done + r.failed, pct = r.total ? n / r.total * 100 : 0;
-    h += `<div class="row mb8"><span class="pill accent"><span class="spin"></span>刮削中</span><span class="hint">${n} / ${r.total}</span></div>
+    h += `<div class="row mb8"><span class="pill accent"><span class="spin"></span>刮削中</span><span class="hint grow">${n} / ${r.total}</span><button class="btn sm ghost danger" data-act="stopJob" data-job="scrape">停止</button></div>
       <div class="meter"><div style="width:${pct.toFixed(1)}%"></div></div>${r.current ? `<p class="hint mt6 brk">${esc(r.current)}</p>` : ''}`;
   } else {
-    h += `<div class="row wrap mb12"><span class="pill ${r.failed ? 'warn' : 'ok'}">${r.failed ? '部分失敗' : '完成'}</span>
+    h += `<div class="row wrap mb12"><span class="pill ${r.failed || r.stopped ? 'warn' : 'ok'}">${r.stopped ? '已停止' : r.failed ? '部分失敗' : '完成'}</span>
       <span class="hint">上次刮削（${r.source === 'sync' ? '同步後自動' : '手動'}）・${ago(r.finished)}</span></div>
       <div class="chips">${chip(r.total, '送出')}${chip(r.done, '成功', true)}${chip(r.failed, '失敗')}${r.no_image ? chip(r.no_image, '沒有劇照') : ''}</div>`;
     if (r.no_image) h += `<p class="hint mt10">${r.no_image} 集有 nfo 但沒有劇照：多半是 TMDB 沒有這幾集的圖，播放器會改用劇的橫幅圖；30 天內按「刮削缺少資料的項目」不再重送。若是 MoviePilot 日誌有「图片下载失败」，要在 MoviePilot 設定 TMDB 圖片代理。</p>`;
@@ -2298,8 +2352,8 @@ async function fillAll() {
 function fillHtml(f) {
   if (!f.started) return '';
   let h = '<div class="row wrap mb8">';
-  if (f.running) h += `<span class="pill accent"><span class="spin"></span>補全中</span><span class="hint sp"><span>${f.done} / ${f.total}</span>${f.current ? `<span>${esc(f.current)}</span>` : ''}</span>`;
-  else h += `<span class="pill ${f.errors.length ? 'warn' : 'ok'}">${f.errors.length ? '有問題' : '完成'}</span><span class="hint">上次補全（${f.source === 'sync' ? '全量同步後自動' : '手動'}）・${ago(f.finished)}</span>`;
+  if (f.running) h += `<span class="pill accent"><span class="spin"></span>補全中</span><span class="hint sp grow"><span>${f.done} / ${f.total}</span>${f.current ? `<span>${esc(f.current)}</span>` : ''}</span><button class="btn sm ghost danger" data-act="stopJob" data-job="fill">停止</button>`;
+  else h += `<span class="pill ${f.errors.length || f.stopped ? 'warn' : 'ok'}">${f.stopped ? '已停止' : f.errors.length ? '有問題' : '完成'}</span><span class="hint">上次補全（${f.source === 'sync' ? '全量同步後自動' : '手動'}）・${ago(f.finished)}</span>`;
   h += `</div><div class="chips">${chip(f.created, '建了訂閱', true)}${chip(f.missing || 0, '缺的集數')}${chip(f.complete, '已經齊全')}${chip(f.existing, '之前訂閱過')}${chip(f.skipped, '沒 tmdbid')}${chip(f.failed, '失敗')}</div>`;
   if (f.details.length) h += `<details class="more mt10"><summary>每一季的結果（${f.details.length}）</summary><div class="in hint pre">${esc(f.details.join('\n'))}</div></details>`;
   if (f.errors.length) h += `<div class="notice bad mt10">${f.errors.slice(0, 5).map(esc).join('<br>')}</div>`;
@@ -2746,6 +2800,22 @@ function organizeBatchShow() {
       <button class="btn sm" data-act="ogFind" data-name="${esc(x.name)}">在清單上找</button></div>`).join('')}${res.length > 300 ? `<p class="hint">還有 ${res.length - 300} 個沒列出來</p>` : ''}</div></details>`;
   setHtml($('ogBatch'), h + '</div>');
 }
+// ---- 停止長時間的工作：都在安全的地方停下，沒做完的下次再做 ----
+const STOPS = {
+  scan: ['/web/api/scan/stop', {}, '停止這一次掃描？', '在兩個項目之間停下。沒掃到的不會從媒體庫刪掉，下次掃描再補。', () => refreshScan()],
+  sync: ['/p115/strm/stop', {}, '停止這一次同步？', '在兩個檔案之間停下。這次的進度不存、不刪任何 strm，下次同步會重做沒做完的部分；定時同步照舊。', () => pollSync()],
+  dupes: ['/web/api/dupes/stop', {}, '停止？', '找重複：停下後保留上次的結果。刪除：做完手上這一批（最多 100 個）就停，已經送進 115 回收站的留在回收站。', () => pollDupes()],
+  scrape: ['/web/api/moviepilot/stop', {what: 'scrape'}, '停止刮削？', '已經送給 MoviePilot 的會做完，還沒送的不送，下次刮削再送。', () => pollMP()],
+  fill: ['/web/api/moviepilot/stop', {what: 'fill'}, '停止補全缺集？', '做完手上這一季就停，已經建好的訂閱留著。', () => pollMP()],
+};
+ACTS.stopJob = async el => {
+  const [url, body, title, text, after] = STOPS[el.dataset.job];
+  if (!await ask({title, text, ok: '停止', danger: true})) return;
+  let r;
+  try { r = await api(url, {method: 'POST', body: JSON.stringify(body)}); } catch (e) { toast(e.message, 'bad'); return; }
+  toast(r.stopped ? '停止中，做完手上這一項就停' : '已經沒在跑了');
+  after();
+};
 ACTS.ogFind = el => { $('ogQ').value = el.dataset.name; organizeLoad(1); $('ogCard').scrollIntoView({block: 'start'}); };
 function organizeButtons() {
   const sel = organizeSelected(), ready = sel.filter(st => st.preview?.token), lack = !!organizeLack();
@@ -2847,6 +2917,7 @@ async function loadOffline(page) {
       ${t.state === 'downloading' ? `<div class="meter mt6"><div style="width:${t.percent}%"></div></div>` : ''}</div>
       <span class="pill ${cls}">${label}${t.state === 'downloading' ? ` ${t.percent}%` : ''}</span>
       <div class="stack gap6">${t.state === 'done' && t.folder_id ? `<button class="btn sm" data-act="olOpen" data-cid="${esc(t.folder_id)}">打開資料夾</button>` : ''}
+      ${t.state === 'failed' && t.url ? `<button class="btn sm" data-act="olRetry" data-hash="${esc(t.hash)}" data-url="${esc(t.url)}" data-folder="${esc(t.folder_id || '')}" data-name="${esc(t.name || t.url)}">重新加入</button>` : ''}
       <button class="btn sm ghost danger" data-act="olDel" data-hash="${esc(t.hash)}" data-name="${esc(t.name || t.url)}">刪除…</button></div>`;
     box.appendChild(d);
   }
@@ -2882,6 +2953,17 @@ ACTS.olDel = async el => {
   try { await api('/web/api/115/offline/delete', {method: 'POST', body: JSON.stringify({hashes: [el.dataset.hash], files})}); }
   catch (e) { toast(e.message, 'bad'); return; }
   toast(files ? '已刪除任務和下載好的檔案' : '已刪除任務'); loadOffline();
+};
+ACTS.olRetry = async el => {
+  // 115 上同一個連結的失敗紀錄還在時會說「任務已存在」，所以先刪掉那一筆紀錄（不動檔案）再加
+  if (!await ask({title: `重新加入「${el.dataset.name}」？`,
+    text: '會先刪掉這一筆失敗的任務紀錄（不動 115 上的檔案），再用原來的連結加回原來的資料夾。', ok: '重新加入'})) return;
+  let r;
+  try { r = await api('/web/api/115/offline/retry', {method: 'POST', body: JSON.stringify({hash: el.dataset.hash, url: el.dataset.url, folder_id: el.dataset.folder})}); }
+  catch (e) { toast(e.message, 'bad'); loadOffline(); return; }
+  const bad = r.results.find(x => !x.ok);
+  toast(bad ? `沒加進去：${bad.message}` : '重新加入了', bad ? 'bad' : '');
+  loadOffline(1);
 };
 ACTS.olOpen = el => { b115.want = el.dataset.cid; location.hash = '#browse'; };
 async function olClear(what) {
@@ -2983,9 +3065,12 @@ function renderCrumbs(path) {
   });
   $('b115Crumbs').innerHTML = crumbs.join('');
 }
+function b115InfoText(r) {
+  // 影片數只算已經載入的；還有沒載入的就寫明
+  const videos = b115.total > b115.loaded ? `已載入的 ${b115.loaded} 個裡有 ${b115.videos} 支影片` : `${b115.videos} 支影片`;
+  $('b115Info').textContent = `${r.dirs.length} 個資料夾、${r.total_files} 個檔案（${videos}）` + (r.sync_root ? `・在同步目錄 ${r.sync_root} 裡` : '・不在同步目錄裡');
+}
 function renderFolder(r) {
-  const videos = r.files.filter(f => f.video).length;
-  $('b115Info').textContent = `${r.dirs.length} 個資料夾、${r.total_files} 個檔案（${videos} 支影片）` + (r.sync_root ? `・在同步目錄 ${r.sync_root} 裡` : '・不在同步目錄裡');
   $('b115Reo').disabled = r.path === '/';
   $('b115Bar').classList.remove('hidden');
   $('b115SelBar').classList.toggle('hidden', !r.dirs.length && !r.files.length);
@@ -3000,18 +3085,42 @@ function renderFolder(r) {
     row.querySelector('.main').insertAdjacentHTML('beforeend', `<span class="pill accent js-added${b115.added.has(String(d.id)) ? '' : ' hidden'}">已加進整理</span>`);
     box.appendChild(row);
   }
-  for (const f of r.files) {
-    const row = document.createElement('div'); row.className = 'li top';
-    const meta = `${fmtSize(f.size)}${f.mtime ? '・' + fmtTime(f.mtime) : ''}`;
-    row.innerHTML = f.video
-      ? `<div class="main"><b>${esc(f.name)}</b><div class="row wrap mt4 gap6"><span class="hint">${meta}</span>${b115Lib(f, !!r.sync_root)}</div></div>`
-      : `<div class="main other">${esc(f.name)}・${meta}</div>`;
-    row.prepend(b115Check(f.id, f.name, false, joinPath(r.path, f.name)));
-    box.appendChild(row);
-  }
+  for (const f of r.files) box.appendChild(b115FileRow(f, r));
+  b115.loaded = r.files.length; b115.total = r.total_files; b115.videos = r.files.filter(f => f.video).length;
+  b115InfoText(r);
+  b115MoreButton();
   b115SelCount();
-  if (r.total_files > r.files.length) box.insertAdjacentHTML('beforeend', `<p class="hint pt10">還有 ${r.total_files - r.files.length} 個檔案沒列出</p>`);
   if (!r.dirs.length && !r.files.length) box.insertAdjacentHTML('beforeend', '<p class="hint pt10">這個資料夾是空的</p>');
+}
+function b115FileRow(f, r) {
+  const row = document.createElement('div'); row.className = 'li top';
+  const meta = `${fmtSize(f.size)}${f.mtime ? '・' + fmtTime(f.mtime) : ''}`;
+  row.innerHTML = f.video
+    ? `<div class="main"><b>${esc(f.name)}</b><div class="row wrap mt4 gap6"><span class="hint">${meta}</span>${b115Lib(f, !!r.sync_root)}</div></div>`
+    : `<div class="main other">${esc(f.name)}・${meta}</div>`;
+  row.prepend(b115Check(f.id, f.name, false, joinPath(r.path, f.name)));
+  return row;
+}
+function b115MoreButton() {
+  // 檔案一次載入 1000 個；還有沒載入的就在最下面放「再載入」
+  $('b115More')?.remove();
+  const left = b115.total - b115.loaded;
+  if (left > 0) $('b115List').insertAdjacentHTML('beforeend',
+    `<p class="pt10" id="b115More"><button class="btn sm" onclick="b115LoadMore(this)">再載入 ${Math.min(left, 1000)} 個（還有 ${left} 個檔案沒載入）</button></p>`);
+}
+async function b115LoadMore(btn) {
+  btn.disabled = true;
+  const seq = b115.seq;
+  let r;
+  try { r = await api(`/web/api/115/files?cid=${b115.cid}&path=${encodeURIComponent(b115.path)}&offset=${b115.loaded}`); }
+  catch (e) { toast(e.message, 'bad'); btn.disabled = false; return; }
+  if (seq !== b115.seq) return;  // 已經換到別的資料夾
+  const more = $('b115More');
+  for (const f of r.files) more.before(b115FileRow(f, r));
+  b115.loaded += r.files.length; b115.total = r.total_files; b115.videos += r.files.filter(f => f.video).length;
+  b115InfoText(r);
+  b115MoreButton();
+  b115SelCount();
 }
 function b115Check(id, name, dir, path) {
   // 一列的勾選框；115 的 id 是字串（19 位，當成數字會被四捨五入）
@@ -3024,7 +3133,8 @@ function b115Check(id, name, dir, path) {
 const b115Picked = () => [...$('b115List').querySelectorAll('.js-pick:checked')].map(b => ({...b.dataset, dir: !!b.dataset.dir}));
 function b115SelCount() {
   const picked = b115Picked(), dirs = picked.filter(p => p.dir).length, all = $('b115List').querySelectorAll('.js-pick').length;
-  $('b115Sel').textContent = picked.length ? `選了 ${picked.length} 個` + (dirs && dirs < picked.length ? `（${dirs} 個資料夾、${picked.length - dirs} 個檔案）` : '') : '';
+  $('b115Sel').textContent = (picked.length ? `選了 ${picked.length} 個` + (dirs && dirs < picked.length ? `（${dirs} 個資料夾、${picked.length - dirs} 個檔案）` : '') : '')
+    + (b115.total > b115.loaded ? `${picked.length ? '；' : ''}全選只選已載入的 ${b115.loaded} 個檔案，還有 ${b115.total - b115.loaded} 個沒載入` : '');
   $('b115OrgSel').disabled = !dirs;
   $('b115DelSel').disabled = !picked.length;
   $('b115All').checked = !!all && picked.length === all;

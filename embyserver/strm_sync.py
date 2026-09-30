@@ -67,6 +67,7 @@ class SyncResult:
     started: float = 0.0
     finished: float = 0.0
     running: bool = False
+    stopped: bool = False  # 按了停止：沒做完的任務進度不存，下次同步再補
     strm_created: int = 0
     strm_unchanged: int = 0
     metadata_downloaded: int = 0
@@ -558,6 +559,7 @@ class StrmSync:
         """佔住同步鎖並換上新的結果，讓呼叫端立刻看得到「同步中」與這次的開始時間。"""
         if not self._lock.acquire(blocking=False):
             return False
+        self.workers.cancel.clear()
         self.result = SyncResult(mode=mode, started=time.time(), running=True)
         self._dirs = {}
         self._latest = None
@@ -627,8 +629,11 @@ class StrmSync:
                 left = "、".join(t.remote for t, _ in jobs[i:])
                 self.result.notes.append(f"{self.p115.breaker.message()}，這些任務這次不同步：{left}")
                 break
-            if self._stop.is_set():
-                break  # 程式要結束
+            if self.workers.halted:
+                self.result.stopped = self.workers.by_user
+                left = "、".join(t.remote for t, _ in jobs[i:])
+                self.result.notes.append(f"{'按了停止' if self.result.stopped else '程式要結束'}，這些任務這次不同步：{left}")
+                break
             self._guard(task, job)
 
     def _guard(self, task: StrmTask, job: Callable[[], None]) -> None:
@@ -636,8 +641,10 @@ class StrmSync:
         try:
             job()
         except Stopped:
-            # 進度（since、生活事件）還沒存，沒做完的下次同步重做；重做只會判定為「未變」
-            self.result.notes.append(f"{task.remote}：程式要結束，同步中途停下，下次同步再補")
+            # 進度（since、生活事件）還沒存，也不刪沒列到的 strm；沒做完的下次同步重做，重做只會判定為「未變」
+            self.result.stopped = self.result.stopped or self.workers.by_user
+            why = "按了停止" if self.workers.by_user else "程式要結束"
+            self.result.notes.append(f"{task.remote}：{why}，同步中途停下，下次同步再補")
         except Exception as exc:
             if not isinstance(exc, P115Error):
                 log.exception("115 strm 同步發生未預期的錯誤")
@@ -672,6 +679,14 @@ class StrmSync:
                     self.run(INCREMENTAL)
 
         self.workers.start(loop)
+
+    def cancel(self) -> bool:
+        """按了停止：這一次同步在兩個檔案之間停下，進度不存、不刪 strm，下次同步再補；定時同步照舊。
+        沒在同步回傳 False。"""
+        if not self.result.running:
+            return False
+        self.workers.cancel.set()
+        return True
 
     def stop(self) -> None:
         """程式關閉時：停掉定時同步；正在跑的那一次在兩個檔案之間停下（進度不存，下次再補）。"""
@@ -900,7 +915,7 @@ class StrmSync:
     def _remote_ancestors(self, cid: int) -> Optional[List[Tuple[int, str]]]:
         """向 115 查資料夾由根往下的每一層 (id, 名稱)；順便記下每一層的路徑。已不存在時回傳 None。"""
         self.p115.breaker.check()  # 逐一查路徑可能很多次，被限流了就別再打
-        if self.cfg.request_delay and self._stop.wait(self.cfg.request_delay):
+        if self.cfg.request_delay and self.workers.wait(self.cfg.request_delay):
             raise Stopped()
         try:
             chain = self.p115.dir_ancestors(cid)

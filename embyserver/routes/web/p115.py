@@ -58,6 +58,19 @@ async def offline_delete(request: Request, ctx: AuthContext = Depends(require_ad
     return await run_in_threadpool(_offline, st.offline.delete, [str(h) for h in hashes], bool(body.get("files")))
 
 
+@router.post("/web/api/115/offline/retry")
+async def offline_retry(request: Request, ctx: AuthContext = Depends(require_admin)):
+    """重新加入失敗的任務：{hash, url, folder_id}。先刪掉那一筆失敗的紀錄（不動檔案），再用原來的連結加到原來的資料夾。"""
+    st = state(request)
+    body = await json_body(request)
+    try:
+        folder_id = int(body.get("folder_id") or 0)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="folder_id 要是數字")
+    return await run_in_threadpool(_offline, st.offline.retry, str(body.get("hash") or ""), str(body.get("url") or ""),
+                                   folder_id)
+
+
 @router.post("/web/api/115/offline/clear")
 async def offline_clear(request: Request, ctx: AuthContext = Depends(require_admin)):
     """清掉已完成（{what: "done"}）或已失敗（"failed"）的任務紀錄，不動檔案。"""
@@ -71,7 +84,8 @@ async def offline_clear(request: Request, ctx: AuthContext = Depends(require_adm
 
 @router.get("/web/api/115/files")
 def browse_115_files(request: Request, ctx: AuthContext = Depends(require_admin)):
-    """瀏覽 115：資料夾的子資料夾和檔案，影片附上在 Mi302 媒體庫裡的樣子。給 cid（和 path）或只給 path。"""
+    """瀏覽 115：資料夾的子資料夾和檔案，影片附上在 Mi302 媒體庫裡的樣子。給 cid（和 path）或只給 path。
+    檔案一次最多 1000 個，offset 要下一批。"""
     st = state(request)
     path = (q(request, "path") or "").strip()
     cid = q_int(request, "cid")
@@ -81,7 +95,7 @@ def browse_115_files(request: Request, ctx: AuthContext = Depends(require_admin)
             cid = st.p115.dir_id(path) if path != "/" else 0
             if not cid and path != "/":
                 raise HTTPException(status_code=400, detail=f"115 上沒有這個資料夾：{path}")
-        return list_folder(st.p115, st.db, st.strm_sync.tasks, cid, path)
+        return list_folder(st.p115, st.db, st.strm_sync.tasks, cid, path, q_int(request, "offset", 0) or 0)
     except (P115Error, P115OpenError) as exc:
         raise HTTPException(status_code=400, detail=f"讀不到 115：{exc}")
 
@@ -348,6 +362,13 @@ async def dupes_delete(request: Request, ctx: AuthContext = Depends(require_admi
         raise HTTPException(status_code=409, detail="正在找重複或刪重複，等它做完")
     started = st.dupes.delete_in_background(plan)
     return {"started": started, "count": len(plan), "size": sum(r["size"] for r in plan)}
+
+
+@router.post("/web/api/dupes/stop")
+def dupes_stop(request: Request, ctx: AuthContext = Depends(require_admin)):
+    """停止找重複（上次的結果不換）或刪除（做完手上這一批就停）。"""
+    st = state(request)
+    return {"stopped": st.dupes.cancel(), "job": st.dupes.job.as_dict()}
 
 
 @router.get("/web/api/dupes/log")

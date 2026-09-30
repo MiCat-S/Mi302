@@ -14,7 +14,7 @@ SHUTDOWN_WAIT = 30.0  # 程式結束時最多等背景工作幾秒；等不到�
 
 
 class Stopped(Exception):
-    """程式要結束：背景工作在兩項之間收手，沒做完的下次再做。"""
+    """程式要結束、或使用者按了「停止」：背景工作在兩項之間收手，沒做完的下次再做。"""
 
 
 class Workers:
@@ -25,6 +25,9 @@ class Workers:
 
     def __init__(self, stop: Optional[threading.Event] = None, busy=None):
         self.stop = stop or threading.Event()
+        # 使用者按了「停止」：只停這個服務現在這一次工作（定時同步這類迴圈不受影響），下一次開始時清掉。
+        # 和 stop（程式要結束）分開，stop 設了就不會再清
+        self.cancel = threading.Event()
         self.busy = busy
         self._threads: List[threading.Thread] = []
         self._lock = threading.Lock()
@@ -37,11 +40,31 @@ class Workers:
             self._threads.append(t)
         return t
 
+    @property
+    def halted(self) -> bool:
+        """程式要結束，或使用者按了停止。"""
+        return self.stop.is_set() or self.cancel.is_set()
+
+    @property
+    def by_user(self) -> bool:
+        """停下來是因為使用者按了停止（不是程式要結束）。"""
+        return self.cancel.is_set() and not self.stop.is_set()
+
     def check(self) -> None:
-        """兩項之間呼叫：程式要結束就丟 Stopped。做到一半的工作不能照常收尾時用（例如掃描、同步，
+        """兩項之間呼叫：程式要結束或按了停止就丟 Stopped。做到一半的工作不能照常收尾時用（例如掃描、同步，
         收尾會把沒看到的當成已經刪掉），丟出去才不會走到收尾。"""
-        if self.stop.is_set():
+        if self.halted:
             raise Stopped()
+
+    def wait(self, seconds: float) -> bool:
+        """等 seconds 秒；程式要結束或按了停止就提早醒來，回傳 True。"""
+        end = time.monotonic() + seconds
+        while not self.halted:
+            left = end - time.monotonic()
+            if left <= 0:
+                return False
+            self.stop.wait(min(0.5, left))
+        return True
 
     def join(self, timeout: float) -> List[str]:
         """等開過的執行緒（和 busy 鎖）結束，最多 timeout 秒；回傳還沒結束的名稱。"""

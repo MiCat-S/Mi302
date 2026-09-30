@@ -149,6 +149,13 @@ def p115_strm_sync(request: Request, ctx: AuthContext = Depends(require_admin)):
     return {"started": started, "result": st.strm_sync.result.as_dict()}
 
 
+@router.post("/p115/strm/stop")
+def p115_strm_stop(request: Request, ctx: AuthContext = Depends(require_admin)):
+    """停止這一次同步：在兩個檔案之間停下，進度不存、不刪 strm，下次同步再補；定時同步照舊。"""
+    st = state(request)
+    return {"stopped": st.strm_sync.cancel(), "result": st.strm_sync.result.as_dict()}
+
+
 @router.get("/p115/strm/status")
 def p115_strm_status(request: Request, ctx: AuthContext = Depends(require_admin)):
     st = state(request)

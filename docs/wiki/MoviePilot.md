@@ -103,6 +103,8 @@ If MoviePilot itself is slow, the cause is usually a slow connection to TMDB. Se
 
 The **Scrape** card shows the numbers for the last run (after sync or manual): sent (送出), succeeded (成功), failed (失敗) and no still (沒有劇照).
 
+**Stop** (停止) is available while scraping: items already sent to MoviePilot finish, the rest are not sent and wait for the next scrape.
+
 After MoviePilot reports success, Mi302 checks that an nfo was actually written:
 
 - For a single file it looks for `X.nfo`; for a series folder, `tvshow.nfo`. If it is missing, the item counts as failed.
@@ -138,6 +140,7 @@ The card lists every series in the library and how many episodes each season has
 - Choose 20, 50, 100 or 200 series per page (每頁 20 部 and so on); the browser remembers your choice. Below the list you see the page number and the total, with **Previous** (上一頁) and **Next** (下一頁) buttons. Searching or changing the year or filter goes back to page 1.
 - The **Fill** button (補全) next to a series sends only that series. Series without a tmdbid are marked "no tmdbid, scrape first" (沒有 tmdbid，要先刮削) and the button is disabled.
 - **Fill all** (全部補全) at the top right of the card sends every series with a tmdbid, after asking for confirmation.
+- **Stop** (停止) is available while filling: it stops after the current season, and subscriptions already created stay.
 - Specials (season 0) are neither listed nor sent.
 
 Gaps in episode numbers are only a hint. Missing final episodes are caught by the check below as well.

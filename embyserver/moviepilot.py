@@ -105,6 +105,7 @@ class ScrapeResult:
     done: int = 0
     failed: int = 0
     no_image: int = 0  # 寫了 nfo 但沒有劇照：TMDB 沒有這集的圖，或 MoviePilot 下載圖片失敗
+    stopped: bool = False  # 按了停止：送出去的做完，沒送的不送
     current: str = ""
     errors: List[str] = field(default_factory=list)
 
@@ -146,6 +147,7 @@ class FillResult:
     missing: int = 0  # 缺的集數合計
     skipped: int = 0  # 沒有 tmdbid 的劇，以劇計
     failed: int = 0
+    stopped: bool = False  # 按了停止：做完手上這一季就停
     current: str = ""
     details: List[str] = field(default_factory=list)  # 每一季的結果
     errors: List[str] = field(default_factory=list)
@@ -177,6 +179,8 @@ class MoviePilot:
         self._created_at: Optional[float] = None  # 補全缺集：上一個新訂閱建立的時間
         self._stop = threading.Event()
         self.workers = Workers(self._stop)  # 刮削、補全缺集；程式結束時停在兩項之間
+        # 按了停止：刮削和補全缺集可能同時在跑，各停各的
+        self._cancel = {"scrape": threading.Event(), "fill": threading.Event()}
         self._transport = transport
         self._jwt: Optional[str] = None
         self._preview_ok_at = 0.0  # 上次確認 MoviePilot 夠新、支援整理預覽的時間
@@ -455,12 +459,13 @@ class MoviePilot:
             log.info("MoviePilot 刮削已在進行，略過")
             return self.result
         r = self.result = ScrapeResult(source=source, started=time.time(), running=True)
+        self._cancel["scrape"].clear()
         scraped: Dict[int, str] = {}
         abort = threading.Event()
         count = threading.Lock()
 
         def one(index: int, path: Path, is_dir: bool) -> None:
-            if abort.is_set() or self._stop.is_set():  # 程式要結束：沒送的下次再送
+            if abort.is_set() or self._stop.is_set() or self._cancel["scrape"].is_set():  # 程式要結束、按了停止：沒送的下次再送
                 return
             r.current = str(path)
             try:
@@ -499,6 +504,11 @@ class MoviePilot:
                     future.result()
             if abort.is_set():
                 r.failed = r.total - r.done  # 中止後沒做的都算失敗
+            elif self._cancel["scrape"].is_set() and not self._stop.is_set():
+                r.stopped = True
+                left = r.total - r.done - r.failed
+                if left:
+                    r.errors.append(f"按了停止，還有 {left} 項沒送，下次刮削再送")
         finally:
             r.running = False
             r.current = ""
@@ -723,6 +733,7 @@ class MoviePilot:
             log.info("補全缺集已在進行，略過")
             return self.fill_result
         self.fill_result = r = FillResult(source=source, started=time.time(), running=True)
+        self._cancel["fill"].clear()
         self._created_at = None
         try:
             if not self.can_subscribe:
@@ -737,13 +748,19 @@ class MoviePilot:
             r.total = len(jobs)
             log.info("補全缺集：檢查 %s 季", len(jobs))
             for show, info in jobs:
-                if self._stop.is_set():
-                    break  # 程式要結束
+                if self._stop.is_set() or self._cancel["fill"].is_set():
+                    r.stopped = not self._stop.is_set()
+                    if r.stopped:
+                        r.details.append(f"按了停止，還有 {r.total - r.done} 季沒送")
+                    break  # 程式要結束、按了停止
                 label = f"{show['name']} S{info['season']:02d}"
                 r.current = label
                 try:
                     if not self._fill_season(r, show, info, label):
-                        break  # 等的時候程式要結束
+                        r.stopped = not self._stop.is_set()
+                        if r.stopped:
+                            r.details.append(f"按了停止，還有 {r.total - r.done} 季沒送")
+                        break  # 等的時候程式要結束、按了停止
                 except MoviePilotError as exc:
                     # 連線或認證錯誤，後面的也不會成功
                     r.failed += r.total - r.done
@@ -770,7 +787,14 @@ class MoviePilot:
         if wait <= 0:
             return True
         r.current = f"{label}（隔 {int(interval)} 秒再建下一個訂閱，免得站點被 Cloudflare 擋）"
-        return not self._stop.wait(wait)
+        end = self._clock() + wait
+        while not self._cancel["fill"].is_set():  # 等的時候按了停止也要馬上醒來
+            left = end - self._clock()
+            if left <= 0:
+                return True
+            if self._stop.wait(min(1.0, left)):
+                return False
+        return False
 
     def _fill_season(self, r: FillResult, show: dict, info: dict, label: str) -> bool:
         """一季：查 TMDB 已播出的集 → 缺集才建訂閱 → 新建的請 MoviePilot 搜尋（之前就訂閱過的不再搜，
@@ -821,6 +845,15 @@ class MoviePilot:
             note += f"；{unsure}"
         r.details.append(f"{label}：{lack}；{note}")
         log.info("補全缺集 %s：%s；%s", label, lack, note)
+        return True
+
+    def cancel(self, what: str) -> bool:
+        """按了停止（what 是 scrape 或 fill）：刮削送出去的做完、沒送的不送；補全缺集做完手上這一季就停。
+        沒在跑回傳 False。"""
+        running = self.result.running if what == "scrape" else self.fill_result.running
+        if what not in self._cancel or not running:
+            return False
+        self._cancel[what].set()
         return True
 
     def fill_in_background(self, series: List[dict], source: str) -> bool:

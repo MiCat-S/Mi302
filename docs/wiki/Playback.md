@@ -185,6 +185,10 @@ Folder listings come from 115 live; the same folder is not asked again within 2 
 
 From outside your network, go through an HTTPS reverse proxy: HTTP Basic only encodes the password, it does not encrypt it.
 
+**Testing**: at the bottom of the WebDAV tab, enter a Mi302 user name and password and click **Test WebDAV** (測試 WebDAV). It connects to `/dav/` from the address you opened the admin page with (so a reverse proxy is tested too), then checks that each exposed 115 folder can be read, and tells apart: not turned on, wrong user name or password, not an administrator while **Administrators only** is on, a response that did not come from Mi302 (the reverse proxy does not forward `/dav/` or blocks PROPFIND), and a folder missing on 115. It tests the saved settings.
+
+Setting the exposed folder to `/` (the whole of 115) without **Administrators only** asks for confirmation when you click **Save settings** (儲存設定): every Mi302 user will be able to see and play every file on the drive.
+
 ## Players
 
 Infuse, VidHub, SenPlayer, the official Emby apps and other players that support Emby can log in and play directly. Add an Emby server in the player with the address `http://<host>:8096` (or your reverse proxy's HTTPS address) and log in with a Mi302 account.

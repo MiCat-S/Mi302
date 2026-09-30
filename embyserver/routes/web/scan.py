@@ -40,6 +40,7 @@ def scan_status(request: Request, ctx: AuthContext = Depends(require_admin)):
     ]
     return {
         "scanning": st.scanner.scanning, "current": st.scanner.current, "libraries": libs,
+        "stopped": st.scanner.stopped,  # 上一次掃描是按了停止才停下的
         # 進度：total 是上次掃描後的項目數，第一次掃描是 0（網頁顯示忙碌條）
         "progress": {"done": st.scanner.touched, "total": st.scanner.expected, "item": st.scanner.item},
     }
@@ -65,6 +66,12 @@ async def scan_now(request: Request, ctx: AuthContext = Depends(require_admin)):
         job, args = scanner.scan_all, ()
     scanner.in_background(job, *args)
     return Response(status_code=204)
+
+
+@router.post("/web/api/scan/stop")
+def scan_stop(request: Request, ctx: AuthContext = Depends(require_admin)):
+    """停止這一次掃描：在兩項之間停下，沒掃到的不刪，下次掃描再補。"""
+    return {"stopped": state(request).scanner.cancel()}
 
 
 @router.get("/web/api/libraries/suggest")

@@ -152,7 +152,7 @@ def test_fill_spaces_out_new_subscriptions(tmp_path: Path):
     show = {**SHOW_A, "seasons": [{"season": s, "count": 1, "first": 1, "last": 1, "gaps": []} for s in (1, 2, 3)]}
     r = mp.fill([show], "manual")
     assert (r.created, r.existing, r.failed) == (2, 1, 0)
-    assert waits == [60]  # 第 1 季建好後等 60 秒；第 2 季之前就訂閱過，第 3 季不用再等
+    assert sum(waits) == 60  # 第 1 季建好後等 60 秒；第 2 季之前就訂閱過，第 3 季不用再等
     assert len(fake.posts("/api/v1/subscribe/search/7")) == 2 and fake.posts("/api/v1/subscribe/search/9") == []
 
 
