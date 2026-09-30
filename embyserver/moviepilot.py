@@ -42,6 +42,7 @@ from .filetypes import IMAGE_EXTS, LIBRARY_VIDEO_EXTS as VIDEO_EXTS
 from .scanner import series_folder
 from .textutil import cjk_count, pinyin_full, simplified
 from .http_util import GuardedClient, describe
+from .workers import Workers
 
 log = logging.getLogger(__name__)
 
@@ -156,6 +157,8 @@ class MoviePilot:
         self.fill_result = FillResult()
         self._lock = threading.Lock()
         self._fill_lock = threading.Lock()
+        self._stop = threading.Event()
+        self.workers = Workers(self._stop)  # 刮削、補全缺集；程式結束時停在兩項之間
         self._transport = transport
         self._jwt: Optional[str] = None
         self._preview_ok_at = 0.0  # 上次確認 MoviePilot 夠新、支援整理預覽的時間
@@ -316,7 +319,7 @@ class MoviePilot:
             if want.exists():
                 break
             if attempt < 2:
-                time.sleep(self.verify_wait)
+                self._stop.wait(self.verify_wait)
         else:
             if is_dir:
                 return "no_nfo", "MoviePilot 說完成，但沒有寫出 tvshow.nfo（可能認不出這部劇）"
@@ -424,7 +427,7 @@ class MoviePilot:
         count = threading.Lock()
 
         def one(index: int, path: Path, is_dir: bool) -> None:
-            if abort.is_set():
+            if abort.is_set() or self._stop.is_set():  # 程式要結束：沒送的下次再送
                 return
             r.current = str(path)
             try:
@@ -482,8 +485,12 @@ class MoviePilot:
             # 手動刮削整個媒體庫時，有 nfo 卻沒有劇照的集也再送一次
             self.scrape(self.missing() if paths is None else paths, source, with_images=paths is None)
 
-        threading.Thread(target=job, daemon=True).start()
+        self.workers.start(job)
         return True
+
+    def stop(self) -> None:
+        """程式關閉時：刮削、補全缺集做完手上這一項就停。"""
+        self._stop.set()
 
     # ---------------- 補全缺集 ----------------
 
@@ -694,6 +701,8 @@ class MoviePilot:
             r.total = len(jobs)
             log.info("補全缺集：檢查 %s 季", len(jobs))
             for show, info in jobs:
+                if self._stop.is_set():
+                    break  # 程式要結束
                 label = f"{show['name']} S{info['season']:02d}"
                 r.current = label
                 try:
@@ -759,7 +768,7 @@ class MoviePilot:
     def fill_in_background(self, series: List[dict], source: str) -> bool:
         if self._fill_lock.locked():
             return False
-        threading.Thread(target=self.fill, args=(series, source), daemon=True).start()
+        self.workers.start(self.fill, series, source)
         return True
 
 

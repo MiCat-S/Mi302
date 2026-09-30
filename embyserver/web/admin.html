@@ -2205,13 +2205,15 @@ function fillHtml(f) {
 const REO_STATE = {completed: '完成', accepted: 'MoviePilot 背景處理', failed: '失敗', retry_wait: 'MoviePilot 背景重試', skipped: '略過', manual_review: '要人工確認',
   removed: '已移到回收站', kept: '資料夾保留'};
 const REO_OK = new Set(['completed', 'removed']);
+const REO_QUEUED = '「MoviePilot 背景處理」的放進了它的整理佇列，做完沒有結果回來；到 MoviePilot 的「整理記錄」看成功或失敗。'
+  + '它做完之後，本機的 strm 要等下一次增量同步（自動的定時同步，或手動按「增量同步」）才跟著搬：MoviePilot 通知 Mi302 只會重新掃描本機，不會搬 strm。';
 function reoJobHtml(j) {
   if (!j.started) return '';
   let h = '<div class="row wrap mb8">';
   if (j.running) h += `<span class="pill accent"><span class="spin"></span>整理中</span><span class="hint sp"><span>${esc(j.title)}・${j.done + j.failed + (j.queued || 0)} / ${j.total}</span>${j.current ? `<span>${esc(j.current)}</span>` : ''}</span>`;
   else h += `<span class="pill ${j.failed || j.errors.length ? 'warn' : 'ok'}">${j.failed || j.errors.length ? '部分失敗' : '完成'}</span><span class="hint">上次整理：${esc(j.title)}・${ago(j.finished)}</span>`;
   h += `</div><div class="chips">${chip(j.done, '整理好', true)}${j.queued ? chip(j.queued, 'MoviePilot 背景處理') : ''}${chip(j.failed, '失敗')}</div>`;
-  if (j.queued) h += '<p class="hint mt8">「MoviePilot 背景處理」的放進了它的整理佇列，做完沒有結果回來；到 MoviePilot 的「整理記錄」看成功或失敗。</p>';
+  if (j.queued) h += `<p class="hint mt8">${REO_QUEUED}</p>`;
   if (!j.running && j.synced) h += `<p class="hint mt8">${j.synced === 'started' ? '已經開始增量同步 115，本機的 strm 會跟著搬到新名字，再重新掃描。' : '115 同步正在進行，這次的變動會在下一次同步時帶到。'}</p>`;
   if (j.items.length) h += `<details class="more mt10"><summary>每個檔案的結果（${j.items.length}）</summary><div class="in list">${j.items.map(i =>
     `<div class="li top"><div class="main"><b>${esc(i.name)}</b>${i.target ? `<div class="reo-to">→ ${esc(i.target)}</div>` : ''}${i.message ? `<div class="sub">${esc(i.message)}</div>` : ''}</div><span class="pill ${REO_OK.has(i.state) ? 'ok' : 'warn'}">${esc(REO_STATE[i.state] || i.state)}</span></div>`).join('')}</div></details>`;
@@ -2402,8 +2404,8 @@ async function organizeUnpin(u) {
 }
 function organizeProgress(r) {
   // 背景檢查的進度；檢查中每 3 秒重新讀一次清單（問完的會陸續出現）
-  const j = r.job;
-  $('ogCheck').disabled = $('ogRecheck').disabled = j.running || !!organizeLack();
+  const j = og.job = r.job;
+  organizeButtons();  // 檢查中不能全部整理，全部整理中不能檢查
   let h = '';
   if (j.running) h = `<p class="hint row"><span class="spin"></span>問 MoviePilot 中：${j.done} / ${j.todo}，找到 ${j.found} 個要整理的${j.current ? `・${esc(j.current)}` : ''}</p>`;
   else if (j.error) h = `<p class="notice bad">${esc(j.error)}</p>`;
@@ -2611,10 +2613,12 @@ function organizeBatchShow() {
   let h = `<div class="notice ${b.error || b.failed ? 'warn' : ''} stack"><div class="row wrap gap6"><b>${running ? '全部整理中' : b.stopped ? '全部整理已停止' : b.error ? '全部整理停下來了' : '全部整理完成'}</b>`
     + `<span class="hint">${running ? '' : ago(b.finished) + '・'}${b.done} / ${b.total} 個</span></div>`
     + `<div class="chips">${chip(b.organized, '整理了', true)}${chip(b.files, '個檔案')}${b.queued ? chip(b.queued, 'MoviePilot 背景處理') : ''}${chip(b.nothing, '不用整理')}${chip(b.skipped, '跳過')}${chip(b.failed, '失敗')}</div>`;
+  if (b.queued) h += `<p class="hint">${REO_QUEUED}</p>`;
   if (b.error) h += `<p class="t-bad">${esc(b.error)}</p>`;
   if (!running && b.synced) h += `<p class="hint">${b.synced === 'started' ? '已經開始增量同步 115，本機的 strm 會跟著搬，再重新掃描。' : '115 同步正在進行，這次的變動會在下一次同步時帶到。'}</p>`;
   const res = og.batchResults;
-  if (res?.length) h += `<details class="more"><summary>跳過、失敗的（${b.result_count}）：看原因，再一個一個處理</summary><div class="in list">${res.slice(0, 300).map(x =>
+  if (res?.length) h += `<details class="more"><summary>跳過、失敗的（${b.results_total}）：看原因，再一個一個處理</summary><div class="in list">`
+    + `${b.truncated ? `<p class="hint">太多了，明細只留前 ${b.result_count} 個</p>` : ''}${res.slice(0, 300).map(x =>
     `<div class="li top"><div class="main"><b>${esc(x.name)}</b> <span class="pill ${x.kind === 'failed' ? 'bad' : 'warn'}">${x.kind === 'failed' ? '失敗' : '跳過'}</span>
       <div class="sub brk">${esc(x.path)}</div><div class="sub">${esc(x.why)}</div></div>
       <button class="btn sm" data-act="ogFind" data-name="${esc(x.name)}">在清單上找</button></div>`).join('')}${res.length > 300 ? `<p class="hint">還有 ${res.length - 300} 個沒列出來</p>` : ''}</div></details>`;
@@ -2624,9 +2628,14 @@ ACTS.ogFind = el => { $('ogQ').value = el.dataset.name; organizeLoad(1); $('ogCa
 function organizeButtons() {
   const sel = organizeSelected(), ready = sel.filter(st => st.preview?.token), lack = !!organizeLack();
   const running = !!S.reo?.running || !!og.batch?.running, all = (og.total || 0) + (og.pinned?.length || 0);
-  $('ogAll').disabled = !all || running || lack;
+  // 檢查和全部整理不同時跑：兩邊都會改同一批資料夾、同時問 MoviePilot
+  const checking = !!og.job?.running, batch = !!og.batch?.running;
+  $('ogAll').disabled = !all || running || lack || checking;
   $('ogAll').textContent = `全部整理（${all} 個）`;
-  $('ogAll').title = '清單上符合搜尋、種類的全部（不只這一頁）：一個一個預覽，沒問題的直接整理，有問題的跳過';
+  $('ogAll').title = checking ? '正在問 MoviePilot 檢查，問完才能全部整理'
+    : '清單上符合搜尋、種類的全部（不只這一頁）：一個一個預覽，沒問題的直接整理，有問題的跳過';
+  $('ogCheck').disabled = $('ogRecheck').disabled = checking || batch || lack;
+  $('ogCheck').title = $('ogRecheck').title = batch ? '全部整理中，做完或停止後才能檢查' : '';
   const busy = Object.values(og.state).some(st => st.busy);
   $('ogSel').textContent = sel.length ? `勾選了 ${sel.length} 個` + (ready.length ? `，${ready.length} 個預覽過可以執行` : '')
     : '「全部整理」一次做完清單上的，有問題的跳過；也可以在每一列右邊單獨整理，或勾選幾個';

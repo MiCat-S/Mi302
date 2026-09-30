@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import threading
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
@@ -64,7 +63,7 @@ async def scan_now(request: Request, ctx: AuthContext = Depends(require_admin)):
         job, args = scanner.scan_paths, ([path],)
     else:
         job, args = scanner.scan_all, ()
-    threading.Thread(target=job, args=args, daemon=True).start()
+    scanner.in_background(job, *args)
     return Response(status_code=204)
 
 

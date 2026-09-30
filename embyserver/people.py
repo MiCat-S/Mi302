@@ -23,6 +23,7 @@ import httpx
 from . import __version__
 from .db import Database
 from .textutil import has_cjk, simplified
+from .workers import Workers
 
 log = logging.getLogger(__name__)
 
@@ -216,6 +217,7 @@ class PersonNames:
         self._transport = transport
         self._lock = threading.Lock()
         self._stop = threading.Event()
+        self.workers = Workers(self._stop)
         self.running = False
         self.last_error = ""
         self.last_run = 0.0
@@ -320,10 +322,12 @@ class PersonNames:
                 asked_mp.add(tmdbid)
                 if zh:
                     found[tmdbid] = (zh, "moviepilot")
-                time.sleep(self.pause)
+                self._stop.wait(self.pause)
             asked_wd = set()
             misses = [i for i in ids if i not in found]
             for start in range(0, len(misses), 100):
+                if self._stop.is_set():
+                    break  # 程式要結束：問到的先存，其他的下次再問
                 chunk = misses[start:start + 100]
                 got = self._from_wikidata(chunk)
                 if got is None:
@@ -354,7 +358,7 @@ class PersonNames:
     def run_in_background(self) -> bool:
         if self._lock.locked():
             return False
-        threading.Thread(target=self.run, daemon=True).start()
+        self.workers.start(self.run)
         return True
 
     def start(self) -> None:
@@ -370,7 +374,7 @@ class PersonNames:
                 if self._stop.wait(1740):
                     return
 
-        threading.Thread(target=loop, daemon=True).start()
+        self.workers.start(loop)
 
     def stop(self) -> None:
         self._stop.set()

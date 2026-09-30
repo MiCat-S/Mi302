@@ -41,6 +41,7 @@ from .p115 import PLAIN_UA, P115Error, P115Service, P115Throttled, extract_pickc
 from .redirect import apply_path_rules
 from .filetypes import LIBRARY_VIDEO_EXTS
 from .scanner import read_strm
+from .workers import Workers
 
 log = logging.getLogger(__name__)
 
@@ -244,6 +245,7 @@ class MediaProber:
         self._qlock = threading.Lock()
         self._worker: Optional[threading.Thread] = None
         self._stop = threading.Event()
+        self.workers = Workers(self._stop)  # 整批和打開即探測的執行緒；程式結束時等它們停下
         self.on_demand_done = 0
         self.on_demand_failed = 0
         self._which: Tuple[float, str, Optional[str]] = (0.0, "", None)  # (查的時間, 設定的路徑, 找到的路徑)
@@ -466,6 +468,8 @@ class MediaProber:
             return self.result
         r = self.result = ProbeResult(source=source, label=label, limit=limit, started=time.time(), running=True)
         self._cancel.clear()
+        if self._stop.is_set():
+            self._cancel.set()  # 程式要結束了（stop 剛好在拿到鎖之前）：這一批不做
         abort = threading.Event()
         count = threading.Lock()
 
@@ -599,8 +603,7 @@ class MediaProber:
             self._queue.append(path)
             self._queued.add(path)
             if self._worker is None:
-                self._worker = threading.Thread(target=self._drain, daemon=True)
-                self._worker.start()
+                self._worker = self.workers.start(self._drain)
         return True
 
     def queue_size(self) -> int:
@@ -675,5 +678,5 @@ class MediaProber:
         if self._lock.locked():
             return False
         self.batch_spec = spec
-        threading.Thread(target=self.run, args=(paths, source, label, limit), daemon=True).start()
+        self.workers.start(self.run, paths, source, label, limit)
         return True

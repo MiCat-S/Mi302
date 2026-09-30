@@ -14,7 +14,6 @@ import copy
 import json
 import logging
 import os
-import threading
 from dataclasses import fields
 from pathlib import Path
 from typing import Any, Dict, List, get_type_hints
@@ -35,6 +34,11 @@ SERVER_FIELDS = (
     "update_check", "update_proxy", "update_github_proxy",
 )
 PROXY_SCHEMES = ("http://", "https://", "socks5://", "socks5h://")
+# 更新用的代理：欄位、名稱、要以什麼開頭、格式不對時的說明（網頁儲存和啟動時的檢查共用）
+UPDATE_PROXIES = (
+    ("update_proxy", "更新用的代理", PROXY_SCHEMES, "要以 http://、https:// 或 socks5:// 開頭，例如 http://127.0.0.1:7890"),
+    ("update_github_proxy", "GitHub 加速網址", ("http://", "https://"), "要以 http:// 或 https:// 開頭，例如 https://ghfast.top/"),
+)
 STRM_FIELDS = (
     "base_url", "include_name", "download_metadata", "delete_stale",
     "min_size_mb", "interval", "full_interval", "request_delay", "scan_after_sync",
@@ -127,11 +131,10 @@ def apply_settings(config: Config, raw: dict) -> None:
         _set_fields(config.server, SERVER_FIELDS, raw["server"] or {})
         config.server.log_level = "debug" if str(config.server.log_level).lower() == "debug" else "info"
         config.server.backup_keep = max(0, min(config.server.backup_keep, 90))
-        s = config.server
-        if s.update_proxy and not s.update_proxy.lower().startswith(PROXY_SCHEMES):
-            raise SettingsError("更新用的代理要以 http://、https:// 或 socks5:// 開頭，例如 http://127.0.0.1:7890")
-        if s.update_github_proxy and not s.update_github_proxy.lower().startswith(("http://", "https://")):
-            raise SettingsError("GitHub 加速網址要以 http:// 或 https:// 開頭，例如 https://ghfast.top/")
+        bad = _bad_proxies(config.server)
+        if bad:
+            _, label, how = bad[0]
+            raise SettingsError(label + how)
     p115 = raw.get("p115") or {}
     _set_fields(config.p115, P115_FIELDS, p115)
     if "strm" in p115:
@@ -157,6 +160,12 @@ def apply_settings(config: Config, raw: dict) -> None:
     mi.timeout = max(10, min(mi.timeout, 3600))
     mi.hourly_limit = max(0, min(mi.hourly_limit, 100000))
     mi.ffprobe = mi.ffprobe or "ffprobe"
+
+
+def _bad_proxies(server) -> List[tuple]:
+    """格式不對的更新代理：[(欄位, 名稱, 說明)]。"""
+    return [(key, label, how) for key, label, schemes, how in UPDATE_PROXIES
+            if getattr(server, key) and not getattr(server, key).lower().startswith(schemes)]
 
 
 def _tasks(raw) -> List[StrmTask]:
@@ -226,8 +235,8 @@ def load_saved(db: Database, config: Config) -> None:
         db.execute("DELETE FROM meta WHERE key IN (?, ?)", (SETTINGS_META_KEY, TASKS_META_KEY))
 
 
-def _problems(config: Config, drop_bad_tasks: bool = False) -> List[str]:
-    """照網頁儲存時的規則檢查整份設定，回傳錯在哪裡。drop_bad_tasks：有錯的同步任務從執行中的設定拿掉。"""
+def _problems(config: Config, drop_bad: bool = False) -> List[str]:
+    """照網頁儲存時的規則檢查整份設定，回傳錯在哪裡。drop_bad：有錯的同步任務、格式不對的更新代理從執行中的設定拿掉。"""
     problems: List[str] = []
     good: List[StrmTask] = []
     for t in config.p115.strm.tasks:
@@ -237,10 +246,15 @@ def _problems(config: Config, drop_bad_tasks: bool = False) -> List[str]:
             problems.append(f"同步任務「{t.remote} → {t.local}」先不用：{exc}")
             continue
         good.append(t)
-    if drop_bad_tasks:
+    if drop_bad:
         config.p115.strm.tasks[:] = good
     trial = copy.deepcopy(config)
     trial.p115.strm.tasks[:] = good
+    for key, label, how in _bad_proxies(config.server):
+        problems.append(f"{label}（server.{key}）格式不對，先不用：{how}")  # 不寫出填的值：代理網址可能帶帳號密碼
+        setattr(trial.server, key, "")
+        if drop_bad:
+            setattr(config.server, key, "")  # 不然更新時照樣交給 git 和 pip 用
     try:
         apply_settings(trial, export_settings(trial))
     except SettingsError as exc:
@@ -250,9 +264,9 @@ def _problems(config: Config, drop_bad_tasks: bool = False) -> List[str]:
 
 def check_loaded(config: Config) -> List[str]:
     """啟動時：手動改的設定檔沒經過網頁的檢查，這裡補做。起不來的話連網頁都打不開、沒辦法修，所以照常啟動：
-    有錯的同步任務先不用（本機資料夾是相對路徑時，strm 會寫到、多餘的會從服務的工作目錄刪），
-    其他的錯只記下來；都寫進日誌，網頁上方也會提示。"""
-    config.problems[:] = _problems(config, drop_bad_tasks=True)
+    有錯的同步任務先不用（本機資料夾是相對路徑時，strm 會寫到、多餘的會從服務的工作目錄刪），格式不對的更新代理也先不用
+    （直連）；其他的錯只記下來。都寫進日誌，網頁上方也會提示。"""
+    config.problems[:] = _problems(config, drop_bad=True)
     for problem in config.problems:
         log.error("設定檔有錯：%s", problem)
     return config.problems
@@ -336,7 +350,7 @@ def after_change(st, libraries_before: list) -> List[str]:
     if after != libraries_before:
         # 只掃新增或改過的媒體庫；刪掉的媒體庫，它的項目在掃描時一起移除
         changed = [lib["name"] for lib in after if lib not in libraries_before]
-        threading.Thread(target=st.scanner.scan_libraries, args=(changed,), daemon=True).start()
+        st.scanner.in_background(st.scanner.scan_libraries, changed)
     st.prober.wake()  # 取直鏈間隔、每小時上限改了：在等的馬上照新設定重算
     if st.strm_sync.follow_format():
         notes.append("現有的 strm 正在背景改成新的網址")

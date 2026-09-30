@@ -28,6 +28,7 @@ from .moviepilot import MoviePilot, MoviePilotError
 from .p115 import P115Error
 from .scanner import episode_match, parse_nfo
 from .strm_sync import INCREMENTAL, remote_root, task_key
+from .workers import Workers
 
 log = logging.getLogger(__name__)
 
@@ -131,11 +132,17 @@ class Reorganizer:
         self.job = ReorgJob()
         self.sync_delay = 20.0  # 等 115 記下這次的移動、改名，再跑增量同步
         self._lock = threading.Lock()  # 整理和刪除不同時做
+        # 程式結束時：執行的執行緒停在兩批之間；請求裡直接做的刪除沒有自己的執行緒，等這把鎖放開
+        self.workers = Workers(busy=self._lock)
+        self._stop = self.workers.stop
         self._previews: dict = {}
 
     @property
     def p115(self):
         return self.strm_sync.p115
+
+    def stop(self) -> None:
+        self._stop.set()
 
     def ready(self) -> dict:
         """缺什麼就不能整理：MoviePilot 的帳號密碼（手動整理只接受帳號登入）、115 登入。"""
@@ -337,8 +344,9 @@ class Reorganizer:
             self._remove_empty_folders(cleanup, job)
 
     def sync_later(self) -> str:
-        """等 115 記下這次的移動、改名，再跑增量同步；回傳 started／busy。"""
-        time.sleep(self.sync_delay)
+        """等 115 記下這次的移動、改名，再跑增量同步；回傳 started／busy（程式要結束時不跑，回傳空字串）。"""
+        if self._stop.wait(self.sync_delay):
+            return ""
         return "started" if self.strm_sync.run_in_background(INCREMENTAL) else "busy"
 
     def remember_preview(self, token: str, payload: dict) -> None:
@@ -370,7 +378,7 @@ class Reorganizer:
         total = sum(b["count"] for pv in previews for b in pv["batches"])
         title = previews[0]["title"] if len(previews) == 1 else f"整理 {len(previews)} 個資料夾"
         self.job = ReorgJob(running=True, started=time.time(), title=title, total=total)
-        threading.Thread(target=self._run, args=(previews, cleanup), daemon=True).start()
+        self.workers.start(self._run, previews, cleanup)
 
     def _run(self, previews: List[dict], cleanup: List[dict]) -> None:
         job = self.job
@@ -381,10 +389,11 @@ class Reorganizer:
             log.info("MoviePilot 整理 %s：%s 個完成，%s 個失敗", job.title, job.done, job.failed)
             if cleanup:
                 self._remove_empty_folders(cleanup, job)
-            if job.done:
+            if job.done or job.queued:
+                # MoviePilot 背景處理的也要同步：它做完之後本機的 strm 只靠增量同步讀 115 生活事件搬，
+                # 它通知媒體伺服器只會讓 Mi302 重新掃描本機。這次還沒做完的，等下一次同步
                 job.current = f"等 115 記下變動，{int(self.sync_delay)} 秒後同步"
-                time.sleep(self.sync_delay)
-                job.synced = "started" if self.strm_sync.run_in_background(INCREMENTAL) else "busy"
+                job.synced = self.sync_later()
         except Exception as exc:  # 背景執行緒：記下來，不讓整個工作卡在「執行中」
             job.errors.append(f"{type(exc).__name__}: {exc}")
             log.exception("整理時發生錯誤")
@@ -396,6 +405,8 @@ class Reorganizer:
 
     def _run_items(self, pv: dict, batch: dict, job: ReorgJob) -> None:
         """一批：一個資料夾或幾個檔案交給 MoviePilot，照預覽時的指定（沒指定的是 None，讓它自己認）；結果照它回的每個檔案記。"""
+        if self._stop.is_set():
+            return  # 程式要結束：還沒送的不送了
         job.current = f"MoviePilot 整理中：{batch['label']}（{batch['count']} 個檔案）"
         try:
             results = self.mp.transfer(batch["fileitems"], batch.get("tmdbid") or None, batch.get("season"),
@@ -431,6 +442,8 @@ class Reorganizer:
     def _remove_empty_folders(self, folders: List[dict], job: ReorgJob) -> None:
         """整理完的來源資料夾沒有影片留下就移到 115 回收站（可以還原）；還有影片（整理失敗、目標已有同一集）就留著。"""
         for c in folders:
+            if self._stop.is_set():
+                return  # 程式要結束：舊資料夾先留著
             path = c["path"] or f"資料夾 {c['cid']}"
             job.current = f"檢查舊資料夾 {path}"
             try:
@@ -468,7 +481,7 @@ class Reorganizer:
                 elif posixpath.splitext(e["name"])[1].lower() in VIDEO_EXTS:
                     left += 1
             if stack and delay:
-                time.sleep(delay)
+                self._stop.wait(delay)
         return left
 
     @staticmethod

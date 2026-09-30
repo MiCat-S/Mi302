@@ -23,6 +23,7 @@ from typing import List, Optional
 
 from .config import Config
 from .db import Database
+from .workers import Workers
 
 log = logging.getLogger(__name__)
 
@@ -40,6 +41,7 @@ class Backup:
         self.dir = config.data_path / "backups"
         self._lock = threading.Lock()
         self._stop = threading.Event()
+        self.workers = Workers(self._stop, busy=self._lock)  # 程式結束時等手上的備份做完
 
     @property
     def keep(self) -> int:
@@ -134,7 +136,7 @@ class Backup:
                 if self._stop.wait(3600):
                     return
 
-        threading.Thread(target=loop, daemon=True).start()
+        self.workers.start(loop)
 
     def stop(self) -> None:
         self._stop.set()

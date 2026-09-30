@@ -4,13 +4,17 @@
 import json
 import posixpath
 import re
+import sqlite3
+import time
 from pathlib import Path
 
 import httpx
+import pytest
 from fastapi.testclient import TestClient
 
 from embyserver.app import create_app
 from embyserver.config import config_from_dict
+from embyserver.organize115 import OrganizeError
 from embyserver.p115 import P115Service
 from embyserver.reorganize import template_episode
 from embyserver.strm_sync import FULL
@@ -29,7 +33,8 @@ class OrganizeMP:
     執行時在假 115 上搬，目標已經有同名檔案就跳過。
     目錄設定（dirs）：預設只有一項「下載目錄 /下載 → 媒體庫 /媒體庫」（在同步目錄外，加類型資料夾），和真的一樣，
     沒指定整理到哪時它照這一項放；target-path 問得到它（match=False 時問不到）。history 裡的檔案有整理紀錄：
-    真的整理時沒帶 reorganize 就當成「已整理過」跳過（預覽不看紀錄）。"""
+    真的整理時沒帶 reorganize 就當成「已整理過」跳過（預覽不看紀錄）。queue：真的整理時都放進它的整理佇列在背景做
+    （accepted），這時候還沒搬。"""
 
     MEDIA = {"106449": ("凡人修仙传", 2020, "tv"), "6836": ("康熙来了", 2004, "tv"), "292388": ("斗破苍穹", 2017, "tv"),
              "9": ("流浪", 2019, "tv"), "157336": ("星际穿越", 2014, "movie"), "14160": ("飞屋环游记", 2009, "movie"),
@@ -49,6 +54,7 @@ class OrganizeMP:
                       "library_category_folder": False, "overwrite_mode": "never", "renaming": True}]
         self.match = True  # /transfer/manual/target-path 挑得出目錄
         self.history = set()  # 有成功整理紀錄的檔案（115 路徑）
+        self.queue = False
 
     # ---- 辨識 ----
     def media_of(self, path):
@@ -186,6 +192,8 @@ class OrganizeMP:
                     "episode": int(re.search(r"E(\d+)", name).group(1)) if kind == "tv" else None}
             if not body["preview"] and src in self.history and not body.get("reorganize"):
                 item.update(success=False, state="skipped", message=f"{base} 已整理过")
+            elif not body["preview"] and self.queue:
+                item["state"] = "accepted"
             elif not body["preview"]:
                 tdir = self.dir_by_path(posixpath.dirname(target))
                 if tdir is not None and any(f["cid"] == tdir and f["n"] == posixpath.basename(target) for f in self.f.files):
@@ -754,3 +762,62 @@ def test_organize_all_gives_up_when_previews_keep_failing(tmp_path: Path):
     app.state.organizer._preview = down
     b = run_all(app, c, h)
     assert b["done"] == 5 and b["skipped"] == 5 and "連續 5 個預覽出錯" in b["error"] and "連不上" in b["error"]
+
+
+def test_queued_files_still_get_a_sync(tmp_path: Path):
+    """MoviePilot 只收進它背景佇列的（accepted）：一個都沒整理好也要同步。它做完之後本機的 strm 只靠增量同步搬，
+    它通知媒體伺服器只會讓 Mi302 重新掃描本機。"""
+    app, fake, mp, media, c, h = setup(tmp_path)
+    check(app, c, h)
+    mp.queue = True
+    token = preview(c, h, {u["id"]: u for u in listing(c, h)["items"]}["d111"]).json()["token"]
+    assert c.post(EXECUTE, json={"tokens": [token]}, headers=h).status_code == 200
+    wait(lambda: not app.state.reorganizer.job.running)
+    job = app.state.reorganizer.job
+    assert (job.done, job.failed, job.synced) == (0, 0, "started") and job.queued
+    wait(lambda: not app.state.strm_sync.result.running)
+    b = run_all(app, c, h)
+    assert (b["files"], b["failed"], b["synced"]) == (0, 0, "started") and b["queued"] and b["organized"]
+
+
+def test_organizing_needs_115_login(tmp_path: Path):
+    """沒登入 115：預覽、執行、全部整理先擋下來，不拿鎖、不開執行緒（不然每個資料夾都列不出來，連續出錯才停）；
+    問 MoviePilot 檢查只要 MoviePilot。"""
+    app, fake, mp, media, c, h = setup(tmp_path)
+    check(app, c, h)
+    unit = {u["id"]: u for u in listing(c, h)["items"]}["d111"]
+    token = preview(c, h, unit).json()["token"]
+    app.state.strm_sync.p115.set_cookies("")
+    assert listing(c, h)["ready"]["p115"] is False
+    mp.calls.clear()
+    for r in (preview(c, h, unit), c.post(EXECUTE, json={"tokens": [token]}, headers=h),
+              c.post("/web/api/115/organize/all", json={"target": "parent"}, headers=h)):
+        assert r.status_code == 400 and "要先登入 115" in r.text
+    with pytest.raises(OrganizeError, match="要先登入 115"):
+        app.state.organizer.organize_all("", "", "parent", "", True)
+    assert not sent_bodies(mp) and not app.state.organizer.batch.started and not app.state.reorganizer.job.started
+    assert app.state.reorganizer.hold()  # 鎖沒被拿走
+    app.state.reorganizer.release()
+    check(app, c, h, refresh=True)
+
+
+def test_shutdown_wakes_waiting_work_before_closing_the_database(tmp_path: Path):
+    """程式結束時：整理完在等 115 記下變動的馬上醒來、不再開同步；所有背景工作停了才關資料庫。"""
+    app, fake, mp, media, c, h = setup(tmp_path)
+    check(app, c, h)
+    reorg = app.state.reorganizer
+    reorg.sync_delay = 600
+    token = preview(c, h, {u["id"]: u for u in listing(c, h)["items"]}["d111"]).json()["token"]
+    assert c.post(EXECUTE, json={"tokens": [token]}, headers=h).status_code == 200
+    wait(lambda: reorg.job.current.startswith("等 115"))
+    started = time.monotonic()
+    with TestClient(app):
+        pass  # 跑一次 lifespan 的結束
+    assert time.monotonic() - started < 5
+    assert not reorg.job.running and reorg.job.done and reorg.job.synced == ""
+    st = app.state
+    for s in (st.organizer, reorg, st.dupes, st.strm_sync, st.moviepilot, st.person_names, st.prober, st.scanner,
+              st.backup, st.updater):
+        assert s.workers.join(0) == []
+    with pytest.raises(sqlite3.ProgrammingError):
+        st.db.query("SELECT 1")

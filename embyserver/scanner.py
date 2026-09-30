@@ -20,6 +20,7 @@ from .filetypes import IMAGE_EXTS, LIBRARY_VIDEO_EXTS
 from .mediainfo import MediaInfoStore
 from .people import PeopleStore, localize_genres, parse_people
 from .textutil import search_text, sort_key
+from .workers import Stopped, Workers
 
 log = logging.getLogger(__name__)
 
@@ -334,6 +335,14 @@ class Scanner:
         self.people = PeopleStore(db, config)  # nfo 裡的演職人員
         self._custom: Optional[Dict[Tuple[int, str], str]] = None
         self._custom_lock = threading.RLock()
+        self.workers = Workers()  # 背景掃描（開機、網頁、設定改了）；程式結束時停在兩項之間，不刪沒掃到的
+
+    def in_background(self, job, *args) -> None:
+        """在背景掃描（job 是 scan_all、scan_libraries、scan_paths）；程式結束時會等它停下。"""
+        self.workers.start(job, *args)
+
+    def stop(self) -> None:
+        self.workers.stop.set()
 
     # ---- 上傳的圖片 ----
     def _custom_images(self) -> Dict[Tuple[int, str], str]:
@@ -386,6 +395,7 @@ class Scanner:
 
     # ---- 寫入 ----
     def _upsert(self, path: str, fields: Dict) -> int:
+        self.workers.check()  # 掃到一半停下要直接丟出去：照常做完的話，沒掃到的項目會被當成已經刪掉
         fields = dict(fields)
         people = fields.pop("people", None)
         if "genres" in fields and self.config.server.chinese_genres and isinstance(fields["genres"], list):
@@ -468,6 +478,7 @@ class Scanner:
             self._full_waiting = False
             self._begin("全部媒體庫")
             try:
+                self.workers.check()
                 self.expected = self._count()
                 self.db.execute("UPDATE items SET seen_scan=0")
                 for lib in self.config.libraries:
@@ -475,6 +486,8 @@ class Scanner:
                 removed = self._delete_unseen()
                 count = self.db.one("SELECT COUNT(*) AS c FROM items")["c"]
                 log.info("掃描完成：共 %s 個項目，移除 %s 個", count, removed)
+            except Stopped:
+                log.info("程式要結束，掃描中途停下（下次掃描再補）")
             finally:
                 self._end()
 
@@ -484,6 +497,7 @@ class Scanner:
         with self._lock:
             self._begin("、".join(sorted(wanted)) or "媒體庫")
             try:
+                self.workers.check()
                 lib_ids = {lib.name: self._library_item(lib) for lib in self.config.libraries if lib.name in wanted}
                 if lib_ids:
                     self.expected = self._count(f"library_id IN ({','.join('?' * len(lib_ids))})", tuple(lib_ids.values()))
@@ -496,6 +510,8 @@ class Scanner:
                     removed = self._delete_unseen("library_id=?", (lib_id,))
                     log.info("掃描媒體庫「%s」完成：%s 個項目，移除 %s 個", lib.name, self.touched, removed)
                 self._drop_removed_libraries()
+            except Stopped:
+                log.info("程式要結束，掃描中途停下（下次掃描再補）")
             finally:
                 self._end()
 
@@ -528,6 +544,7 @@ class Scanner:
         with self._lock:
             self._begin(units[0][2].name if len(units) == 1 else f"{len(units)} 個位置")
             try:
+                self.workers.check()
                 self.expected = sum(self._count(*_scope_sql(scope)) for _, _, scope, _ in units)
                 removed = 0
                 for lib, root, scope, kind in units:
@@ -545,6 +562,8 @@ class Scanner:
                     removed += self._delete_unseen(where, params)
                 what = str(units[0][2]) if len(units) == 1 else f"{len(units)} 個位置"
                 log.info("掃描 %s 完成：%s 個項目，移除 %s 個", what, self.touched, removed)
+            except Stopped:
+                log.info("程式要結束，掃描中途停下（下次掃描再補）")
             finally:
                 self._end()
 

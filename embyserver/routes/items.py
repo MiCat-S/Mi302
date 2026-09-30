@@ -6,7 +6,6 @@ import base64
 import binascii
 import json
 import logging
-import threading
 from typing import Any, List, Optional, Tuple
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
@@ -161,8 +160,8 @@ def item_counts(request: Request, ctx: AuthContext = Depends(require_user)):
     }
 
 
-def _background(target, *args) -> Response:
-    threading.Thread(target=target, args=args, daemon=True).start()
+def _background(scanner, job, *args) -> Response:
+    scanner.in_background(job, *args)
     return Response(status_code=204)
 
 
@@ -174,8 +173,8 @@ def item_refresh(item_id: str, request: Request, ctx: AuthContext = Depends(requ
     if not row:
         raise HTTPException(status_code=404, detail="Item not found")
     if row["type"] == "CollectionFolder":
-        return _background(st.scanner.scan_libraries, [row["name"]])
-    return _background(st.scanner.scan_paths, [row["path"].split("#", 1)[0]])
+        return _background(st.scanner, st.scanner.scan_libraries, [row["name"]])
+    return _background(st.scanner, st.scanner.scan_paths, [row["path"].split("#", 1)[0]])
 
 
 @router.post("/library/media/updated")
@@ -189,8 +188,8 @@ async def library_media_updated(request: Request, ctx: AuthContext = Depends(req
     updates = body.get("Updates") if isinstance(body, dict) else None
     paths = [st.moviepilot.unmap_path(str(u["Path"])) for u in updates or [] if isinstance(u, dict) and u.get("Path")]
     if not paths:
-        return _background(st.scanner.scan_all)
-    return _background(st.scanner.scan_paths, paths)
+        return _background(st.scanner, st.scanner.scan_all)
+    return _background(st.scanner, st.scanner.scan_paths, paths)
 
 
 # ---------------- 項目查詢 ----------------
@@ -706,7 +705,7 @@ def delete_image(item_id: str, image_type: str, request: Request, ctx: AuthConte
         st.db.execute("UPDATE items SET primary_image=? WHERE id=?", (cover, row["id"]))
         return Response(status_code=204)
     st.db.execute(f"UPDATE items SET {col}=NULL WHERE id=?", (row["id"],))
-    return _background(st.scanner.scan_paths, [row["path"].split("#", 1)[0]])
+    return _background(st.scanner, st.scanner.scan_paths, [row["path"].split("#", 1)[0]])
 
 
 @router.api_route("/users/{user_id}/images/{image_type}", methods=["GET", "HEAD"])

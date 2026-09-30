@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import logging
 import re
-import threading
 import time
 import uuid
 from contextlib import asynccontextmanager
@@ -34,6 +33,7 @@ from . import logs, settings
 from .scanner import Scanner
 from .strm_sync import FULL, StrmSync
 from .updater import Updater
+from .workers import stop_all
 
 log = logging.getLogger(__name__)
 access_log = logging.getLogger("embyserver.access")
@@ -103,8 +103,16 @@ async def _normalize_path(request: Request, call_next):
     return response
 
 
+def stop_workers(app: FastAPI) -> None:
+    """程式結束時：叫所有背景工作停下，等它們結束（最多 workers.SHUTDOWN_WAIT 秒），之後才能關資料庫。
+    會開別人工作的排前面：整理完會開同步，同步完會開探測、刮削、掃描。"""
+    st = app.state
+    stop_all([st.organizer, st.reorganizer, st.dupes, st.strm_sync, st.moviepilot, st.person_names, st.prober,
+              st.scanner, st.backup, st.updater])
+
+
 def close_app(app: FastAPI) -> None:
-    """程式結束時關掉連線池和資料庫。還在跑的背景工作之後再碰資料庫會出錯，所以呼叫前先停工作。"""
+    """程式結束時關掉連線池和資料庫。還在跑的背景工作之後再碰資料庫會出錯，所以呼叫前先停工作（stop_workers）。"""
     st = app.state
     for close in (st.p115.close, st.redirector.close, st.strm_sync.close, st.db.close):
         try:
@@ -132,18 +140,14 @@ def create_app(config: Config, db_path: Optional[str] = None, scan_on_start: boo
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         if scan_on_start:
-            threading.Thread(target=scanner.scan_all, daemon=True).start()
+            scanner.in_background(scanner.scan_all)
             app.state.strm_sync.start_schedule()
             app.state.backup.start()
             app.state.person_names.start()
             app.state.updater.start()
         yield
         try:
-            app.state.strm_sync.stop()
-            app.state.prober.stop()
-            app.state.backup.stop()
-            app.state.person_names.stop()
-            app.state.updater.stop()
+            stop_workers(app)
         finally:
             close_app(app)
 

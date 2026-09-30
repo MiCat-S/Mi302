@@ -49,6 +49,7 @@ from .moviepilot import MoviePilot, MoviePilotError
 from .p115 import P115Error
 from .reorganize import ReorgJob, episode_template
 from .strm_sync import remote_root, task_key
+from .workers import Workers
 
 log = logging.getLogger(__name__)
 
@@ -58,9 +59,10 @@ PREVIEW_TIMEOUT = 600
 SAMPLES = 2  # 一部劇挑幾支影片問 MoviePilot 檔名
 MAX_WORKERS = 4  # 同時問 MoviePilot 幾個
 MAX_PINNED = 20  # 從瀏覽 115 加進來的資料夾最多留幾個
-BATCH_RESULTS = 2000  # 全部整理最多記幾個跳過、失敗的
+BATCH_RESULTS = 2000  # 全部整理最多記幾個跳過、失敗的（數量照算，明細只留前面這些）
 BATCH_GIVE_UP = 5  # 全部整理時連續幾個預覽出錯（MoviePilot、115 連不上）就停下
 RECOMMEND_FILES = 50  # 請 MoviePilot 推薦集數定位時最多給幾個檔名
+P115_NEEDED = "要先登入 115（掃碼或貼上 cookie）才能整理"
 
 
 class OrganizeError(Exception):
@@ -420,6 +422,8 @@ class BatchJob:
         if not results:
             d["results"] = []
         d["result_count"] = len(self.results)
+        d["results_total"] = self.skipped + self.failed  # 明細最多留 BATCH_RESULTS 個，這是全部的
+        d["truncated"] = d["results_total"] > len(self.results)
         return d
 
 
@@ -434,6 +438,10 @@ class Organizer:
         self.job = CheckJob()
         self.batch = BatchJob()
         self._lock = threading.Lock()  # 同時只跑一個檢查
+        # 檢查和全部整理不同時跑（兩邊都會改同一批資料夾、同時問 MoviePilot）；這把鎖只包「看對方、標記自己」那一段
+        self._starting = threading.Lock()
+        self.workers = Workers()  # 檢查、全部整理；程式結束時停在兩個資料夾之間
+        self._stop = self.workers.stop
         self._units: Dict[str, Unit] = {}
         self._order: List[str] = []
         self._units_at = 0.0
@@ -447,6 +455,9 @@ class Organizer:
     @property
     def p115(self):
         return self.strm_sync.p115
+
+    def stop(self) -> None:
+        self._stop.set()
 
     def _roots(self) -> List[str]:
         return [remote_root(t) for t in self.strm_sync.tasks]
@@ -496,10 +507,13 @@ class Organizer:
         """在背景問 MoviePilot；refresh=True 時問過的也重問（例如改了 MoviePilot 的重命名格式）。"""
         if not self.mp.can_subscribe:
             raise OrganizeError("問 MoviePilot 要用帳號登入：請在「MoviePilot」頁填帳號密碼")
-        if not self._lock.acquire(blocking=False):
-            return False
-        self.job = CheckJob(running=True, started=time.time())
-        threading.Thread(target=self._check, args=(refresh,), daemon=True).start()
+        with self._starting:
+            if self.batch.running:
+                raise OrganizeError("正在全部整理，等它做完再檢查")
+            if not self._lock.acquire(blocking=False):
+                return False
+            self.job = CheckJob(running=True, started=time.time())
+        self.workers.start(self._check, refresh)
         return True
 
     def _check(self, refresh: bool) -> None:
@@ -521,6 +535,9 @@ class Organizer:
                         fut.result()
                     except MoviePilotError as exc:  # 連不上、被拒絕：後面的也不會成功，停下來
                         job.error = f"問 MoviePilot 時失敗：{exc}"
+                    if not job.error and self._stop.is_set():
+                        job.error = "程式要結束，檢查中途停下（沒問的下次再問）"
+                    if job.error:
                         for f in futures:
                             f.cancel()
                         break
@@ -874,18 +891,24 @@ class Organizer:
 
     def organize_all(self, q: str, kind: str, target: str, target_path: str, cleanup: bool) -> dict:
         """清單上符合搜尋、種類的（加上瀏覽 115 釘上來的）全部整理：在背景一個一個請 MoviePilot 預覽，沒問題的直接照預覽
-        整理，有問題的（見 _preview 的 review）跳過記下來；最後同步一次。和單獨整理共用一把鎖，同時只有一批在動 115。"""
-        if self.batch.running:
-            raise OrganizeError("已經在全部整理了")
-        units = list(self._pinned.values()) + self._matching(self.units(), q, kind)
-        if not units:
-            raise OrganizeError("清單上沒有要整理的")
-        if target == "path" and _dir_path(target_path) == "/":
-            raise OrganizeError("請填要整理到哪個 115 資料夾")
-        if not self.reorg.hold():
-            raise OrganizeError("已經有一批在整理或刪除，等它完成再開始")
-        self.batch = BatchJob(running=True, started=time.time(), total=len(units), target=target or "auto")
-        threading.Thread(target=self._organize_all, args=(units, target or "auto", target_path, cleanup), daemon=True).start()
+        整理，有問題的（見 _preview 的 review）跳過記下來；最後同步一次。和單獨整理共用一把鎖，同時只有一批在動 115；
+        「問 MoviePilot 檢查」在跑時不開始。"""
+        if not self.p115.logged_in:
+            raise OrganizeError(P115_NEEDED)  # 不然每個資料夾都列不出來，連續出錯才停
+        with self._starting:
+            if self.batch.running:
+                raise OrganizeError("已經在全部整理了")
+            if self._lock.locked():
+                raise OrganizeError("正在問 MoviePilot 檢查，等它問完再全部整理")
+            units = list(self._pinned.values()) + self._matching(self.units(), q, kind)
+            if not units:
+                raise OrganizeError("清單上沒有要整理的")
+            if target == "path" and _dir_path(target_path) == "/":
+                raise OrganizeError("請填要整理到哪個 115 資料夾")
+            if not self.reorg.hold():
+                raise OrganizeError("已經有一批在整理或刪除，等它完成再開始")
+            self.batch = BatchJob(running=True, started=time.time(), total=len(units), target=target or "auto")
+        self.workers.start(self._organize_all, units, target or "auto", target_path, cleanup)
         return self.batch.as_dict(results=False)
 
     def stop_all(self) -> dict:
@@ -899,7 +922,7 @@ class Organizer:
         errors = 0  # 連續出錯的預覽
         try:
             for u in units:
-                if job.stopping:
+                if job.stopping or self._stop.is_set():
                     job.stopped = True
                     break
                 job.current = u.name
@@ -910,7 +933,8 @@ class Organizer:
                     break
             log.info("全部整理：%s 個資料夾，整理了 %s 個（%s 個檔案），跳過 %s 個，失敗 %s 個",
                      job.done, job.organized, job.files, job.skipped, job.failed)
-            if job.files:
+            if job.files or job.queued:
+                # MoviePilot 背景處理的也要同步：它做完之後本機的 strm 只靠增量同步讀 115 生活事件搬
                 job.current = f"等 115 記下變動，{int(self.reorg.sync_delay)} 秒後同步"
                 job.synced = self.reorg.sync_later()
         except Exception as exc:  # 背景執行緒：記下來，不讓網頁一直顯示「整理中」

@@ -100,3 +100,21 @@ def test_missing_remote_dir_reports_error(tmp_path: Path):
     sync.cfg.tasks = [StrmTask(remote="/不存在", local=str(tmp_path / "x"))]
     r = sync.run()
     assert r.errors and "找不到目錄" in r.errors[0]
+
+
+def test_stopped_sync_deletes_nothing(tmp_path: Path):
+    """程式結束時同步停在兩個檔案之間：沒列完的不能當成 115 上已經刪掉，進度也不存（下次重做）。"""
+    stale = tmp_path / "media" / "電影" / "Old" / "Old.strm"
+    stale.parent.mkdir(parents=True)
+    stale.write_text("http://127.0.0.1:8096/d/zzzzzzzzzzzzzzzzz.mkv")
+    sync = make_sync(tmp_path, delete_stale=True, download_metadata=False)
+    real = sync._handle_file
+
+    def handle_then_stop(*a):
+        sync.stop()
+        return real(*a)
+
+    sync._handle_file = handle_then_stop
+    r = sync.run()
+    assert stale.exists() and r.removed == 0 and not r.errors and any("中途停下" in n for n in r.notes)
+    assert not sync.task_states()[0].get("indexed")

@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from starlette.concurrency import run_in_threadpool
 
 from ...auth import AuthContext, require_admin
-from ...organize115 import OrganizeError
+from ...organize115 import P115_NEEDED, OrganizeError
 from ...reorganize import ReorgError
 from ..common import q, q_int, state
 from .common import json_body
@@ -14,6 +14,15 @@ from .common import json_body
 router = APIRouter()
 
 LOGIN_NEEDED = "MoviePilot 的手動整理只接受帳號登入，請在「MoviePilot 帳號密碼」填好再儲存"
+
+
+def _can_organize(st) -> None:
+    """預覽、執行、全部整理都要 MoviePilot 帳號登入和 115 登入；在拿鎖、開執行緒之前就擋下來。"""
+    ready = st.reorganizer.ready()
+    if not ready["login"]:
+        raise HTTPException(status_code=400, detail=LOGIN_NEEDED)
+    if not ready["p115"]:
+        raise HTTPException(status_code=400, detail=P115_NEEDED)
 
 
 def _run(fn, *args):
@@ -54,8 +63,7 @@ async def organize_all(request: Request, ctx: AuthContext = Depends(require_admi
     在背景一個一個預覽，沒問題的直接整理，有問題的跳過記下來；進度看 GET /web/api/115/organize/job。"""
     st = state(request)
     body = await json_body(request)
-    if not st.reorganizer.ready()["login"]:
-        raise HTTPException(status_code=400, detail=LOGIN_NEEDED)
+    _can_organize(st)
     return {"batch": await run_in_threadpool(
         _run, st.organizer.organize_all, str(body.get("q") or ""), str(body.get("kind") or ""), str(body.get("target") or ""),
         str(body.get("target_path") or ""), bool(body.get("cleanup", True)))}
@@ -97,8 +105,7 @@ async def organize_preview(request: Request, ctx: AuthContext = Depends(require_
     有能整理的就給預覽代碼 token，用 POST /web/api/115/organize/execute 執行。"""
     st = state(request)
     body = await json_body(request)
-    if not st.reorganizer.ready()["login"]:
-        raise HTTPException(status_code=400, detail=LOGIN_NEEDED)
+    _can_organize(st)
     parts = body.get("parts") if isinstance(body.get("parts"), dict) else {}
     overrides = {str(k): v for k, v in parts.items() if isinstance(v, dict)}
     return await run_in_threadpool(_run, st.organizer.preview, str(body.get("id") or ""), overrides,
@@ -119,6 +126,7 @@ async def organize_execute(request: Request, ctx: AuthContext = Depends(require_
     在背景跑，進度看 GET /web/api/115/organize/job。"""
     st = state(request)
     body = await json_body(request)
+    _can_organize(st)
     tokens = body.get("tokens") if isinstance(body.get("tokens"), list) else [body.get("token")]
     cleanup = [c for c in body.get("cleanup") or [] if isinstance(c, dict) and str(c.get("cid") or "").isdigit()]
     _run(st.reorganizer.execute_in_background, [str(t or "") for t in tokens], cleanup)

@@ -44,6 +44,7 @@ from .p115 import (
     LIFE_COPY_FOLDER, LIFE_DELETE, LIFE_NEW_FOLDER, LIFE_RECEIVE, LIFE_UPLOAD, PLAIN_UA,
     LifeEventGap, P115Error, P115NotFound, P115Service, P115Throttled, extract_pickcode,
 )
+from .workers import Stopped, Workers
 
 log = logging.getLogger(__name__)
 
@@ -387,6 +388,7 @@ class StrmSync:
         self._lock = threading.Lock()
         self._http = httpx.Client(timeout=60, follow_redirects=True)
         self._stop = threading.Event()
+        self.workers = Workers(self._stop)  # 同步、定時同步、改寫 strm 的執行緒；程式結束時等它們停下
         self.rewrite_result = RewriteResult()
         self._rewriting = threading.Lock()
         self._format = (cfg.base_url, cfg.include_name)  # 現有 strm 用的格式；設定改了就改寫
@@ -430,7 +432,7 @@ class StrmSync:
         if self._rewriting.locked():
             return False
         self.rewrite_result = RewriteResult(running=True, started=time.time(), base_url=self.base_url)
-        threading.Thread(target=self.rewrite_strm, daemon=True).start()
+        self.workers.start(self.rewrite_strm)
         return True
 
     def rewrite_strm(self) -> RewriteResult:
@@ -625,12 +627,17 @@ class StrmSync:
                 left = "、".join(t.remote for t, _ in jobs[i:])
                 self.result.notes.append(f"{self.p115.breaker.message()}，這些任務這次不同步：{left}")
                 break
+            if self._stop.is_set():
+                break  # 程式要結束
             self._guard(task, job)
 
     def _guard(self, task: StrmTask, job: Callable[[], None]) -> None:
         """一個任務出錯不影響其他任務，錯誤顯示在網頁上。"""
         try:
             job()
+        except Stopped:
+            # 進度（since、生活事件）還沒存，沒做完的下次同步重做；重做只會判定為「未變」
+            self.result.notes.append(f"{task.remote}：程式要結束，同步中途停下，下次同步再補")
         except Exception as exc:
             if not isinstance(exc, P115Error):
                 log.exception("115 strm 同步發生未預期的錯誤")
@@ -641,7 +648,7 @@ class StrmSync:
     def run_in_background(self, mode: str = FULL) -> bool:
         if not self._begin(mode):
             return False
-        threading.Thread(target=self._run_started, args=(mode,), daemon=True).start()
+        self.workers.start(self._run_started, mode)
         return True
 
     def start_schedule(self) -> None:
@@ -664,10 +671,10 @@ class StrmSync:
                     last_inc = now
                     self.run(INCREMENTAL)
 
-        threading.Thread(target=loop, daemon=True).start()
+        self.workers.start(loop)
 
     def stop(self) -> None:
-        """停掉定時同步的執行緒（程式關閉、測試結束時；正在跑的那一次會做完）。"""
+        """程式關閉時：停掉定時同步；正在跑的那一次在兩個檔案之間停下（進度不存，下次再補）。"""
         self._stop.set()
 
     def close(self) -> None:
@@ -709,6 +716,7 @@ class StrmSync:
         newest = 0
         entries, complete, keep = self._full_entries(task, cid)
         for rel, info in entries:
+            self.workers.check()  # 停下要直接丟出去：照常做完的話，沒列到的檔案會被當成已經刪掉
             if info["is_dir"]:
                 rows.append((info["id"], rel, True))
                 continue
@@ -873,6 +881,7 @@ class StrmSync:
         log.info("處理 %s 個 115 生活事件（%s）", len(events), ctx.root)
         latest = sorted({e["file_id"]: e for e in events}.values(), key=lambda e: e["id"])
         for ev in latest:
+            self.workers.check()
             try:
                 if ev["type"] == LIFE_DELETE:
                     self._event_delete(ctx, ev)
@@ -891,8 +900,8 @@ class StrmSync:
     def _remote_ancestors(self, cid: int) -> Optional[List[Tuple[int, str]]]:
         """向 115 查資料夾由根往下的每一層 (id, 名稱)；順便記下每一層的路徑。已不存在時回傳 None。"""
         self.p115.breaker.check()  # 逐一查路徑可能很多次，被限流了就別再打
-        if self.cfg.request_delay:
-            time.sleep(self.cfg.request_delay)
+        if self.cfg.request_delay and self._stop.wait(self.cfg.request_delay):
+            raise Stopped()
         try:
             chain = self.p115.dir_ancestors(cid)
         except P115NotFound:
@@ -941,6 +950,7 @@ class StrmSync:
         if (not old and ev["type"] != LIFE_NEW_FOLDER) or ev["type"] in (LIFE_UPLOAD, LIFE_RECEIVE, LIFE_COPY_FOLDER):
             # 新出現在任務目錄裡的資料夾（上傳、接收、複製、從外面移進來）：列出裡面的檔案
             for sub, info in self.p115.walk(fid, rel, self.cfg.request_delay, dirs=True):
+                self.workers.check()
                 if info["is_dir"]:
                     ctx.index.set(info["id"], sub, True)
                 else:
@@ -960,6 +970,7 @@ class StrmSync:
         self._dirs.setdefault(cid, ctx.root)
         newest = since
         for info in self.p115.iter_changed_files(cid, since - INCREMENTAL_OVERLAP):
+            self.workers.check()
             newest = max(newest, info["mtime"])
             parent = self._remote_dir(info["parent_id"])
             rel = _rel(ctx.root, posixpath.join(parent, info["name"])) if parent is not None else None

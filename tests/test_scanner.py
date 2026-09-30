@@ -116,3 +116,22 @@ def test_unreadable_files_do_not_stop_the_scan(tmp_path: Path):
     row = db.one("SELECT * FROM items WHERE type='Series'")
     assert row["premiere_date"] == "2019-06-27T00:00:00.0000000Z"
     assert PeopleStore(db).for_item(row) == []
+
+
+def test_stopped_scan_keeps_what_it_did_not_reach(tmp_path: Path):
+    """程式結束時掃描停在兩項之間：還沒掃到的不能當成已經刪掉（連同觀看紀錄）。"""
+    tv = tmp_path / "tv"
+    for name in ("Alpha", "Beta", "Gamma"):
+        touch(tv / name / f"{name}.S01E01.strm")
+    db = Database(":memory:")
+    scanner = Scanner(db, config_from_dict({"libraries": [{"name": "劇集", "type": "tvshows", "paths": [str(tv)]}]}))
+    scanner.scan_all()
+    real = scanner._add_series
+
+    def add_then_stop(*a):
+        real(*a)
+        scanner.stop()
+
+    scanner._add_series = add_then_stop
+    scanner.scan_all()
+    assert names(db, "Series") == ["Alpha", "Beta", "Gamma"] and len(names(db, "Episode")) == 3 and not scanner.scanning

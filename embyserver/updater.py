@@ -34,6 +34,7 @@ from typing import Callable, List, Optional
 
 from . import __version__
 from .config import Config
+from .workers import Workers
 
 log = logging.getLogger(__name__)
 
@@ -117,6 +118,7 @@ class Updater:
         self.job = UpdateJob()
         self._busy = threading.Lock()  # 檢查和更新不同時跑
         self._stop = threading.Event()
+        self.workers = Workers(self._stop, busy=self._busy)  # 定時檢查、更新；程式結束時等手上的做完（git、pip 都有逾時）
         self._notified = ""  # 日誌只在發現新的遠端版本時寫一次
         self._load_check()
 
@@ -298,7 +300,7 @@ class Updater:
                     except Exception:  # 背景執行緒不能因為意外錯誤停掉
                         log.exception("檢查 Mi302 更新時發生錯誤")
 
-        threading.Thread(target=loop, daemon=True).start()
+        self.workers.start(loop)
 
     def stop(self) -> None:
         self._stop.set()
@@ -312,7 +314,7 @@ class Updater:
         if not self._busy.acquire(blocking=False):
             raise UpdateError("正在檢查或更新，等一下再試")
         self.job = UpdateJob(running=True, started=time.time(), step="下載新版")
-        threading.Thread(target=self._update, daemon=True).start()
+        self.workers.start(self._update)
 
     def _update(self) -> None:
         job = self.job

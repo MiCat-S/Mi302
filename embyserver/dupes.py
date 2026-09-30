@@ -36,6 +36,7 @@ from .p115 import P115Error, P115Service
 from .scanner import STANDARD_EPISODE, episode_match, parse_episode
 from .strm_sync import remote_root, task_key
 from .textutil import simplified
+from .workers import Stopped, Workers
 
 log = logging.getLogger(__name__)
 
@@ -214,6 +215,8 @@ class DupeFinder:
         self.scanner = scanner
         self.job = DupeJob()
         self._lock = threading.Lock()
+        self.workers = Workers(busy=self._lock)  # 找重複、刪重複；程式結束時停在兩項之間
+        self._stop = self.workers.stop
         if db.get_meta(VERSIONS_RULE_KEY) != VERSIONS_RULE:
             # 第 1 版會把刮削時沒認出集號（nfo 寫 -1）的不同集算成同一集，清掉免得照著刪錯
             if db.one("SELECT 1 FROM dup_versions LIMIT 1"):
@@ -259,6 +262,9 @@ class DupeFinder:
 
     def busy(self) -> bool:
         return self._lock.locked()
+
+    def stop(self) -> None:
+        self._stop.set()
 
     # ---------------- 建議保留哪個版本 ----------------
 
@@ -308,7 +314,7 @@ class DupeFinder:
         if self._lock.locked():
             return False
         self.job = DupeJob(kind="scan", running=True, started=time.time())
-        threading.Thread(target=self.scan, args=(roots,), daemon=True).start()
+        self.workers.start(self.scan, roots)
         return True
 
     def scan(self, roots: Optional[List[str]] = None) -> DupeJob:
@@ -329,6 +335,7 @@ class DupeFinder:
                 job.current = root
                 cid = self.p115.dir_id(root)
                 for info in self.p115.iter_changed_files(cid, 0):  # since = 0：全部
+                    self.workers.check()
                     job.listed += 1
                     if Path(info["name"]).suffix.lower() not in VIDEO_EXTS:
                         continue
@@ -375,6 +382,8 @@ class DupeFinder:
             self.db.set_meta(SUGGEST_RULE_KEY, SUGGEST_RULE)
             log.info("找重複：%s 看了 %s 支影片，完全相同的 %s 支、不同版本的 %s 支",
                      "、".join(roots), len(files), len(rows), len(versions))
+        except Stopped:
+            job.errors.append("程式要結束，找重複中途停下；上次的結果沒有換掉")
         except P115Error as exc:
             job.errors.append(str(exc))
             log.warning("找重複失敗：%s", exc)
@@ -462,7 +471,7 @@ class DupeFinder:
                 folders[parent] = None
             delay = getattr(self.strm_sync.cfg, "request_delay", 0) or 0
             if delay:
-                time.sleep(delay)
+                self._stop.wait(delay)
         base = folders[parent]
         return (posixpath.join(base, info["name"]) if base else info["name"]), None
 
@@ -579,7 +588,7 @@ class DupeFinder:
         if not plan or self._lock.locked():
             return False
         self.job = DupeJob(kind="delete", running=True, started=time.time(), total=len(plan))
-        threading.Thread(target=self.delete, args=(plan,), daemon=True).start()
+        self.workers.start(self.delete, plan)
         return True
 
     def delete(self, plan: List[dict]) -> DupeJob:
@@ -593,6 +602,9 @@ class DupeFinder:
         removed: List[str] = []
         try:
             for start in range(0, len(plan), DELETE_BATCH):
+                if self._stop.is_set():
+                    job.errors.append(f"程式要結束，還有 {len(plan) - start} 個沒刪")
+                    break
                 batch = plan[start: start + DELETE_BATCH]
                 job.current = batch[0]["name"]
                 self.p115.delete_files([r["file_id"] for r in batch])
@@ -601,7 +613,7 @@ class DupeFinder:
                 job.freed += sum(r["size"] for r in batch)
                 delay = getattr(self.strm_sync.cfg, "request_delay", 0) or 0
                 if delay and start + DELETE_BATCH < len(plan):
-                    time.sleep(delay)
+                    self._stop.wait(delay)
             log.info("刪重複：%s 個檔案送進 115 回收站，省下 %.1f GB", job.done, job.freed / 1024 ** 3)
         except P115Error as exc:
             job.errors.append(f"刪到第 {job.done + 1} 個時失敗：{exc}")

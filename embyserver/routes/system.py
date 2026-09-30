@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import platform
-import threading
 from urllib.parse import parse_qsl
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, WebSocket, WebSocketDisconnect
@@ -256,5 +255,6 @@ async def emby_websocket(ws: WebSocket):
 
 @router.post("/library/refresh")
 def library_refresh(request: Request, ctx: AuthContext = Depends(require_admin)):
-    threading.Thread(target=state(request).scanner.scan_all, daemon=True).start()
+    scanner = state(request).scanner
+    scanner.in_background(scanner.scan_all)
     return Response(status_code=204)
