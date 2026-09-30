@@ -101,6 +101,8 @@ class MoviePilotConfig:
     path_mappings: List[PathRule] = field(default_factory=list)
     scrape_after_sync: bool = True  # 同步產生新 strm 後自動送去刮削
     fill_after_full_sync: bool = False  # 全量同步後把所有有 tmdbid 的劇送給 MoviePilot 訂閱，補齊缺集
+    # 補全缺集：兩個新訂閱之間隔幾秒。每個新訂閱都會讓 MoviePilot 把所有站點搜一遍，一次建太多站點會被 Cloudflare 擋
+    fill_interval: float = 60
     timeout: float = 300  # MoviePilot 刮削是同步完成才回應，一部片可能要幾十秒
     concurrency: int = 3  # 同時送幾項給 MoviePilot 刮削（1–8）；太多可能被 TMDB 限速
 

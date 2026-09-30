@@ -703,7 +703,7 @@ dialog .card-b{max-height:70vh;overflow:auto}
       <div class="card" id="mpFill" data-sub="fill" role="tabpanel">
         <div class="card-h"><div class="t"><svg class="i"><use href="#i-tv"/></svg><h2>補全缺集</h2></div><button class="btn" onclick="fillAll()">全部補全</button></div>
         <div class="card-b stack">
-          <p class="hint">對照 TMDB 上已經播出的集，真的缺集的季才向 MoviePilot 建訂閱並馬上搜尋。要先把 Mi302 加成 MoviePilot 的媒體伺服器（見「當成 Emby」），並在「連線」填 MoviePilot 帳號密碼。 <a class="doc" href="https://github.com/MiCat-S/Mi302/wiki/MoviePilot-整合#補全缺集" target="_blank" rel="noopener">說明</a></p>
+          <p class="hint">對照 TMDB 上已經播出的集，真的缺集的季才向 MoviePilot 建訂閱並請它搜尋；每個新訂閱之間隔開（見下面的「設定」），之前就訂閱過的不再重搜，免得站點被連續請求、被 Cloudflare 擋。要先把 Mi302 加成 MoviePilot 的媒體伺服器（見「當成 Emby」），並在「連線」填 MoviePilot 帳號密碼。 <a class="doc" href="https://github.com/MiCat-S/Mi302/wiki/MoviePilot-整合#補全缺集" target="_blank" rel="noopener">說明</a></p>
           <div id="fill"></div>
           <div class="logbar"><input id="seriesQ" type="search" placeholder="搜尋劇名" oninput="soon('seriesQ', () => loadSeries(1))">
             <select id="seriesYear" onchange="loadSeries(1)"><option value="">全部年份</option></select>
@@ -711,8 +711,11 @@ dialog .card-b{max-height:70vh;overflow:auto}
             <label class="switch p0"><input type="checkbox" id="seriesGaps" onchange="loadSeries(1)"><span class="track"></span><span class="lbl">只看集號有空洞的</span></label></div>
           <div id="series" class="list"><p class="hint">讀取中…</p></div>
           <p class="hint">「集號有空洞」只是提示（例如有第 2、4 集沒有第 3 集）；最後幾集沒下到、整季沒有的情況，MoviePilot 對照 TMDB 一樣會算出來。沒有 tmdbid 的劇要先刮削。</p>
-          <details class="more"><summary>設定</summary><div class="in">
+          <details class="more"><summary>設定</summary><div class="in stack" id="mpFillOpts">
           <label class="switch"><input type="checkbox" data-key="moviepilot.fill_after_full_sync" onchange="saveToggle(this)"><span class="track"></span><span class="lbl">全量同步後自動補全<small>每次全量同步、刮削完之後，把所有有 tmdbid 的劇送一次</small></span></label>
+          <label class="field maxw320"><span>兩個新訂閱之間隔幾秒</span><input type="number" min="0" max="3600" step="10" data-key="moviepilot.fill_interval">
+            <small>每個新訂閱都會讓 MoviePilot 把所有站點搜一遍，一口氣建太多，站點會被 Cloudflare 擋。預設 60；0 = 不隔</small></label>
+          <div><button class="btn sm primary" onclick="saveFields($('mpFillOpts'))">儲存設定</button></div>
           </div></details>
         </div>
       </div>
@@ -2297,7 +2300,7 @@ function fillHtml(f) {
   let h = '<div class="row wrap mb8">';
   if (f.running) h += `<span class="pill accent"><span class="spin"></span>補全中</span><span class="hint sp"><span>${f.done} / ${f.total}</span>${f.current ? `<span>${esc(f.current)}</span>` : ''}</span>`;
   else h += `<span class="pill ${f.errors.length ? 'warn' : 'ok'}">${f.errors.length ? '有問題' : '完成'}</span><span class="hint">上次補全（${f.source === 'sync' ? '全量同步後自動' : '手動'}）・${ago(f.finished)}</span>`;
-  h += `</div><div class="chips">${chip(f.created, '建訂閱並搜尋', true)}${chip(f.missing || 0, '缺的集數')}${chip(f.complete, '已經齊全')}${chip(f.existing, '之前訂閱過')}${chip(f.skipped, '沒 tmdbid')}${chip(f.failed, '失敗')}</div>`;
+  h += `</div><div class="chips">${chip(f.created, '建了訂閱', true)}${chip(f.missing || 0, '缺的集數')}${chip(f.complete, '已經齊全')}${chip(f.existing, '之前訂閱過')}${chip(f.skipped, '沒 tmdbid')}${chip(f.failed, '失敗')}</div>`;
   if (f.details.length) h += `<details class="more mt10"><summary>每一季的結果（${f.details.length}）</summary><div class="in hint pre">${esc(f.details.join('\n'))}</div></details>`;
   if (f.errors.length) h += `<div class="notice bad mt10">${f.errors.slice(0, 5).map(esc).join('<br>')}</div>`;
   return h;

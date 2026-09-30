@@ -44,7 +44,8 @@ STRM_FIELDS = (
     "min_size_mb", "interval", "full_interval", "request_delay", "scan_after_sync",
 )
 MOVIEPILOT_FIELDS = (
-    "url", "api_token", "username", "password", "scrape_after_sync", "fill_after_full_sync", "timeout", "concurrency",
+    "url", "api_token", "username", "password", "scrape_after_sync", "fill_after_full_sync", "fill_interval", "timeout",
+    "concurrency",
 )
 MEDIAINFO_FIELDS = (
     "enabled", "after_sync", "on_demand", "concurrency", "interval", "hourly_limit", "timeout", "ffprobe",
@@ -151,6 +152,7 @@ def apply_settings(config: Config, raw: dict) -> None:
     _set_fields(config.moviepilot, MOVIEPILOT_FIELDS, mp)
     config.moviepilot.url = config.moviepilot.url.rstrip("/")
     config.moviepilot.concurrency = max(1, min(config.moviepilot.concurrency, 8))
+    config.moviepilot.fill_interval = max(0.0, min(float(config.moviepilot.fill_interval), 3600.0))
     if config.moviepilot.url and not config.moviepilot.url.startswith(("http://", "https://")):
         raise SettingsError("MoviePilot 網址要以 http:// 或 https:// 開頭")
     if "path_mappings" in mp:

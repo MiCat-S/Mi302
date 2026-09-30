@@ -140,9 +140,9 @@ class FillResult:
     running: bool = False
     total: int = 0  # 檢查的季數
     done: int = 0
-    created: int = 0  # 缺集，建了訂閱並請 MoviePilot 搜尋
+    created: int = 0  # 缺集，建了訂閱並請 MoviePilot 搜尋（兩個之間隔 fill_interval 秒）
     complete: int = 0  # 已播出的集都有，沒有建訂閱
-    existing: int = 0  # 之前就訂閱過（也請它再搜一次）
+    existing: int = 0  # 之前就訂閱過（不再請它搜，MoviePilot 自己會定時搜）
     missing: int = 0  # 缺的集數合計
     skipped: int = 0  # 沒有 tmdbid 的劇，以劇計
     failed: int = 0
@@ -173,6 +173,8 @@ class MoviePilot:
         self.fill_result = FillResult()
         self._lock = threading.Lock()
         self._fill_lock = threading.Lock()
+        self._clock = time.monotonic  # 測試換成假的時鐘
+        self._created_at: Optional[float] = None  # 補全缺集：上一個新訂閱建立的時間
         self._stop = threading.Event()
         self.workers = Workers(self._stop)  # 刮削、補全缺集；程式結束時停在兩項之間
         self._transport = transport
@@ -721,6 +723,7 @@ class MoviePilot:
             log.info("補全缺集已在進行，略過")
             return self.fill_result
         self.fill_result = r = FillResult(source=source, started=time.time(), running=True)
+        self._created_at = None
         try:
             if not self.can_subscribe:
                 raise MoviePilotError("建訂閱的 API 只接受帳號登入，請在 MoviePilot 連線設定填帳號密碼")
@@ -739,7 +742,8 @@ class MoviePilot:
                 label = f"{show['name']} S{info['season']:02d}"
                 r.current = label
                 try:
-                    self._fill_season(r, show, info, label)
+                    if not self._fill_season(r, show, info, label):
+                        break  # 等的時候程式要結束
                 except MoviePilotError as exc:
                     # 連線或認證錯誤，後面的也不會成功
                     r.failed += r.total - r.done
@@ -756,8 +760,21 @@ class MoviePilot:
             self._fill_lock.release()
         return r
 
-    def _fill_season(self, r: FillResult, show: dict, info: dict, label: str) -> None:
-        """一季：查 TMDB 已播出的集 → 缺集才建訂閱 → 請 MoviePilot 馬上搜尋。"""
+    def _pace(self, r: FillResult, label: str) -> bool:
+        """上一個新訂閱建立還不到 fill_interval 秒就先等：每個新訂閱都會讓 MoviePilot 把所有站點搜一遍，
+        一口氣建幾百個，站點會被連續請求、被 Cloudflare 擋。程式要結束回傳 False。"""
+        interval = max(0.0, float(self.cfg.fill_interval or 0))
+        if not interval or self._created_at is None:
+            return True
+        wait = self._created_at + interval - self._clock()
+        if wait <= 0:
+            return True
+        r.current = f"{label}（隔 {int(interval)} 秒再建下一個訂閱，免得站點被 Cloudflare 擋）"
+        return not self._stop.wait(wait)
+
+    def _fill_season(self, r: FillResult, show: dict, info: dict, label: str) -> bool:
+        """一季：查 TMDB 已播出的集 → 缺集才建訂閱 → 新建的請 MoviePilot 搜尋（之前就訂閱過的不再搜，
+        它自己會定時搜）。等的時候程式要結束回傳 False。"""
         tmdbid, season = int(show["tmdbid"]), int(info["season"])
         episodes = self.tmdb_episodes(tmdbid, season)
         missing: List[int] = []
@@ -776,18 +793,25 @@ class MoviePilot:
             if not missing:
                 r.complete += 1
                 r.details.append(f"{label}：TMDB 已播出的 {len(aired)} 集都有，不建訂閱" + (f"；{unsure}" if unsure else ""))
-                return
+                return True
             r.missing += len(missing)
         lack = f"缺 {len(missing)} 集（{ep_ranges(missing)}）" if missing else "查不到 TMDB 集數，交給 MoviePilot 判斷"
+        if not self._pace(r, label):
+            return False
+        r.current = label
         outcome, message, sid = self.subscribe(show["name"], show.get("year"), tmdbid, season)
         setattr(r, outcome, getattr(r, outcome) + 1)
         if outcome == "failed":
             r.details.append(f"{label}：{lack}；{message}")
             r.errors.append(f"{label}：{message}")
             log.warning("MoviePilot 不接受訂閱 %s：%s", label, message)
-            return
+            return True
         note = message
-        if sid and outcome in ("created", "existing"):
+        if outcome == "existing":
+            note += "；之前就訂閱過，MoviePilot 會在定時搜尋時處理"
+        else:  # 新建的：沒回 id（舊版）也算，下一個照樣要隔開
+            self._created_at = self._clock()
+        if outcome == "created" and sid:
             try:
                 note += "；" + self.search_subscription(sid)
             except MoviePilotError as exc:
@@ -797,6 +821,7 @@ class MoviePilot:
             note += f"；{unsure}"
         r.details.append(f"{label}：{lack}；{note}")
         log.info("補全缺集 %s：%s；%s", label, lack, note)
+        return True
 
     def fill_in_background(self, series: List[dict], source: str) -> bool:
         if self._fill_lock.locked():

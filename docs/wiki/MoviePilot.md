@@ -37,6 +37,7 @@ The connection test only checks the URL and the API token. It sends an empty pat
 | Send new strm files for scraping after sync (同步產生新的 strm 後自動送去刮削) | `moviepilot.scrape_after_sync` | on | when off, sync only scans |
 | MoviePilot username, password (MoviePilot 帳號, MoviePilot 密碼) | `moviepilot.username`, `moviepilot.password` | empty | needed to fill missing episodes and for Organise 115, and by the scrape API of older versions |
 | Fill missing episodes after full sync (全量同步後自動補全) | `moviepilot.fill_after_full_sync` | off | in the collapsed Settings section (設定) of the fill card; saved as soon as you toggle it |
+| Seconds between new subscriptions (兩個新訂閱之間隔幾秒) | `moviepilot.fill_interval` | `60` | in the collapsed Settings section (設定) of the fill card; click **Save settings** (儲存設定); 0 = no gap |
 | (config file only) | `moviepilot.timeout` | 300 | seconds to wait per item; exceeding it counts as a connection failure and stops the batch |
 
 ### When you need the username and password
@@ -152,7 +153,10 @@ Filling works season by season, and only for seasons that already have episodes 
    - Undated episodes after the last one in the library are uncertain and are not counted as missing. The result notes how many there are.
 3. It compares with the episode numbers Mi302 already has for that season. If every aired episode is there, no subscription is created, and the season counts as "already complete".
 4. Only if episodes are missing does it create a subscription (`POST /api/v1/subscribe/`), identifying the show by tmdbid (V3's `media_source` / `media_id`) rather than by name, so it cannot pick the wrong show.
-5. It then asks MoviePilot to search for that subscription right away (`POST /api/v1/subscribe/search/{subscription id}`). MoviePilot V3 only schedules a search when a subscription is created, and sometimes the search waits for the next scheduled run. Existing subscriptions are searched again too. If this step fails, the result says so, and MoviePilot handles it at its next scheduled search.
+5. For a new subscription, it then asks MoviePilot to search right away (`POST /api/v1/subscribe/search/{subscription id}`). MoviePilot V3 only schedules a search when a subscription is created, and sometimes the search waits for the next scheduled run. If this step fails, the result says so, and MoviePilot handles it at its next scheduled search.
+6. Existing subscriptions are not searched again; MoviePilot searches them on its own schedule (every 24 hours by default).
+
+**Not all at once**: every new subscription makes MoviePilot search all your sites. It searches one subscription per site at a time, but starts the next one as soon as the last finishes; creating hundreds of subscriptions in one go hits the sites back to back and gets you blocked by Cloudflare. So new subscriptions are spaced out, 60 seconds apart by default (**Seconds between new subscriptions** (兩個新訂閱之間隔幾秒) in the Settings section, 0 = no gap), and the card shows when it is waiting. Only new subscriptions wait; complete seasons and existing subscriptions do not. A first fill of many series takes a while (100 new subscriptions take about 100 minutes); it runs in the background, so you can close the page.
 
 If the TMDB episode list cannot be fetched, Mi302 creates the subscription anyway and leaves the decision to MoviePilot.
 

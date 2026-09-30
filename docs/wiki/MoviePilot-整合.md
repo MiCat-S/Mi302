@@ -37,6 +37,7 @@ Mi302 只讀資料夾裡已經有的 nfo 和圖片。這些資料可以在 115 �
 | 同步產生新的 strm 後自動送去刮削 | `moviepilot.scrape_after_sync` | 開 | 關掉時同步完只掃描 |
 | MoviePilot 帳號、MoviePilot 密碼 | `moviepilot.username`、`moviepilot.password` | 空 | 補全缺集、整理 115 網盤需要；舊版刮削 API 也需要 |
 | 全量同步後自動補全 | `moviepilot.fill_after_full_sync` | 關 | 在「補全缺集」卡片的「設定」裡，切換後馬上儲存 |
+| 兩個新訂閱之間隔幾秒 | `moviepilot.fill_interval` | `60` | 在「補全缺集」卡片的「設定」裡，按「儲存設定」；0 = 不隔 |
 | （只在設定檔） | `moviepilot.timeout` | 300 | 每一項最多等幾秒；超過時當成連線失敗，這一批停下 |
 
 ### 什麼時候要填帳號密碼
@@ -152,7 +153,10 @@ MoviePilot 的單集圖片只來自 TMDB 那一集的劇照，存成和影片同
    - 在最後一集之後、又沒有日期的不確定，不算缺。結果裡會註明有幾集 TMDB 沒有播出日期、沒算進去。
 3. 對照 Mi302 裡這一季已有的集號。已播出的都有，就不建訂閱，記成「已經齊全」。
 4. 缺集才建訂閱（`POST /api/v1/subscribe/`），用 tmdbid 指定是哪一部（V3 的 `media_source`／`media_id`），不靠劇名，不會認錯。
-5. 立刻請 MoviePilot 搜尋這條訂閱（`POST /api/v1/subscribe/search/{訂閱 id}`）。MoviePilot V3 建訂閱後只是安排搜尋，有時要等到定時搜尋才開始。之前就訂閱過的，也會請它再搜一次。這一步失敗時，結果裡會註明，MoviePilot 會在定時搜尋時處理。
+5. 新建的訂閱，立刻請 MoviePilot 搜尋（`POST /api/v1/subscribe/search/{訂閱 id}`）。MoviePilot V3 建訂閱後只是安排搜尋，有時要等到定時搜尋才開始。這一步失敗時，結果裡會註明，MoviePilot 會在定時搜尋時處理。
+6. 之前就訂閱過的不再請它搜，MoviePilot 自己會定時搜（預設每 24 小時）。
+
+**不一口氣送**：每個新訂閱都會讓 MoviePilot 把所有站點搜一遍。它對同一個站點一次只搜一個，但搜完馬上接下一個，中間不停；一口氣建幾百個訂閱，站點會被連續請求、被 Cloudflare 擋。所以兩個新訂閱之間隔開，預設 60 秒（「設定」裡的「兩個新訂閱之間隔幾秒」，0 = 不隔），等的時候卡片上會寫。只有新建的才要等，已經齊全、之前就訂閱過的不用。第一次補全很多劇時會跑比較久（例如 100 個新訂閱大約 100 分鐘），在背景做，可以關掉網頁。
 
 查不到 TMDB 的集數時，照樣建訂閱，交給 MoviePilot 判斷。
 

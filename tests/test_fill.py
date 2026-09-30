@@ -121,21 +121,45 @@ def test_fill_subscribes_only_missing_seasons_and_searches(tmp_path: Path):
     assert r.total == 0 and "帳號密碼" in r.errors[0]
 
 
-def test_fill_existing_subscription_is_searched_again(tmp_path: Path):
+def test_fill_does_not_search_existing_subscriptions_again(tmp_path: Path):
     fake = FakeMP({(4321, 1): [(e, "2020-01-01") for e in range(1, 5)]}, existing={1})
     cfg = make_config(tmp_path, username="cat", password="pw")
     mp = MoviePilot(cfg.moviepilot, cfg, transport=httpx.MockTransport(fake))
     r = mp.fill([{**SHOW_A, "seasons": SHOW_A["seasons"][:1]}], "manual")
-    # V3 對已存在的訂閱回 success，不能算成新建；也請它再搜一次
+    # V3 對已存在的訂閱回 success，不能算成新建；不再請它搜（它自己會定時搜，每週全量同步後重搜幾百個會被站點擋）
     assert (r.created, r.existing) == (0, 1)
-    assert fake.posts("/api/v1/subscribe/search/9") == [None]
-    assert r.details == ["Show A S01：缺 1 集（E03）；订阅已存在；已安排搜索，很快开始"]
+    assert fake.posts("/api/v1/subscribe/search/9") == []
+    assert r.details == ["Show A S01：缺 1 集（E03）；订阅已存在；之前就訂閱過，MoviePilot 會在定時搜尋時處理"]
+
+
+def test_fill_spaces_out_new_subscriptions(tmp_path: Path):
+    """每個新訂閱都會讓 MoviePilot 搜一遍所有站點：兩個新訂閱之間隔 fill_interval 秒，之前就訂閱過的不用等它。"""
+    fake = FakeMP({(4321, s): [(e, "2020-01-01") for e in range(1, 9)] for s in (1, 2, 3)}, existing={2})
+    cfg = make_config(tmp_path, username="cat", password="pw", fill_interval=60)
+    mp = MoviePilot(cfg.moviepilot, cfg, transport=httpx.MockTransport(fake))
+    now, waits = [1000.0], []
+
+    class Clock:  # 假的時鐘：等多久就往前撥多久
+        def wait(self, t):
+            waits.append(round(t))
+            now[0] += t
+            return False
+
+        def is_set(self):
+            return False
+
+    mp._clock, mp._stop = (lambda: now[0]), Clock()
+    show = {**SHOW_A, "seasons": [{"season": s, "count": 1, "first": 1, "last": 1, "gaps": []} for s in (1, 2, 3)]}
+    r = mp.fill([show], "manual")
+    assert (r.created, r.existing, r.failed) == (2, 1, 0)
+    assert waits == [60]  # 第 1 季建好後等 60 秒；第 2 季之前就訂閱過，第 3 季不用再等
+    assert len(fake.posts("/api/v1/subscribe/search/7")) == 2 and fake.posts("/api/v1/subscribe/search/9") == []
 
 
 def test_fill_works_with_moviepilot_v2(tmp_path: Path):
     # V2：TMDB 集數直接是清單、搜尋只接受 GET、媒體庫齊全時拒絕建訂閱
     fake = FakeMP({(4321, 1): [(e, "") for e in range(1, 5)]}, existing={2}, v2=True)  # 沒日期但都在最後一集之前
-    cfg = make_config(tmp_path, username="cat", password="pw")
+    cfg = make_config(tmp_path, username="cat", password="pw", fill_interval=0)
     mp = MoviePilot(cfg.moviepilot, cfg, transport=httpx.MockTransport(fake))
     r = mp.fill([SHOW_A], "manual")
     # 沒有日期、但在媒體庫最後一集之前的算播過；第 2 季查不到 TMDB 集數，交給 MoviePilot 判斷
