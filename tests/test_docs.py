@@ -10,7 +10,7 @@ from urllib.parse import unquote
 import pytest
 
 from embyserver.config import (Config, LibraryConfig, MediaInfoConfig, MoviePilotConfig, P115Config, P115StrmConfig,
-                               RedirectConfig, ServerConfig, StrmTask, UserConfig)
+                               RedirectConfig, ServerConfig, StrmTask, UserConfig, WebDAVConfig)
 
 ROOT = Path(__file__).resolve().parent.parent
 WIKI = ROOT / "docs" / "wiki"
@@ -83,7 +83,7 @@ def test_config_reference_mentions_every_key(page):
     """設定檔的每一個鍵，三種語言的設定檔參考都要寫到（加了新設定卻只寫一種語言時這裡會紅）。"""
     text = PAGES[page].read_text(encoding="utf-8")
     classes = [Config, ServerConfig, UserConfig, LibraryConfig, RedirectConfig, P115Config, P115StrmConfig,
-               StrmTask, MoviePilotConfig, MediaInfoConfig]
+               StrmTask, MoviePilotConfig, MediaInfoConfig, WebDAVConfig]
     hidden = {"path", "file_mtime", "problems"}  # Config 自己用的，不在設定檔裡
     keys = {f.name for cls in classes for f in fields(cls)} - hidden
     keys |= {"from", "to"}  # 路徑對應、路徑替換（PathRule）在設定檔裡寫成 from／to

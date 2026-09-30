@@ -49,6 +49,7 @@ MOVIEPILOT_FIELDS = (
 MEDIAINFO_FIELDS = (
     "enabled", "after_sync", "on_demand", "concurrency", "interval", "hourly_limit", "timeout", "ffprobe",
 )
+WEBDAV_FIELDS = ("enabled", "root", "admin_only")
 REDIRECT_FIELDS = ("resolve_redirects", "resolve_timeout", "cache_ttl", "require_auth", "default_container")
 P115_FIELDS = ("app", "open_app_id")
 
@@ -73,6 +74,7 @@ def export_settings(config: Config) -> Dict[str, Any]:
             "path_mappings": [r.to_dict() for r in config.moviepilot.path_mappings],
         },
         "mediainfo": {k: getattr(config.mediainfo, k) for k in MEDIAINFO_FIELDS},
+        "webdav": {k: getattr(config.webdav, k) for k in WEBDAV_FIELDS},
         "redirect": {
             **{k: getattr(config.redirect, k) for k in REDIRECT_FIELDS},
             "path_rules": [r.to_dict() for r in config.redirect.path_rules],
@@ -160,6 +162,9 @@ def apply_settings(config: Config, raw: dict) -> None:
     mi.timeout = max(10, min(mi.timeout, 3600))
     mi.hourly_limit = max(0, min(mi.hourly_limit, 100000))
     mi.ffprobe = mi.ffprobe or "ffprobe"
+    dav = config.webdav
+    _set_fields(dav, WEBDAV_FIELDS, raw.get("webdav") or {})
+    dav.root = "/" + dav.root.strip().strip("/") if dav.root.strip() else ""
 
 
 def _bad_proxies(server) -> List[tuple]:

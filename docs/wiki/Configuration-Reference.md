@@ -212,6 +212,16 @@ Probing the videos behind strm files with ffprobe and writing `X-mediainfo.json`
 | `timeout` | `300` | Maximum seconds per item, 10–3600 | File only |
 | `ffprobe` | `ffprobe` | Path to ffprobe | File only |
 
+## webdav
+
+A read-only WebDAV share: players browse 115 directly at `http://<host>:<port>/dav/`, and playback is a 302 to the 115 direct link. Change it under **WebDAV** on the **Settings** tab (設定) and click **Save settings** (儲存設定); it takes effect immediately. See [Playback](Playback#webdav).
+
+| Key | Default | Meaning | In the web page |
+| --- | --- | --- | --- |
+| `enabled` | `false` | Turn on `/dav/` | Settings → WebDAV → **Enable WebDAV** (開啟 WebDAV) |
+| `root` | `""` | Which 115 folder to expose, e.g. `/Videos`; empty = the 115 folders of the sync tasks | Settings → WebDAV → **Folder to expose** (露出哪個 115 資料夾) |
+| `admin_only` | `false` | Only administrators can sign in (recommended when `root` is `/`) | Settings → WebDAV → **Administrators only** (只讓管理員登入) |
+
 ## redirect
 
 How strm contents are handled at playback, mainly for strm files made by other tools (for example alist URLs or local paths). For fields on the Settings tab, click **Save settings** at the bottom of the page. See [Playback](Playback).

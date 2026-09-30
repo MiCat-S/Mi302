@@ -17,6 +17,8 @@ You do not need a real Emby server behind it, or any other 115 tool. The full do
 - **Made for Chinese libraries**: Chinese titles sort by pinyin; search matches full pinyin, initials, Simplified and Traditional characters; cast names and genres can be shown in Chinese.
 - **Web admin**: everything is set up at `/web` and kept in sync with `config.yaml`. The database is backed up daily.
 - **Removes duplicate files on 115**: finds identical videos and different versions of the same title (comparing resolution, HDR and audio) and, after you confirm, moves the extra copies to the 115 recycle bin; local strm files and watch history are handled too.
+- **115 offline download**: hand magnet, ed2k and http links to 115's cloud download; anything saved into a sync folder reaches the library with the next sync.
+- **WebDAV**: Infuse, VidHub and Kodi can also browse 115 directly over read-only WebDAV, with the same 302 direct play.
 - **Protects your 115 account**: when 115 rate-limits or the login expires, a circuit breaker pauses syncing and probing. Playback keeps working.
 
 ## How it works

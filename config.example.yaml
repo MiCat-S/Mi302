@@ -83,6 +83,12 @@ mediainfo:
   timeout: 300                      # 每一項最多等幾秒
   ffprobe: ffprobe                  # ffprobe 的路徑
 
+# WebDAV（只能讀）：播放器用 http://<主機>:<埠>/dav/ 直接瀏覽 115，播放時 302 到 115 直鏈；用 Mi302 的帳號密碼登入
+webdav:
+  enabled: false                    # 開啟 /dav/
+  root: ""                          # 露出哪個 115 資料夾，例如 /影視；空的 = 同步任務的 115 目錄
+  admin_only: false                 # 只讓管理員登入（root 設成整個 115 時建議打開）
+
 # 給其他工具產生的 strm（例如 alist 網址或本機路徑）
 redirect:
   resolve_redirects: false          # 先由伺服器跟著上游重導向走到底

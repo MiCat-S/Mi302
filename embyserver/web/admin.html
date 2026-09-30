@@ -87,7 +87,7 @@ textarea{resize:vertical;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,
 .dupbar{position:sticky;top:0;z-index:2;background:var(--panel);padding:8px 0;border-bottom:1px solid var(--line)}
 .seg{display:inline-flex;border:1px solid var(--line);border-radius:9px;overflow:hidden;flex-wrap:wrap}
 .seg button{border:0;background:transparent;padding:7px 14px;font:inherit;font-size:13.5px;color:var(--muted);cursor:pointer;white-space:nowrap}
-@media (max-width:420px){.subtabs button{padding:7px 10px}}
+@media (max-width:420px){.subtabs button{padding:7px}}  /* 窄螢幕上分頁按鈕窄一點，360 寬的手機也排得下一行 */
 .seg button.on{background:var(--accent-soft);color:var(--accent);font-weight:600}
 .switch input{position:absolute;opacity:0;width:1px;height:1px}
 .switch .track{flex:none;width:38px;height:22px;border-radius:11px;background:var(--line);position:relative;transition:background .15s;margin-top:1px}
@@ -770,7 +770,7 @@ dialog .card-b{max-height:70vh;overflow:auto}
       <div class="page-h">
         <div><h1>設定</h1><p class="sub">設定都存在設定檔 <code id="cfgPath"></code>，儲存時自動寫入（舊檔留成 .bak）。直接改檔案也可以，重新整理網頁就會套用。</p></div>
       </div>
-      <div class="seg mb16 subtabs" role="tablist" aria-label="設定的項目"><button data-act="sub" data-sub="general" role="tab" aria-selected="false">一般</button><button data-act="sub" data-sub="strm" role="tab" aria-selected="false">其他 strm</button><button data-act="sub" data-sub="zh" role="tab" aria-selected="false">中文化</button><button data-act="sub" data-sub="backup" role="tab" aria-selected="false">備份</button><button data-act="sub" data-sub="about" role="tab" aria-selected="false">關於</button></div>
+      <div class="seg mb16 subtabs" role="tablist" aria-label="設定的項目"><button data-act="sub" data-sub="general" role="tab" aria-selected="false">一般</button><button data-act="sub" data-sub="webdav" role="tab" aria-selected="false">WebDAV</button><button data-act="sub" data-sub="strm" role="tab" aria-selected="false">其他 strm</button><button data-act="sub" data-sub="zh" role="tab" aria-selected="false">中文化</button><button data-act="sub" data-sub="backup" role="tab" aria-selected="false">備份</button><button data-act="sub" data-sub="about" role="tab" aria-selected="false">關於</button></div>
       <div class="card" data-sub="general" role="tabpanel">
         <div class="card-h"><div class="t"><h2>伺服器</h2></div></div>
         <div class="card-b stack">
@@ -784,6 +784,23 @@ dialog .card-b{max-height:70vh;overflow:auto}
         <div class="card-b stack">
           <label class="switch"><input type="checkbox" data-key="redirect.require_auth"><span class="track"></span><span class="lbl">播放網址要求登入<small>和官方 Emby 一樣，建議開著；關掉的話，知道項目編號的人不用登入就能拿到 115 直鏈。某個播放器播不了時再關</small></span></label>
           <label class="switch"><input type="checkbox" data-key="server.allow_download"><span class="track"></span><span class="lbl">允許播放器下載影片<small>要登入才能下載；關掉後播放器不顯示下載，直接打下載網址也會被拒絕</small></span></label>
+        </div>
+      </div>
+      <div class="card" data-sub="webdav" role="tabpanel">
+        <div class="card-h"><div class="t"><svg class="i"><use href="#i-folder"/></svg><h2>WebDAV</h2></div></div>
+        <div class="card-b stack">
+          <p class="hint">Infuse、VidHub、Kodi 這類播放器可以用 WebDAV 直接瀏覽 115 的資料夾，播放時一樣 302 到 115 直鏈，不必產生 strm、不必掃描。只能讀，不能在播放器裡刪除、改名、上傳。 <a class="doc" href="https://github.com/MiCat-S/Mi302/wiki/播放與外網連線#webdav" target="_blank" rel="noopener">說明</a></p>
+          <label class="switch"><input type="checkbox" data-key="webdav.enabled"><span class="track"></span><span class="lbl">開啟 WebDAV<small>儲存後馬上生效，不用重新啟動</small></span></label>
+          <label class="field"><span>露出哪個 115 資料夾</span>
+            <div class="row gap6"><input type="text" id="davRoot" class="grow" data-key="webdav.root" placeholder="空白 = 同步任務的 115 目錄" oninput="davShow()"><button class="btn sm" onclick="davPick()">選擇…</button></div>
+            <small id="davRoots"></small></label>
+          <label class="switch"><input type="checkbox" data-key="webdav.admin_only"><span class="track"></span><span class="lbl">只讓管理員登入<small>露出整個 115（填 /）時建議打開，一般使用者就看不到網盤裡的其他檔案</small></span></label>
+          <dl class="kv"><dt>地址</dt><dd><div class="row"><code id="davUrl"></code><button class="btn sm ghost icon" data-act="copyDav" title="複製" aria-label="複製 WebDAV 地址"><svg class="i"><use href="#i-copy"/></svg></button></div></dd>
+            <dt>帳號密碼</dt><dd>Mi302 的使用者名稱和密碼（和播放器登入 Mi302 用的一樣）</dd></dl>
+          <details class="more"><summary>怎麼加到播放器</summary><div class="in hint stack">
+            <p>在播放器新增一個 WebDAV 來源，伺服器填上面的地址（或分開填主機、埠號，路徑填 <code>/dav/</code>），帳號密碼用 Mi302 的。</p>
+            <p><b>Infuse</b>：新增檔案來源（共享）→ WebDAV<br><b>VidHub</b>：新增網盤 → WebDAV<br><b>Kodi</b>：新增影片來源 → 瀏覽 → 新增網路位置 → 通訊協定選 WebDAV server (HTTP)</p>
+            <p>列資料夾是即時問 115 的（同一個資料夾 2 分鐘內不重問）。播放器第一次整理整個資料夾時會問很多次，只露出需要的資料夾比較不會被 115 限流。從外網用請經 HTTPS 反向代理，帳號密碼才不會明文傳送。</p></div></details>
         </div>
       </div>
       <div class="card" data-sub="strm" role="tabpanel">
@@ -824,7 +841,7 @@ dialog .card-b{max-height:70vh;overflow:auto}
           <p class="hint">授權：PolyForm Noncommercial 1.0.0。個人、家庭、學習研究、非營利組織都可以免費使用和修改，<b>不能用在商業用途</b>（例如拿來賣、做成收費服務）。<a href="https://github.com/MiCat-S/Mi302/blob/main/LICENSE.md" target="_blank" rel="noopener">授權全文</a></p>
         </div>
       </div>
-      <div class="savebar" data-sub="general strm zh backup"><span class="hint grow">儲存會寫進設定檔</span><button class="btn primary" onclick="saveFields($('tab-settings'), true)">儲存設定</button></div>
+      <div class="savebar" data-sub="general webdav strm zh backup"><span class="hint grow">儲存會寫進設定檔</span><button class="btn primary" onclick="saveFields($('tab-settings'), true)">儲存設定</button></div>
     </section>
   </main>
 </div>
@@ -1071,7 +1088,7 @@ const SUBS = {
     organize: () => organizeLoad(1), recycle: () => loadRecycle(0)},
   tools: {mi: () => { restoreMiPrefs(); pollMI(); }, intro: () => pollIntro(), dup: () => loadDupes()},
   moviepilot: {conn: null, scrape: null, fill: () => { restoreSeriesLimit(); loadSeries(1); }, emby: () => loadKeys()},
-  settings: {general: null, strm: null, zh: () => pollPeople(), backup: () => loadBackups(), about: null},
+  settings: {general: null, webdav: () => davShow(), strm: null, zh: () => pollPeople(), backup: () => loadBackups(), about: null},
 };
 function subOf(page, want) {
   const subs = SUBS[page];
@@ -1104,6 +1121,15 @@ function route() {
 }
 window.addEventListener('hashchange', () => { if (token && cfg) route(); });
 ACTS.copyOrigin = () => copyText(location.origin);
+ACTS.copyDav = () => copyText(location.origin + '/dav/');
+function davShow() {
+  // 露出的範圍照畫面上還沒儲存的值算，改了馬上看得到
+  $('davUrl').textContent = location.origin + '/dav/';
+  const root = $('davRoot').value.trim(), tasks = cfg.p115.strm.tasks.map(t => '/' + t.remote.replace(/^\/+|\/+$/g, ''));
+  $('davRoots').textContent = root ? `只露出 115 的 ${'/' + root.replace(/^\/+|\/+$/g, '')}`
+    : tasks.length ? `露出同步任務的 115 目錄：${[...new Set(tasks)].join('、')}` : '還沒有同步任務，填一個 115 資料夾才看得到東西';
+}
+async function davPick() { const p = await pickDir('115', $('davRoot').value || '/'); if (p) { $('davRoot').value = p; davShow(); } }
 
 // ---- 表單欄位 data-key="a.b.c" 對應設定 ----
 function getKey(obj, key) { return key.split('.').reduce((o, k) => o?.[k], obj); }

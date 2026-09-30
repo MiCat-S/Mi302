@@ -163,6 +163,27 @@ Set it to the reverse proxy's public address (a sub-path works, for example `htt
 - Consider turning off **List user names on the player login screen** (播放器登入畫面列出使用者名稱, `server.public_users`) in the **Server** card, so the login screen does not list accounts.
 - The web admin page `/web` is only available to admin accounts, and API keys cannot call its API.
 - The strm short links `/d/{pickcode}` do not check login, but they require knowing the 17-character pickcode.
+- [WebDAV](#webdav) requires a user name and password; turn on **Administrators only** when exposing the whole of 115.
+
+## WebDAV
+
+If you would rather not create strm files, or a player does not support Emby, it can browse 115 directly over WebDAV. Turn it on under **WebDAV** on the **Settings** tab (設定); it takes effect as soon as you save.
+
+- **Read only**: browsing and playing. Deleting, renaming, uploading and creating folders are refused.
+- **Playback** works like strm: Mi302 fetches the 115 direct link with the player's own User-Agent and redirects with a 302. Video never passes through Mi302.
+- **Sign-in**: your Mi302 user name and password (HTTP Basic). Changing the password or deleting the user locks them out immediately. It can be limited to administrators.
+- **What is exposed**: by default only the 115 folders of the sync tasks (their parent folders show just the way down to them). You can instead enter a 115 folder such as `/Videos`, or `/` for the whole of 115 (turn on **Administrators only** as well). Paths outside that, including ones climbing out with `..`, return "not found".
+- **Paths** are the 115 paths: `/dav/Videos/Movies/x.mkv` is `/Videos/Movies/x.mkv` on 115, and case matters.
+
+In the player, add a WebDAV source with the server `http://<host>:8096/dav/` (or host and port separately with the path `/dav/`) and your Mi302 user name and password:
+
+- **Infuse**: add a file source (share) → WebDAV.
+- **VidHub**: add a cloud drive → WebDAV.
+- **Kodi**: add video source → Browse → Add network location → protocol WebDAV server (HTTP).
+
+Folder listings come from 115 live; the same folder is not asked again within 2 minutes. A player indexing a whole folder for the first time (Infuse's library, for example) asks many times, so the smaller the exposed folder, the less likely 115 rate-limits you. If it does, Mi302's circuit breaker trips and listings fail for a while; playback keeps working. WebDAV has none of Mi302's watch history, intro skipping or media info; those need the Emby sign-in.
+
+From outside your network, go through an HTTPS reverse proxy: HTTP Basic only encodes the password, it does not encrypt it.
 
 ## Players
 

@@ -106,6 +106,15 @@ class MoviePilotConfig:
 
 
 @dataclass
+class WebDAVConfig:
+    """/dav/ 的 WebDAV（只能讀）：播放器直接瀏覽 115，播放時 302 到 115 直鏈；用 Mi302 的帳號密碼登入。"""
+
+    enabled: bool = False
+    root: str = ""  # 露出哪個 115 資料夾；空的 = 同步任務的 115 目錄
+    admin_only: bool = False  # 只讓管理員登入（root 設成整個 115 時建議打開）
+
+
+@dataclass
 class MediaInfoConfig:
     """用 ffprobe 探測 strm 指向的影片，產生 X-mediainfo.json（解析度、HDR、音軌、字幕軌、章節）。"""
 
@@ -147,6 +156,7 @@ class Config:
     p115: P115Config = field(default_factory=P115Config)
     moviepilot: MoviePilotConfig = field(default_factory=MoviePilotConfig)
     mediainfo: MediaInfoConfig = field(default_factory=MediaInfoConfig)
+    webdav: WebDAVConfig = field(default_factory=WebDAVConfig)
     # 設定檔的位置與讀取時的修改時間；網頁儲存時寫回這個檔案，檔案被手動改過時重新讀取
     path: Optional[str] = field(default=None, repr=False, compare=False)
     file_mtime: float = field(default=0.0, repr=False, compare=False)
@@ -191,6 +201,7 @@ def _build(raw: dict) -> Config:
         p115=_build_p115(raw.get("p115") or {}),
         moviepilot=_build_moviepilot(raw.get("moviepilot") or {}),
         mediainfo=_make(MediaInfoConfig, raw.get("mediainfo"), "mediainfo"),
+        webdav=_make(WebDAVConfig, raw.get("webdav"), "webdav"),
     )
 
 

@@ -127,6 +127,7 @@ Endpoints that return empty results so players do not fail: `/Users/{id}/Items/{
 | `GET /MediaSegments/{id}` | Jellyfin 10.10 media segments |
 | `GET, HEAD /d/{pickcode}[.ext][/name]` | Short links used in Mi302's own strm files, a 302 to the 115 direct link; no login |
 | `GET, HEAD /p115/redirect?pickcode=…`, `/api/v1/plugin/p115strmhelper/redirect_url?pickcode=…` | Compatibility with other tools' strm files; no login |
+| `OPTIONS, PROPFIND, GET, HEAD /dav/{115 path}` | Read-only WebDAV (`webdav.enabled`): PROPFIND lists folders (Depth at most 1), GET on a file redirects (302) to the 115 direct link, HEAD returns only the size; HTTP Basic sign-in required, write methods return 405 |
 
 ## Admin API
 

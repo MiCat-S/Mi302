@@ -28,12 +28,13 @@ from .p115 import P115Service
 from .people import PeopleStore, PersonNames
 from .prober import MediaProber
 from .redirect import Redirector
-from .routes import items, p115, playback, system, web
+from .routes import dav, items, p115, playback, system, web
 from .routes.common import SafeJSONResponse
 from . import logs, settings
 from .scanner import Scanner
 from .strm_sync import FULL, StrmSync
 from .updater import Updater
+from .webdav import WebDAV
 from .workers import stop_all
 
 log = logging.getLogger(__name__)
@@ -78,15 +79,18 @@ def _after_sync(app: FastAPI, result) -> None:
 
 
 async def _normalize_path(request: Request, call_next):
-    """路徑去掉 /emby 這類前綴、英文轉小寫、去掉結尾的 /；詳細模式時記下播放器的每個請求。"""
+    """路徑去掉 /emby 這類前綴、英文轉小寫、去掉結尾的 /（/dav 底下除外）；詳細模式時記下播放器的每個請求。"""
     path = request.scope["path"]
     lower = _ascii_lower(path)
-    for prefix in PATH_PREFIXES:
-        if lower == prefix or lower.startswith(prefix + "/"):
-            lower = lower[len(prefix):] or "/"
-            break
-    if len(lower) > 1:
-        lower = lower.rstrip("/")
+    if lower == "/dav" or lower.startswith("/dav/"):  # WebDAV：後面是 115 的檔名，大小寫、結尾的 / 照原樣
+        lower = "/dav" + path[4:]
+    else:
+        for prefix in PATH_PREFIXES:
+            if lower == prefix or lower.startswith(prefix + "/"):
+                lower = lower[len(prefix):] or "/"
+                break
+        if len(lower) > 1:
+            lower = lower.rstrip("/")
     request.scope["path"] = lower
     started = time.monotonic()
     response = await call_next(request)
@@ -178,6 +182,7 @@ def create_app(config: Config, db_path: Optional[str] = None, scan_on_start: boo
     )
     app.state.dupes = DupeFinder(db, app.state.p115, app.state.strm_sync, scanner)  # 115 上的重複檔案
     app.state.offline = OfflineDownloads(app.state.p115)  # 115 雲下載（離線下載）
+    app.state.webdav = WebDAV(config, auth, app.state.p115, app.state.strm_sync)  # /dav/ 只能讀的 WebDAV
     app.state.reorganizer = Reorganizer(db, app.state.strm_sync, app.state.moviepilot, scanner)  # 集號不對的劇：整理或刪除
     # 整理 115 網盤：命名不照 MoviePilot 格式的資料夾整個交給它整理
     app.state.organizer = Organizer(db, app.state.strm_sync, app.state.moviepilot, app.state.reorganizer, scanner)
@@ -215,4 +220,5 @@ def create_app(config: Config, db_path: Optional[str] = None, scan_on_start: boo
     app.include_router(playback.router)
     app.include_router(p115.router, default_response_class=SafeJSONResponse)  # 115 的 id 用字串給網頁
     app.include_router(web.router)
+    app.include_router(dav.router)
     return app

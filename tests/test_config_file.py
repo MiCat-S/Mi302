@@ -158,7 +158,7 @@ def test_field_lists_stay_in_sync():
 
     from embyserver import settings
     from embyserver.config import (Config, MediaInfoConfig, MoviePilotConfig, P115Config, P115StrmConfig,
-                                   RedirectConfig, ServerConfig)
+                                   RedirectConfig, ServerConfig, WebDAVConfig)
 
     sections = {  # 設定檔裡的位置 → (dataclass, 網頁能改的欄位)
         ("server",): (ServerConfig, settings.SERVER_FIELDS),
@@ -166,6 +166,7 @@ def test_field_lists_stay_in_sync():
         ("p115", "strm"): (P115StrmConfig, settings.STRM_FIELDS),
         ("moviepilot",): (MoviePilotConfig, settings.MOVIEPILOT_FIELDS),
         ("mediainfo",): (MediaInfoConfig, settings.MEDIAINFO_FIELDS),
+        ("webdav",): (WebDAVConfig, settings.WEBDAV_FIELDS),
         ("redirect",): (RedirectConfig, settings.REDIRECT_FIELDS),
     }
     # 網頁不能改、只在設定檔裡的（或網頁用別的方式改的：任務、路徑對應、路徑替換）
@@ -175,6 +176,7 @@ def test_field_lists_stay_in_sync():
         ("p115", "strm"): {"tasks"},
         ("moviepilot",): {"path_mappings"},
         ("mediainfo",): set(),
+        ("webdav",): set(),
         ("redirect",): {"path_rules"},
     }
     rendered = yaml.safe_load(config_file.render(Config()))
