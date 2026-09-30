@@ -167,7 +167,7 @@ The API behind the web admin page `/web`. 115 file and folder IDs have 19 digits
 | `POST /p115/open/qrcode`, `GET /p115/open/qrcode/status`, `POST /p115/open/logout` | 115 open platform authorisation |
 | `POST /p115/strm/sync?mode=incremental` (full sync without `mode`), `GET /p115/strm/status`, `PUT /p115/strm/tasks` | Sync, sync status, sync tasks |
 | `POST /p115/strm/rewrite` | Rewrite existing strm files to the current server address (local files only) |
-| `GET /web/api/dupes`, `POST /web/api/dupes/scan`, `GET /web/api/dupes/groups`, `POST /web/api/dupes/delete`, `GET /web/api/dupes/log` | 115 duplicate files: status, find (`paths`), grouped list, delete (`overrides`; `sha1` + `size` for one group; `dry_run` to only count); `kind=versions` for versions (`grp` for one group, `use_suggestions` to follow the suggestion), deletion log; `POST /web/api/dupes/prefer` sets which resolution the versions suggestion keeps (`prefer` is `1080`, `2160` or `highest`) |
+| `GET /web/api/dupes`, `POST /web/api/dupes/scan`, `GET /web/api/dupes/groups`, `POST /web/api/dupes/delete`, `GET /web/api/dupes/log` | 115 duplicate files: status, find (`paths`), grouped list, delete (`overrides`; `sha1` + `size` for one group; `dry_run` to only count); `kind=versions` for versions (`grp` for one group, `use_suggestions` to follow the suggestion), deletion log; `kind=big` for big files (filter with `min_size` in bytes and `type` as `movie`/`episode`/`none`; when deleting, `use_suggestions` means everything that matches, and nothing has to be kept); `POST /web/api/dupes/prefer` sets which resolution the versions suggestion keeps (`prefer` is `1080`, `2160` or `highest`) |
 
 `GET /web` serves the admin page itself, and `/web/115` redirects to `/web#115`.
 
@@ -186,7 +186,7 @@ Each module under `embyserver/`:
 | `config_file.py` | Writes the settings back to `config.yaml` |
 | `settings.py` | Settings editable in the web page: validation, applying, keeping the config file in step |
 | `db.py` | SQLite tables and access |
-| `dupes.py` | Duplicate files on 115: identical files, different versions, which one to keep |
+| `dupes.py` | Duplicate files on 115: identical files, different versions, which one to keep; big files |
 | `dto.py` | Turns database rows into Emby `BaseItemDto`, `UserDto` and `MediaSourceInfo` |
 | `filetypes.py` | Shared file extension lists |
 | `organize115.py` | Organise 115: asks MoviePilot what each folder would be called (answers stored in `organize_checks`) and previews whole folders with it |

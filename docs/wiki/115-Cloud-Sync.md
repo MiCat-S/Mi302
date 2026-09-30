@@ -380,18 +380,19 @@ With [115 open platform](#115-open-platform-advanced) authorisation, Mi302 empti
 
 ## Duplicate files
 
-The **Duplicate files** card (重複檔案) on the **Tools** tab (整理) finds duplicate videos on 115 and deletes the extra copies. One **Find duplicates** run looks for two kinds, shown on two tabs:
+The **Duplicates and big files** card (重複和大檔案) on the **Tools** tab (整理) finds duplicate videos on 115 and deletes the extra copies, and also lists the big files that take up space. One **Scan** (掃描) looks for three kinds, shown on three tabs:
 
 | Tab | What counts as a duplicate | Default |
 | --- | --- | --- |
 | Identical (完全相同) | Same SHA1 (a fingerprint of the content) and size, even with different names | One copy suggested to keep, the rest ticked |
 | Versions (不同版本) | The same movie or episode in your library, but different files, for example 1080p and 2160p | Nothing ticked; you choose |
+| Big files (大檔案) | Not duplicates: videos of 1 GB or more, filtered by size and by movie or episode | Nothing ticked; you choose |
 
-### Finding duplicates
+### Scanning
 
 1. **Scope**: the sync tasks' 115 folders by default. **Pick a 115 folder…** (改選 115 目錄…) lets you choose any folder, for example the whole drive `/`.
-2. **Find duplicates** (找重複): Mi302 lists every video in the scope. 115 includes the SHA1 in its file listings, so forty thousand videos take about forty requests. For files outside the sync folders, the folder path is looked up once per folder. Rate limiting trips the circuit breaker as usual.
-3. **Results**: the top shows how many groups each kind has and how much deleting per the suggestions would free. Each group is a card, largest savings first, 20 groups per page, searchable.
+2. **Scan** (掃描): Mi302 lists every video in the scope. 115 includes the SHA1 in its file listings, so forty thousand videos take about forty requests. For files outside the sync folders, the folder path is looked up once per folder. Rate limiting trips the circuit breaker as usual.
+3. **Results**: the top shows how many groups each kind of duplicate has, how much deleting per the suggestions would free, and how many videos are 1 GB or more. Each group is a card, largest savings first, 20 groups per page, searchable.
 
 ### Identical files
 
@@ -402,7 +403,7 @@ The **Duplicate files** card (重複檔案) on the **Tools** tab (整理) finds 
 ### Versions
 
 - How the same title is recognised: movies by tmdbid (from a scraped nfo), otherwise by title and year; episodes by series, season and episode number. Only files in the sync folders that have a strm are considered, so the library knows what they are.
-- Episodes with an unknown number are skipped: no episode number in the library, or `-1` in the nfo with nothing usable in the file name. An episode is also skipped when its 115 file name shows an episode number that differs from the library's, so nothing is deleted by mistake. Older versions treated a whole season whose episode numbers the scraper could not read as one episode; after updating, those old results are cleared and the page asks you to click **Find duplicates** (找重複) again.
+- Episodes with an unknown number are skipped: no episode number in the library, or `-1` in the nfo with nothing usable in the file name. An episode is also skipped when its 115 file name shows an episode number that differs from the library's, so nothing is deleted by mistake. Older versions treated a whole season whose episode numbers the scraper could not read as one episode; after updating, those old results are cleared and the page asks you to click **Scan** (掃描) again.
 - Not treated as duplicates: split files (CD1, Part 2) and files holding several episodes (E01E02, E01-02). Different cuts such as director's cut or extended are grouped separately. Groups where every copy is identical are left to the Identical tab.
 - Each version shows resolution, HDR or Dolby Vision, codec, the first audio track, the number of audio and subtitle tracks, and size. Quality comes from extracted media info (see [Media Info](Media-Info)); anything missing is guessed from the file name and marked from file name (看檔名).
 - The files differ, so nothing is ticked by default. Which copy is suggested for keeping depends on **Suggest keeping** (建議保留) in the action bar:
@@ -415,16 +416,24 @@ The **Duplicate files** card (重複檔案) on the **Tools** tab (整理) finds 
 
   With equal resolution a file name with complete numbering wins, then the smaller file, then the earliest upload; copies whose resolution cannot be told come last. Changing the option recalculates the existing results at once, without finding duplicates again. **Tick as suggested** (照建議勾選) on a group ticks that group, and **Tick all as suggested** (全部照建議勾選) at the top ticks every group, including pages you have not opened. For example, choose 1080P, else 4K and click **Tick all as suggested** to keep only the 1080P copy in every group.
 
+### Big files
+
+- The same scan records every video of 1 GB or more (115 includes the size in its listings, so this costs no extra requests), largest first, 20 per page.
+- At the top, choose **Larger than** (大於) 1, 2, 5, 10, 20, 40, 60 or 100 GB (remembered in this browser) and the kind: movies and episodes, movies only, episodes only, or not in the library; you can also search file names and paths. The top of the list shows how many match and their total size.
+- Each file shows its size, resolution, HDR, codec and audio (from media info when available, otherwise from the file name), whether it is a movie or an episode, **N other versions** (還有 N 個其他版本; the same movie or episode has other files, see Versions above) and **Has watch history** (有觀看紀錄).
+- These are not duplicates, so nothing is ticked and nothing has to be kept. Tick files one by one, or click **Tick everything that matches** (勾選符合條件的全部), which includes pages you have not opened; changing the size, kind or search cancels it, so nothing you have not seen gets ticked.
+- Deleted files leave the library. For files marked as having other versions, watch history moves to another version; otherwise it is gone.
+
 ### Deleting
 
-- A bar above the list has **Tick all as suggested** (全部照建議勾選) and **Untick all** (全部取消勾選), which work on both tabs and include pages you have not opened, plus a **Delete ticked** button that shows how many files are ticked and their total size (刪除勾選的 N 個). The same button is repeated below the list.
-- **Delete ticked** (刪除勾選的) handles every group on the current tab, including pages you have not opened; **Delete ticked in this group** (刪這一組勾選的) handles one group. The confirmation shows the count and size, and more than 50 files asks a second time. Every group must keep at least one copy.
+- A bar above the list has **Tick all as suggested** (全部照建議勾選; on Big files, **Tick everything that matches**) and **Untick all** (全部取消勾選), which work on every tab and include pages you have not opened, plus a **Delete ticked** button that shows how many files are ticked and their total size (刪除勾選的 N 個). The same button is repeated below the list.
+- **Delete ticked** (刪除勾選的) handles every group on the current tab, including pages you have not opened; **Delete ticked in this group** (刪這一組勾選的) handles one group. The confirmation shows the count and size, and more than 50 files asks a second time. Every duplicate group must keep at least one copy (big files need not).
 - Files go to the 115 recycle bin and can be restored there, until the bin is emptied (see [115 recycle bin](#115-recycle-bin)). One request handles up to a hundred files.
 - The local strm and its same-name nfo, posters, subtitles and `X-mediainfo.json` are deleted too (regardless of the follow-deletions setting), and only the affected series or movies are rescanned.
-- Watch history of the deleted copy (played, resume position, favourite) moves to the kept copy, per user.
-- **Recently deleted** (最近刪掉的) at the bottom of the card lists what was deleted and where, to find it in the recycle bin.
+- Watch history of the deleted copy (played, resume position, favourite) moves to the kept copy, per user. For big files it moves to another version of the same title or an identical copy; if there is none, it is gone.
+- **Recently deleted** (最近刪掉的) at the bottom of the card lists what was deleted (duplicates and big files) and where, to find it in the recycle bin.
 - Deleting needs QR-code (cookie) login; it is not available with only the open platform.
-- Results reflect the moment you clicked **Find duplicates**. If files were moved, renamed or deleted on 115 since, find again before deleting.
+- Results reflect the moment you clicked **Scan**. If files were moved, renamed or deleted on 115 since, scan again before deleting.
 
 ## Circuit breaker
 

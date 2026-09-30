@@ -384,3 +384,45 @@ def test_suggestion_prefers_complete_names_then_smaller_files(tmp_path: Path):
     assert kept == {3, 6, 8}
     assert [r["file_id"] for r in db.query("SELECT file_id FROM dup_files WHERE keep=1")] == [21]
     assert db.get_meta(SUGGEST_RULE_KEY) == "2"
+
+
+def test_big_files_are_deleted_only_when_picked(tmp_path: Path):
+    """大檔案：找重複時順便記下 1 GB 以上的影片，照大小、種類篩選。只刪勾了的，「符合條件的全部」只算條件內的；
+    刪掉的那一集還有別的版本時，觀看紀錄轉過去。"""
+    app, fake, media, c, h = build_versions(tmp_path)
+    db = app.state.db
+    ep4k = media / "劇集" / "Dark" / "Dark.S01E01.2160p.HDR.strm"
+    ep1080 = media / "劇集" / "Dark" / "Dark.S01E01.strm"
+    uid = db.one("SELECT id FROM users")["id"]
+    db.execute("INSERT INTO user_data(user_id, item_id, played, play_count, last_played) VALUES(?,?,1,1,'2026-09-03')",
+               (uid, db.one("SELECT id FROM items WHERE path=?", (str(ep4k),))["id"]))
+    c.post("/web/api/dupes/scan", json={}, headers=h)
+    assert not wait_job(app).errors
+    assert c.get("/web/api/dupes", headers=h).json()["big"] == {"files": 2, "size": 7_000_000_000}  # 1 GB 以下的不記
+
+    def big(**params):
+        return c.get("/web/api/dupes/groups", params={"kind": "big", **params}, headers=h).json()
+
+    r = big()
+    assert [(m["file_id"], m["type"], m["versions"]) for m in r["items"]] == [(12, "Episode", 1), (13, "Movie", 1)]
+    assert r["items"][0]["watched"] and r["items"][0]["quality"]["res"] == 2160
+    gib = 1024 ** 3
+    assert [m["file_id"] for m in big(min_size=3 * gib)["items"]] == [12]
+    assert [m["file_id"] for m in big(type="movie")["items"]] == [13]
+
+    def dry(**body):
+        return c.post("/web/api/dupes/delete", json={"kind": "big", "dry_run": True, **body}, headers=h).json()
+
+    assert dry()["count"] == 0  # 沒勾就不刪
+    assert (dry(use_suggestions=True, min_size=3 * gib)["count"], dry(use_suggestions=True, min_size=3 * gib)["size"]) == \
+        (1, 4_000_000_000)
+    assert dry(use_suggestions=True, overrides={"13": False})["count"] == 1
+
+    r = c.post("/web/api/dupes/delete", json={"kind": "big", "overrides": {"12": True}}, headers=h).json()
+    assert (r["started"], r["count"]) == (True, 1)
+    assert not wait_job(app).errors and fake.deleted[-1:] == ["12"]
+    assert not ep4k.exists() and ep1080.exists()
+    kept = db.one("SELECT id FROM items WHERE path=?", (str(ep1080),))["id"]
+    assert db.one("SELECT played FROM user_data WHERE user_id=? AND item_id=?", (uid, kept))["played"] == 1
+    assert [m["file_id"] for m in big()["items"]] == [13]
+    assert c.get("/web/api/dupes/log", headers=h).json()[0]["name"] == "Dark.S01E01.2160p.HDR.mkv"

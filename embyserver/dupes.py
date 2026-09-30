@@ -13,7 +13,10 @@
 
 檔名編號格式完整：劇集要有 S01E02（或 1x02）這種季和集都寫明的編號，電影要有年份。
 
-刪除：送進 115 回收站（在 115 還原得回來），每組至少留一份。本機的 strm 和同名的中繼資料跟著刪，
+大檔案（big）：同一次找重複順便記下 1 GB 以上的影片（115 列檔案時就有大小，不多花請求），可以照大小、
+電影或劇集篩選，挑了才刪。不必留一份；同一部片還有別的版本（或完全相同的另一份）時，觀看紀錄轉過去。
+
+刪除：送進 115 回收站（在 115 還原得回來），重複的每組至少留一份。本機的 strm 和同名的中繼資料跟著刪，
 觀看紀錄轉到保留的那份，再重新掃描受影響的劇或電影。刪過的記在 dup_deleted，方便到回收站找回。
 """
 
@@ -54,6 +57,8 @@ SUGGEST_RULE_KEY = "dupes_suggest_rule"
 PREFERS = ("1080", "2160", "highest")
 DEFAULT_PREFER = "1080"
 DELETE_BATCH = 100  # 一次請求送幾個檔案進回收站
+BIG_FLOOR = 1 << 30  # 大檔案：記下多大以上的影片（1 GB）
+BIG_TYPES = {"movie": "type='Movie'", "episode": "type='Episode'", "none": "type IS NULL"}  # 大檔案的種類篩選
 
 # ---- 從檔名看出來的東西 ----
 # 年份：電影的檔名要有年份才算編號格式完整
@@ -256,6 +261,8 @@ class DupeFinder:
                 "SELECT COUNT(*) AS files, COUNT(DISTINCT grp) AS groups, "
                 "COALESCE(SUM(CASE WHEN keep THEN 0 ELSE size END), 0) AS reclaimable FROM dup_versions")),
             "versions_outdated": bool(self.db.get_meta(VERSIONS_OUTDATED_KEY)),  # 規則更新後清掉了，要重新找
+            "big": dict(self.db.one("SELECT COUNT(*) AS files, COALESCE(SUM(size), 0) AS size FROM big_files")),  # 1 GB 以上的
+            "big_floor": BIG_FLOOR,
             "prefer": self.prefer(),  # 不同版本建議保留哪種解析度
             "default_roots": self.default_roots(),
         }
@@ -328,21 +335,7 @@ class DupeFinder:
             roots = ["/" + r.strip("/") for r in roots or [] if str(r).strip()] or self.default_roots()
             if not roots:
                 raise P115Error("還沒有同步任務，請選一個 115 目錄")
-            files: Dict[int, dict] = {}
-            without_sha1 = 0
-            for root in roots:
-                self.p115.breaker.check()
-                job.current = root
-                cid = self.p115.dir_id(root)
-                for info in self.p115.iter_changed_files(cid, 0):  # since = 0：全部
-                    self.workers.check()
-                    job.listed += 1
-                    if Path(info["name"]).suffix.lower() not in VIDEO_EXTS:
-                        continue
-                    if not info.get("sha1"):
-                        without_sha1 += 1
-                        continue
-                    files[info["id"]] = info
+            files, big, without_sha1 = self._list_videos(roots, job)
             if without_sha1 and not files:
                 raise P115Error("115 回傳的檔案清單沒有 SHA1，沒辦法比對")
             groups: Dict[Tuple[str, int], List[dict]] = {}
@@ -363,6 +356,8 @@ class DupeFinder:
                                  info["parent_id"], path, local, info["mtime"], int(i == 0)))
             job.current = "比對同一部片的不同版本"
             versions = self._find_versions(files)
+            job.current = f"記下 {len(big)} 支 1 GB 以上的影片"
+            big_rows = self._big_rows(big, folders)
             with self.db.lock:
                 self.db.conn.execute("DELETE FROM dup_files")
                 self.db.conn.executemany(
@@ -374,14 +369,19 @@ class DupeFinder:
                     "INSERT INTO dup_versions(file_id, grp, title, item_id, name, path, local, size, mtime, sha1, quality, keep) "
                     "VALUES(?,?,?,?,?,?,?,?,?,?,?,?)", versions,
                 )
+                self.db.conn.execute("DELETE FROM big_files")
+                self.db.conn.executemany(
+                    "INSERT INTO big_files(file_id, name, path, local, type, size, mtime, sha1, quality) VALUES(?,?,?,?,?,?,?,?,?)",
+                    big_rows,
+                )
                 self.db.conn.commit()
             self.db.set_meta(SCAN_META_KEY, json.dumps({"at": int(time.time()), "roots": roots, "files": len(files)},
                                                        ensure_ascii=False))
             self.db.set_meta(VERSIONS_OUTDATED_KEY, "")
             self.db.set_meta(PREFER_APPLIED_KEY, self.prefer())
             self.db.set_meta(SUGGEST_RULE_KEY, SUGGEST_RULE)
-            log.info("找重複：%s 看了 %s 支影片，完全相同的 %s 支、不同版本的 %s 支",
-                     "、".join(roots), len(files), len(rows), len(versions))
+            log.info("找重複：%s 看了 %s 支影片，完全相同的 %s 支、不同版本的 %s 支、1 GB 以上的 %s 支",
+                     "、".join(roots), len(files), len(rows), len(versions), len(big_rows))
         except Stopped:
             job.errors.append("程式要結束，找重複中途停下；上次的結果沒有換掉")
         except P115Error as exc:
@@ -420,6 +420,41 @@ class DupeFinder:
             titles.setdefault(key, title)
             groups.setdefault(key, []).append((it, info, hit[1]))
         return self._version_rows(groups, titles)
+
+    def _list_videos(self, roots: List[str], job: DupeJob) -> Tuple[Dict[int, dict], List[dict], int]:
+        """範圍內的影片：有 SHA1 的（比重複用）、1 GB 以上的（大檔案）、沒有 SHA1 的有幾個。"""
+        files: Dict[int, dict] = {}
+        big: List[dict] = []
+        without_sha1 = 0
+        for root in roots:
+            self.p115.breaker.check()
+            job.current = root
+            cid = self.p115.dir_id(root)
+            for info in self.p115.iter_changed_files(cid, 0):  # since = 0：全部
+                self.workers.check()
+                job.listed += 1
+                if Path(info["name"]).suffix.lower() not in VIDEO_EXTS:
+                    continue
+                if (info.get("size") or 0) >= BIG_FLOOR:
+                    big.append(info)
+                if not info.get("sha1"):
+                    without_sha1 += 1
+                    continue
+                files[info["id"]] = info
+        return files, big, without_sha1
+
+    def _big_rows(self, infos: List[dict], folders: Dict[int, Optional[str]]) -> List[tuple]:
+        """大檔案的列：115 路徑、本機 strm、媒體庫裡是電影還是一集、畫質（有媒體資訊看媒體資訊，沒有看檔名）。"""
+        store = MediaInfoStore(self.db)
+        rows: List[tuple] = []
+        for info in infos:
+            self.workers.check()
+            path, local = self._locate(info, folders)
+            item = self.db.one("SELECT type FROM items WHERE path=?", (local,)) if local else None
+            q = quality(store.get(local) if local else None, info["name"])
+            rows.append((info["id"], info["name"], path, local, item["type"] if item else None, info["size"],
+                         info["mtime"], info.get("sha1") or "", json.dumps(q, ensure_ascii=False)))
+        return rows
 
     def _synced_files(self, files: Dict[int, dict]) -> Dict[str, Tuple[int, str]]:
         """同步任務裡、這次列到的 115 檔案：本機 strm → (115 檔案 id, 115 路徑)。"""
@@ -519,6 +554,31 @@ class DupeFinder:
                  "complete": name_complete(m["name"], kind)} for m in members]})
         return {"items": items, "total": total}
 
+    @staticmethod
+    def _big_where(min_size: int, kind: str, query: str) -> Tuple[str, list]:
+        where, params = ["size >= ?"], [max(int(min_size or 0), BIG_FLOOR)]
+        if kind in BIG_TYPES:
+            where.append(BIG_TYPES[kind])
+        if query.strip():
+            where.append("(name LIKE ? OR path LIKE ?)")
+            params += [f"%{query.strip()}%"] * 2
+        return " AND ".join(where), params
+
+    def big(self, min_size: int = 0, kind: str = "", query: str = "", offset: int = 0, limit: int = 20) -> dict:
+        """大檔案，大的在前：min_size（位元組，至少 1 GB）、kind（movie／episode／none＝不在媒體庫）、query 比對檔名和路徑。
+        每一個附上同一部片還有幾個別的版本（見「不同版本」）。"""
+        where, params = self._big_where(min_size, kind, query)
+        stats = self.db.one(f"SELECT COUNT(*) AS c, COALESCE(SUM(size), 0) AS s FROM big_files WHERE {where}", params)
+        items = []
+        for r in self.db.query(f"SELECT * FROM big_files WHERE {where} ORDER BY size DESC, file_id LIMIT ? OFFSET ?",
+                               (*params, limit, offset)):
+            others = self.db.one(
+                "SELECT COUNT(*) AS c FROM dup_versions WHERE grp=(SELECT grp FROM dup_versions WHERE file_id=?) AND file_id<>?",
+                (r["file_id"], r["file_id"]))["c"]
+            items.append({**self._member({**dict(r), "keep": 0}), "size": r["size"], "type": r["type"],
+                          "quality": json.loads(r["quality"] or "{}"), "versions": others})
+        return {"items": items, "total": stats["c"], "size": stats["s"]}
+
     def _member(self, m) -> dict:
         item = self.db.one("SELECT id, type, name, series_id FROM items WHERE path=?", (m["local"],)) if m["local"] else None
         series = self.db.one("SELECT name FROM items WHERE id=?", (item["series_id"],)) if item and item["series_id"] else None
@@ -584,6 +644,21 @@ class DupeFinder:
             chosen += [{**dict(m), "kind": kind} for m in picked]
         return chosen
 
+    def big_plan(self, overrides: Dict[int, bool], select_all: bool = False, min_size: int = 0, kind: str = "",
+                 query: str = "") -> List[dict]:
+        """大檔案要刪哪些：overrides 裡勾了的；select_all 時再加上符合篩選條件的全部（overrides 取消勾的除外）。"""
+        rows: Dict[int, dict] = {}
+        if select_all:
+            where, params = self._big_where(min_size, kind, query)
+            rows = {r["file_id"]: dict(r) for r in self.db.query(f"SELECT * FROM big_files WHERE {where}", params)
+                    if overrides.get(r["file_id"], True)}
+        extra = [fid for fid, on in overrides.items() if on and fid not in rows]
+        for start in range(0, len(extra), 500):
+            chunk = extra[start:start + 500]
+            rows.update((r["file_id"], dict(r)) for r in self.db.query(
+                f"SELECT * FROM big_files WHERE file_id IN ({','.join('?' * len(chunk))})", chunk))
+        return [{**r, "kind": "big"} for r in sorted(rows.values(), key=lambda r: (-r["size"], r["file_id"]))]
+
     def delete_in_background(self, plan: List[dict]) -> bool:
         if not plan or self._lock.locked():
             return False
@@ -637,14 +712,20 @@ class DupeFinder:
         """115 上已經刪了：觀看紀錄轉到保留的那份、刪本機 strm、記下刪了什麼、從清單拿掉。"""
         for r in batch:
             if r["local"]:
-                if r.get("kind") == "versions":
+                grp = r.get("grp") if r.get("kind") == "versions" else None
+                if r.get("kind") == "big":  # 大檔案：同一部片的別的版本，或完全相同的另一份
+                    g = self.db.one("SELECT grp FROM dup_versions WHERE file_id=?", (r["file_id"],))
+                    grp = g["grp"] if g else None
+                if grp:
                     copies = self.db.query(
                         "SELECT file_id, local FROM dup_versions WHERE grp=? AND local IS NOT NULL ORDER BY keep DESC, size DESC",
-                        (r["grp"],))
-                else:
+                        (grp,))
+                elif r.get("sha1"):
                     copies = self.db.query(
                         "SELECT file_id, local FROM dup_files WHERE sha1=? AND size=? AND local IS NOT NULL "
                         "ORDER BY keep DESC, mtime", (r["sha1"], r["size"]))
+                else:
+                    copies = []
                 keeper = next((c for c in copies if c["file_id"] not in planned), None)  # 同一組裡不刪的那份
                 if keeper:
                     self._move_user_data(r["local"], keeper["local"])
@@ -654,9 +735,10 @@ class DupeFinder:
             c = self.db.conn
             c.executemany("INSERT INTO dup_deleted(file_id, sha1, size, name, path, at) VALUES(?,?,?,?,?,?)",
                           [(r["file_id"], r.get("sha1") or "", r["size"], r["name"], r["path"], now) for r in batch])
-            # 兩種清單都拿掉（同一個檔案可能兩邊都有），只剩一份的組不算重複了
+            # 三種清單都拿掉（同一個檔案可能都有），只剩一份的組不算重複了
             c.executemany("DELETE FROM dup_files WHERE file_id=?", [(r["file_id"],) for r in batch])
             c.executemany("DELETE FROM dup_versions WHERE file_id=?", [(r["file_id"],) for r in batch])
+            c.executemany("DELETE FROM big_files WHERE file_id=?", [(r["file_id"],) for r in batch])
             c.execute("DELETE FROM dup_files WHERE sha1 || ':' || size IN "
                       "(SELECT sha1 || ':' || size FROM dup_files GROUP BY sha1, size HAVING COUNT(*) < 2)")
             c.execute("DELETE FROM dup_versions WHERE grp IN (SELECT grp FROM dup_versions GROUP BY grp HAVING COUNT(*) < 2)")

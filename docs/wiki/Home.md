@@ -12,7 +12,7 @@ Mi302 is an Emby-compatible video server for 115 Cloud: it syncs 115 folders int
 | --- | --- |
 | [安裝](安裝) | 一鍵安裝、手動安裝、`mi302` 管理指令、更新與移除 |
 | [首次設定](首次設定) | 網頁上的設定步驟、使用者、設定檔怎麼運作 |
-| [115 網盤與同步](115-網盤與同步) | 登入、同步任務、增量與全量同步、重複檔案、熔斷 |
+| [115 網盤與同步](115-網盤與同步) | 登入、同步任務、增量與全量同步、重複和大檔案、熔斷 |
 | [媒體庫與掃描](媒體庫與掃描) | 資料夾結構、部分掃描、拼音排序搜尋、演職人員中文化 |
 | [播放與外網連線](播放與外網連線) | 302 播放流程、播放網址的登入、下載、反向代理 |
 | [片頭片尾跳過](片頭片尾跳過) | 怎麼學出片頭片尾、播放器拿到什麼、怎麼測試 |
@@ -29,7 +29,7 @@ Mi302 is an Emby-compatible video server for 115 Cloud: it syncs 115 folders int
 | --- | --- |
 | [安装](安装) | 一键安装、手动安装、`mi302` 管理命令、更新与卸载 |
 | [首次设置](首次设置) | 网页上的设置步骤、用户、配置文件如何工作 |
-| [115 网盘与同步](115-网盘与同步) | 登录、同步任务、增量与全量同步、重复文件、熔断 |
+| [115 网盘与同步](115-网盘与同步) | 登录、同步任务、增量与全量同步、重复和大文件、熔断 |
 | [媒体库与扫描](媒体库与扫描) | 文件夹结构、部分扫描、拼音排序搜索、演职人员中文化 |
 | [播放与外网访问](播放与外网访问) | 302 播放流程、播放地址的登录、下载、反向代理 |
 | [片头片尾跳过](片头片尾跳过) | 怎样学出片头片尾、播放器拿到什么、怎样测试 |
@@ -46,7 +46,7 @@ Mi302 is an Emby-compatible video server for 115 Cloud: it syncs 115 folders int
 | --- | --- |
 | [Installation](Installation) | Installer, manual install, the `mi302` command, updating and uninstalling |
 | [First Setup](First-Setup) | Setting up in the web page, users, how the config file works |
-| [115 Cloud Sync](115-Cloud-Sync) | Signing in, sync tasks, incremental and full sync, duplicate files, the circuit breaker |
+| [115 Cloud Sync](115-Cloud-Sync) | Signing in, sync tasks, incremental and full sync, duplicate and big files, the circuit breaker |
 | [Library and Scanning](Library-and-Scanning) | Folder layout, partial scans, pinyin sort and search, Chinese names |
 | [Playback](Playback) | The 302 flow, playback authentication, downloads, reverse proxies |
 | [Intro and Credits](Intro-and-Credits) | How intros and credits are learned, what players receive, how to test |

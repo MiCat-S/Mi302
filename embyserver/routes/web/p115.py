@@ -294,9 +294,13 @@ async def dupes_prefer(request: Request, ctx: AuthContext = Depends(require_admi
 @router.get("/web/api/dupes/groups")
 def dupes_groups(request: Request, ctx: AuthContext = Depends(require_admin)):
     """重複的組，可以省最多空間的在前面；kind=exact（完全相同，預設）或 versions（不同版本），
-    q 比對檔名和路徑（不同版本也比對片名），offset、limit 分頁。"""
+    q 比對檔名和路徑（不同版本也比對片名），offset、limit 分頁。
+    kind=big：大檔案一個一個列，大的在前；min_size（位元組，至少 1 GB）、type（movie／episode／none＝不在媒體庫）。"""
     offset = max(q_int(request, "offset", 0) or 0, 0)
     limit = min(max(q_int(request, "limit", 20) or 20, 1), 100)
+    if q(request, "kind") == "big":
+        return state(request).dupes.big(q_int(request, "min_size", 0) or 0, q(request, "type") or "", q(request, "q") or "",
+                                         offset, limit)
     kind = "versions" if q(request, "kind") == "versions" else "exact"
     return state(request).dupes.groups(q(request, "q") or "", offset, limit, kind)
 
@@ -309,6 +313,7 @@ async def dupes_delete(request: Request, ctx: AuthContext = Depends(require_admi
     不同版本（kind=versions）預設 false。{"sha1", "size"}（完全相同）或 {"grp"}（不同版本）只處理那一組。
     送進 115 回收站，每組至少留一份；本機 strm 跟著刪、觀看紀錄轉到保留的那份。在背景跑。
     {"dry_run": true} 只算會刪幾個、多大，不刪（網頁上的數量和確認框用；不用登入 115）。
+    kind=big（大檔案）：overrides 裡勾了的；use_suggestions 為真時加上符合 {min_size, type, q} 的全部。不必留一份。
     """
     body = await json_body(request)
     raw = body.get("overrides") or {}
@@ -320,13 +325,21 @@ async def dupes_delete(request: Request, ctx: AuthContext = Depends(require_admi
     except (TypeError, ValueError, KeyError):
         raise HTTPException(status_code=400, detail="格式錯誤")
     st = state(request)
-    kind = "versions" if body.get("kind") == "versions" else "exact"
-    grp = str(body["grp"]) if body.get("grp") else None
-    use_suggestions = bool(body.get("use_suggestions", kind == "exact"))
-    try:
-        plan = await run_in_threadpool(st.dupes.plan, overrides, body.get("sha1"), size, kind, grp, use_suggestions)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+    if body.get("kind") == "big":
+        try:
+            min_size = int(body.get("min_size") or 0)
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail="min_size 要是整數")
+        plan = await run_in_threadpool(st.dupes.big_plan, overrides, bool(body.get("use_suggestions")), min_size,
+                                       str(body.get("type") or ""), str(body.get("q") or ""))
+    else:
+        kind = "versions" if body.get("kind") == "versions" else "exact"
+        grp = str(body["grp"]) if body.get("grp") else None
+        use_suggestions = bool(body.get("use_suggestions", kind == "exact"))
+        try:
+            plan = await run_in_threadpool(st.dupes.plan, overrides, body.get("sha1"), size, kind, grp, use_suggestions)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
     if body.get("dry_run"):
         return {"started": False, "count": len(plan), "size": sum(r["size"] for r in plan)}
     if not st.p115.cookies:
@@ -339,5 +352,5 @@ async def dupes_delete(request: Request, ctx: AuthContext = Depends(require_admi
 
 @router.get("/web/api/dupes/log")
 def dupes_log(request: Request, ctx: AuthContext = Depends(require_admin)):
-    """最近刪掉的重複檔案（到 115 回收站找回用）。"""
+    """最近刪掉的重複檔案、大檔案（到 115 回收站找回用）。"""
     return state(request).dupes.recent_deletions(min(max(q_int(request, "limit", 50) or 50, 1), 500))

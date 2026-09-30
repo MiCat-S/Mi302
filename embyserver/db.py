@@ -183,7 +183,22 @@ CREATE TABLE IF NOT EXISTS dup_versions (
 );
 CREATE INDEX IF NOT EXISTS idx_dupv_grp ON dup_versions(grp);
 
--- 刪掉的重複檔案（在 115 回收站找回用）
+-- 找重複時順便記下的大檔案（1 GB 以上的影片），「大檔案」篩選、刪除用。type 是媒體庫裡的 Movie／Episode，
+-- 不在媒體庫是 NULL；quality 是 JSON（解析度、HDR、編碼、音軌、字幕）
+CREATE TABLE IF NOT EXISTS big_files (
+    file_id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL,
+    path TEXT,
+    local TEXT,
+    type TEXT,
+    size INTEGER NOT NULL,
+    mtime INTEGER,
+    sha1 TEXT,
+    quality TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_big_size ON big_files(size);
+
+-- 刪掉的重複檔案、大檔案（在 115 回收站找回用）
 CREATE TABLE IF NOT EXISTS dup_deleted (
     file_id INTEGER,
     sha1 TEXT,
