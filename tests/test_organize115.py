@@ -577,14 +577,14 @@ def test_names_that_differ_only_in_word_order_are_the_same():
 def test_crowded_movie_folder_is_described():
     from embyserver.organize115 import Unit, judge
 
-    def unit(parent, loose):
+    def unit(parent, loose, others):
         return Unit("f1", "movie_file", f"/cms/電影/{parent}/画江湖之天罡.2023.4K(1)", 1, 0, "画江湖之天罡.2023.4K(1)", 1,
-                    "画江湖之天罡", 2023, 1, loose, [], [], checked=True)
+                    "画江湖之天罡", 2023, 1, loose, [], [], checked=True, others=others)
 
-    u = unit("H-画江湖之天罡-2023-[tmdb=1221210]", 2)
+    u = unit("H-画江湖之天罡-2023-[tmdb=1221210]", 1, 1)  # 另一支在子資料夾裡
     judge(u, 3, 2)
     assert u.reasons == ["資料夾裡還有另外 1 支影片（MoviePilot 會給每部電影自己的資料夾；同一部的重複檔案可以先到「整理 → 重複檔案」清掉）"]
-    u = unit("动画电影", 5)  # 分類資料夾
+    u = unit("动画电影", 5, 4)  # 分類資料夾
     judge(u, 3, 2)
     assert u.reasons == ["沒有自己的資料夾（MoviePilot 會放進自己的資料夾）"]
 

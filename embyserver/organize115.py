@@ -171,6 +171,7 @@ class Unit:
     error: str = ""
     reasons: List[str] = field(default_factory=list)
     merge_into: Optional[dict] = None
+    others: int = 0  # movie_file：同一個資料夾（含子資料夾）裡的其他影片
 
     @property
     def parent(self) -> str:
@@ -316,7 +317,7 @@ def _movie_unit(tree: _Tree, m, strm_rel: str, root: str, local: str) -> Optiona
     return Unit(f"f{fid}", "movie_file", posixpath.join(root, folder, _stem(strm_name)), cid,
                 tree.dirs.get(posixpath.dirname(folder), 0) if folder else 0, _stem(strm_name), m["id"], m["name"], m["year"],
                 1, len(here), [posixpath.join(root, strm_rel)], tree.children.get(folder, []), local=str(Path(local) / strm_rel),
-                file_id=fid, parts=[Part("file", "這支影片", cid, posixpath.join(root, folder), str(Path(local) / folder), 1,
+                file_id=fid, others=max(tree.total.get(folder, 0) - 1, 0), parts=[Part("file", "這支影片", cid, posixpath.join(root, folder), str(Path(local) / folder), 1,
                                          loose=True, stems=[_stem(strm_name)])])
 
 
@@ -332,10 +333,11 @@ def judge(unit: Unit, tv_levels: int, movie_levels: int) -> None:
         unit.reasons.append(f"MoviePilot 認不出來：{unit.error}")
         return
     if unit.kind == "movie_file":
-        # 資料夾名稱有片名：是這部電影的資料夾，只是裡面不只一支（常是 115 加了「(1)」的重複檔案）；不然是分類資料夾
-        own = unit.loose > 1 and unit.title and unit.title.casefold() in posixpath.basename(unit.parent).casefold()
+        # 資料夾名稱有片名：是這部電影的資料夾，只是裡面（或子資料夾裡）還有別的影片（常是 115 加了「(1)」的重複檔案、
+        # 另一個版本）；名稱沒有片名的是分類資料夾，這部電影真的沒有自己的資料夾
+        own = unit.others and unit.title and unit.title.casefold() in posixpath.basename(unit.parent).casefold()
         if movie_levels >= 2:
-            unit.reasons.append(f"資料夾裡還有另外 {unit.loose - 1} 支影片（MoviePilot 會給每部電影自己的資料夾；"
+            unit.reasons.append(f"資料夾裡還有另外 {unit.others} 支影片（MoviePilot 會給每部電影自己的資料夾；"
                                 "同一部的重複檔案可以先到「整理 → 重複檔案」清掉）" if own
                                 else "沒有自己的資料夾（MoviePilot 會放進自己的資料夾）")
     elif unit.mp_name and not _same_name(unit.mp_name, unit.name):

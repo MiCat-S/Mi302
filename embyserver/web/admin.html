@@ -224,6 +224,8 @@ dialog.wide{width:min(720px,calc(100vw - 32px))}
 .lg.WARNING .lv{color:var(--warn)}
 .lg.ERROR,.lg.CRITICAL{background:var(--danger-soft)}.lg.ERROR .lv,.lg.CRITICAL .lv{color:var(--danger)}
 .lg.DEBUG .m{color:var(--muted)}
+.ogacts{flex:0 0 auto;display:flex;flex-direction:column;gap:6px}.ogacts .btn{justify-content:center}  /* 整理每一列右邊：預覽、整理、刪除，直排不佔寬度 */
+.savebar.wrap{flex-wrap:wrap}#ogSel{flex:1 1 240px}  /* 窄螢幕上說明自己一行，按鈕排在下面 */
 .savebar{position:sticky;bottom:16px;display:flex;gap:10px;align-items:center;justify-content:flex-end;padding:10px 12px;background:var(--panel);border:1px solid var(--line);border-radius:var(--r);box-shadow:0 6px 20px rgba(16,24,40,.12);margin-top:8px}
 
 /* 登入 */
@@ -511,14 +513,13 @@ dialog .card-b{max-height:70vh;overflow:auto}
             <div class="row wrap gap6"><span class="hint">全部整理到</span><select id="ogTarget" class="w-auto" aria-label="全部整理到" onchange="organizeTargetAll()"><option value="auto">照 MoviePilot 的目錄設定</option><option value="parent">同一層</option><option value="path">指定的 115 資料夾</option></select>
               <input id="ogTargetPath" type="text" class="hidden" placeholder="/影視/電視劇" aria-label="全部整理到的 115 資料夾" onchange="organizeTargetAll()"><button class="btn sm hidden" id="ogTargetPick" onclick="organizeTargetPick()">選擇…</button>
               <span class="hint">每一列還是可以自己改</span></div>
+            <label class="switch"><input type="checkbox" id="ogClean" checked><span class="track"></span><span class="lbl">整理完後，沒有影片留下的舊資料夾移到 115 回收站<small>裡面剩下的 nfo、圖片一起移走；整理失敗或目標已有同一集的影片會留在原處，那個資料夾就保留</small></span></label>
           </div>
           <div id="ogPinned" class="list"></div>
           <div id="ogList" class="list"></div>
-          <div id="ogBar" class="stack hidden">
-            <label class="switch"><input type="checkbox" id="ogClean" checked><span class="track"></span><span class="lbl">整理完後，沒有影片留下的舊資料夾移到 115 回收站<small>裡面剩下的 nfo、圖片一起移走；整理失敗或目標已有同一集的影片會留在原處，那個資料夾就保留</small></span></label>
-            <div class="row wrap"><span class="hint grow" id="ogSel" aria-live="polite"></span><button class="btn sm" onclick="organizeToggleAll()">全選這一頁</button>
-              <button class="btn" id="ogPreview" onclick="organizePreview()">預覽選取的</button><button class="btn danger solid" id="ogRun" onclick="organizeExecute()" disabled>執行</button></div>
-          </div>
+          <div id="ogBar" class="savebar wrap hidden"><span class="hint grow" id="ogSel" aria-live="polite">每一列右邊可以單獨預覽、整理；要一次做好幾個就勾選</span>
+            <button class="btn sm" onclick="organizeToggleAll()">全選這一頁</button>
+            <button class="btn" id="ogPreview" onclick="organizePreview()">預覽選取的</button><button class="btn danger solid" id="ogRun" onclick="organizeExecute()" disabled>執行</button></div>
         </div>
       </div>
 
@@ -2413,17 +2414,19 @@ function ogState(u) {
   return st;
 }
 const ogStem = n => n.replace(/\.[^.\/]+$/, '');
+const ogWords = s => s.toLowerCase().split(/[\s._]+/).filter(Boolean).sort().join(' ');
+const ogSame = (a, b) => ogWords(a) === ogWords(b);
 function organizeRow(u) {
   // 一個資料夾：MoviePilot 給的名稱、原因、會併進哪裡；整理到哪；每一部分可以指定類型、TMDB、季、集數定位（空的讓它自己認）
   const st = ogState(u), d = document.createElement('div');
   d.className = 'li top';
-  const files = u.mp_files.filter(f => ogStem(f[0]) !== ogStem(f[1]));
+  const files = u.mp_files.filter(f => !ogSame(ogStem(f[0]), ogStem(f[1])));
   const count = u.videos != null ? `${u.videos} 支影片` : `${u.parts.length} 個部分`;
   d.innerHTML = `<input type="checkbox" class="chk js-on" aria-label="整理 ${esc(u.name)}"${st.on ? ' checked' : ''}${st.sent ? ' disabled' : ''}>
     <div class="main"><div class="row wrap gap6"><b>${esc(u.name)}</b><span class="pill">${OG_KIND[u.kind]}</span>${u.pinned ? '<span class="pill accent">從瀏覽 115 加進來</span>' : ''}<span class="hint">${count}</span>${st.sent ? '<span class="pill ok">已送出整理</span>' : ''}</div>
     <div class="sub">${esc(u.parent)}${u.in_sync ? '' : '・不在同步目錄裡'}</div>
     ${u.reasons.length ? `<ul class="reasons">${u.reasons.map(x => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}
-    ${u.mp_name && u.mp_name !== u.name ? `<div class="ogmap mt6">MoviePilot 會整理成 <b>${esc(u.mp_name)}</b>${u.merge_into ? '（旁邊已經有，會併進去）' : ''}</div>` : ''}
+    ${u.mp_name && !ogSame(u.mp_name, u.name) ? `<div class="ogmap mt6">MoviePilot 會整理成 <b>${esc(u.mp_name)}</b>${u.merge_into ? '（旁邊已經有，會併進去）' : ''}</div>` : ''}
     ${files.map(f => `<div class="ogmap">${esc(ogStem(f[0]))} → <b>${esc(ogStem(f[1]))}</b></div>`).join('')}
     ${u.error ? '<p class="hint mt6">在下面指定類型和 TMDB 編號再預覽，或到 115 上改名稱讓 MoviePilot 認得出來</p>' : ''}
     <div class="row wrap gap6 mt8"><span class="hint">整理到</span><select class="sm js-target" aria-label="整理到哪裡"><option value="auto">照 MoviePilot 的目錄設定</option><option value="parent">同一層</option><option value="path">指定的 115 資料夾</option></select>
@@ -2435,7 +2438,8 @@ function organizeRow(u) {
       <input class="sm season js-season" type="number" min="0" placeholder="季：自動" aria-label="${esc(p.label)} 是第幾季">
       <input class="sm fmt js-fmt" type="text" placeholder="集數定位：自動" aria-label="${esc(p.label)} 的集數定位"><button class="btn sm ghost js-rec-btn" title="請 MoviePilot 推薦集數定位">推薦</button></div></div>`).join('')}</div>
     <div class="row wrap gap6 mt6 js-st"></div><div class="js-pv"></div></div>
-    <div class="stack gap6"><button class="btn sm ghost danger js-del">刪除…</button>${u.pinned ? '<button class="btn sm ghost js-unpin">不看了</button>' : ''}</div>`;
+    <div class="ogacts"><button class="btn sm js-pv-btn">預覽</button><button class="btn sm primary js-run-btn">整理</button>
+      <button class="btn sm ghost danger js-del">刪除…</button>${u.pinned ? '<button class="btn sm ghost js-unpin">不看了</button>' : ''}</div>`;
   const target = d.querySelector('.js-target'), tpath = d.querySelector('.js-tpath'), tpick = d.querySelector('.js-tpick');
   target.value = st.target; tpath.value = st.targetPath;
   const showTarget = () => { for (const el of [tpath, tpick]) el.classList.toggle('hidden', target.value !== 'path'); };
@@ -2467,6 +2471,8 @@ function organizeRow(u) {
     rec.onclick = () => organizeRecommend(st, row.dataset.key, fmt, rec);
   }
   d.querySelector('.js-on').onchange = e => { st.on = e.target.checked; organizeButtons(); };
+  d.querySelector('.js-pv-btn').onclick = () => organizePreviewOne(st);
+  d.querySelector('.js-run-btn').onclick = () => organizeRunOne(st);
   d.querySelector('.js-del').onclick = () => openDelete(u);
   d.querySelector('.js-unpin')?.addEventListener('click', () => organizeUnpin(u));
   st.el = d;
@@ -2510,40 +2516,58 @@ function organizeShow(st) {
 }
 const organizeSelected = () => Object.values(og.state).filter(st => st.on && !st.sent);
 function organizeButtons() {
-  const sel = organizeSelected(), ready = sel.filter(st => st.preview?.token), running = !!S.reo?.running;
-  $('ogSel').textContent = sel.length ? `勾選了 ${sel.length} 個` + (ready.length ? `，${ready.length} 個預覽過可以執行` : '') : '';
-  $('ogPreview').disabled = !sel.length || !!organizeLack() || running;
-  $('ogRun').disabled = !ready.length || running;
+  const sel = organizeSelected(), ready = sel.filter(st => st.preview?.token), running = !!S.reo?.running, lack = !!organizeLack();
+  const busy = Object.values(og.state).some(st => st.busy);
+  $('ogSel').textContent = sel.length ? `勾選了 ${sel.length} 個` + (ready.length ? `，${ready.length} 個預覽過可以執行` : '')
+    : '每一列右邊可以單獨預覽、整理；要一次做好幾個就勾選';
+  $('ogPreview').disabled = !sel.length || lack || running || busy;
+  $('ogRun').disabled = !ready.length || running || busy;
   $('ogRun').textContent = ready.length ? `執行（${ready.length} 個）` : '執行';
+  for (const st of Object.values(og.state)) {  // 每一列自己的預覽、整理
+    if (!st.el?.isConnected) continue;
+    const off = st.sent || st.busy || running || lack, pv = st.el.querySelector('.js-pv-btn'), run = st.el.querySelector('.js-run-btn');
+    pv.disabled = off;
+    run.disabled = off || !!(st.preview && !st.preview.token);  // 預覽過、沒有可以整理的
+    run.textContent = st.preview?.token ? `整理（${st.preview.summary.ok}）` : '整理';
+    run.title = st.preview?.token ? '照剛才的預覽整理' : st.preview ? '預覽後沒有可以整理的，看下面的說明' : '先預覽，確認後整理';
+  }
 }
 function organizeToggleAll() {
   const rows = [...og.pinned, ...og.items].map(u => og.state[u.id]).filter(st => st && !st.sent), all = rows.every(st => st.on);
   for (const st of rows) { st.on = !all; const box = st.el?.querySelector('.js-on'); if (box) box.checked = !all; }
   organizeButtons();
 }
-async function organizePreview() {
-  // 一個一個請 MoviePilot 預覽；換頁、檢查中的自動重新整理都不中斷：結果記在 state，回到那一頁還看得到
-  const sel = organizeSelected();
-  $('ogPreview').disabled = $('ogRun').disabled = true;
-  let n = 0;
-  for (const st of sel) {
-    st.error = '';
-    const box = st.el?.isConnected ? st.el.querySelector('.js-st') : null;
-    if (box) box.innerHTML = `<span class="spin"></span><span class="hint">MoviePilot 預覽中（${++n} / ${sel.length}），檔案多的要一點時間…</span>`;
-    try {
-      st.preview = await api('/web/api/115/organize/preview', {method: 'POST', body: JSON.stringify({
-        id: st.unit.id, parts: st.parts, target: st.target, target_path: st.targetPath, scrape: true})});
-    } catch (e) { st.preview = null; st.error = e.message; }
-    organizeShow(st);
-  }
-  organizeButtons();
+async function organizePreviewOne(st, count = '') {
+  // 請 MoviePilot 預覽這一列；換頁、檢查中的自動重新整理都不中斷：結果記在 state，回到那一頁還看得到
+  st.error = ''; st.busy = true; organizeButtons();
+  const box = st.el?.isConnected ? st.el.querySelector('.js-st') : null;
+  if (box) box.innerHTML = `<span class="spin"></span><span class="hint">MoviePilot 預覽中${count}，檔案多的要一點時間…</span>`;
+  try {
+    st.preview = await api('/web/api/115/organize/preview', {method: 'POST', body: JSON.stringify({
+      id: st.unit.id, parts: st.parts, target: st.target, target_path: st.targetPath, scrape: true})});
+  } catch (e) { st.preview = null; st.error = e.message; }
+  st.busy = false;
+  organizeShow(st); organizeButtons();
 }
-async function organizeExecute() {
-  const ready = organizeSelected().filter(st => st.preview?.token);
+async function organizePreview() {
+  // 勾選的一個一個預覽
+  const sel = organizeSelected();
+  for (const [i, st] of sel.entries()) await organizePreviewOne(st, `（${i + 1} / ${sel.length}）`);
+}
+async function organizeRunOne(st) {
+  // 這一列：還沒預覽就先預覽（結果顯示在這一列），有可以整理的再確認執行
+  if (!st.preview?.token) {
+    await organizePreviewOne(st);
+    if (!st.preview?.token) { if (!st.error) toast('預覽後沒有可以整理的，看這一列的說明', 'bad'); return; }
+  }
+  await organizeRun([st]);
+}
+const organizeExecute = () => organizeRun(organizeSelected().filter(st => st.preview?.token));
+async function organizeRun(ready) {
   if (!ready.length) return;
   const files = ready.reduce((n, st) => n + st.preview.summary.ok, 0), warn = ready.reduce((n, st) => n + st.preview.summary.warnings, 0);
   const clean = $('ogClean').checked;
-  if (!await ask({title: `整理 ${ready.length} 個資料夾（${files} 個檔案）？`,
+  if (!await ask({title: ready.length === 1 ? `整理「${ready[0].unit.name}」（${files} 個檔案）？` : `整理 ${ready.length} 個資料夾（${files} 個檔案）？`,
     text: `MoviePilot 會照剛才預覽的位置在 115 上移動、改名並刮削。${warn ? `有 ${warn} 個要看一下的，確定沒問題再執行。` : ''}${clean ? '整理完，沒有影片留下的舊資料夾移到 115 回收站。' : ''}檔案多的要比較久（115 每秒只能處理幾個請求），完成後約 20 秒同步 115。`,
     ok: '執行', danger: true})) return;
   const tokens = ready.map(st => st.preview.token);
