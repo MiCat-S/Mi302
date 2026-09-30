@@ -336,7 +336,7 @@ class Reorganizer:
             previews.append(pv)
         if not previews:
             raise ReorgError("沒有要執行的預覽")
-        folders = {pv.get("cid") for pv in previews if pv.get("cid")}
+        folders = {c for pv in previews for c in (pv.get("cids") or [pv.get("cid")]) if c}
         cleanup = [{"cid": int(c["cid"]), "path": str(c.get("path") or "")} for c in cleanup or []]
         if any(c["cid"] not in folders for c in cleanup):
             raise ReorgError("只能清掉這次整理的來源資料夾")
@@ -378,8 +378,7 @@ class Reorganizer:
             results = self.mp.transfer(batch["fileitems"], batch.get("tmdbid") or None, batch.get("season"),
                                        batch.get("episode_format") or None, pv["scrape"], pv["target_path"], preview=False,
                                        mtype=batch.get("type_name"), timeout=max(600, 60 * batch["count"]),
-                                       single=batch["single"], reorganize=bool(batch.get("reorganize")),
-                                       type_folder=pv.get("type_folder", False), category_folder=pv.get("category_folder", False))
+                                       single=batch["single"], reorganize=bool(batch.get("reorganize")))
         except MoviePilotError as exc:
             job.errors.append(f"{batch['label']}：{exc}")
             job.failed += batch["count"]

@@ -515,8 +515,8 @@ LIBRARY = {"name": "影視庫", "storage": "local", "download_path": "/downloads
 
 
 def test_auto_target_uses_the_library_the_folder_is_in(tmp_path: Path):
-    """照 MoviePilot 的目錄設定：它自己挑目錄只看下載目錄，媒體庫裡的資料夾對不上；Mi302 找出包含這個資料夾的媒體庫目錄，
-    當成目標送過去，類型、類別資料夾照那一項。"""
+    """照 MoviePilot 的目錄設定：它自己挑目錄只看下載目錄，媒體庫裡的資料夾對不上。它整理對話框的「按類型分類」
+    「按類別分類」「刮削元數據」「複用歷史識別信息」都關掉，所以已經在媒體庫目錄裡的留在現在的分類資料夾，只改名稱。"""
     app, fake, mp, media, c, h = setup(tmp_path)
     mp.dirs.append(dict(LIBRARY))
     check(app, c, h)
@@ -524,16 +524,16 @@ def test_auto_target_uses_the_library_the_folder_is_in(tmp_path: Path):
     mp.calls.clear()
     pv = preview(c, h, units["d111"], target="auto").json()
     sent = sent_bodies(mp)[0]
-    assert (sent["target_storage"], sent["target_path"], sent["library_type_folder"], sent["library_category_folder"]) == \
-        ("u115", "/影視", True, False)
-    assert pv["notes"][0] == "照 MoviePilot 的目錄設定「影視庫」整理到媒體庫 /影視（加類型資料夾）"
-    assert pv["folders"] == ["/影視/劇集/康熙来了 (2004) {tmdbid=6836}/Season 1"]  # 留在同步目錄裡，照它的結構
+    assert (sent["target_storage"], sent["target_path"]) == ("u115", "/影視/劇集")
+    assert [sent[k] for k in ("library_type_folder", "library_category_folder", "scrape", "from_history")] == [False] * 4
+    assert pv["notes"][0] == "已經在 MoviePilot 的媒體庫目錄「影視庫」裡：留在 /影視/劇集，只改資料夾和檔名（不加類型、類別資料夾）"
+    assert pv["folders"] == ["/影視/劇集/康熙来了 (2004) {tmdbid=6836}/Season 1"]  # 留在原本的分類資料夾
 
     # 那一項只收電影：劇集不用它，讓 MoviePilot 自己挑（問得到 /媒體庫）
     mp.dirs[-1]["media_type"] = "电影"
     mp.calls.clear()
     pv = preview(c, h, units["d111"], target="auto").json()
-    assert "target_path" not in sent_bodies(mp)[0] and pv["notes"][0] == "MoviePilot 照它的目錄設定整理到媒體庫 /媒體庫"
+    assert "target_path" not in sent_bodies(mp)[0] and pv["notes"][0] == "MoviePilot 照它的目錄設定整理到媒體庫 /媒體庫（不加類型、類別資料夾）"
 
     # 都對不上：不送預覽，說清楚（它預覽時只會說「整理任务处理失败」）
     mp.dirs, mp.match = [], False
@@ -651,3 +651,37 @@ def test_existing_target_is_not_sent_unless_moviepilot_overwrites(tmp_path: Path
     app.state.reorganizer._run_items({"scrape": False, "target_path": None}, {"fileitems": [], "label": "x", "count": 2,
                                                                              "single": False}, job)
     assert (job.done, job.queued, job.failed) == (1, 1, 0) and "照上次的計畫在背景重試" in job.items[0]["message"]
+
+
+def test_same_level_goes_above_a_folder_named_after_the_movie(tmp_path: Path):
+    """「H-画江湖之天罡-2023-[tmdb=1221210]」裡有一支「(1)」和一個之前整理錯、套在裡面的電影資料夾：
+    「同一層」要到 H- 資料夾的上一層（分類資料夾），不能把新的電影資料夾建在 H- 裡；整理完 H- 空了也一起清。"""
+    app, fake, mp, media, c, h = setup(tmp_path)
+    mp.MEDIA = {**mp.MEDIA, "1221210": ("画江湖之天罡", 2023, "movie")}
+    fake.dirs.update({130: ("H-画江湖之天罡-2023-[tmdb=1221210]", 101), 131: ("画江湖之天罡 (2023) {tmdbid=1221210}", 130)})
+    fake.files += [{"fid": 90, "cid": 130, "n": "画江湖之天罡.2023.4K(1).mkv", "pc": "hj1".ljust(17, "x"), "s": 900_000_000, "te": T0 + 50},
+                   {"fid": 91, "cid": 131, "n": "画江湖之天罡 (2023).mkv", "pc": "hj2".ljust(17, "x"), "s": 900_000_000, "te": T0 + 51}]
+    assert not app.state.strm_sync.run(FULL).errors
+    app.state.scanner.scan_all()
+    check(app, c, h)
+    units = {u["id"]: u for u in listing(c, h)["items"]}
+    loose, nested = units["f90"], units["d131"]
+    holder = "/影視/電影/H-画江湖之天罡-2023-[tmdb=1221210]"
+    assert loose["reasons"][0].startswith("資料夾裡還有另外 1 支影片")
+    assert "套在另一個以片名命名的資料夾「H-画江湖之天罡-2023-[tmdb=1221210]」裡" in nested["reasons"][0]
+    assert loose["cleanup"] == [{"cid": "130", "path": holder}]
+    assert nested["cleanup"] == [{"cid": "131", "path": f"{holder}/画江湖之天罡 (2023) {{tmdbid=1221210}}"}, {"cid": "130", "path": holder}]
+
+    mp.calls.clear()
+    pv = preview(c, h, loose).json()
+    assert sent_bodies(mp)[0]["target_path"] == "/影視/電影"  # 不是 H- 資料夾
+    assert pv["folders"] == ["/影視/電影/画江湖之天罡 (2023) {tmdbid=1221210}"]
+
+    # 套在裡面的那一份：搬到分類資料夾底下，搬空的 131 移到回收站；H- 裡還有「(1)」，留著
+    mp.calls.clear()
+    pv = preview(c, h, nested).json()
+    assert sent_bodies(mp)[0]["target_path"] == "/影視/電影"
+    assert c.post(EXECUTE, json={"tokens": [pv["token"]], "cleanup": nested["cleanup"]}, headers=h).status_code == 200
+    wait(lambda: not app.state.reorganizer.job.running)
+    folders = {i["name"]: i["state"] for i in app.state.reorganizer.job.items if i["state"] in ("kept", "removed")}
+    assert folders == {f"{holder}/画江湖之天罡 (2023) {{tmdbid=1221210}}": "removed", holder: "kept"}

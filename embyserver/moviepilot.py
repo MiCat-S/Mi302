@@ -535,7 +535,6 @@ class MoviePilot:
         self, fileitems: List[dict], tmdbid: Optional[str], season: Optional[int], episode_format: Optional[str],
         scrape: bool, target_path: Optional[str], preview: bool, mtype: Optional[str] = "电视剧",
         timeout: Optional[float] = None, single: bool = False, reorganize: bool = False,
-        type_folder: Optional[bool] = False, category_folder: Optional[bool] = False,
     ) -> List[dict]:
         """請 MoviePilot 整理這些 115 上的檔案（一次一批、同一個集數定位模板）。
 
@@ -543,11 +542,13 @@ class MoviePilot:
         空的時候讓 MoviePilot 自己辨識。target_path 是空的時候照 MoviePilot 的目錄設定放；有給就放在那個資料夾
         底下（不另加類型、類別資料夾）。回傳每個檔案的結果：source、target、success、message、episode、state。
         single=True 時只送一個項目（fileitem），和 MoviePilot 網頁整理一個資料夾一樣：資料夾裡的影片、字幕、音軌都整理。
-        有 target_path 時 type_folder、category_folder 決定要不要加類型、類別資料夾（None = 照那個媒體庫目錄的設定）。
+        它網頁整理對話框的「按類型分類」「按類別分類」「複用歷史識別信息」（library_type_folder、library_category_folder、
+        from_history）一律關掉：留在原本的分類資料夾裡，只改資料夾和檔名；「刮削元數據」（scrape）照參數，整理 115 網盤送 False。
         reorganize=True：MoviePilot 有成功整理過的紀錄時，和它的網頁一樣清掉舊紀錄重新整理；
         沒有的話它會當成「已整理過」跳過（預覽不看紀錄，所以預覽時看不出來）。
         """
-        body = {"transfer_type": "move", "scrape": scrape, "preview": preview}
+        body = {"transfer_type": "move", "scrape": scrape, "preview": preview,
+                "library_type_folder": False, "library_category_folder": False, "from_history": False}
         if single and len(fileitems) == 1:
             body["fileitem"] = fileitems[0]
         else:
@@ -562,9 +563,6 @@ class MoviePilot:
             body["episode_format"] = episode_format
         if target_path:
             body.update(target_storage="u115", target_path=target_path)
-            for key, value in (("library_type_folder", type_folder), ("library_category_folder", category_folder)):
-                if value is not None:
-                    body[key] = value
         if reorganize:
             body["reorganize"] = True
         res = self._request("POST", TRANSFER_API, body, timeout=timeout, query={"background": "false"})

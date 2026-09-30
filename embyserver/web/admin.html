@@ -2575,7 +2575,7 @@ async function organizePreviewOne(st, count = '') {
   if (box) box.innerHTML = `<span class="spin"></span><span class="hint">MoviePilot 預覽中${count}，檔案多的要一點時間…</span>`;
   try {
     st.preview = await api('/web/api/115/organize/preview', {method: 'POST', body: JSON.stringify({
-      id: st.unit.id, parts: st.parts, target: st.target, target_path: st.targetPath, scrape: true})});
+      id: st.unit.id, parts: st.parts, target: st.target, target_path: st.targetPath, scrape: false})});
   } catch (e) { st.preview = null; st.error = e.message; }
   st.busy = false;
   organizeShow(st); organizeButtons();
@@ -2599,10 +2599,10 @@ async function organizeRun(ready) {
   const files = ready.reduce((n, st) => n + st.preview.summary.ok, 0), warn = ready.reduce((n, st) => n + st.preview.summary.warnings, 0);
   const clean = $('ogClean').checked;
   if (!await ask({title: ready.length === 1 ? `整理「${ready[0].unit.name}」（${files} 個檔案）？` : `整理 ${ready.length} 個資料夾（${files} 個檔案）？`,
-    text: `MoviePilot 會照剛才預覽的位置在 115 上移動、改名並刮削。${warn ? `有 ${warn} 個要看一下的，確定沒問題再執行。` : ''}${clean ? '整理完，沒有影片留下的舊資料夾移到 115 回收站。' : ''}檔案多的要比較久（115 每秒只能處理幾個請求），完成後約 20 秒同步 115。`,
+    text: `MoviePilot 會照剛才預覽的位置在 115 上移動、改名（不刮削，也不加類型、類別資料夾）。${warn ? `有 ${warn} 個要看一下的，確定沒問題再執行。` : ''}${clean ? '整理完，沒有影片留下的舊資料夾移到 115 回收站。' : ''}檔案多的要比較久（115 每秒只能處理幾個請求），完成後約 20 秒同步 115。`,
     ok: '執行', danger: true})) return;
   const tokens = ready.map(st => st.preview.token);
-  const cleanup = clean ? ready.filter(st => st.unit.kind !== 'movie_file').map(st => ({cid: st.unit.id.slice(1), path: st.unit.path})) : [];  // id 用字串，數字會被四捨五入
+  const cleanup = clean ? ready.flatMap(st => st.unit.cleanup || []) : [];  // 伺服器算好的：自己的資料夾、以片名命名的外層資料夾（id 是字串）
   try { S.reo = (await api('/web/api/115/organize/execute', {method: 'POST', body: JSON.stringify({tokens, cleanup})})).job; }
   catch (e) { toast(e.message, 'bad'); return; }
   for (const st of ready) st.running = true;

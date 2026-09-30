@@ -12,10 +12,12 @@ Mi302 自己不判斷名稱對不對，也不猜 TMDB 編號、類型和季，�
 - 預覽：整個資料夾交給 MoviePilot（有子資料夾的一個子資料夾一次，直接放著的影片一次），和它網頁「檔案管理 → 整理」
   一樣，影片、字幕、音軌一起整理。預設什麼都不指定，讓它自己認；它認錯的（例如名稱裡的「预计第二季度」會被認成
   第 2 季）再在那一部分指定類型、TMDB 編號、季或集數定位（可以請 MoviePilot 推薦）。
+- 送給 MoviePilot 時，它網頁整理對話框的「按類型分類」「按類別分類」「刮削元數據」「複用歷史識別信息」都關掉：
+  留在原本的分類資料夾裡，只改資料夾和檔名；本機的 nfo、海報跟著 strm 搬（增量同步處理搬移）。
 - 「照 MoviePilot 的目錄設定」：MoviePilot 自己挑目錄時只看「下載目錄」（來源要在下載目錄底下，下載目錄的存儲也要是
-  115），已經在媒體庫裡的資料夾通常對不上，預覽時它只說「整理任务处理失败」。所以 Mi302 先讀它的目錄設定，找出包含
-  這個資料夾的媒體庫目錄（存儲是 115），把那個媒體庫目錄當成目標送過去，它就照那一項的類型、類別資料夾和覆蓋模式整理；
-  不在任何媒體庫目錄裡的（例如下載目錄）才讓它自己挑（先問 /transfer/manual/target-path 挑不挑得出來）。
+  115），已經在媒體庫裡的資料夾對不上，預覽時它只說「整理任务处理失败」。已經在它的媒體庫目錄（存儲是 115）裡的，
+  留在現在的分類資料夾（和「同一層」一樣）；不在任何媒體庫目錄裡的（例如下載目錄）才讓它自己挑
+  （先問 /transfer/manual/target-path 挑不挑得出來），放在媒體庫目錄底下。
 - MoviePilot 沒有擋「新位置和原本一樣」，也不知道同步目錄在哪，所以 Mi302 自己擋：已經照格式命名的檔案、會把同步目錄裡
   的檔案搬出同步目錄的，那幾個檔案不送；覆蓋模式是「保留最新」時，在同一個資料夾裡改名的也不送（它會先刪掉同一集的
   其他版本，連來源檔案一起刪）。它的預覽也不看目標是不是已經有同名檔案：Mi302 到 115 上看，覆蓋模式是「不覆蓋」時
@@ -68,8 +70,6 @@ class Target:
     """整理到哪裡、MoviePilot 會用哪一種覆蓋模式。"""
 
     path: Optional[str]  # 送給 MoviePilot 的 target_path；None = 讓它照自己的目錄設定挑
-    type_folder: Optional[bool] = False  # 加不加類型資料夾（電影／電視劇）；None = 照那個媒體庫目錄的設定
-    category_folder: Optional[bool] = False  # 加不加類別資料夾（動畫電影…）
     overwrite: str = "never"  # 那個媒體庫目錄的覆蓋模式：never／size／always／latest
     note: str = ""
 
@@ -110,6 +110,13 @@ def _levels(template: str) -> int:
 
 def _stem(name: str) -> str:
     return posixpath.splitext(name)[0]
+
+
+def _named_after(title: str, year: Optional[int], folder: str) -> bool:
+    """資料夾是不是以這部片命名的（例如「H-画江湖之天罡-2023-[tmdb=1221210]」）：名稱有片名，還有年份或 tmdb 標記。
+    分類資料夾（动画电影）沒有；只看片名的話「Up」這種短片名會對到「Upcoming」。"""
+    name, title = posixpath.basename(folder.rstrip("/")).casefold(), (title or "").strip().casefold()
+    return bool(title) and title in name and ((bool(year) and str(year) in name) or "tmdb" in name)
 
 
 NAME_WORDS = re.compile(r"[\s._]+")
@@ -184,6 +191,15 @@ class Unit:
     def sig(self) -> str:
         return hashlib.sha1(json.dumps([self.name, self.samples, self.videos, self.loose]).encode()).hexdigest()[:16]
 
+    def cleanup_folders(self) -> List[dict]:
+        """整理完要看要不要移到回收站的舊資料夾（沒有影片留下才移），裡面的先：自己的資料夾；放在以片名命名的
+        資料夾裡的（沒有自己資料夾的電影、或整個資料夾又套在同名資料夾裡），那個資料夾也算。id 用字串給網頁。"""
+        out = [] if self.kind == "movie_file" else [{"cid": str(self.cid), "path": self.path}]
+        holder, holder_cid = self.parent, self.cid if self.kind == "movie_file" else self.parent_cid
+        if holder_cid and _named_after(self.title, self.year, holder):
+            out.append({"cid": str(holder_cid), "path": holder})
+        return out
+
     @property
     def listed(self) -> bool:
         """要不要出現在清單上：問過 MoviePilot、和它的不一樣，或集號不對，或是瀏覽 115 加進來的。"""
@@ -196,7 +212,7 @@ class Unit:
             "type": "movie" if self.kind in ("movie", "movie_file") else "tv" if self.kind == "series" else "",
             "reasons": self.reasons, "error": self.error, "checked": self.checked, "pinned": self.pinned,
             "mp_name": self.mp_name, "mp_files": self.mp_files, "merge_into": self.merge_into,
-            "ep_guessed": self.ep_guessed, "ep_unknown": self.ep_unknown,
+            "ep_guessed": self.ep_guessed, "ep_unknown": self.ep_unknown, "cleanup": self.cleanup_folders(),
             "parts": [{"key": p.key, "label": p.label, "videos": p.videos, "lib_season": p.lib_season} for p in self.parts],
         }
 
@@ -338,7 +354,7 @@ def judge(unit: Unit, tv_levels: int, movie_levels: int) -> None:
     if unit.kind == "movie_file":
         # 資料夾名稱有片名：是這部電影的資料夾，只是裡面（或子資料夾裡）還有別的影片（常是 115 加了「(1)」的重複檔案、
         # 另一個版本）；名稱沒有片名的是分類資料夾，這部電影真的沒有自己的資料夾
-        own = unit.others and unit.title and unit.title.casefold() in posixpath.basename(unit.parent).casefold()
+        own = unit.others and _named_after(unit.title, unit.year, unit.parent)
         if movie_levels >= 2:
             unit.reasons.append(f"資料夾裡還有另外 {unit.others} 支影片（MoviePilot 會給每部電影自己的資料夾；"
                                 "同一部的重複檔案可以先到「整理 → 重複檔案」清掉）" if own
@@ -347,6 +363,8 @@ def judge(unit: Unit, tv_levels: int, movie_levels: int) -> None:
         unit.reasons.append("資料夾名稱和 MoviePilot 的不一樣")
         if unit.mp_name in unit.siblings:
             unit.merge_into = {"name": unit.mp_name, "path": posixpath.join(unit.parent, unit.mp_name)}
+    if unit.kind in ("movie", "series") and _named_after(unit.title, unit.year, unit.parent):
+        unit.reasons.append(f"套在另一個以片名命名的資料夾「{posixpath.basename(unit.parent)}」裡（MoviePilot 會直接放在分類資料夾底下）")
     if unit.kind == "series" and tv_levels >= 3 and unit.loose:
         unit.reasons.append(f"{unit.loose} 支影片直接放在資料夾裡（MoviePilot 會放進季資料夾）")
     if any(not _same_name(_stem(f[0]), _stem(f[1])) for f in unit.mp_files):
@@ -598,9 +616,9 @@ class Organizer:
     # ---------------- 預覽 ----------------
 
     def _target(self, unit: Unit, target: str, target_path: str) -> Target:
-        """整理到哪裡。auto：MoviePilot 自己挑目錄時只看下載目錄，媒體庫裡的資料夾對不上（預覽只會說「整理任务处理失败」），
-        所以先找它的目錄設定裡包含這個資料夾的媒體庫目錄（存儲是 115），把媒體庫目錄當成目標送過去，它就照那一項的類型、
-        類別資料夾和覆蓋模式整理。不在任何媒體庫目錄裡的才讓它自己挑，挑不出來就說清楚。"""
+        """整理到哪裡。auto：MoviePilot 自己挑目錄時只看下載目錄，媒體庫裡的資料夾對不上（預覽只會說「整理任务处理失败」）；
+        類型、類別資料夾又不加，所以已經在它的媒體庫目錄（存儲是 115）裡的，留在現在的分類資料夾（和「同一層」一樣）。
+        不在任何媒體庫目錄裡的才讓它自己挑，挑不出來就說清楚。"""
         try:
             dirs = self.mp.library_dirs()
         except MoviePilotError as exc:
@@ -608,20 +626,19 @@ class Organizer:
                 raise OrganizeError(f"讀不到 MoviePilot 的目錄設定：{exc}")
             dirs = []  # 自己指定的位置用不到目錄設定，只是看不到覆蓋模式；對不上的它用「不覆蓋」
         if target in ("path", "parent"):
-            dest = _dir_path(target_path) if target == "path" else unit.parent
+            dest = _dir_path(target_path) if target == "path" else self._same_level(unit)
             if dest == "/":
                 raise OrganizeError("請填要整理到哪個 115 資料夾")
-            return Target(dest, False, False, _overwrite(dirs, dest))
+            return Target(dest, _overwrite(dirs, dest))
         where = unit.path if unit.kind != "movie_file" else unit.parent
         libs = [d for d in dirs if d.get("library_storage") == "u115" and d.get("library_path")
                 and _inside(where, _dir_path(d.get("library_path"))) and _type_ok(d, unit.kind)]
         if libs:
             d = max(libs, key=lambda d: len(_dir_path(d.get("library_path"))))  # 最裡面的那個
-            path = _dir_path(d.get("library_path"))
-            extra = "、".join(t for t, on in (("類型資料夾", d.get("library_type_folder")),
-                                              ("類別資料夾", d.get("library_category_folder"))) if on)
-            return Target(path, bool(d.get("library_type_folder")), bool(d.get("library_category_folder")), _overwrite(dirs, path),
-                          f"照 MoviePilot 的目錄設定「{d.get('name') or path}」整理到媒體庫 {path}" + (f"（加{extra}）" if extra else ""))
+            dest = self._same_level(unit)
+            return Target(dest, _overwrite(dirs, dest),
+                          f"已經在 MoviePilot 的媒體庫目錄「{d.get('name') or _dir_path(d.get('library_path'))}」裡：留在 {dest}，"
+                          "只改資料夾和檔名（不加類型、類別資料夾）")
         name = posixpath.basename(where.rstrip("/"))
         item = {"storage": "u115", "type": "dir", "path": where.rstrip("/") + "/", "name": name, "basename": name,
                 "fileid": str(unit.cid)}
@@ -634,10 +651,20 @@ class Organizer:
                                 "（它只認來源在「下載目錄」底下、下載目錄存儲也是 115、整理方式不是「不整理」的那幾項）。"
                                 "到 MoviePilot 的目錄設定加一個包含這裡的媒體庫目錄，或把「整理到」改成「同一層」或指定的 115 資料夾")
         path = _dir_path(found.get("target_path"))
-        return Target(None, None, None, _overwrite(dirs, path), f"MoviePilot 照它的目錄設定整理到媒體庫 {path}")
+        return Target(None, _overwrite(dirs, path), f"MoviePilot 照它的目錄設定整理到媒體庫 {path}（不加類型、類別資料夾）")
+
+    def _same_level(self, unit: Unit) -> str:
+        """「同一層」：和現在的資料夾放在一起。放在以片名命名的資料夾裡的（例如沒有自己資料夾的電影在
+        「H-画江湖之天罡-2023-[tmdb=…]」裡），再往上到那個資料夾的上一層，不然 MoviePilot 會把新的電影資料夾建在舊的裡面；
+        不超出同步目錄。"""
+        roots = {r.rstrip("/") or "/" for r in self._roots()}
+        folder = unit.parent
+        while folder not in ("", "/") and folder.rstrip("/") not in roots and _named_after(unit.title, unit.year, folder):
+            folder = posixpath.dirname(folder.rstrip("/"))
+        return folder or "/"
 
     def preview(self, unit_id: str, overrides: Dict[str, dict], target: str = "", target_path: str = "",
-                scrape: bool = True) -> dict:
+                scrape: bool = False) -> dict:
         """請 MoviePilot 只算不做，一個部分一次。overrides：{部分: {type, tmdbid, season, format}}，沒給的讓它自己認。
         target：auto（照 MoviePilot 的目錄設定，預設）、parent（同一層）、path（target_path）。"""
         unit = self.unit(unit_id)
@@ -665,8 +692,7 @@ class Organizer:
                 continue
             try:
                 results = self.mp.transfer(fileitems, o["tmdbid"] or None, o["season"], o["format"] or None, scrape, dest,
-                                           preview=True, mtype=o["type_name"], timeout=PREVIEW_TIMEOUT, single=single,
-                                           type_folder=tgt.type_folder, category_folder=tgt.category_folder)
+                                           preview=True, mtype=o["type_name"], timeout=PREVIEW_TIMEOUT, single=single)
             except MoviePilotError as exc:
                 raise OrganizeError(f"MoviePilot 預覽失敗：{exc}")
             views = [_view(r, part, roots, tgt.overwrite) for r in results]
@@ -796,8 +822,8 @@ class Organizer:
 
     def _remember(self, unit: Unit, batches: List[dict], tgt: Target, scrape: bool) -> str:
         payload = {"plan_id": f"o{unit.id}", "mode": "organize", "title": unit.path,
-                   "cid": unit.cid if unit.kind != "movie_file" else None, "target_path": tgt.path,
-                   "type_folder": tgt.type_folder, "category_folder": tgt.category_folder, "scrape": bool(scrape),
+                   "cid": unit.cid if unit.kind != "movie_file" else None,
+                   "cids": [int(c["cid"]) for c in unit.cleanup_folders()], "target_path": tgt.path, "scrape": bool(scrape),
                    "batches": batches}
         token = hashlib.sha1(json.dumps(payload, sort_keys=True, default=str).encode()).hexdigest()[:16]
         self.reorg.remember_preview(token, payload)

@@ -67,7 +67,7 @@ def organize_unpin(unit_id: str, request: Request, ctx: AuthContext = Depends(re
 @router.post("/web/api/115/organize/preview")
 async def organize_preview(request: Request, ctx: AuthContext = Depends(require_admin)):
     """請 MoviePilot 只算不做：{id, parts: {部分: {type: tv|movie, tmdbid, season, format}}, target: auto（預設）|parent|path,
-    target_path, scrape}，沒指定的讓 MoviePilot 自己認。回傳每個檔案的新位置、它認成什麼和 Mi302 的檢查；
+    target_path, scrape（預設 False）}，沒指定的讓 MoviePilot 自己認。回傳每個檔案的新位置、它認成什麼和 Mi302 的檢查；
     有能整理的就給預覽代碼 token，用 POST /web/api/115/organize/execute 執行。"""
     st = state(request)
     body = await json_body(request)
@@ -76,7 +76,7 @@ async def organize_preview(request: Request, ctx: AuthContext = Depends(require_
     parts = body.get("parts") if isinstance(body.get("parts"), dict) else {}
     overrides = {str(k): v for k, v in parts.items() if isinstance(v, dict)}
     return await run_in_threadpool(_run, st.organizer.preview, str(body.get("id") or ""), overrides,
-                                   str(body.get("target") or ""), str(body.get("target_path") or ""), bool(body.get("scrape", True)))
+                                   str(body.get("target") or ""), str(body.get("target_path") or ""), bool(body.get("scrape", False)))
 
 
 @router.post("/web/api/115/organize/recommend")

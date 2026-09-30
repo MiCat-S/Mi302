@@ -185,7 +185,7 @@ MoviePilot 下載、整理完會通知 Mi302 重新掃描。缺集的季如果�
 - 「連線」卡片填好 MoviePilot 帳號密碼，帳號要是管理員。查整理後的名稱、手動整理、推薦集數定位和查版本的 API 都只接受帳號登入。
 - MoviePilot 的 115 網盤（存儲）要登入和 Mi302 同一個 115 帳號。Mi302 送的是 115 上的資料夾、檔案 id，MoviePilot 靠它搬檔案。
 - 用到的 API：`GET /api/v1/transfer/name`（整理後叫什麼）、`POST /api/v1/transfer/manual`（預覽和執行；一個資料夾送一個 `fileitem`，和 MoviePilot 網頁「檔案管理 → 整理」一樣）、`POST /api/v1/transfer/episode-format/recommend`（推薦集數定位）、`GET /api/v1/storage/directories`（目錄設定；V2 是 `/api/v1/system/setting/Directories`）、`POST /api/v1/transfer/manual/target-path`（它自己會整理到哪個目錄）、`POST /api/v1/transfer/manual/history`（有沒有整理紀錄）。
-- 整理到「同一層」或指定的資料夾時，MoviePilot 用自己的重命名格式，不另加類型、類別資料夾，已經有的檔案不覆蓋；「照 MoviePilot 的目錄設定」時，把包含這個資料夾的媒體庫目錄當成目標送過去，照那一項的類型、類別資料夾和覆蓋設定（見 [115 網盤與同步](115-網盤與同步#每一個要確認的)）。
+- 送出時它整理對話框的「按類型分類」「按類別分類」「刮削元數據」「複用歷史識別信息」都關掉，整理方式是移動：MoviePilot 只用自己的重命名格式改資料夾和檔名。已經在它媒體庫目錄裡的，「照 MoviePilot 的目錄設定」也留在原本的分類資料夾（見 [115 網盤與同步](115-網盤與同步#每一個要確認的)）。整理到指定的資料夾、對不上目錄設定時，已經有的檔案不覆蓋。
 
 ## 讓 MoviePilot 把 Mi302 當成 Emby
 
