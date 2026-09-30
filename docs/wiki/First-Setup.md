@@ -85,6 +85,16 @@ In Infuse, VidHub, SenPlayer, the official Emby apps or another player, add an *
 
 The server name shown in players is set under **Settings** (設定) → **Server name** (伺服器名稱); the default is `Emby Server`. To watch away from home, see [Playback](Playback).
 
+## Adding the web admin page to your phone's home screen
+
+The web admin page can be opened from the home screen like an app, full screen and without an address bar:
+
+- **iPhone, iPad**: open the page in Safari, then **Share** → **Add to Home Screen**. A plain http LAN address works too.
+- **Android**: open it in Chrome, then the menu → **Add to home screen** or **Install app**. It only opens full screen like an app when served over https (for example through a reverse proxy domain); with an http LAN address you get a shortcut that opens a normal browser tab.
+- **Chrome or Edge on a computer**: when opened over https or on localhost, an **Install** button appears in the address bar.
+
+Only the entry point is added; nothing is stored on the phone, and after a Mi302 update it opens the new version.
+
 ## Users
 
 The **Users** page (使用者) lists all accounts, whether each one is an **administrator** (管理員) or a **regular user** (一般使用者), and when it last signed in.

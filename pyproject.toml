@@ -20,7 +20,7 @@ build-backend = "setuptools.build_meta"
 include = ["embyserver*"]
 
 [tool.setuptools.package-data]
-embyserver = ["web/*.html"]
+embyserver = ["web/*.html", "web/*.png"]
 
 [tool.ruff]
 target-version = "py310"

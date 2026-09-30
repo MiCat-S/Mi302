@@ -8,7 +8,7 @@ import threading
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
-from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse
 from starlette.concurrency import run_in_threadpool
 
 from ... import logs, settings
@@ -19,7 +19,23 @@ from .common import json_body
 
 router = APIRouter()
 
-PAGE = Path(__file__).resolve().parent.parent.parent / "web" / "admin.html"
+WEB_DIR = Path(__file__).resolve().parent.parent.parent / "web"
+PAGE = WEB_DIR / "admin.html"
+# 手機「加到主畫面」（PWA）：應用程式清單、service worker、圖示。不用登入，瀏覽器才認得出來可以安裝
+PWA_ICONS = ("icon-192.png", "icon-512.png", "icon-maskable-512.png", "apple-touch-icon.png")
+MANIFEST = {
+    "name": "Mi302", "short_name": "Mi302", "description": "Mi302 管理網頁", "lang": "zh-Hant",
+    "start_url": "/web", "scope": "/web", "display": "standalone",
+    "background_color": "#f3f4f7", "theme_color": "#2f62d4",
+    "icons": [{"src": "/web/icon-192.png", "sizes": "192x192", "type": "image/png"},
+              {"src": "/web/icon-512.png", "sizes": "512x512", "type": "image/png"},
+              {"src": "/web/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable"}],
+}
+# 只為了讓瀏覽器認得出可以安裝：什麼都不快取、請求照常送到 Mi302，更新後不會看到舊的網頁
+SERVICE_WORKER = """self.addEventListener('install', () => self.skipWaiting());
+self.addEventListener('activate', e => e.waitUntil(self.clients.claim()));
+self.addEventListener('fetch', () => {});
+"""
 _setup_lock = threading.Lock()
 
 
@@ -31,6 +47,28 @@ def _user_view(u: dict) -> dict:
 def web_page():
     # 網頁上更新 Mi302 後，瀏覽器要拿新的頁面，不能用快取的舊版
     return HTMLResponse(PAGE.read_text(encoding="utf-8"), headers={"Cache-Control": "no-cache"})
+
+
+@router.get("/web/manifest.webmanifest")
+def web_manifest():
+    return JSONResponse(MANIFEST, media_type="application/manifest+json")
+
+
+@router.get("/web/sw.js")
+def web_service_worker():
+    # 檔案在 /web/ 底下，預設只管得到 /web/…；管理網頁是 /web，要放寬到那裡
+    return Response(SERVICE_WORKER, media_type="text/javascript",
+                    headers={"Service-Worker-Allowed": "/web", "Cache-Control": "no-cache"})
+
+
+def _icon_route(name: str):
+    def icon():
+        return FileResponse(WEB_DIR / name, media_type="image/png", headers={"Cache-Control": "public, max-age=86400"})
+    return icon
+
+
+for _name in PWA_ICONS:
+    router.add_api_route(f"/web/{_name}", _icon_route(_name), methods=["GET", "HEAD"])
 
 
 @router.get("/web/115")

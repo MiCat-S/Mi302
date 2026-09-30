@@ -2,6 +2,13 @@
 <html lang="zh-Hant"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Mi302</title>
+<link rel="manifest" href="/web/manifest.webmanifest">
+<link rel="apple-touch-icon" href="/web/apple-touch-icon.png">
+<meta name="theme-color" content="#f3f4f7" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0e1014" media="(prefers-color-scheme: dark)">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Mi302">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='9' fill='%232f62d4'/%3E%3Cpath d='M12 9.5l10.5 6.5L12 22.5z' fill='white'/%3E%3C/svg%3E">
 <style>
 :root{
@@ -3195,4 +3202,6 @@ async function pick115() { const p = await pickDir('115', remote.value || '/'); 
 async function pickLocal(id) { const p = await pickDir('local', $(id).value); if (p) $(id).value = p; }
 
 boot();
+// 手機「加到主畫面」：service worker 什麼都不快取，只是讓瀏覽器認得出可以安裝（http 的區網位址不支援，就跳過）
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('/web/sw.js', {scope: '/web'}).catch(() => {});
 </script></body></html>
