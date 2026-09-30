@@ -18,7 +18,9 @@ Mi302 自己不判斷名稱對不對，也不猜 TMDB 編號、類型和季，�
   不在任何媒體庫目錄裡的（例如下載目錄）才讓它自己挑（先問 /transfer/manual/target-path 挑不挑得出來）。
 - MoviePilot 沒有擋「新位置和原本一樣」，也不知道同步目錄在哪，所以 Mi302 自己擋：已經照格式命名的檔案、會把同步目錄裡
   的檔案搬出同步目錄的，那幾個檔案不送；覆蓋模式是「保留最新」時，在同一個資料夾裡改名的也不送（它會先刪掉同一集的
-  其他版本，連來源檔案一起刪）。一個資料夾裡有不送的檔案時，改成只送其他檔案（一個一個送）。
+  其他版本，連來源檔案一起刪）。它的預覽也不看目標是不是已經有同名檔案：Mi302 到 115 上看，覆蓋模式是「不覆蓋」時
+  那幾個不送（它會失敗「媒体库存在同名文件」，多半是重複的檔案），會覆蓋的只提醒。
+  一個資料夾裡有不送的檔案時，改成只送其他檔案（一個一個送）。
 - 執行：MoviePilot 有成功整理過的紀錄時，和它的網頁一樣帶 reorganize（清掉舊紀錄重新整理）；不帶的話它會當成
   「已整理過」跳過，預覽卻看不出來。
 執行、清掉搬空的舊資料夾、之後的增量同步、刪除沿用 reorganize.Reorganizer。
@@ -73,6 +75,7 @@ class Target:
 
 
 OVERWRITE_RISK = ["", "never", "size", "always", "latest"]  # 越後面越會刪東西
+OVERWRITE_NAMES = {"size": "按大小覆蓋", "always": "覆蓋", "latest": "保留最新"}
 MOVIE_TYPES, TV_TYPES = {"电影", "movie"}, {"电视剧", "tv"}
 
 
@@ -668,6 +671,7 @@ class Organizer:
                 raise OrganizeError(f"MoviePilot 預覽失敗：{exc}")
             views = [_view(r, part, roots, tgt.overwrite) for r in results]
             _mark_duplicates(views)
+            self._mark_existing(views, tgt.overwrite, listings, notes)
             recognized = _recognized(views)
             if part.lib_season is not None and o["season"] is None:
                 for r in recognized:
@@ -710,6 +714,32 @@ class Organizer:
                         "skipped": sum(1 for i in items if i["skip"]),
                         "warnings": sum(1 for i in items if i["ok"] and i["warnings"])},
         }
+
+    def _mark_existing(self, views: List[dict], overwrite: str, listings: Dict[str, List[dict]], notes: List[str]) -> None:
+        """MoviePilot 預覽不看目標是不是已經有同名檔案，真的整理時才發現：覆蓋模式「不覆蓋」（或沒設）時失敗
+        「媒体库存在同名文件」；之前失敗過的，它還會照上次的計畫在背景重試。所以到 115 上看目標資料夾：
+        有同名檔案、不會覆蓋的不送（多半是 115 加了「(1)」的重複檔案），會覆蓋的提醒。"""
+        folders: Dict[str, List[dict]] = {}
+        for v in views:
+            if v["ok"] and v["target"]:
+                folders.setdefault(posixpath.dirname(v["target"]), []).append(v)
+        for folder, vs in folders.items():
+            try:
+                cid = self.p115.dir_id(folder)
+                names = {e["name"] for e in self._listing(folder, cid, listings) if not e["is_dir"]}
+            except P115Error as exc:
+                if "找不到目錄" not in str(exc):  # 還沒有這個資料夾：當然沒有同名檔案
+                    notes.append(f"看不到 {folder} 裡有沒有同名的檔案（{exc}），整理時已經有的可能會失敗")
+                continue
+            for v in vs:
+                if posixpath.basename(v["target"]) not in names:
+                    continue
+                if overwrite in ("", "never"):
+                    v.update(ok=False, skip="exists", message="目標已經有同名的檔案，MoviePilot 不會整理（覆蓋模式是「不覆蓋」）。"
+                                                                "這支多半是重複的，確認後用「刪除…」刪掉就好")
+                else:
+                    v["warnings"].append(f"目標已經有同名的檔案，MoviePilot 的覆蓋模式是「{OVERWRITE_NAMES.get(overwrite, overwrite)}」，"
+                                         + ("會用這支蓋掉它" if overwrite == "always" else "會照這個模式留下其中一個"))
 
     def _fileitems(self, unit: Unit, part: Part, listings: Dict[str, List[dict]]) -> Tuple[List[dict], bool]:
         """這一部分要送給 MoviePilot 的項目：整個資料夾一個（single），直接放著的影片照 115 上的檔名一個一個。"""
@@ -814,7 +844,8 @@ def _override(o: dict) -> dict:
     return {"tmdbid": tmdbid, "season": season, "type_name": type_name, "format": fmt}
 
 
-SKIP_LABELS = {"same": "已經照格式命名", "outside": "會搬出同步目錄", "latest": "在同一個資料夾裡改名、覆蓋模式是「保留最新」"}
+SKIP_LABELS = {"same": "已經照格式命名", "outside": "會搬出同步目錄", "latest": "在同一個資料夾裡改名、覆蓋模式是「保留最新」",
+               "exists": "目標已經有同名檔案（多半是重複的）"}
 VAGUE_FAILURE = "整理任务处理失败"  # MoviePilot 預覽時對不上目錄設定、算不出計畫都只說這句，原因只寫在它的日誌
 
 

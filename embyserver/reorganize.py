@@ -110,7 +110,8 @@ class ReorgJob:
     finished: float = 0.0
     title: str = ""
     total: int = 0
-    done: int = 0  # MoviePilot 整理好（或已接收）的檔案
+    done: int = 0  # MoviePilot 整理好的檔案
+    queued: int = 0  # MoviePilot 放進它的整理佇列在背景做（結果在它的整理記錄）
     failed: int = 0
     current: str = ""
     synced: str = ""  # 之後的增量同步：started / busy
@@ -387,10 +388,17 @@ class Reorganizer:
         done = 0
         for r in results:
             state = str(r.get("state") or ("completed" if r.get("success") else "failed"))
+            message = str(r.get("message") or "")
+            if state == "retry_wait":
+                # 這支之前在 MoviePilot 整理失敗過：它不照這次的預覽，而是照上次的計畫在背景重試
+                message += ("（MoviePilot 有這支之前整理失敗的紀錄，它照上次的計畫在背景重試，不是這次的預覽，結果看它的整理記錄。"
+                            "要照這次的預覽整理，先到 MoviePilot 的整理記錄刪掉那一條再執行）")
             job.items.append({"name": posixpath.basename(str(r.get("source") or "").rstrip("/")), "state": state,
-                              "target": r.get("target") or r.get("target_dir") or "", "message": r.get("message") or ""})
-            if state in ("completed", "accepted"):
+                              "target": r.get("target") or r.get("target_dir") or "", "message": message})
+            if state == "completed":
                 done += 1
+            elif state in ("accepted", "retry_wait"):
+                job.queued += 1
             else:
                 job.failed += 1
         job.done += done

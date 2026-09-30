@@ -369,7 +369,10 @@ def test_preview_lets_moviepilot_recognize(tmp_path: Path):
     units = {u["id"]: u for u in listing(c, h)["items"]}
     mp.outside.add("康熙来了 EP01.mp4")
     out = preview(c, h, units["d111"]).json()
-    assert out["summary"]["skipped"] == 1 and any("會搬出同步目錄" in n for n in out["notes"])
+    # EP02 的目標（康熙来了 (2004) {tmdbid=6836}/Season 1）已經有同一集：MoviePilot 預覽不查，Mi302 查到就不送
+    assert out["summary"]["skipped"] == 2 and any("1 個會搬出同步目錄、1 個目標已經有同名檔案" in n for n in out["notes"])
+    ep02 = next(i for i in out["items"] if i["name"] == "康熙来了 EP02.mp4")
+    assert ep02["skip"] == "exists" and "重複" in ep02["message"]
     mp.outside.clear()
 
     # 集數定位：指定了就送給 MoviePilot
@@ -410,8 +413,8 @@ def test_execute_moves_and_cleans_up(tmp_path: Path):
     sent = [b for p_, b in mp.calls if p_ == "/api/v1/transfer/manual"]
     assert [b.get("season") for b in sent] == [None, 1, None]  # 執行時照預覽時指定的
     job = app.state.reorganizer.job
-    # 虚天战纪 上、下認成同一部電影：第二支跳過；康熙 EP02 目標已經有，跳過
-    assert (job.total, job.done, job.failed, job.title) == (7, 5, 2, "整理 2 個資料夾") and not job.errors
+    # 虚天战纪 上、下認成同一部電影：第二支跳過；康熙 EP02 目標已經有同一集，預覽就不送
+    assert (job.total, job.done, job.failed, job.title) == (6, 5, 1, "整理 2 個資料夾") and not job.errors
     folders = {i["name"]: i for i in job.items if i["state"] in ("kept", "removed")}
     assert folders[units["d110"]["path"]]["state"] == "kept" and "1 支影片" in folders[units["d110"]["path"]]["message"]
     assert folders[units["d111"]["path"]]["state"] == "kept"
@@ -430,6 +433,7 @@ def test_cleanup_skips_folder_moviepilot_already_removed(tmp_path: Path):
     app, fake, mp, media, c, h = setup(tmp_path)
     check(app, c, h)
     units = {u["id"]: u for u in listing(c, h)["items"]}
+    fake.files = [f for f in fake.files if f["fid"] != 52]  # 目標沒有 EP02：整個資料夾一起送
     pv = preview(c, h, units["d111"]).json()
     mp.delete_source = True
     c.post(EXECUTE, json={"tokens": [pv["token"]], "cleanup": [{"cid": 111, "path": units["d111"]["path"]}]}, headers=h)
@@ -612,3 +616,29 @@ def test_vague_moviepilot_failure_gets_a_hint():
     part = Part("all", "整個資料夾", 1, "/影視/電影/X", None, 1)
     v = _view({"source": "/影視/電影/X/x.mkv", "success": False, "message": "整理任务处理失败，请稍后重试"}, part, ["/影視"])
     assert not v["ok"] and "目錄設定對不上" in v["message"]
+
+
+def test_existing_target_is_not_sent_unless_moviepilot_overwrites(tmp_path: Path):
+    """目標已經有同名檔案：覆蓋模式「不覆蓋」時 MoviePilot 會失敗（之前失敗過的還會在背景照舊計畫重試），不送；
+    會覆蓋的只提醒。MoviePilot 放進背景佇列的（retry_wait、accepted）算「背景處理」，不算整理好也不算失敗。"""
+    app, fake, mp, media, c, h = setup(tmp_path)
+    check(app, c, h)
+    unit = {u["id"]: u for u in listing(c, h)["items"]}["d111"]
+    pv = preview(c, h, unit).json()
+    assert [i["name"] for i in pv["items"] if i["ok"]] == ["康熙来了 EP01.mp4"] and pv["summary"]["skipped"] == 1
+
+    # 那個媒體庫目錄會覆蓋：送，但提醒
+    mp.dirs.append({**LIBRARY, "library_path": "/影視/劇集", "overwrite_mode": "always"})
+    pv = preview(c, h, unit).json()
+    ep02 = next(i for i in pv["items"] if i["name"] == "康熙来了 EP02.mp4")
+    assert ep02["ok"] and "會用這支蓋掉它" in ep02["warnings"][0]
+
+    # 執行時 MoviePilot 放進背景重試：照實說
+    from embyserver.reorganize import ReorgJob
+    job = ReorgJob()
+    app.state.moviepilot.transfer = lambda *a, **k: [
+        {"source": "/a/1.mp4", "state": "retry_wait", "message": "已提交重新整理，后台将自动处理"},
+        {"source": "/a/2.mp4", "state": "completed", "success": True}]
+    app.state.reorganizer._run_items({"scrape": False, "target_path": None}, {"fileitems": [], "label": "x", "count": 2,
+                                                                             "single": False}, job)
+    assert (job.done, job.queued, job.failed) == (1, 1, 0) and "照上次的計畫在背景重試" in job.items[0]["message"]

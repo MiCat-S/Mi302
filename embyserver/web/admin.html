@@ -2191,15 +2191,16 @@ function fillHtml(f) {
   return h;
 }
 // ---- 整理的進度、預覽的每個檔案（整理 115 網盤用）----
-const REO_STATE = {completed: '完成', accepted: 'MoviePilot 已接收', failed: '失敗', retry_wait: '等待重試', skipped: '略過', manual_review: '要人工確認',
+const REO_STATE = {completed: '完成', accepted: 'MoviePilot 背景處理', failed: '失敗', retry_wait: 'MoviePilot 背景重試', skipped: '略過', manual_review: '要人工確認',
   removed: '已移到回收站', kept: '資料夾保留'};
-const REO_OK = new Set(['completed', 'accepted', 'removed']);
+const REO_OK = new Set(['completed', 'removed']);
 function reoJobHtml(j) {
   if (!j.started) return '';
   let h = '<div class="row wrap mb8">';
-  if (j.running) h += `<span class="pill accent"><span class="spin"></span>整理中</span><span class="hint sp"><span>${esc(j.title)}・${j.done + j.failed} / ${j.total}</span>${j.current ? `<span>${esc(j.current)}</span>` : ''}</span>`;
+  if (j.running) h += `<span class="pill accent"><span class="spin"></span>整理中</span><span class="hint sp"><span>${esc(j.title)}・${j.done + j.failed + (j.queued || 0)} / ${j.total}</span>${j.current ? `<span>${esc(j.current)}</span>` : ''}</span>`;
   else h += `<span class="pill ${j.failed || j.errors.length ? 'warn' : 'ok'}">${j.failed || j.errors.length ? '部分失敗' : '完成'}</span><span class="hint">上次整理：${esc(j.title)}・${ago(j.finished)}</span>`;
-  h += `</div><div class="chips">${chip(j.done, '整理好', true)}${chip(j.failed, '失敗')}</div>`;
+  h += `</div><div class="chips">${chip(j.done, '整理好', true)}${j.queued ? chip(j.queued, 'MoviePilot 背景處理') : ''}${chip(j.failed, '失敗')}</div>`;
+  if (j.queued) h += '<p class="hint mt8">「MoviePilot 背景處理」的放進了它的整理佇列，做完沒有結果回來；到 MoviePilot 的「整理記錄」看成功或失敗。</p>';
   if (!j.running && j.synced) h += `<p class="hint mt8">${j.synced === 'started' ? '已經開始增量同步 115，本機的 strm 會跟著搬到新名字，再重新掃描。' : '115 同步正在進行，這次的變動會在下一次同步時帶到。'}</p>`;
   if (j.items.length) h += `<details class="more mt10"><summary>每個檔案的結果（${j.items.length}）</summary><div class="in list">${j.items.map(i =>
     `<div class="li top"><div class="main"><b>${esc(i.name)}</b>${i.target ? `<div class="reo-to">→ ${esc(i.target)}</div>` : ''}${i.message ? `<div class="sub">${esc(i.message)}</div>` : ''}</div><span class="pill ${REO_OK.has(i.state) ? 'ok' : 'warn'}">${esc(REO_STATE[i.state] || i.state)}</span></div>`).join('')}</div></details>`;
