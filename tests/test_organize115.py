@@ -571,6 +571,8 @@ def test_delete_a_movie_from_the_list(tmp_path: Path):
     assert "Up.2009.1080p" not in {u["name"] for u in listing(c, h)["items"]}
     assert c.post("/web/api/115/organize/delete", json={"id": "d120"}, headers=h).json()["folder_removed"]  # 電影資料夾
     assert "120" in fake.deleted and not (media / "電影" / "星际穿越 Interstellar 2014 4K").exists()
+    log = c.get("/web/api/deleted", headers=h).json()["items"]
+    assert [(i["source"], i["file_id"], i["is_dir"]) for i in log] == [("organize", "120", True), ("organize", "81", False)]
 
 
 LIBRARY = {"name": "影視庫", "storage": "local", "download_path": "/downloads", "monitor_type": "monitor",

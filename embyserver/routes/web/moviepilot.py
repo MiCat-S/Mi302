@@ -168,6 +168,12 @@ def moviepilot_subscriptions(request: Request, ctx: AuthContext = Depends(requir
         raise HTTPException(status_code=502, detail=f"讀不到 MoviePilot 的訂閱：{exc}")
 
 
+@router.get("/web/api/moviepilot/subscriptions/unsubscribed")
+def moviepilot_unsubscribed(request: Request, ctx: AuthContext = Depends(require_admin)):
+    """上一次「取消所有訂閱」取消前的訂閱清單（名稱、年份、類型、季、tmdbid），取消錯了可以照它重新訂閱。"""
+    return state(request).moviepilot.unsubscribed()
+
+
 @router.post("/web/api/moviepilot/subscriptions/clear")
 async def moviepilot_subscriptions_clear(request: Request, ctx: AuthContext = Depends(require_admin)):
     """取消 MoviePilot 裡所有的訂閱：{"confirm": "取消訂閱"}，沒帶 confirm 不做。在背景一個一個刪，進度看

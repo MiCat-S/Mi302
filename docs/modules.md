@@ -142,6 +142,15 @@ ffprobe → MediaSourceInfo 的對照改寫自 xiao-vvv/emby-mediainfo 的 app/m
     OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
     SOFTWARE.
 
+## embyserver/deletelog.py
+
+Mi302 送進 115 回收站的紀錄（資料表 deleted_log）。每一條刪除路徑都呼叫 record：重複檔案（dupes，同時照舊寫 dup_deleted）、
+空資料夾（empty）、瀏覽 115（browse，網頁帶目前資料夾的路徑時記完整路徑）、整理 115 網盤的刪除（organize：整部劇、幾集、
+電影或資料夾）、整理後清掉的舊資料夾（cleanup）。只是紀錄，不能從這裡還原；網頁「115 網盤 → 回收站」的「Mi302 刪掉的」
+照它列（GET /web/api/deleted），可以只看一種來源。最多留 KEEP 筆，每次寫入時刪掉更舊的。115 的檔案 id 回傳成字串
+（19 位數超過 JavaScript 能精確表示的整數）。
+離線下載的「刪檔案」是 115 自己刪下載好的檔案，不經過 Mi302 的刪除，不記。
+
 ## embyserver/dupes.py
 
 115 上重複的影片：找出來、建議保留哪一份、刪掉多的。

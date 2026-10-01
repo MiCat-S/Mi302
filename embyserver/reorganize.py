@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import List, Optional, Tuple
 
 from .config import StrmTask
+from . import deletelog
 from .db import Database
 from .dupes import DELETE_BATCH
 from .filetypes import VIDEO_EXTS
@@ -234,6 +235,10 @@ class Reorganizer:
         except P115Error as exc:
             raise ReorgError(f"115 刪除失敗：{exc}" + (f"（已經刪了 {len(deleted)} 個）" if deleted else ""))
         finally:
+            files = {f["file_id"]: f for f in plan["files"] if f["file_id"]}
+            deletelog.record(self.db, "organize", [
+                {"file_id": i, "name": files[i]["name"], "path": posixpath.join(folder["path"], files[i]["folder"], files[i]["name"])}
+                for i in deleted] + ([{"file_id": folder["cid"], "path": folder["path"], "is_dir": True}] if folder_removed else []))
             self._after_delete(series_id, deleted + ([folder["cid"]] if folder_removed else []), folder_removed)
         log.info("刪除「%s」的 %s 集（移到 115 回收站）%s", plan["name"], len(deleted), "，劇集資料夾也移到回收站" if folder_removed else "")
         return {"deleted": len(deleted), "folder_removed": folder_removed, "note": note}
@@ -254,6 +259,7 @@ class Reorganizer:
         except ReorgError:
             self._lock.release()
             raise
+        deletelog.record(self.db, "organize", [{"file_id": cid, "path": path, "is_dir": True}])
         self._after_delete(series_id, [cid], True)
         log.info("整部「%s」移到 115 回收站：%s", series["name"], path)
         return {"deleted": 1, "folder_removed": True, "note": ""}
@@ -269,19 +275,21 @@ class Reorganizer:
         except (P115Error, ReorgError) as exc:
             self._lock.release()
             raise exc if isinstance(exc, ReorgError) else ReorgError(f"115 刪除失敗：{exc}")
+        deletelog.record(self.db, "organize", [{"file_id": file_id, "path": path, "is_dir": is_dir}])
         self._after_delete(None, [file_id], False, extra=[local] if local else [])
         log.info("移到 115 回收站：%s", path)
         return {"deleted": 1, "folder_removed": is_dir, "note": ""}
 
-    def delete_in_folder(self, parent_cid: int, ids: List[int]) -> dict:
+    def delete_in_folder(self, parent_cid: int, ids: List[int], parent_path: str = "") -> dict:
         """瀏覽 115 裡勾的資料夾、檔案移到 115 回收站（資料夾連同裡面所有檔案），同步目錄裡的本機 strm、nfo 和媒體庫跟著拿掉。
-        先列一次這個資料夾，只刪真的在裡面的（清單過期、id 不對的不刪）。"""
+        先列一次這個資料夾，只刪真的在裡面的（清單過期、id 不對的不刪）。parent_path 是這個資料夾的路徑（記刪除紀錄用）。"""
         ids = list(dict.fromkeys(int(i) for i in ids))
         if not ids:
             raise ReorgError("沒有勾要刪的")
         self._begin_delete()
         deleted: List[int] = []
         local_dirs: List[str] = []
+        entries: dict = {}
         try:
             entries = {e["id"]: e for e in self.p115.list_dir(parent_cid)}
             pick = [i for i in ids if i in entries]
@@ -293,10 +301,12 @@ class Reorganizer:
                 self.p115.delete_files(batch)
                 deleted += batch
         except (P115Error, ReorgError) as exc:
+            self._record_browse(entries, deleted, parent_path)
             self._after_delete(None, deleted, False, extra=local_dirs if deleted else [])
             if isinstance(exc, ReorgError):
                 raise
             raise ReorgError(f"115 刪除失敗：{exc}" + (f"（已經刪了 {len(deleted)} 個）" if deleted else ""))
+        self._record_browse(entries, deleted, parent_path)
         self._after_delete(None, deleted, False, extra=local_dirs)
         log.info("瀏覽 115：%s 個移到 115 回收站：%s", len(deleted), "、".join(entries[i]["name"] for i in deleted[:5]))
         return {"deleted": len(deleted), "names": [entries[i]["name"] for i in deleted]}
@@ -512,10 +522,16 @@ class Reorganizer:
                                       "message": f"還有 {left} 支影片（整理失敗或目標已有同一集的會留在原處），資料夾保留"})
                     continue
                 self.p115.delete_files([c["cid"]])
+                deletelog.record(self.db, "cleanup", [{"file_id": c["cid"], "path": path, "is_dir": True}])
                 job.items.append({"name": path, "state": "removed", "target": "", "message": "沒有影片留下，已移到 115 回收站"})
                 log.info("整理後沒有影片留下的舊資料夾移到 115 回收站：%s", path)
             except P115Error as exc:
                 job.items.append({"name": path, "state": "kept", "target": "", "message": f"資料夾保留：{exc}"})
+
+    def _record_browse(self, entries: dict, ids: List[int], parent_path: str) -> None:
+        deletelog.record(self.db, "browse", [
+            {"file_id": i, "name": entries[i]["name"], "is_dir": entries[i]["is_dir"], "size": entries[i].get("size"),
+             "path": posixpath.join(parent_path, entries[i]["name"]) if parent_path else entries[i]["name"]} for i in ids])
 
     def _folder_path(self, cid: int) -> str:
         """115 上這個資料夾 id 現在的完整路徑；已經不存在時是空字串。"""

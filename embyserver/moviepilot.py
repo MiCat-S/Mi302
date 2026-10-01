@@ -57,6 +57,7 @@ MAX_CONCURRENCY = 8  # 同時送幾項刮削的上限
 NO_IMAGE_RETRY_SECONDS = 30 * 86400
 FILL_EXCLUDED_KEY = "fill_excluded"  # 補全缺集時跳過的劇（資料庫 meta，JSON：tmdbid → 劇名）
 LAST_SCRAPE_KEY = "mp_last_scrape"  # 上一次刮削的結果摘要（資料庫 meta），重新啟動後網頁照樣顯示
+UNSUBSCRIBED_KEY = "mp_unsubscribed"  # 「取消所有訂閱」取消前的訂閱清單（資料庫 meta）：取消錯了可以照它重建
 # 這麼久以內查過 TMDB 的季直接用記下的，不再問一次：檢查完接著補全、同一天重跑，不必再問上千次
 TMDB_FRESH_SECONDS = 6 * 3600
 
@@ -1140,11 +1141,14 @@ class MoviePilot:
         try:
             if not self.enabled:
                 raise MoviePilotError("還沒設定 MoviePilot")
+            listed: Dict[int, dict] = {}
             while True:
                 todo = [s for s in self.subscriptions() if s["id"] not in tried]
                 r.total = len(tried) + len(todo)
                 if not todo:
                     break
+                listed.update((s["id"], s) for s in todo)
+                self._save_unsubscribed(list(listed.values()), r.started)  # 刪之前先記下來
                 for s in todo:
                     if self._stop.is_set() or self._cancel["unsubscribe"].is_set():
                         r.stopped = not self._stop.is_set()
@@ -1175,6 +1179,18 @@ class MoviePilot:
             self._subs_cache = self._sent_cache = None
             self._fill_lock.release()
         return r
+
+    def _save_unsubscribed(self, subs: List[dict], started: float) -> None:
+        if self.db is not None:
+            self.db.set_meta(UNSUBSCRIBED_KEY, json.dumps({"at": started, "items": subs}, ensure_ascii=False))
+
+    def unsubscribed(self) -> dict:
+        """上一次「取消所有訂閱」取消前的訂閱清單：{at, items: [{id, name, year, type, season, tmdbid}]}；沒有是空的。"""
+        try:
+            value = json.loads(self.db.get_meta(UNSUBSCRIBED_KEY) or "{}") if self.db is not None else {}
+        except ValueError:
+            value = {}
+        return value if isinstance(value, dict) else {}
 
     def unsubscribe_all_in_background(self) -> bool:
         if self._fill_lock.locked():

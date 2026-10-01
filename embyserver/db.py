@@ -227,6 +227,19 @@ CREATE TABLE IF NOT EXISTS dup_deleted (
     at INTEGER NOT NULL
 );
 
+-- Mi302 送進 115 回收站的東西（每一條刪除路徑都寫，見 deletelog.py）：網頁「回收站」查得到，在 115 還原時找得到
+CREATE TABLE IF NOT EXISTS deleted_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    source TEXT,
+    file_id INTEGER,
+    name TEXT,
+    path TEXT,
+    is_dir INTEGER DEFAULT 0,
+    size INTEGER DEFAULT 0,
+    at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_deleted_source ON deleted_log(source);
+
 -- 送去 MoviePilot 刮削後有 nfo 卻沒有劇照的集（多半是 TMDB 沒有這集的圖），一段時間內不再重送
 CREATE TABLE IF NOT EXISTS mp_no_image (
     path TEXT PRIMARY KEY,

@@ -570,6 +570,14 @@ dialog .card-b{max-height:70vh;overflow:auto}
           <div id="rbList" class="list"></div>
         </div>
       </div>
+      <div class="card" data-sub="recycle" role="tabpanel">
+        <div class="card-h"><div class="t"><svg class="i"><use href="#i-doc"/></svg><h2>Mi302 刪掉的</h2></div>
+          <div class="row"><select id="dlSource" class="w-auto" aria-label="從哪裡刪的" onchange="loadDeleted(0)"><option value="">全部</option></select></div></div>
+        <div class="card-b stack">
+          <p class="hint">Mi302 送進 115 回收站的都記在這裡：重複檔案、空資料夾、瀏覽 115、整理 115 網盤、整理後清掉的舊資料夾，最多留 5000 筆。要還原請到 115 的回收站找同名的。</p>
+          <div id="dlList" class="list"></div>
+        </div>
+      </div>
 
     </section>
 
@@ -1135,7 +1143,7 @@ const PAGES = {overview: () => loadOverview(), libraries: () => loadLibs(), '115
 // 值是切到那個分頁時要讀的資料（null = 頁面本身讀過了）
 const SUBS = {
   '115': {acct: null, sync: null, offline: () => { if (!$('olFolder').value) $('olFolder').value = localGet('mi302-ol-folder'); loadOffline(1); },
-    organize: () => organizeLoad(1), recycle: () => loadRecycle(0)},
+    organize: () => organizeLoad(1), recycle: () => { loadRecycle(0); loadDeleted(0); }},
   tools: {mi: () => { restoreMiPrefs(); pollMI(); }, intro: () => pollIntro(), dup: () => loadDupes(), empty: () => loadEmpty()},
   moviepilot: {conn: null, scrape: null, fill: () => { restoreSeriesLimit(); loadSeries(1); }, emby: () => loadKeys()},
   settings: {general: null, webdav: () => davShow(), strm: null, zh: () => pollPeople(), backup: () => loadBackups(), about: null},
@@ -2661,8 +2669,10 @@ function unsubHtml(u) {
   else h += `<span class="pill ${u.errors.length || u.stopped ? 'warn' : 'ok'}">${u.stopped ? '已停止' : u.errors.length ? '有問題' : '完成'}</span><span class="hint">上次取消訂閱・${ago(u.finished)}</span>`;
   h += `</div><div class="chips">${chip(u.done, '取消了', true)}${chip(u.failed, '失敗')}${u.stopped ? chip(u.total - u.done - u.failed, '還留著') : ''}</div>`;
   if (u.errors.length) h += `<div class="notice bad mt10">${u.errors.slice(0, 5).map(esc).join('<br>')}</div>`;
+  if (!u.running && u.done) h += '<p class="hint mt8">取消前的訂閱清單 Mi302 留了一份：<button class="link" data-act="unsubList">下載（JSON）</button>，取消錯了可以照它重新訂閱。</p>';
   return h;
 }
+ACTS.unsubList = async () => downloadBlob(await fetch('/web/api/moviepilot/subscriptions/unsubscribed', {headers: H()}), 'moviepilot-訂閱清單.json');
 function fillHtml(f) {
   // 進行中：進度和停止；做完：一行結果（細節收在「每一季的結果」裡），清單才是主角
   if (!f.started) return '';
@@ -3389,6 +3399,19 @@ async function loadRecycle(offset) {
   const pages = Math.max(1, Math.ceil(r.count / RB_PAGE)), page = Math.floor(offset / RB_PAGE) + 1;
   pager(box, {page, pages, onPage: p => loadRecycle((p - 1) * RB_PAGE)});
 }
+const DL_PAGE = 50;
+async function loadDeleted(offset) {
+  // Mi302 自己記的刪除紀錄（不用連 115）：新的在前面，可以只看一種來源
+  const box = $('dlList'), sel = $('dlSource'), src = sel.value;
+  let r;
+  try { r = await api(`/web/api/deleted?source=${encodeURIComponent(src)}&offset=${offset}&limit=${DL_PAGE}`); }
+  catch (e) { box.innerHTML = failHtml(e); return; }
+  if (sel.options.length === 1) for (const [k, v] of Object.entries(r.sources)) sel.add(new Option(v, k));
+  box.innerHTML = r.items.length ? r.items.map(i => `<div class="li"><div class="main"><b>${esc(i.name)}</b>${i.is_dir ? ' <span class="pill">資料夾</span>' : ''}
+    <div class="sub">${[i.source_name, fmtTime(i.at), i.size ? fmtSize(i.size) : '', i.path].filter(Boolean).map(esc).join('・')}</div></div></div>`).join('')
+    : emptyState(src ? '這一類沒有刪除紀錄' : '還沒有刪除紀錄', 'Mi302 送進 115 回收站的會記在這裡。');
+  pager(box, {page: Math.floor(offset / DL_PAGE) + 1, pages: Math.max(1, Math.ceil(r.total / DL_PAGE)), onPage: p => loadDeleted((p - 1) * DL_PAGE), total: r.total, unit: '筆'});
+}
 async function cleanRecycle() {
   // 永久刪除：先輸入「清空」，只有 cookie 通道時再問安全密鑰
   if (!rb.count) return;
@@ -3562,7 +3585,7 @@ async function b115DeleteSelected() {
     ok: '刪除', danger: true})) return;
   $('b115DelSel').disabled = true;
   try {
-    const r = await api('/web/api/115/delete', {method: 'POST', body: JSON.stringify({parent: String(b115.cid), ids: picked.map(p => p.id)})});
+    const r = await api('/web/api/115/delete', {method: 'POST', body: JSON.stringify({parent: String(b115.cid), path: b115.path, ids: picked.map(p => p.id)})});
     toast(`已刪除 ${r.deleted} 個（移到 115 回收站）`);
     for (const p of picked) b115.added.delete(p.id);
     b115GoLabel();

@@ -417,6 +417,10 @@ def test_unsubscribe_all(tmp_path: Path):
     r = mp.unsubscribe_all()
     assert (r.total, r.done, r.failed, r.stopped) == (5, 4, 1, False) and "劇 3 S01" in r.errors[0]
     assert [s["id"] for s in fake.subs] == [3]  # 刪不掉的那個留著，不會一直重試
+    # 取消前的訂閱清單留了一份（每一輪列出來的都記），取消錯了可以照它重建
+    kept = c.get("/web/api/moviepilot/subscriptions/unsubscribed", headers=h).json()
+    assert kept["at"] == r.started and sorted(s["id"] for s in kept["items"]) == [1, 2, 3, 4, 5]
+    assert {"name": "劇 5", "type": "电影", "season": 1}.items() <= next(s for s in kept["items"] if s["id"] == 5).items()
     assert c.get("/web/api/moviepilot/status", headers=h).json()["unsubscribe"]["done"] == 4
     # 經過 API：帶了確認字才開始（在背景跑）
     started = []

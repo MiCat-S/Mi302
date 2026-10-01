@@ -388,6 +388,8 @@ Emptying asks for confirmation twice:
 
 With [115 open platform](#115-open-platform-advanced) authorisation, Mi302 empties the bin through the open platform, which needs no security key; it falls back to the cookie only if the open platform fails. Emptying the bin is recorded in the log.
 
+The **Deleted by Mi302** (Mi302 刪掉的) card below lists what Mi302 itself sent to the 115 recycle bin: duplicates, empty folders, Browse 115, Organise 115 and old folders cleaned up after organising, with name, source, time, size and original path. You can filter by source; 50 per page, up to 5000 entries are kept. To restore something, look for that name in 115's recycle bin. The list is kept by Mi302 and needs no 115 request; after the bin is emptied the entries stay, but the files can no longer be recovered.
+
 ## Duplicate files
 
 The **Duplicates and big files** card (重複和大檔案) on the **Tools** tab (整理) finds duplicate videos on 115 and deletes the extra copies, and also lists the big files that take up space. One **Scan** (掃描) looks for three kinds, shown on three tabs:

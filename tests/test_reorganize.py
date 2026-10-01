@@ -240,7 +240,7 @@ def test_big_ids_are_sent_as_strings():
         {"a": [str(big), 5, True, {"b": str(-big)}], "c": 2 ** 53 - 1, "d": 1.5}
 
 
-def test_delete_from_browse(tmp_path: Path):
+def test_delete_from_browse(tmp_path: Path, monkeypatch):
     """瀏覽 115 裡勾的刪掉：只刪真的在這個資料夾裡的；資料夾連同裡面，本機 strm 和媒體庫跟著拿掉。"""
     app, fake, mp, media, c, h = build(tmp_path)
     delete = "/web/api/115/delete"
@@ -257,5 +257,14 @@ def test_delete_from_browse(tmp_path: Path):
     # 檔案
     movie = media / "電影" / "Old Movie (2001).strm"
     assert movie.exists()
-    assert c.post(delete, json={"parent": 101, "ids": [1]}, headers=h).json()["deleted"] == 1
+    assert c.post(delete, json={"parent": 101, "path": "/影視/電影", "ids": [1]}, headers=h).json()["deleted"] == 1
     assert "1" in fake.deleted and not movie.exists()
+    # 刪除紀錄（回收站分頁的「Mi302 刪掉的」）：新的在前面，網頁帶了目前資料夾的路徑就記完整路徑
+    log = c.get("/web/api/deleted", params={"source": "browse"}, headers=h).json()
+    assert [(i["name"], i["path"], i["is_dir"], i["source_name"]) for i in log["items"]] == [
+        ("Old Movie (2001).mkv", "/影視/電影/Old Movie (2001).mkv", False, "瀏覽 115"), ("Dark", "Dark", True, "瀏覽 115")]
+    # 最多留 KEEP 筆，舊的刪掉
+    import embyserver.deletelog as deletelog
+    monkeypatch.setattr(deletelog, "KEEP", 2)
+    deletelog.record(app.state.db, "empty", [{"file_id": 9, "path": "/x/空的", "is_dir": True}])
+    assert [i["name"] for i in deletelog.recent(app.state.db)[0]] == ["空的", "Old Movie (2001).mkv"]

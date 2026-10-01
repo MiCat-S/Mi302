@@ -15,6 +15,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional, Set, Tuple
 
+from . import deletelog
 from .db import Database
 from .filetypes import VIDEO_EXTS
 from .mediainfo import MediaInfoStore
@@ -807,6 +808,7 @@ class DupeFinder:
                       "(SELECT sha1 || ':' || size FROM dup_files GROUP BY sha1, size HAVING COUNT(*) < 2)")
             c.execute("DELETE FROM dup_versions WHERE grp IN (SELECT grp FROM dup_versions GROUP BY grp HAVING COUNT(*) < 2)")
             c.commit()
+        deletelog.record(self.db, "dupes", batch)  # 和其他刪除一起列在「回收站」
         return removed
 
     def _move_user_data(self, src_path: str, dst_path: str) -> None:

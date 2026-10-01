@@ -186,6 +186,7 @@ If a fill created more subscriptions than you wanted and you would rather start 
 - It first shows how many subscriptions MoviePilot has (series, and movies or others) and only starts after you type 取消訂閱. Series and movie subscriptions are all cancelled, not just the ones Mi302 created.
 - They are cancelled one by one in the background (`DELETE /api/v1/subscribe/{id}`). The card shows the progress, and **Stop** (停止) keeps whatever has not been cancelled yet; what is already cancelled does not come back.
 - Only the subscriptions are removed. Files already downloaded and organised are untouched; MoviePilot just stops searching for and following those titles.
+- Mi302 keeps the list of subscriptions it cancelled (name, year, type, season, tmdbid): when it is done the card offers **Download (JSON)** (下載（JSON）), so you can subscribe again if you cancelled by mistake.
 - It does not run at the same time as a check or a fill. With the API token or an administrator account it sees and cancels everyone's subscriptions.
 
 ### Results

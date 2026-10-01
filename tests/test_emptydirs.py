@@ -167,6 +167,8 @@ def test_scan_and_delete_empty_folders(tmp_path: Path):
     # 每個上一層重新導出一次目錄樹、列一次，不一個一個列
     assert sorted(listings(fake)) == ["101", "102", "103"]
     assert sorted(i for i in fake.deleted[deleted_before:] if not i.startswith("9")) == ["104", "106", "109"]  # 9xxx 是目錄樹檔
+    log = c.get("/web/api/deleted", params={"source": "empty"}, headers=h).json()
+    assert sorted(i["file_id"] for i in log["items"]) == ["104", "106", "109"] and all(i["is_dir"] for i in log["items"])
     assert 105 in fake.dirs and 103 in fake.dirs and 110 in fake.dirs
     # 本機對應的資料夾跟著拿掉，有影片的不動
     assert not leftover.exists() and not (media / "劇集" / "Show").exists()

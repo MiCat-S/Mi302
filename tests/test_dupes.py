@@ -69,6 +69,9 @@ def test_find_and_delete_exact_duplicates(tmp_path: Path):
     assert c.get("/web/api/dupes", headers=h).json()["groups"] == 0
     log = c.get("/web/api/dupes/log", headers=h).json()
     assert {e["path"] for e in log} == {"/影視/電影/Old Movie Copy/Old Movie (2001).mkv", "/待整理/Dark.S01E01.mkv"}
+    # 也和其他刪除一起列在回收站分頁的「Mi302 刪掉的」
+    everything = c.get("/web/api/deleted", headers=h).json()["items"]
+    assert {(e["source"], e["path"]) for e in everything} == {("dupes", e["path"]) for e in log}
 
     # 之後的同步不會把刪掉的再產生回來
     assert app.state.strm_sync.run(FULL).strm_created == 0 and not copy.exists()

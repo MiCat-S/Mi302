@@ -15,6 +15,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Set, Tuple
 
+from . import deletelog
 from .db import Database
 from .dupes import DELETE_BATCH
 from .filetypes import MEDIA_EXTS
@@ -432,6 +433,7 @@ class EmptyDirs:
                         self._pace()
                     batch = ok[start:start + DELETE_BATCH]
                     self.p115.delete_files([r["cid"] for r in batch])
+                    deletelog.record(self.db, "empty", ({"file_id": r["cid"], "path": r["path"], "is_dir": True} for r in batch))
                     job.done += len(batch)
                     job.freed += sum(r["size"] for r in batch)
                     rescan += self._after_delete(batch)

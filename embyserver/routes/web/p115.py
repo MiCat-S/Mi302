@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from starlette.concurrency import run_in_threadpool
 
 from ...auth import AuthContext, require_admin
+from ... import deletelog
 from ...browse115 import list_folder
 from ...emptydirs import EmptyDirsError
 from ...offline115 import OfflineError
@@ -110,7 +111,7 @@ async def browse_delete(request: Request, ctx: AuthContext = Depends(require_adm
     ids = [int(i) for i in body.get("ids") or [] if str(i).isdecimal()]
     try:
         parent = int(body.get("parent") or 0)
-        result = await run_in_threadpool(st.reorganizer.delete_in_folder, parent, ids)
+        result = await run_in_threadpool(st.reorganizer.delete_in_folder, parent, ids, str(body.get("path") or ""))
     except (ReorgError, ValueError) as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     for i in ids:  # 釘在「整理 115 網盤」的也拿掉
@@ -128,6 +129,15 @@ def recyclebin_list(request: Request, ctx: AuthContext = Depends(require_admin))
     except (P115Error, P115OpenError) as exc:
         raise HTTPException(status_code=400, detail=f"讀不到 115 回收站：{exc}")
     return {**page, "offset": offset, "limit": limit, "via": "open" if st.p115.open.authorized else "cookie"}
+
+
+@router.get("/web/api/deleted")
+def deleted_list(request: Request, ctx: AuthContext = Depends(require_admin)):
+    """Mi302 送進 115 回收站的（重複檔案、空資料夾、瀏覽 115、整理 115 網盤…），新的在前面：?source= 只看一種、offset、limit。
+    只是紀錄，要還原到 115 的回收站找。"""
+    offset, limit = max(q_int(request, "offset") or 0, 0), min(max(q_int(request, "limit") or 50, 1), 200)
+    items, total = deletelog.recent(state(request).db, q(request, "source") or "", limit, offset)
+    return {"items": items, "total": total, "offset": offset, "sources": deletelog.SOURCES}
 
 
 @router.post("/web/api/115/recyclebin/clean")
