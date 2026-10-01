@@ -39,6 +39,7 @@ BATCH_RESULTS = 2000  # 全部整理最多記幾個跳過、失敗的（數量�
 BATCH_GIVE_UP = 5  # 全部整理時連續幾個預覽出錯（目錄設定對不上、115 讀不到…）就停下
 BIG_FOLDER = 300  # 全部整理預設跳過一次要送超過這麼多支影片的（MoviePilot 一次預覽、整理幾千支會吃光記憶體）
 HOLD_META_KEY = "organize_hold"  # 標了「先不整理」的資料夾（115 路徑）
+PINNED_META_KEY = "organize_pinned"  # 從瀏覽 115 加進來的資料夾（整個 Unit），重新啟動後還在
 MP_DOWN_WAIT = 900  # 全部整理時 MoviePilot 連不上，最多等幾秒
 MP_DOWN_POLL = 15  # 等的時候幾秒問一次
 MP_COOLDOWN = 60  # MoviePilot 恢復、或途中斷線之後，再等幾秒才送下一個（它可能還在背景做剛才那一個）
@@ -472,7 +473,7 @@ class Organizer:
         self._units: Dict[str, Unit] = {}
         self._order: List[str] = []
         self._units_at = 0.0
-        self._pinned: Dict[str, Unit] = {}  # 從瀏覽 115 加進來的資料夾（新的在前面）
+        self._pinned: Dict[str, Unit] = self._load_pinned()  # 從瀏覽 115 加進來的資料夾（新的在前面）
         try:
             self._held: Set[str] = set(json.loads(db.get_meta(HOLD_META_KEY) or "[]"))
         except (ValueError, TypeError):
@@ -666,10 +667,27 @@ class Organizer:
         self._pinned = {unit.id: unit, **self._pinned}
         for extra in list(self._pinned)[MAX_PINNED:]:
             self._pinned.pop(extra)
+        self._save_pinned()
         return unit.view()
 
     def unpin(self, unit_id: str) -> None:
-        self._pinned.pop(unit_id, None)
+        if self._pinned.pop(unit_id, None):
+            self._save_pinned()
+
+    def _load_pinned(self) -> Dict[str, Unit]:
+        """上次留下的「瀏覽 115 加進來的」：照存下來的樣子還原，不重新列 115、不重問 MoviePilot（預覽時才會）。
+        讀不懂（改版後欄位變了）就不要了。"""
+        try:
+            units = []
+            for d in json.loads(self.db.get_meta(PINNED_META_KEY) or "[]"):
+                parts = [Part(**p) for p in d.pop("parts", [])]
+                units.append(Unit(**d, parts=parts))
+            return {u.id: u for u in units}
+        except (ValueError, TypeError, AttributeError):
+            return {}
+
+    def _save_pinned(self) -> None:
+        self.db.set_meta(PINNED_META_KEY, json.dumps([asdict(u) for u in self._pinned.values()], ensure_ascii=False))
 
     def _local_of(self, path: str) -> Optional[str]:
         """115 路徑在本機對應的位置（不在任何同步任務裡是 None）。"""
@@ -878,6 +896,8 @@ class Organizer:
                 return [dict(r, target=f"{base}/{r['target']}" if r.get("target") else None) for r in results]
             except (MoviePilotError, P115Error) as exc:
                 notes.append(f"「{part.label}」Mi302 整理助手算名字失敗（{exc}），改用 MoviePilot 的整理預覽")
+        elif dest and self.mp.plugin_problems and PLUGIN_MISMATCH_NOTE not in notes:
+            notes.append(PLUGIN_MISMATCH_NOTE)
         try:
             return self.mp.transfer(fileitems, o["tmdbid"] or None, o["season"], o["format"] or None, scrape, dest,
                                     preview=True, mtype=o["type_name"], timeout=PREVIEW_TIMEOUT, single=single)
@@ -1204,8 +1224,12 @@ class Organizer:
                    "送出去的它可能還在背景整理，沒送的這次不送；同步後再看這個資料夾")
             return DOWN
         if run.failed or run.errors:
-            bad = next((i for i in run.items if i["state"] not in ("completed", "accepted", "retry_wait", "kept", "removed")), None)
+            bad = next((i for i in run.items if i["state"] not in ("completed", "accepted", "retry_wait", "kept", "removed",
+                                                                    "skipped")), None)
             record("failed", run.errors[0] if run.errors else f"{bad['name']}：{bad['message'] or bad['state']}" if bad else "有檔案整理失敗")
+        elif run.skipped:  # MoviePilot 略過了幾支（集數定位對不上…）：沒出錯，但這個資料夾沒整理完，要人看
+            first = next(i for i in run.items if i["state"] == "skipped")
+            record("skipped", f"MoviePilot 略過了 {run.skipped} 支，例如 {first['name']}：{first['message'] or '沒有說原因'}")
         return OK
 
     def _wait_mp(self, job: BatchJob) -> bool:
@@ -1326,7 +1350,7 @@ class Organizer:
             return self.reorg.delete_series(unit.item_id)
         is_dir = unit.kind != "movie_file"
         result = self.reorg.delete_item(unit.cid if is_dir else unit.file_id, is_dir, unit.path, unit.local)
-        self._pinned.pop(unit.id, None)
+        self.unpin(unit.id)
         self._units_at = 0  # 清單重新算
         return result
 
@@ -1347,6 +1371,8 @@ def _override(o: dict) -> dict:
     return {"tmdbid": tmdbid, "season": season, "type_name": type_name, "format": fmt}
 
 
+PLUGIN_MISMATCH_NOTE = ("Mi302 整理助手和這版 MoviePilot 對不上（少了它算名字用的內部函式，見 MoviePilot 日誌），"
+                        "改用 MoviePilot 的整理預覽，比較慢；更新外掛或回報")
 SKIP_LABELS = {"same": "已經照格式命名", "outside": "會搬出同步目錄", "latest": "在同一個資料夾裡改名、覆蓋模式是「保留最新」",
                "exists": "目標已經有同名檔案（多半是重複的）"}
 NAMED_NOTE = "新名字由 MoviePilot 的「Mi302 整理助手」照它的整理規則算（和它整理的名字一樣，不必跑它的整理預覽）"

@@ -31,7 +31,7 @@ The connection test only checks the URL and the API token. It sends an empty pat
 | Label in the web UI | Key | Default | Notes |
 |---|---|---|---|
 | MoviePilot URL (MoviePilot 網址) | `moviepilot.url` | empty | a trailing `/` is removed |
-| API token (API 令牌) | `moviepilot.api_token` | empty | sent in the `X-API-KEY` header and the `token` query parameter |
+| API token (API 令牌) | `moviepilot.api_token` | empty | sent in the `X-API-KEY` header, not in the URL, so it stays out of proxy and MoviePilot access logs; only if it is rejected is it retried once as the `token` query parameter, for older versions that only read that |
 | Concurrent scrapes (同時刮削幾項) | `moviepilot.concurrency` | 3 | 1–8 |
 | Path mappings (路徑對應) | `moviepilot.path_mappings` | none | see the next section |
 | Send new strm files for scraping after sync (同步產生新的 strm 後自動送去刮削) | `moviepilot.scrape_after_sync` | on | when off, sync only scans |
@@ -237,7 +237,7 @@ Installing (MoviePilot V3):
 3. **Mi302 整理助手** appears in MoviePilot's plugin market. Install it, turn on **Enable** (啟用) and save.
 4. Keep **Use MoviePilot's Mi302 Organizer plugin for names and renames** (用 MoviePilot 的「Mi302 整理助手」外掛算名字、改名) on the **Organise 115** card (on by default). Previews of rename-only folders then say so (只需要改名…).
 
-When an update of Mi302 brings a new plugin version, update or reinstall it from MoviePilot's plugin market (for example only 1.1.0 works out names; until it is updated Mi302 keeps using MoviePilot's organise preview).
+When an update of Mi302 brings a new plugin version, update or reinstall it from MoviePilot's plugin market (for example only 1.1.0 works out names; until it is updated Mi302 keeps using MoviePilot's organise preview). From 1.2.0 the plugin first checks that this MoviePilot version still has the internal functions it uses to work out names (a MoviePilot update may remove them); if any is missing it does not work out names, Mi302 falls back to the organise preview, and the preview notes say the plugin does not match this MoviePilot version (MoviePilot's log lists what is missing).
 
 Details:
 

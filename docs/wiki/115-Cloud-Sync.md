@@ -323,7 +323,7 @@ The last four need **Check with MoviePilot** (問 MoviePilot 檢查) first. For 
 
 You can search by name, or show only shows, only movies, or **Only wrong episode numbers** (只看集號不對的). With more than one sync folder (often one per category, such as Chinese dramas and Chinese animation), the **All sync folders** drop-down (全部同步目錄) shows only the entries under one of them.
 
-In **Browse 115** (瀏覽 115), **Organise this folder…** (整理這個資料夾…) or **Organise…** (整理…) on a subfolder pins that folder at the top of the list, marked **Added from Browse 115** (從瀏覽 115 加進來). It works for folders outside the library and outside the sync folders too (for example an inbox folder). **Done with it** (不看了) removes it.
+In **Browse 115** (瀏覽 115), **Organise this folder…** (整理這個資料夾…) or **Organise…** (整理…) on a subfolder pins that folder at the top of the list, marked **Added from Browse 115** (從瀏覽 115 加進來). It works for folders outside the library and outside the sync folders too (for example an inbox folder). Pinned folders are stored in Mi302's database and survive a restart (up to 20). **Done with it** (不看了) removes it.
 
 ### What to check for each entry
 

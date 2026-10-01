@@ -1747,6 +1747,7 @@ async function retargetMI() {
 }
 ACTS.stopMI = () => stopMI();
 async function stopMI() {
+  if (!await ask({title: '停止提取媒體資訊？', text: '手上這幾支做完就停，提取好的留著；沒提取的下次再選。', ok: '停止', danger: true})) return;
   try {
     const r = await api('/web/api/mediainfo/stop', {method: 'POST'});
     toast(r.stopping ? '正在停止，手上這幾支做完就停' : '現在沒有在提取');
@@ -1848,7 +1849,12 @@ async function loadUsers() {
     const [pw, adm, del] = r.querySelectorAll('button');
     const act = async (fn, msg) => { try { const r = await fn(); toast(r?.note ? msg + '，' + r.note : msg); loadUsers(); } catch (e) { toast(e.message, 'bad'); } };
     pw.onclick = async () => { const v = await ask({title: '「' + usr.name + '」的新密碼', input: 'password', ok: '更改'}); if (v) act(() => api('/web/api/users/' + usr.id, {method: 'PUT', body: JSON.stringify({password: v})}), '密碼已更改'); };
-    adm.onclick = () => act(() => api('/web/api/users/' + usr.id, {method: 'PUT', body: JSON.stringify({admin: !usr.admin})}), '已更新');
+    adm.onclick = async () => {  // 管理員能改所有設定、刪 115 上的檔案：給或拿掉都先問一次
+      if (!await ask({title: (usr.admin ? '取消「' : '把「') + usr.name + (usr.admin ? '」的管理員？' : '」設為管理員？'),
+        text: usr.admin ? '之後不能進這個管理網頁，播放照常。' : '管理員可以進這個管理網頁，改所有設定、刪 115 上的檔案。',
+        ok: usr.admin ? '取消管理員' : '設為管理員', danger: !usr.admin})) return;
+      act(() => api('/web/api/users/' + usr.id, {method: 'PUT', body: JSON.stringify({admin: !usr.admin})}), '已更新');
+    };
     del.onclick = async () => { if (await ask({title: '刪除使用者「' + usr.name + '」？', text: '這個帳號的觀看紀錄也會一起刪除。', ok: '刪除', danger: true})) act(() => api('/web/api/users/' + usr.id, {method: 'DELETE'}), '已刪除'); };
     box.appendChild(r);
   }
@@ -1960,6 +1966,7 @@ async function showQr(key, url, body, holder, label, box, alt) {
 function startQr() { showQr('qr', '/p115/qrcode', null, qr, qrst, $('qrBox'), '115 登入二維碼'); }
 function startOpenQr() { showQr('oqr', '/p115/open/qrcode', {app_id: appid.value}, oqr, oqrst, $('oqrBox'), '開放平台授權二維碼'); }
 async function logoutOpen() {
+  if (!await ask({title: '取消 115 開放平台授權？', text: '之後 Mi302 改走掃碼登入（cookie）的通道；要再用開放平台得重新掃碼授權。', ok: '取消授權', danger: true})) return;
   try { await api('/p115/open/logout', {method: 'POST'}); } catch (e) { toast(e.message, 'bad'); return; }
   toast('已取消開放平台授權'); load115();
 }
@@ -2703,10 +2710,10 @@ const REO_QUEUED = '「MoviePilot 背景處理」的放進了它的整理佇列�
 function reoJobHtml(j) {
   if (!j.started) return '';
   let h = '<div class="row wrap mb8">';
-  if (j.running) h += `<span class="pill accent"><span class="spin"></span>${j.stopping ? '停止中' : '整理中'}</span><span class="hint sp grow"><span>${esc(j.title)}・${j.done + j.failed + (j.queued || 0)} / ${j.total}</span>${j.current ? `<span>${esc(j.current)}</span>` : ''}</span>` +
+  if (j.running) h += `<span class="pill accent"><span class="spin"></span>${j.stopping ? '停止中' : '整理中'}</span><span class="hint sp grow"><span>${esc(j.title)}・${j.done + j.failed + (j.queued || 0) + (j.skipped || 0)} / ${j.total}</span>${j.current ? `<span>${esc(j.current)}</span>` : ''}</span>` +
     (j.stopping ? '' : '<button class="btn sm ghost danger" data-act="stopJob" data-job="reo">停止</button>');
   else h += `<span class="pill ${j.stopped || j.failed || j.errors.length ? 'warn' : 'ok'}">${j.stopped ? '已停止' : j.failed || j.errors.length ? '部分失敗' : '完成'}</span><span class="hint">上次整理：${esc(j.title)}・${ago(j.finished)}</span>`;
-  h += `</div><div class="chips">${chip(j.done, '整理好', true)}${j.queued ? chip(j.queued, 'MoviePilot 背景處理') : ''}${chip(j.failed, '失敗')}</div>`;
+  h += `</div><div class="chips">${chip(j.done, '整理好', true)}${j.queued ? chip(j.queued, 'MoviePilot 背景處理') : ''}${j.skipped ? chip(j.skipped, 'MoviePilot 略過') : ''}${chip(j.failed, '失敗')}</div>`;
   if (j.queued) h += `<p class="hint mt8">${REO_QUEUED}</p>`;
   if (!j.running && j.synced) h += `<p class="hint mt8">${j.synced === 'started' ? '已經開始增量同步 115，本機的 strm 會跟著搬到新名字，再重新掃描。' : '115 同步正在進行，這次的變動會在下一次同步時帶到。'}</p>`;
   if (j.items.length) h += `<details class="more mt10"><summary>每個檔案的結果（${j.items.length}）</summary><div class="in list">${j.items.map(i =>
@@ -3144,6 +3151,7 @@ async function organizeAll() {
   organizeBatchShow(); organizeButtons(); pollBatch();
 }
 async function organizeStopAll() {
+  if (!await ask({title: '停止全部整理？', text: '做完手上這一個資料夾就停，整理好的留著，沒做的留在清單上。', ok: '停止', danger: true})) return;
   try { og.batch = (await api('/web/api/115/organize/all/stop', {method: 'POST'})).batch; } catch (e) { toast(e.message, 'bad'); return; }
   toast('做完手上這一個就停'); organizeBatchShow();
 }
@@ -3375,6 +3383,7 @@ ACTS.olRetry = async el => {
 };
 ACTS.olOpen = el => { b115.want = el.dataset.cid; location.hash = '#browse'; };
 async function olClear(what) {
+  if (!await ask({title: what === 'done' ? '清除已完成的任務？' : '清除失敗的任務？', text: '只清掉 115 雲下載的任務紀錄，已經下載好的檔案不動。', ok: '清除'})) return;
   try { await api('/web/api/115/offline/clear', {method: 'POST', body: JSON.stringify({what})}); }
   catch (e) { toast(e.message, 'bad'); return; }
   toast(what === 'done' ? '已清除完成的任務（檔案還在）' : '已清除失敗的任務'); loadOffline(1);

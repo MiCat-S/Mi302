@@ -31,7 +31,7 @@ Mi302 只读取文件夹里已有的 nfo 和图片。这些数据可以在 115 �
 | 页面上的名称 | 配置键 | 默认值 | 说明 |
 |---|---|---|---|
 | MoviePilot 网址 | `moviepilot.url` | 空 | 末尾的 `/` 会去掉 |
-| API 令牌 | `moviepilot.api_token` | 空 | 放在 `X-API-KEY` 请求头和 `token` 查询参数里发送 |
+| API 令牌 | `moviepilot.api_token` | 空 | 放在 `X-API-KEY` 请求头发送（不放网址，免得留在代理、MoviePilot 的访问日志）；被拒时才带 `token` 查询参数再试一次，给只认它的旧版 |
 | 同时刮削几项 | `moviepilot.concurrency` | 3 | 1–8 |
 | 路径对应 | `moviepilot.path_mappings` | 无 | 见下一节 |
 | 同步产生新的 strm 后自动送去刮削 | `moviepilot.scrape_after_sync` | 开 | 关闭时同步完只扫描 |
@@ -237,7 +237,7 @@ Mi302 仓库里的 `moviepilot-plugin/` 是一个 MoviePilot V3 插件“Mi302 �
 3. MoviePilot 的插件市场会出现“Mi302 整理助手”。安装后打开“启用”并保存。
 4. Mi302“整理 115 网盘”卡片的“用 MoviePilot 的「Mi302 整理助手」外掛算名字、改名”保持打开（默认开）。之后预览只需要改名的文件夹时，会写“只需要改名：交给 MoviePilot 的「Mi302 整理助手」直接改 N 个档案、M 个资料夹的名字”。
 
-Mi302 更新后插件有新版本时，到 MoviePilot 的插件市场更新或重新安装（例如 1.0.0 → 1.1.0 才会算名字；没更新的话 Mi302 照常用 MoviePilot 的整理预览）。
+Mi302 更新后插件有新版本时，到 MoviePilot 的插件市场更新或重新安装（例如 1.0.0 → 1.1.0 才会算名字；没更新的话 Mi302 照常用 MoviePilot 的整理预览）。1.2.0 起插件启用后会先检查这版 MoviePilot 还有没有它算名字要用的内部函数（MoviePilot 改版时可能去掉）；缺了就不算名字，Mi302 改用整理预览，预览的说明会写“Mi302 整理助手和這版 MoviePilot 對不上”，缺了什么写在 MoviePilot 的日志。
 
 细节：
 

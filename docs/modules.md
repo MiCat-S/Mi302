@@ -212,7 +212,8 @@ Mi302 自己不判斷名稱對不對，也不猜 TMDB 編號、類型和季，�
   問過的記在資料庫（organize_checks），資料夾名稱和裡面的影片沒變就不再問。幾千個資料夾第一次要問一陣子，在背景跑。
 - 集號不對的劇：媒體庫掃描時集號是從檔名猜的、或認不出來的（items.ep_from），不用問 MoviePilot 也列出來。
 - 瀏覽 115 裡挑的任何一個資料夾（folder_unit）：釘在清單最上面，一樣整理或刪除；不在同步目錄裡的（例如「待整理」）
-  預設整理到 MoviePilot 目錄設定的媒體庫。
+  預設整理到 MoviePilot 目錄設定的媒體庫。釘上來的整個 Unit 存在 meta（organize_pinned），重新啟動時照存的樣子還原，
+  不重新列 115、不重問 MoviePilot（讀不懂就不要了）。
 - 預覽：整個資料夾交給 MoviePilot（有子資料夾的一個子資料夾一次，直接放著的影片一次），和它網頁「檔案管理 → 整理」
   一樣，影片、字幕、音軌一起整理。預設什麼都不指定，讓它自己認；它認錯的（例如名稱裡的「预计第二季度」會被認成
   第 2 季）再在那一部分指定類型、TMDB 編號、季或集數定位（可以請 MoviePilot 推薦）。
@@ -256,6 +257,13 @@ stop_delete 做完手上這一個就停；清單上找不到、刪不掉的記�
 MoviePilot 的 POST /api/v1/media/scrape/local 會依路徑辨識影片、到 TMDB 等來源查資料，
 在同一個資料夾寫入 nfo 與圖片；Mi302 之後重新掃描就讀得到。兩邊必須看得到同一批檔案，
 路徑不同時用 path_mappings 轉換。
+
+認證（_request／_send）：API 令牌只放 X-API-KEY 標頭（V3 每個端點都認，令牌不進網址、不留在存取日誌）；被拒（401／403）時
+帶 ?token= 再送一次給只認查詢參數的舊端點，還是被拒而且有帳號密碼才登入（POST /api/v1/login/access-token），之後用登入的
+token。登入失敗的 MoviePilotError 帶狀態碼，整批的工作（檢查缺集、取消訂閱）看到 401／403 就停。
+
+Mi302 整理助手外掛（rename_plugin_ready）：GET /status 的 features 有 names 才請它算名字；1.2.0 起 self_test 列出這版 MoviePilot
+少了的內部函式（外掛的 naming.INTERNALS），少了東西時它自己不列 names，Mi302 記在 plugin_problems，預覽說明寫原因。
 
 送出的單位：
 - 電影：strm 檔本身（MoviePilot 會寫 nfo 和同資料夾的海報）。

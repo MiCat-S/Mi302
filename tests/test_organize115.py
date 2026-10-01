@@ -55,7 +55,7 @@ class OrganizeMP:
         self.history = set()  # 有成功整理紀錄的檔案（115 路徑）
         self.queue = False
         self.plugin = False  # 裝了 Mi302 整理助手外掛
-        self.names = True  # 外掛會算名字（1.1.0）；False 是舊版 1.0.0，"broken" 是算名字出錯
+        self.names = True  # 外掛會算名字（1.1.0）；False 是舊版 1.0.0，"broken" 是算名字出錯，"mismatch" 是自我檢查發現少了東西
         self.renamed = []  # 外掛改過的：(type, 舊名, 新名)
         self.token_ok = True  # V3 每個 API 都接受 API 令牌；False 是只認帳號登入的舊版
 
@@ -126,6 +126,9 @@ class OrganizeMP:
         if not self.plugin:
             return httpx.Response(404, json={"detail": "Not Found"})
         if sub == "status":
+            if self.names == "mismatch":  # 1.2.0 的自我檢查：這版 MoviePilot 少了它算名字用的私有方法
+                return httpx.Response(200, json={"enabled": True, "version": "1.2.0", "busy": False, "features": ["rename"],
+                                                 "self_test": ["app.modules.filemanager.transhandler.TransHandler.x"]})
             return httpx.Response(200, json={"enabled": True, "version": "1.1.0" if self.names else "1.0.0", "busy": False,
                                              "features": ["rename", "names"] if self.names else ["rename"]})
         if sub == "names":
@@ -243,7 +246,7 @@ class OrganizeMP:
             elif not body["preview"]:
                 tdir = self.dir_by_path(posixpath.dirname(target))
                 if tdir is not None and any(f["cid"] == tdir and f["n"] == posixpath.basename(target) for f in self.f.files):
-                    item.update(success=False, state="skipped", message="目标文件已存在")
+                    item.update(success=False, state="skipped", message="目标文件已存在", recovery_action="确认目标文件后重新整理")
                 else:
                     cid = self.mkdirs(posixpath.dirname(target))
                     self.f.file(fid).update(cid=cid, n=posixpath.basename(target))
@@ -472,8 +475,10 @@ def test_execute_moves_and_cleans_up(tmp_path: Path):
     sent = [b for p_, b in mp.calls if p_ == "/api/v1/transfer/manual"]
     assert [b.get("season") for b in sent] == [None, 1, None]  # 執行時照預覽時指定的
     job = app.state.reorganizer.job
-    # 虚天战纪 上、下認成同一部電影：第二支跳過；康熙 EP02 目標已經有同一集，預覽就不送
-    assert (job.total, job.done, job.failed, job.title) == (6, 5, 1, "整理 2 個資料夾") and not job.errors
+    # 虚天战纪 上、下認成同一部電影：第二支 MoviePilot 略過（不算失敗，原因照列）；康熙 EP02 目標已經有同一集，預覽就不送
+    assert (job.total, job.done, job.skipped, job.failed, job.title) == (6, 5, 1, 0, "整理 2 個資料夾") and not job.errors
+    (skipped,) = [i for i in job.items if i["state"] == "skipped"]
+    assert skipped["message"] == "目标文件已存在（MoviePilot 建議：确认目标文件后重新整理）"
     folders = {i["name"]: i for i in job.items if i["state"] in ("kept", "removed")}
     assert folders[units["d110"]["path"]]["state"] == "kept" and "1 支影片" in folders[units["d110"]["path"]]["message"]
     assert folders[units["d111"]["path"]]["state"] == "kept"
@@ -556,8 +561,10 @@ def test_folder_picked_in_browse(tmp_path: Path):
     assert c.post(EXECUTE, json={"tokens": [pv["token"]], "cleanup": [{"cid": "200", "path": "/待整理"}]}, headers=h).status_code == 200
     wait(lambda: not app.state.reorganizer.job.running)
     assert app.state.reorganizer.job.done == 2 and fake.deleted[-1] == "200"  # 搬空了，移到回收站
+    # 加進來的記在資料庫：重新啟動後還在（照存下來的樣子，不重新列 115）
+    assert list(app.state.organizer._load_pinned()) == ["d200"]
     assert c.delete("/web/api/115/organize/folder/d200", headers=h).json() == {"ok": True}
-    assert listing(c, h)["pinned"] == []
+    assert listing(c, h)["pinned"] == [] and app.state.organizer._load_pinned() == {}
 
 
 def test_delete_a_movie_from_the_list(tmp_path: Path):
@@ -1112,6 +1119,32 @@ def test_plugin_names_match_moviepilot_preview(tmp_path: Path):
         assert any(n.startswith("新名字由 MoviePilot 的「Mi302 整理助手」") for n in new["notes"])
         broken, sent = run(units[uid], "broken")
         assert sent and key(broken) == key(old) and any("算名字失敗" in n for n in broken["notes"])
+        # 自我檢查不過的：不叫它算名字，直接用 MoviePilot 的預覽，說明為什麼比較慢
+        mismatch, sent = run(units[uid], "mismatch")
+        assert sent and key(mismatch) == key(old) and any("對不上" in n for n in mismatch["notes"])
+
+
+def test_plugin_self_test_lists_missing_moviepilot_internals(monkeypatch):
+    """外掛（1.2.0）啟用後先看這版 MoviePilot 還有沒有它算名字要用的東西：雙底線的私有方法最容易在改版時不見。"""
+    import importlib.util
+    import sys
+    import types
+
+    path = Path(__file__).parent.parent / "moviepilot-plugin" / "plugins.v3" / "mi302organizer" / "naming.py"
+    spec = importlib.util.spec_from_file_location("mi302organizer_naming", path)
+    naming = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(naming)
+    for module, names in naming.INTERNALS.items():  # 假的 MoviePilot：該有的都有
+        mod = types.ModuleType(module)
+        for name, methods in names.items():
+            setattr(mod, name, type(name, (), {m: staticmethod(lambda *a: None) for m in methods}))
+        monkeypatch.setitem(sys.modules, module, mod)
+    assert naming.missing_internals() == []
+    delattr(sys.modules["app.modules.filemanager.transhandler"].TransHandler, "_TransHandler__rename_subtitles")
+    monkeypatch.delitem(sys.modules, "app.chain.tmdb")
+    monkeypatch.setitem(sys.modules, "app.chain.tmdb", None)  # 匯入會失敗（模組搬走了）
+    assert naming.missing_internals() == ["app.modules.filemanager.transhandler.TransHandler._TransHandler__rename_subtitles",
+                                          "app.chain.tmdb"]
 
 
 def test_file_without_episode_number_can_be_deleted_alone(tmp_path: Path):

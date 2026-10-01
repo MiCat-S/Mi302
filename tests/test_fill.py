@@ -243,6 +243,9 @@ def test_fill_stops_on_auth_error(tmp_path: Path):
     show = {"id": 1, "name": "A", "year": None, "tmdbid": 1, "seasons": [{"season": s, "count": 1, "gaps": []} for s in (1, 2, 3)]}
     r = mp.fill([show], "manual")
     assert (r.total, r.done, r.failed) == (3, 0, 3) and len(r.errors) == 1
+    # 只檢查也一樣：帳號密碼錯了，第一季就整批停下，不是每一季各失敗一次
+    r = mp.fill([show], "manual", check=True)
+    assert (r.total, r.done, r.failed) == (3, 0, 3) and len(r.errors) == 1 and "登入失敗" in r.errors[0]
 
 
 def test_fill_endpoints(tmp_path: Path):

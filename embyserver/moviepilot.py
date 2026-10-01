@@ -209,6 +209,7 @@ class MoviePilot:
         self._clock = time.monotonic  # 測試換成假的時鐘
         self._plugin_checked = (0.0, False)  # 上次問外掛的時間、有沒有裝好啟用
         self._plugin_features: frozenset = frozenset()  # 外掛會哪些功能（1.1.0 起多了算名字 names）
+        self.plugin_problems: List[str] = []  # 外掛自我檢查：這版 MoviePilot 少了的內部函式（1.2.0 起；有的話不算名字）
         self._created_at: Optional[float] = None  # 補全缺集：上一個新訂閱建立的時間
         self._stop = threading.Event()
         self.workers = Workers(self._stop)  # 刮削、補全缺集；程式結束時停在兩項之間
@@ -234,8 +235,12 @@ class MoviePilot:
             self.cfg.url.rstrip("/") + LOGIN_API, data={"username": self.cfg.username, "password": self.cfg.password}
         )
         if resp.status_code != 200:
-            raise MoviePilotError(f"MoviePilot 帳號密碼登入失敗：HTTP {resp.status_code} {resp.text[:200]}")
-        token = (resp.json() or {}).get("access_token")
+            # 帶上狀態碼：密碼錯了（401／403）後面每一項都會失敗，整批的工作看到就停
+            raise MoviePilotError(f"MoviePilot 帳號密碼登入失敗：HTTP {resp.status_code} {resp.text[:200]}", resp.status_code)
+        try:
+            token = (resp.json() or {}).get("access_token")
+        except (ValueError, AttributeError):
+            token = None
         if not token:
             raise MoviePilotError("MoviePilot 登入後沒有回傳 token")
         return token
@@ -257,6 +262,9 @@ class MoviePilot:
             with self._client(timeout or self.cfg.timeout) as client:
                 token = self._jwt
                 resp = self._send(client, method, path, body, query, token)
+                if resp.status_code in (401, 403) and not token and self.cfg.api_token:
+                    # 舊版有些端點只認查詢參數 ?token=；令牌平常只放標頭，免得出現在代理、MoviePilot 的存取日誌
+                    resp = self._send(client, method, path, body, query, None, legacy_token=True)
                 if resp.status_code in (401, 403) and self.cfg.username and self.cfg.password:
                     # 舊版 MoviePilot 的刮削 API 只認登入 token；或是之前的登入 token 過期了。
                     # 刮削是好幾個請求同時送：別的請求已經換了新 token 就直接用，不再登入一次
@@ -275,14 +283,14 @@ class MoviePilot:
             raise MoviePilotError(message, kind=_net_kind(exc)) from exc
 
     def _send(self, client: httpx.Client, method: str, path: str, body: Optional[dict], query: Optional[dict],
-              token: Optional[str]):
+              token: Optional[str], legacy_token: bool = False):
         headers, params = {}, dict(query or {})
         if token:
             headers["Authorization"] = f"Bearer {token}"
         elif self.cfg.api_token:
-            # 新版接受 X-API-KEY 標頭；token 查詢參數給接受 API 令牌的舊端點
-            headers["X-API-KEY"] = self.cfg.api_token
-            params["token"] = self.cfg.api_token
+            headers["X-API-KEY"] = self.cfg.api_token  # V3 每個端點都認這個標頭
+            if legacy_token:
+                params["token"] = self.cfg.api_token
         return client.request(method, self.cfg.url.rstrip("/") + path, json=body, headers=headers, params=params)
 
     def _parse(self, resp: httpx.Response, path: str):
@@ -339,10 +347,12 @@ class MoviePilot:
             res = self._request("GET", PLUGIN_API + "/status", timeout=10)
             ready = isinstance(res, dict) and bool(res.get("enabled"))
             features = res.get("features") if ready and isinstance(res.get("features"), list) else []
+            problems = res.get("self_test") if ready and isinstance(res.get("self_test"), list) else []
         except MoviePilotError:
-            ready, features = False, []  # 沒裝（404）、連不上：照舊走整理
+            ready, features, problems = False, [], []  # 沒裝（404）、連不上：照舊走整理
         self._plugin_checked = (now, ready)
         self._plugin_features = frozenset(str(f) for f in features)
+        self.plugin_problems = [str(p) for p in problems]
         return ready
 
     def naming_plugin_ready(self) -> bool:
@@ -871,7 +881,7 @@ class MoviePilot:
         try:
             res = self._request("POST", path, timeout=30)
         except MoviePilotError as exc:
-            if "HTTP 405" not in str(exc):
+            if exc.status != 405:
                 raise
             res = self._request("GET", path, timeout=30)
         if isinstance(res, dict) and res.get("success") is False:

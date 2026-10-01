@@ -110,6 +110,7 @@ class ReorgJob:
     queued: int = 0  # MoviePilot 放進它的整理佇列在背景做（結果在它的整理記錄）
     renamed: int = 0  # Mi302 整理助手改好名字的資料夾（檔案算在 done）：115 上的路徑也變了，要同步
     failed: int = 0
+    skipped: int = 0  # MoviePilot 略過的（已整理過、集數定位對不上這支…，原因在訊息裡）：沒搬，但不是出錯
     current: str = ""
     synced: str = ""  # 之後的增量同步：started / busy
     items: List[dict] = field(default_factory=list)
@@ -406,7 +407,7 @@ class Reorganizer:
                     self._run_items(pv, batch, job)
             if job.stopping:
                 job.stopped = True
-                left = max(0, job.total - job.done - job.failed - job.queued)
+                left = max(0, job.total - job.done - job.failed - job.queued - job.skipped)
                 job.errors.append(f"按了停止，還有 {left} 個沒送給 MoviePilot；整理好的留著，重新預覽會接著做剩下的")
             log.info("MoviePilot 整理 %s：%s 個完成，%s 個失敗%s", job.title, job.done, job.failed, "，按了停止" if job.stopped else "")
             if cleanup and not job.stopped:
@@ -448,6 +449,9 @@ class Reorganizer:
         for r in results:
             state = str(r.get("state") or ("completed" if r.get("success") else "failed"))
             message = str(r.get("message") or "")
+            action = str(r.get("recovery_action") or "")
+            if action and action not in message:
+                message += f"（MoviePilot 建議：{action}）"
             if state == "retry_wait":
                 # 這支之前在 MoviePilot 整理失敗過：它不照這次的預覽，而是照上次的計畫在背景重試
                 message += ("（MoviePilot 有這支之前整理失敗的紀錄，它照上次的計畫在背景重試，不是這次的預覽，結果看它的整理記錄。"
@@ -458,6 +462,8 @@ class Reorganizer:
                 done += 1
             elif state in ("accepted", "retry_wait"):
                 job.queued += 1
+            elif state == "skipped":
+                job.skipped += 1
             else:
                 job.failed += 1
         job.done += done

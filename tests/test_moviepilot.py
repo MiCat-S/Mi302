@@ -72,7 +72,7 @@ def test_scrape_sends_mapped_paths_with_api_token(tmp_path: Path):
     by_type = {json.loads(q.content)["type"]: q for q in sent}
     first = by_type["file"]
     assert first.url.path == "/api/v1/media/scrape/local"
-    assert first.headers["x-api-key"] == "tok" and first.url.params["token"] == "tok"
+    assert first.headers["x-api-key"] == "tok" and "token" not in first.url.params  # 令牌只放標頭，不進存取日誌
     assert "media_id" not in first.url.params  # 電影不知道 tmdbid，讓 MoviePilot 自己辨識
     assert json.loads(first.content) == {
         "storage": "local", "type": "file", "path": "/mp/movies/A (2020)/A (2020).strm",
@@ -98,8 +98,10 @@ def test_scrape_falls_back_to_login_for_old_moviepilot(tmp_path: Path):
     mp = MoviePilot(cfg.moviepilot, cfg, transport=httpx.MockTransport(handler))
     movie = touch(tmp_path / "movies" / "A.strm")
     assert mp.scrape([movie], "manual").done == 1
-    assert [r.url.path for r in sent] == [
-        "/api/v1/media/scrape/local", "/api/v1/login/access-token", "/api/v1/media/scrape/local",
+    # 令牌被拒：先帶 ?token= 再試一次（舊端點只認查詢參數），還是被拒才用帳號登入
+    assert [(r.url.path, "token" in r.url.params) for r in sent] == [
+        ("/api/v1/media/scrape/local", False), ("/api/v1/media/scrape/local", True), ("/api/v1/login/access-token", False),
+        ("/api/v1/media/scrape/local", False),
     ]
 
     # 好幾個請求同時被拒（登入 token 過期）：只登入一次，其他的用新 token 重送
@@ -251,7 +253,7 @@ def test_episode_of_scraped_series_sends_tmdbid(tmp_path: Path):
     assert mp.scrape([ep], "sync").done == 1
     params = sent[0].url.params
     assert (params["media_source"], params["media_id"], params["type_name"]) == ("themoviedb", "4321", "电视剧")
-    assert params["token"] == "tok"  # API 令牌照樣帶著
+    assert sent[0].headers["x-api-key"] == "tok" and "token" not in params  # API 令牌照樣帶著（在標頭）
 
 
 def test_checks_what_moviepilot_actually_wrote(tmp_path: Path):

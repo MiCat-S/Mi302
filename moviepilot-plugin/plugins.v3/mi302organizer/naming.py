@@ -17,6 +17,40 @@ from pathlib import Path, PurePosixPath
 from typing import Any, Dict, List, Optional
 
 SKIP_MARKERS = ("/@Recycle/", "/#recycle/", "/.", "/@eaDir")  # 它整理時也跳過：回收站、隱藏的檔案
+# 算名字用到的 MoviePilot 內部模組、類別和方法（有幾個是雙底線的私有方法，它改版時最容易不見）
+INTERNALS = {
+    "app.application.configuration": {"get_configured_system_config": []},
+    "app.application.formatting": {"FormatParser": ["match", "split_episode"]},
+    "app.runtime.settings": {"get_runtime_setting": []},
+    "app.schemas.types": {"MediaType": [], "SystemConfigKey": [], "MediaSource": []},
+    "app.domain.metainfo": {"MetaInfoPath": []},
+    "app.modules.filemanager.transhandler": {"TransHandler": [
+        "get_rename_path", "get_naming_dict", "_TransHandler__is_special_extra_file", "_TransHandler__rename_subtitles"]},
+    "app.schemas.file": {"FileItem": []},
+    "app.chain.media": {"MediaChain": ["recognize_media", "recognize_by_meta", "supplement_tmdb_info"]},
+    "app.chain.transfer": {"TransferChain": []},
+    "app.chain.tmdb": {"TmdbChain": ["tmdb_episodes"]},
+}
+
+
+def missing_internals() -> List[str]:
+    """這版 MoviePilot 少了哪些算名字要用的東西（模組.名稱[.方法]）；都在是空的。缺了就不算名字，Mi302 改用它的整理預覽。"""
+    import importlib
+
+    missing: List[str] = []
+    for module, names in INTERNALS.items():
+        try:
+            mod = importlib.import_module(module)
+        except Exception:  # 模組搬走、改名，或載入時出錯
+            missing.append(module)
+            continue
+        for name, methods in names.items():
+            obj = getattr(mod, name, None)
+            if obj is None:
+                missing.append(f"{module}.{name}")
+                continue
+            missing += [f"{module}.{name}.{m}" for m in methods if not hasattr(obj, m)]
+    return missing
 
 
 class Namer:

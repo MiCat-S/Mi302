@@ -9,7 +9,8 @@ MoviePilot 的整理預覽一個檔案要一兩秒（認片、抓圖、比對目
 /names 只呼叫它算名字的那幾個函式（見 naming.py），同一部片只認一次，幾百集幾秒就好，名字和它整理的一模一樣。
 
 介面（掛在 /api/v1/plugin/Mi302Organizer 底下，用 MoviePilot 的登入 token 或 API 令牌）：
-- GET  /status：有沒有開、是否正在改、會哪些功能（features）
+- GET  /status：有沒有開、是否正在改、會哪些功能（features）；self_test 是這版 MoviePilot 少了的內部函式
+  （少了就不列 names，Mi302 改用它的整理預覽）
 - POST /names：{"items": [{"path", "fileid"?, "size"?}], "tmdbid"?, "type"?（电视剧／电影）, "season"?,
   "episode_format"?}，照它的規則算每個檔案整理後的名字（相對於媒體庫目錄）；只算，不改
 - POST /rename：{"items": [{"fileid", "name", "old"?, "path"?, "type"?}]}，回傳工作 id；照清單的順序改
@@ -37,7 +38,7 @@ class Mi302Organizer(_PluginBase):
     plugin_name = "Mi302 整理助手"
     plugin_desc = "讓 Mi302 用 MoviePilot 的 115 授權直接批次改名，比整理流程快很多。"
     plugin_icon = "https://raw.githubusercontent.com/MiCat-S/Mi302/main/embyserver/web/icon-192.png"
-    plugin_version = "1.1.0"
+    plugin_version = "1.2.0"
     plugin_author = "MiCat-S"
     author_url = "https://github.com/MiCat-S/Mi302"
     plugin_order = 99
@@ -50,6 +51,7 @@ class Mi302Organizer(_PluginBase):
         self._lock = threading.Lock()  # 同時只改一批（共用 MoviePilot 的 115 限速，並行也不會比較快）
         self._jobs_lock = threading.Lock()
         self._stop = threading.Event()
+        self._missing: Optional[List[str]] = None  # 算名字要用、這版 MoviePilot 卻沒有的內部函式；第一次問 /status 時查
 
     # ---------------- 外掛的基本介面 ----------------
 
@@ -108,8 +110,14 @@ class Mi302Organizer(_PluginBase):
     # ---------------- HTTP 介面 ----------------
 
     def api_status(self) -> Dict[str, Any]:
+        if self._missing is None:
+            from .naming import missing_internals
+
+            self._missing = missing_internals()
+            if self._missing:
+                logger.warning(f"Mi302 整理助手：這版 MoviePilot 少了 {', '.join(self._missing)}，不算名字（Mi302 改用整理預覽）")
         return {"enabled": self._enabled, "version": self.plugin_version, "busy": self._lock.locked(),
-                "features": ["rename", "names"]}
+                "features": ["rename"] + ([] if self._missing else ["names"]), "self_test": self._missing}
 
     def api_names(self, payload: dict = Body(...)) -> Dict[str, Any]:
         if not self._enabled:
