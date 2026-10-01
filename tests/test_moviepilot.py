@@ -122,6 +122,33 @@ def test_scrape_falls_back_to_login_for_old_moviepilot(tmp_path: Path):
     ]
 
 
+def test_expired_login_is_refreshed_once_for_concurrent_requests(tmp_path: Path):
+    """好幾個請求同時被拒（登入 token 過期）：只登入一次，其他的用新 token 重送。"""
+    import threading
+
+    logins, rejected = [], threading.Barrier(6, timeout=5)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/api/v1/login/access-token":
+            logins.append(1)
+            return httpx.Response(200, json={"access_token": f"jwt{len(logins)}"})
+        if request.headers.get("authorization") == "Bearer old":
+            rejected.wait()  # 六個請求都拿舊 token 被拒之後才回應，確定是同時過期
+            return httpx.Response(401)
+        return httpx.Response(200, json={"ok": request.headers.get("authorization")})
+
+    cfg = make_config(tmp_path, username="cat", password="pw")
+    mp = MoviePilot(cfg.moviepilot, cfg, transport=httpx.MockTransport(handler))
+    mp._jwt = "old"
+    results = []
+    threads = [threading.Thread(target=lambda: results.append(mp._request("GET", "/api/v1/x"))) for _ in range(6)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert len(logins) == 1 and results == [{"ok": "Bearer jwt1"}] * 6
+
+
 def test_test_connection_messages(tmp_path: Path):
     cfg = make_config(tmp_path)
 

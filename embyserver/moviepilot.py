@@ -186,6 +186,7 @@ class MoviePilot:
         self._cancel = {"scrape": threading.Event(), "fill": threading.Event()}
         self._transport = transport
         self._jwt: Optional[str] = None
+        self._jwt_lock = threading.Lock()  # 登入 token 過期時只讓一個請求重新登入，其他的等它、用新的 token
         self._preview_ok_at = 0.0  # 上次確認 MoviePilot 夠新、支援整理預覽的時間
 
     @property
@@ -224,11 +225,16 @@ class MoviePilot:
             raise MoviePilotError("還沒設定 MoviePilot 網址")
         try:
             with self._client(timeout or self.cfg.timeout) as client:
-                resp = self._send(client, method, path, body, query)
+                token = self._jwt
+                resp = self._send(client, method, path, body, query, token)
                 if resp.status_code in (401, 403) and self.cfg.username and self.cfg.password:
-                    # 舊版 MoviePilot 的刮削 API 只認登入 token；或是之前的登入 token 過期了
-                    self._jwt = self._login(client)
-                    resp = self._send(client, method, path, body, query)
+                    # 舊版 MoviePilot 的刮削 API 只認登入 token；或是之前的登入 token 過期了。
+                    # 刮削是好幾個請求同時送：別的請求已經換了新 token 就直接用，不再登入一次
+                    with self._jwt_lock:
+                        if self._jwt == token:
+                            self._jwt = self._login(client)
+                        token = self._jwt
+                    resp = self._send(client, method, path, body, query, token)
                 return self._parse(resp, path)
         except httpx.InvalidURL as exc:  # 網址填錯（例如埠號不是數字）；不是 httpx.HTTPError
             raise MoviePilotError(f"MoviePilot 網址格式不對：{exc}") from exc
@@ -238,10 +244,11 @@ class MoviePilot:
                 message += FRONTEND_HINT
             raise MoviePilotError(message, kind=_net_kind(exc)) from exc
 
-    def _send(self, client: httpx.Client, method: str, path: str, body: Optional[dict], query: Optional[dict]):
+    def _send(self, client: httpx.Client, method: str, path: str, body: Optional[dict], query: Optional[dict],
+              token: Optional[str]):
         headers, params = {}, dict(query or {})
-        if self._jwt:
-            headers["Authorization"] = f"Bearer {self._jwt}"
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
         elif self.cfg.api_token:
             # 新版接受 X-API-KEY 標頭；token 查詢參數給接受 API 令牌的舊端點
             headers["X-API-KEY"] = self.cfg.api_token
