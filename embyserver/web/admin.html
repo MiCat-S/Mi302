@@ -727,13 +727,16 @@ dialog .card-b{max-height:70vh;overflow:auto}
           <div class="logbar"><input id="seriesQ" type="search" placeholder="搜尋劇名" oninput="soon('seriesQ', () => loadSeries(1))">
             <select id="seriesYear" onchange="loadSeries(1)"><option value="">全部年份</option></select>
             <select id="seriesLimit" onchange="loadSeries(1)"><option value="20">每頁 20 部</option><option value="50">每頁 50 部</option><option value="100">每頁 100 部</option><option value="200">每頁 200 部</option></select>
-            <label class="switch p0"><input type="checkbox" id="seriesGaps" onchange="loadSeries(1)"><span class="track"></span><span class="lbl">只看集號有空洞的</span></label></div>
+            <label class="switch p0"><input type="checkbox" id="seriesGaps" onchange="loadSeries(1)"><span class="track"></span><span class="lbl">只看集號有空洞的</span></label>
+            <label class="switch p0"><input type="checkbox" id="seriesExcl" onchange="loadSeries(1)"><span class="track"></span><span class="lbl" id="seriesExclLbl">只看標了不補的</span></label></div>
           <div id="series" class="list"><p class="hint">讀取中…</p></div>
-          <p class="hint">「集號有空洞」只是提示（例如有第 2、4 集沒有第 3 集）；最後幾集沒下到、整季沒有的情況，MoviePilot 對照 TMDB 一樣會算出來。沒有 tmdbid 的劇要先刮削。</p>
+          <p class="hint">「集號有空洞」只是提示（例如有第 2、4 集沒有第 3 集）；最後幾集沒下到、整季沒有的情況，MoviePilot 對照 TMDB 一樣會算出來。沒有 tmdbid 的劇要先刮削。不想補的劇按右邊的「不補」，之後手動補全、全部補全、全量同步後自動補全都跳過它。</p>
           <details class="more"><summary>設定</summary><div class="in stack" id="mpFillOpts">
           <label class="switch"><input type="checkbox" data-key="moviepilot.fill_after_full_sync" onchange="saveToggle(this)"><span class="track"></span><span class="lbl">全量同步後自動補全<small>每次全量同步、刮削完之後，把所有有 tmdbid 的劇送一次</small></span></label>
           <label class="field maxw320"><span>兩個新訂閱之間隔幾秒</span><input type="number" min="0" max="3600" step="10" data-key="moviepilot.fill_interval">
             <small>每個新訂閱都會讓 MoviePilot 把所有站點搜一遍，一口氣建太多，站點會被 Cloudflare 擋。預設 60；0 = 不隔</small></label>
+          <label class="field maxw320"><span>缺超過幾集的季不補</span><input type="number" min="0" max="100000" step="1" data-key="moviepilot.fill_max_missing">
+            <small>對照 TMDB，一季缺的集數超過這麼多就不建訂閱（例如只收了幾集的長篇動畫），免得一口氣訂閱幾百集。0 = 不限</small></label>
           <div><button class="btn sm primary" onclick="saveFields($('mpFillOpts'))">儲存設定</button></div>
           </div></details>
         </div>
@@ -2454,15 +2457,16 @@ async function loadSeries(page) {
   seriesPage = Math.max(1, page || seriesPage);
   const box = $('series'), seq = ++seriesSeq, limit = seriesLimit(), year = $('seriesYear').value;
   let r;
-  try { r = await api(`/web/api/series?q=${encodeURIComponent($('seriesQ').value)}&year=${year}&gaps=${$('seriesGaps').checked ? 1 : 0}&offset=${(seriesPage - 1) * limit}&limit=${limit}`); }
+  try { r = await api(`/web/api/series?q=${encodeURIComponent($('seriesQ').value)}&year=${year}&gaps=${$('seriesGaps').checked ? 1 : 0}&excluded=${$('seriesExcl').checked ? 1 : 0}&offset=${(seriesPage - 1) * limit}&limit=${limit}`); }
   catch (e) { if (seq === seriesSeq) box.innerHTML = failHtml(e); return; }
   if (seq !== seriesSeq) return;
   fillYears(r.years, year);
+  $('seriesExclLbl').textContent = r.excluded ? `只看標了不補的（${r.excluded} 部）` : '只看標了不補的';
   try { localStorage.setItem('mi302.seriesLimit', String(limit)); } catch (e) {}
   const pages = Math.max(1, Math.ceil(r.total / limit));
   if (seriesPage > pages) return loadSeries(pages);  // 換篩選後頁數變少
   box.innerHTML = '';
-  if (!r.items.length) { box.innerHTML = `<p class="hint">${$('seriesQ').value || year || $('seriesGaps').checked ? '沒有符合的劇' : '媒體庫裡還沒有劇集'}</p>`; return; }
+  if (!r.items.length) { box.innerHTML = `<p class="hint">${$('seriesQ').value || year || $('seriesGaps').checked || $('seriesExcl').checked ? '沒有符合的劇' : '媒體庫裡還沒有劇集'}</p>`; return; }
   for (const s of r.items) {
     const row = document.createElement('div'); row.className = 'li top';
     // 齊全的季合成一行；有空洞的季各一行，只列缺幾集和壓縮後的區間，完整清單放在 title
@@ -2470,10 +2474,12 @@ async function loadSeries(page) {
     const gapped = s.seasons.filter(x => x.gaps.length).map(x =>
       `<div class="ss"><span class="sn">S${ep2(x.season)}</span><span>${x.count} 集</span><span class="pill warn">缺 ${x.gaps.length} 集</span>` +
       `<span class="eps" title="${esc(x.gaps.map(e => 'E' + ep2(e)).join('、').slice(0, 600))}">${esc(epRanges(x.gaps))}</span></div>`).join('');
-    row.innerHTML = `<div class="main"><div class="row wrap"><b>${esc(s.name)}</b>${s.year ? `<span class="hint">${s.year}</span>` : ''}${s.library ? `<span class="pill">${esc(s.library)}</span>` : ''}${s.tmdbid ? '' : '<span class="pill">沒有 tmdbid，要先刮削</span>'}</div>
+    row.innerHTML = `<div class="main"><div class="row wrap"><b>${esc(s.name)}</b>${s.year ? `<span class="hint">${s.year}</span>` : ''}${s.library ? `<span class="pill">${esc(s.library)}</span>` : ''}${s.tmdbid ? '' : '<span class="pill">沒有 tmdbid，要先刮削</span>'}${s.excluded ? '<span class="pill warn">不補</span>' : ''}</div>
       ${complete ? `<div class="sub mt2">${complete}</div>` : ''}${gapped}${s.seasons.length ? '' : '<div class="sub">沒有集</div>'}</div>
-      <button class="btn sm"${s.tmdbid ? '' : ' disabled'}>補全</button>`;
-    row.querySelector('button').onclick = () => fillSeries([s.id], '「' + s.name + '」');
+      <div class="row gap6"><button class="btn sm js-fill"${s.tmdbid && !s.excluded ? '' : ' disabled'}>補全</button>${s.tmdbid ? `<button class="btn sm ghost js-excl" title="${s.excluded ? '之後補全時照常送這部劇' : '手動補全、全部補全、全量同步後自動補全都跳過這部劇'}">${s.excluded ? '恢復補全' : '不補'}</button>` : ''}</div>`;
+    row.querySelector('.js-fill').onclick = () => fillSeries([s.id], '「' + s.name + '」');
+    const excl = row.querySelector('.js-excl');
+    if (excl) excl.onclick = () => fillExclude(s, !s.excluded);
     box.appendChild(row);
   }
   pager(box, {page: seriesPage, pages, onPage: loadSeries, total: r.total, unit: '部', always: true});
@@ -2484,15 +2490,22 @@ async function fillSeries(ids, label) {
   catch (e) { toast(e.message, 'bad'); return; }
   toast(r.started ? '已送給 MoviePilot：' + label : '已經在補全中，等它做完'); pollMP();
 }
+async function fillExclude(s, on) {
+  // 「不補」照 tmdbid 記在伺服器上；改完重畫這一頁
+  try { await api('/web/api/moviepilot/fill/exclude', {method: 'POST', body: JSON.stringify({tmdbid: s.tmdbid, name: s.name, exclude: on})}); }
+  catch (e) { toast(e.message, 'bad'); return; }
+  toast(on ? `「${s.name}」標了不補，補全時會跳過` : `「${s.name}」恢復補全`);
+  loadSeries(seriesPage);
+}
 async function fillAll() {
-  if (await ask({title: '把所有有 tmdbid 的劇都送給 MoviePilot？', text: '每一季先向 TMDB 查已播出的集，缺集的季才建訂閱並請 MoviePilot 搜尋；已經齊全的季不建。', ok: '全部補全'})) fillSeries([], '全部劇集');
+  if (await ask({title: '把所有有 tmdbid 的劇都送給 MoviePilot？', text: '每一季先向 TMDB 查已播出的集，缺集的季才建訂閱並請 MoviePilot 搜尋；已經齊全的季、標了「不補」的劇、缺超過設定集數的季不建。', ok: '全部補全'})) fillSeries([], '全部劇集');
 }
 function fillHtml(f) {
   if (!f.started) return '';
   let h = '<div class="row wrap mb8">';
   if (f.running) h += `<span class="pill accent"><span class="spin"></span>補全中</span><span class="hint sp grow"><span>${f.done} / ${f.total}</span>${f.current ? `<span>${esc(f.current)}</span>` : ''}</span><button class="btn sm ghost danger" data-act="stopJob" data-job="fill">停止</button>`;
   else h += `<span class="pill ${f.errors.length || f.stopped ? 'warn' : 'ok'}">${f.stopped ? '已停止' : f.errors.length ? '有問題' : '完成'}</span><span class="hint">上次補全（${f.source === 'sync' ? '全量同步後自動' : '手動'}）・${ago(f.finished)}</span>`;
-  h += `</div><div class="chips">${chip(f.created, '建了訂閱', true)}${chip(f.missing || 0, '缺的集數')}${chip(f.complete, '已經齊全')}${chip(f.existing, '之前訂閱過')}${chip(f.skipped, '沒 tmdbid')}${chip(f.failed, '失敗')}</div>`;
+  h += `</div><div class="chips">${chip(f.created, '建了訂閱', true)}${chip(f.missing || 0, '缺的集數')}${chip(f.complete, '已經齊全')}${chip(f.existing, '之前訂閱過')}${f.too_many ? chip(f.too_many, '缺太多不補') : ''}${f.excluded ? chip(f.excluded, '標了不補') : ''}${chip(f.skipped, '沒 tmdbid')}${chip(f.failed, '失敗')}</div>`;
   if (f.details.length) h += `<details class="more mt10"><summary>每一季的結果（${f.details.length}）</summary><div class="in hint pre">${esc(f.details.join('\n'))}</div></details>`;
   if (f.errors.length) h += `<div class="notice bad mt10">${f.errors.slice(0, 5).map(esc).join('<br>')}</div>`;
   return h;

@@ -56,20 +56,38 @@ async def moviepilot_stop(request: Request, ctx: AuthContext = Depends(require_a
 
 @router.get("/web/api/series")
 def list_series(request: Request, ctx: AuthContext = Depends(require_admin)):
-    """媒體庫裡的劇和每一季的集數、集號空洞；q 搜尋劇名，year 只列那一年的，gaps=1 只列有空洞的，offset、limit 分頁。
+    """媒體庫裡的劇和每一季的集數、集號空洞；q 搜尋劇名，year 只列那一年的，gaps=1 只列有空洞的，
+    excluded=1 只列標了「不補」的，offset、limit 分頁。每一部附上 excluded（標了「不補」）。
 
     years 是媒體庫裡所有劇的年份（不受篩選影響），給網頁的年份下拉選單用。
     """
-    db = state(request).db
+    st = state(request)
+    db = st.db
     offset = max(q_int(request, "offset", 0) or 0, 0)
     limit = min(max(q_int(request, "limit", 20) or 20, 1), 500)
+    excluded = st.moviepilot.fill_excluded()
     items, total = library_series(
         db, q(request, "q") or "", q(request, "gaps") in ("1", "true"), limit=limit, offset=offset,
-        year=q_int(request, "year"),
+        year=q_int(request, "year"), tmdbids=set(excluded) if q(request, "excluded") in ("1", "true") else None,
     )
+    for s in items:
+        s["excluded"] = str(s["tmdbid"]) in excluded if s["tmdbid"] else False
     years = [r["year"] for r in db.query(
         "SELECT DISTINCT year FROM items WHERE type='Series' AND year IS NOT NULL ORDER BY year DESC")]
-    return {"items": items, "total": total, "offset": offset, "more": offset + len(items) < total, "years": years}
+    return {"items": items, "total": total, "offset": offset, "more": offset + len(items) < total, "years": years,
+            "excluded": len(excluded)}
+
+
+@router.post("/web/api/moviepilot/fill/exclude")
+async def moviepilot_fill_exclude(request: Request, ctx: AuthContext = Depends(require_admin)):
+    """補全缺集時跳過這部劇：{"tmdbid": 123, "name": "劇名", "exclude": true}；exclude=false 取消。照 tmdbid 記。"""
+    body = await json_body(request)
+    tmdbid = str(body.get("tmdbid") or "")
+    if not tmdbid.isdigit():
+        raise HTTPException(status_code=400, detail="要有 tmdbid（沒有 tmdbid 的劇本來就不會補）")
+    excluded = state(request).moviepilot.set_fill_excluded(int(tmdbid), str(body.get("name") or ""),
+                                                           bool(body.get("exclude", True)))
+    return {"excluded": tmdbid in excluded, "count": len(excluded)}
 
 
 @router.post("/web/api/moviepilot/fill")

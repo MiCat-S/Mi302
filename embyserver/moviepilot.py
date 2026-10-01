@@ -69,6 +69,7 @@ PREVIEW_MIN_VERSION = (2, 11, 1, 1)
 MAX_CONCURRENCY = 8  # 同時送幾項刮削的上限
 # 送過卻沒有劇照的集（TMDB 沒有這集的圖），這段時間內手動刮削不再重送；過了這段時間的紀錄順手清掉
 NO_IMAGE_RETRY_SECONDS = 30 * 86400
+FILL_EXCLUDED_KEY = "fill_excluded"  # 補全缺集時跳過的劇（資料庫 meta，JSON：tmdbid → 劇名）
 
 
 def parse_version(text: str) -> Optional[Tuple[int, int, int, int]]:
@@ -147,6 +148,8 @@ class FillResult:
     existing: int = 0  # 之前就訂閱過（不再請它搜，MoviePilot 自己會定時搜）
     missing: int = 0  # 缺的集數合計
     skipped: int = 0  # 沒有 tmdbid 的劇，以劇計
+    excluded: int = 0  # 標了「不補」的劇，以劇計
+    too_many: int = 0  # 缺的集數超過 fill_max_missing，不建訂閱的季
     failed: int = 0
     stopped: bool = False  # 按了停止：做完手上這一季就停
     current: str = ""
@@ -176,6 +179,7 @@ class MoviePilot:
         self.fill_result = FillResult()
         self._lock = threading.Lock()
         self._fill_lock = threading.Lock()
+        self._fill_excluded_lock = threading.Lock()
         self._clock = time.monotonic  # 測試換成假的時鐘
         self._plugin_checked = (0.0, False)  # 上次問外掛的時間、有沒有裝好啟用
         self._plugin_features: frozenset = frozenset()  # 外掛會哪些功能（1.1.0 起多了算名字 names）
@@ -805,10 +809,15 @@ class MoviePilot:
             if not self.can_subscribe:
                 raise MoviePilotError("建訂閱的 API 只接受帳號登入，請在 MoviePilot 連線設定填帳號密碼")
             jobs: List[Tuple[dict, dict]] = []
+            excluded = self.fill_excluded()
             for show in series:
                 if not show.get("tmdbid"):
                     r.skipped += 1
                     r.details.append(f"{show['name']}：沒有 tmdbid，略過（先刮削）")
+                    continue
+                if str(show["tmdbid"]) in excluded:
+                    r.excluded += 1
+                    r.details.append(f"{show['name']}：標了「不補」，略過")
                     continue
                 jobs += [(show, x) for x in show.get("seasons") or []]
             r.total = len(jobs)
@@ -884,6 +893,12 @@ class MoviePilot:
                 r.complete += 1
                 r.details.append(f"{label}：TMDB 已播出的 {len(aired)} 集都有，不建訂閱" + (f"；{unsure}" if unsure else ""))
                 return True
+            limit = int(self.cfg.fill_max_missing or 0)
+            if limit and len(missing) > limit:
+                r.too_many += 1
+                r.details.append(f"{label}：缺 {len(missing)} 集（{ep_ranges(missing)}），超過「缺超過幾集的季不補」的 "
+                                 f"{limit} 集，不建訂閱")
+                return True
             r.missing += len(missing)
         lack = f"缺 {len(missing)} 集（{ep_ranges(missing)}）" if missing else "查不到 TMDB 集數，交給 MoviePilot 判斷"
         if not self._pace(r, label):
@@ -922,6 +937,29 @@ class MoviePilot:
         self._cancel[what].set()
         return True
 
+    def fill_excluded(self) -> Dict[str, str]:
+        """標了「不補」的劇：tmdbid → 劇名（照 tmdbid 記，重新掃描、改資料夾名都還在）。"""
+        if self.db is None:
+            return {}
+        try:
+            value = json.loads(self.db.get_meta(FILL_EXCLUDED_KEY) or "{}")
+        except ValueError:
+            return {}
+        return {str(k): str(v) for k, v in value.items()} if isinstance(value, dict) else {}
+
+    def set_fill_excluded(self, tmdbid: int, name: str, on: bool) -> Dict[str, str]:
+        """標記或取消「不補」：補全缺集（手動、全部、全量同步後自動）都跳過這部劇。"""
+        if self.db is None:
+            raise MoviePilotError("沒有資料庫，記不住要跳過的劇")
+        with self._fill_excluded_lock:
+            excluded = self.fill_excluded()
+            if on:
+                excluded[str(tmdbid)] = name
+            else:
+                excluded.pop(str(tmdbid), None)
+            self.db.set_meta(FILL_EXCLUDED_KEY, json.dumps(excluded, ensure_ascii=False))
+        return excluded
+
     def fill_in_background(self, series: List[dict], source: str) -> bool:
         if self._fill_lock.locked():
             return False
@@ -943,11 +981,12 @@ def ep_ranges(nums: List[int], limit: int = 6) -> str:
 
 def library_series(
     db: Database, query: str = "", gaps_only: bool = False, limit: int = 0, offset: int = 0,
-    year: Optional[int] = None,
+    year: Optional[int] = None, tmdbids: Optional[Set[str]] = None,
 ) -> Tuple[List[dict], int]:
     """媒體庫裡的劇：名稱、年份、tmdbid、每一季有幾集、集號的空洞（有第 2、4 集沒有第 3 集）。
 
-    回傳 (清單, 符合條件的總數)；集號有空洞的排前面，year 只列那一年的，limit、offset 分頁。特別篇（第 0 季）不算。
+    回傳 (清單, 符合條件的總數)；集號有空洞的排前面，year 只列那一年的，tmdbids 只列這些（tmdbid 字串），
+    limit、offset 分頁。特別篇（第 0 季）不算。
     空洞只是提示：最後幾集沒下到、整季都沒有的情況這裡看不出來，交給 MoviePilot 對照 TMDB。
     """
     episodes: Dict[int, Dict[int, Set[int]]] = {}
@@ -971,6 +1010,8 @@ def library_series(
             continue
         providers = json.loads(r["provider_ids"]) if r["provider_ids"] else {}
         tmdbid = str(providers.get("Tmdb") or "")
+        if tmdbids is not None and tmdbid not in tmdbids:
+            continue
         seasons = []
         for season, eps in sorted(episodes.get(r["id"], {}).items()):
             if season == 0:

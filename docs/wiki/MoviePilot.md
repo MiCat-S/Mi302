@@ -38,6 +38,7 @@ The connection test only checks the URL and the API token. It sends an empty pat
 | MoviePilot username, password (MoviePilot 帳號, MoviePilot 密碼) | `moviepilot.username`, `moviepilot.password` | empty | needed to fill missing episodes and for Organise 115, and by the scrape API of older versions |
 | Fill missing episodes after full sync (全量同步後自動補全) | `moviepilot.fill_after_full_sync` | off | in the collapsed Settings section (設定) of the fill card; saved as soon as you toggle it |
 | Seconds between new subscriptions (兩個新訂閱之間隔幾秒) | `moviepilot.fill_interval` | `60` | in the collapsed Settings section (設定) of the fill card; click **Save settings** (儲存設定); 0 = no gap |
+| Skip seasons missing more than (缺超過幾集的季不補) | `moviepilot.fill_max_missing` | `0` | in the collapsed Settings section (設定) of the fill card; click **Save settings** (儲存設定); 0 = no limit |
 | (config file only) | `moviepilot.timeout` | 300 | seconds to wait per item; exceeding it counts as a connection failure and stops the batch |
 
 ### When you need the username and password
@@ -135,10 +136,11 @@ When series in your library are missing episodes, MoviePilot can download them. 
 The card lists every series in the library and how many episodes each season has:
 
 - Seasons with gaps in the episode numbers (for example episodes 2 and 4 but not 3) get their own line with how many and which episodes are missing. Series with gaps are listed first.
-- Type into **Search series** (搜尋劇名) to search by title, original title, year, pinyin or pinyin initials. Tick **Only series with gaps** (只看集號有空洞的) to list only those.
+- Type into **Search series** (搜尋劇名) to search by title, original title, year, pinyin or pinyin initials. Tick **Only series with gaps** (只看集號有空洞的) to list only those. Tick **Only series marked skip** (只看標了不補的) to list only series marked **Skip**.
 - The **All years** drop-down (全部年份) shows only series from one year; it lists only years that exist in your library.
 - Choose 20, 50, 100 or 200 series per page (每頁 20 部 and so on); the browser remembers your choice. Below the list you see the page number and the total, with **Previous** (上一頁) and **Next** (下一頁) buttons. Searching or changing the year or filter goes back to page 1.
 - The **Fill** button (補全) next to a series sends only that series. Series without a tmdbid are marked "no tmdbid, scrape first" (沒有 tmdbid，要先刮削) and the button is disabled.
+- **Skip** (不補) next to a series excludes it: manual fill, **Fill all** and the automatic fill after a full sync all pass over it. The list marks it as skipped and its **Fill** button is disabled; **Fill again** (恢復補全) undoes it. Skipped series are remembered by tmdbid in Mi302's database, so rescans and folder renames keep them. Series without a tmdbid are never filled anyway and have no such button.
 - **Fill all** (全部補全) at the top right of the card sends every series with a tmdbid, after asking for confirmation.
 - **Stop** (停止) is available while filling: it stops after the current season, and subscriptions already created stay.
 - Specials (season 0) are neither listed nor sent.
@@ -155,13 +157,14 @@ Filling works season by season, and only for seasons that already have episodes 
    - Episodes without a date are often placeholders for episodes not yet aired. One counts as aired if its number is not higher than the last episode of that season in the library (if you have episode 10, episode 3 has aired).
    - Undated episodes after the last one in the library are uncertain and are not counted as missing. The result notes how many there are.
 3. It compares with the episode numbers Mi302 already has for that season. If every aired episode is there, no subscription is created, and the season counts as "already complete".
-4. Only if episodes are missing does it create a subscription (`POST /api/v1/subscribe/`), identifying the show by tmdbid (V3's `media_source` / `media_id`) rather than by name, so it cannot pick the wrong show.
-5. For a new subscription, it then asks MoviePilot to search right away (`POST /api/v1/subscribe/search/{subscription id}`). MoviePilot V3 only schedules a search when a subscription is created, and sometimes the search waits for the next scheduled run. If this step fails, the result says so, and MoviePilot handles it at its next scheduled search.
-6. Existing subscriptions are not searched again; MoviePilot searches them on its own schedule (every 24 hours by default).
+4. If more episodes are missing than **Skip seasons missing more than** (缺超過幾集的季不補) in Settings (default 0 = no limit), no subscription is created; the season counts as "missing too many" and the result says how many are missing. Useful for long anime where you only kept a few episodes, or shows where you only want some episodes, so hundreds of episodes are not subscribed at once.
+5. Only if episodes are missing does it create a subscription (`POST /api/v1/subscribe/`), identifying the show by tmdbid (V3's `media_source` / `media_id`) rather than by name, so it cannot pick the wrong show.
+6. For a new subscription, it then asks MoviePilot to search right away (`POST /api/v1/subscribe/search/{subscription id}`). MoviePilot V3 only schedules a search when a subscription is created, and sometimes the search waits for the next scheduled run. If this step fails, the result says so, and MoviePilot handles it at its next scheduled search.
+7. Existing subscriptions are not searched again; MoviePilot searches them on its own schedule (every 24 hours by default).
 
 **Not all at once**: every new subscription makes MoviePilot search all your sites. It searches one subscription per site at a time, but starts the next one as soon as the last finishes; creating hundreds of subscriptions in one go hits the sites back to back and gets you blocked by Cloudflare. So new subscriptions are spaced out, 60 seconds apart by default (**Seconds between new subscriptions** (兩個新訂閱之間隔幾秒) in the Settings section, 0 = no gap), and the card shows when it is waiting. Only new subscriptions wait; complete seasons and existing subscriptions do not. A first fill of many series takes a while (100 new subscriptions take about 100 minutes); it runs in the background, so you can close the page.
 
-If the TMDB episode list cannot be fetched, Mi302 creates the subscription anyway and leaves the decision to MoviePilot.
+If the TMDB episode list cannot be fetched, Mi302 creates the subscription anyway and leaves the decision to MoviePilot (the number missing is unknown, so the limit above does not apply).
 
 When MoviePilot has downloaded and organised the files, it notifies Mi302 to rescan. If a season with missing episodes is still airing, the subscription keeps following new episodes.
 
@@ -176,13 +179,15 @@ The numbers on the card:
 | Already complete (已經齊全) | seasons where every aired episode is present, so no subscription was created; also seasons an older MoviePilot rejected with "媒体库中已存在" (already in library) |
 | Subscribed before (之前訂閱過) | seasons MoviePilot reported as already subscribed (a new search was requested) |
 | No tmdbid (沒 tmdbid) | series skipped for lack of a tmdbid |
+| Missing too many (缺太多不補) | seasons missing more than the limit, so no subscription was created |
+| Skipped (標了不補) | series passed over because they are marked **Skip** |
 | Failed (失敗) | seasons MoviePilot refused to subscribe, or that were not processed after the run stopped |
 
 Expand "Results per season (N)" (每一季的結果（N）) to see which episodes each season misses and what MoviePilot replied. A connection or authentication failure stops the run, and the remaining seasons count as failed. Only one fill runs at a time; clicking again during a run shows "already filling, wait for it to finish" (已經在補全中，等它做完).
 
 ### Fill after full sync
 
-With **Fill missing episodes after full sync** (全量同步後自動補全) ticked (off by default; saved as soon as you toggle it), every full sync ends by sending all series with a tmdbid, after scraping has finished. Nothing is sent if no MoviePilot account is filled in. It waits for scraping because newly scraped series only have a tmdbid at that point.
+With **Fill missing episodes after full sync** (全量同步後自動補全) ticked (off by default; saved as soon as you toggle it), every full sync ends by sending all series with a tmdbid, after scraping has finished. Nothing is sent if no MoviePilot account is filled in. It waits for scraping because newly scraped series only have a tmdbid at that point. Series marked **Skip** and seasons missing too many are passed over here too.
 
 ## Organising 115
 
