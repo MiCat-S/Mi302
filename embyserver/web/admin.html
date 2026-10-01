@@ -235,6 +235,7 @@ dialog.wide{width:min(720px,calc(100vw - 32px))}
 .lg.ERROR,.lg.CRITICAL{background:var(--danger-soft)}.lg.ERROR .lv,.lg.CRITICAL .lv{color:var(--danger)}
 .lg.DEBUG .m{color:var(--muted)}
 .ogacts{flex:0 0 auto;display:flex;flex-direction:column;gap:6px}.ogacts .btn{justify-content:center}  /* 整理每一列右邊：預覽、整理、刪除，直排不佔寬度 */
+#mText{white-space:pre-line}
 .savebar.wrap{flex-wrap:wrap}#ogSel,#ogBatchBar{flex:1 1 240px}#ogBatchBar .meter{margin-bottom:6px}  /* 窄螢幕上說明自己一行，按鈕排在下面 */
 .savebar{position:sticky;bottom:16px;display:flex;gap:10px;align-items:center;justify-content:flex-end;padding:10px 12px;background:var(--panel);border:1px solid var(--line);border-radius:var(--r);box-shadow:0 6px 20px rgba(16,24,40,.12);margin-top:8px}
 
@@ -535,7 +536,9 @@ dialog .card-b{max-height:70vh;overflow:auto}
             <span class="hint grow" id="ogSel" aria-live="polite">「全部整理」一次做完清單上的，有問題的跳過；也可以在每一列右邊單獨整理，或勾選幾個</span>
             <button class="btn sm danger hidden" id="ogStop" onclick="organizeStopAll()">停止</button>
             <button class="btn primary" id="ogAll" onclick="organizeAll()">全部整理</button>
-            <button class="btn" id="ogPreview" onclick="organizePreview()">預覽選取的</button><button class="btn danger solid" id="ogRun" onclick="organizeExecute()" disabled>執行</button></div>
+            <button class="btn" id="ogSelAll" onclick="organizeSelectAll()" title="勾選這一頁（和從瀏覽 115 加進來的）全部">全選</button>
+            <button class="btn" id="ogPreview" onclick="organizePreview()">預覽選取的</button>
+            <button class="btn ghost danger" id="ogDel" onclick="organizeDeleteSelected()" disabled>刪除</button><button class="btn danger solid" id="ogRun" onclick="organizeExecute()" disabled>執行</button></div>
         </div>
       </div>
 
@@ -2734,6 +2737,34 @@ function organizeShow(st) {
     `<details class="more mt6"><summary>看每個檔案的新位置（${r.items.length}）</summary><div class="in"><div class="list">${reoItemsHtml(r.items)}</div></div></details>`;
 }
 const organizeSelected = () => Object.values(og.state).filter(st => st.on && !st.sent);
+const organizeVisible = () => Object.values(og.state).filter(st => st.el?.isConnected && !st.sent);  // 畫面上這一頁和釘上來的
+function organizeSelectAll() {
+  // 這一頁全部勾起來；已經全勾了就全部取消
+  const vis = organizeVisible(), on = !vis.every(st => st.on);
+  for (const st of vis) { st.on = on; const cb = st.el.querySelector('.js-on'); if (cb) cb.checked = on; }
+  organizeButtons();
+}
+async function organizeDeleteSelected() {
+  // 勾選的整個刪掉（劇集或電影資料夾、沒有自己資料夾的那支電影），一個一個移到 115 回收站；換頁前勾的也算
+  const sel = organizeSelected();
+  if (!sel.length) return;
+  const names = sel.map(st => `・${st.unit.name}`);
+  if (!await ask({title: `刪除勾選的 ${sel.length} 個？`, ok: `刪除 ${sel.length} 個`, danger: true,
+    text: `115 上這些資料夾（或那支影片）整個移到 115 回收站（在 115 可以還原），本機的 strm、nfo 和媒體庫裡的也拿掉。\n\n`
+      + names.slice(0, 10).join('\n') + (names.length > 10 ? `\n…等 ${names.length} 個` : '')})) return;
+  og.deleting = true; organizeButtons();
+  let done = 0; const bad = [];
+  for (const st of sel) {
+    try {
+      await api('/web/api/115/organize/delete', {method: 'POST', body: JSON.stringify({id: st.unit.id})});
+      done++; delete og.state[st.unit.id];
+    } catch (e) { bad.push(`${st.unit.name}：${e.message}`); }
+  }
+  og.deleting = false;
+  if (bad.length) toast(`已把 ${done} 個移到 115 回收站；${bad.length} 個沒刪：${bad[0]}${bad.length > 1 ? ' …' : ''}`, 'bad');
+  else toast(`已把 ${done} 個移到 115 回收站`);
+  organizeLoad(og.page, true);
+}
 const OG_TARGET = {auto: '照 MoviePilot 的目錄設定', parent: '同一層'};
 async function organizeAll() {
   // 清單上符合搜尋、種類的全部（不只這一頁），在 Mi302 背景一個一個做；有問題的跳過，做完列出來
@@ -2839,6 +2870,12 @@ function organizeButtons() {
   $('ogSel').textContent = sel.length ? `勾選了 ${sel.length} 個` + (ready.length ? `，${ready.length} 個預覽過可以執行` : '')
     : '「全部整理」一次做完清單上的，有問題的跳過；也可以在每一列右邊單獨整理，或勾選幾個';
   $('ogPreview').disabled = !sel.length || lack || running || busy;
+  const vis = organizeVisible();
+  $('ogSelAll').disabled = !vis.length || !!og.deleting;
+  $('ogSelAll').textContent = vis.length && vis.every(st => st.on) ? '全不選' : '全選';
+  $('ogDel').disabled = !sel.length || running || busy || !!og.deleting;
+  $('ogDel').textContent = og.deleting ? '刪除中…' : sel.length ? `刪除（${sel.length} 個）` : '刪除';
+  $('ogDel').title = running ? '整理中不能刪除，做完再刪' : '勾選的整個移到 115 回收站（可以還原）';
   $('ogRun').disabled = !ready.length || running || busy;
   $('ogRun').textContent = ready.length ? `執行（${ready.length} 個）` : '執行';
   for (const st of Object.values(og.state)) {  // 每一列自己的預覽、整理
