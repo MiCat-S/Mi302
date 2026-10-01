@@ -135,8 +135,11 @@ When series in your library are missing episodes, MoviePilot can download them. 
 
 By default the card lists only series that are really missing episodes compared with TMDB; complete series are not listed:
 
-- Seasons with gaps in the episode numbers (for example episodes 2 and 4 but not 3) get their own line with how many and which episodes are missing. Series with gaps are listed first.
-- Type into **Search series** (搜尋劇名) to search by title, original title, year, pinyin or pinyin initials. Tick **Only series with gaps** (只看集號有空洞的) to list only those. Tick **Only series marked skip** (只看標了不補的) to list only series marked **Skip**.
+- **Check missing** (檢查缺集) at the top right asks MoviePilot once per season for the episodes TMDB says have aired and only records which ones are missing. It creates **no subscriptions and downloads nothing**, and works with just the API token. Seasons checked within the last 6 hours are not asked again. A fill records the same data as it goes. When the library later gains or loses episodes, the list is recalculated on the spot without asking again.
+- Each season with missing episodes gets its own line: "has N episodes, TMDB aired M" (有 N 集・TMDB 已播出 M 集), how many are missing and which. A season without gaps can still lack its first or last episodes; only the comparison shows that. Series with missing episodes are listed first.
+- Series not yet compared with TMDB are marked 還沒對照 TMDB ("not compared with TMDB yet"); for them only gaps in the episode numbers are visible (for example episodes 2 and 4 but not 3), and those with gaps are listed right away. A line above the list says how many series are missing episodes and how many have not been compared.
+- The filter drop-down offers **Only missing (vs TMDB)** (只看缺集的（對照 TMDB）, the default), **Only series with gaps** (只看集號有空洞的) and **All series** (全部的劇); the browser remembers your choice.
+- Type into **Search series** (搜尋劇名) to search by title, original title, year, pinyin or pinyin initials. Tick **Only series marked skip** (只看標了不補的) to list only series marked **Skip**.
 - The **All years** drop-down (全部年份) shows only series from one year; it lists only years that exist in your library.
 - Choose 20, 50, 100 or 200 series per page (每頁 20 部 and so on); the browser remembers your choice. Below the list you see the page number and the total, with **Previous** (上一頁) and **Next** (下一頁) buttons. Searching or changing the year or filter goes back to page 1.
 - The **Fill** button (補全) next to a series sends only that series. Series without a tmdbid are marked "no tmdbid, scrape first" (沒有 tmdbid，要先刮削) and the button is disabled.
@@ -145,7 +148,7 @@ By default the card lists only series that are really missing episodes compared 
 - **Stop** (停止) is available while filling: it stops after the current season, and subscriptions already created stay.
 - Specials (season 0) are neither listed nor sent.
 
-Gaps in episode numbers are only a hint. Missing final episodes are caught by the check below as well.
+**Check missing** uses the same rules as a fill (see below) without creating subscriptions. Series marked **Skip** and series without a tmdbid are not checked.
 
 ### How each season is checked
 
@@ -167,6 +170,15 @@ Filling works season by season, and only for seasons that already have episodes 
 If the TMDB episode list cannot be fetched, Mi302 creates the subscription anyway and leaves the decision to MoviePilot (the number missing is unknown, so the limit above does not apply).
 
 When MoviePilot has downloaded and organised the files, it notifies Mi302 to rescan. If a season with missing episodes is still airing, the subscription keeps following new episodes.
+
+### Cancel all subscriptions
+
+If a fill created more subscriptions than you wanted and you would rather start over, open **Cancel all subscriptions** (取消所有訂閱) at the bottom of the card and click **Cancel all subscriptions…** (取消所有訂閱…):
+
+- It first shows how many subscriptions MoviePilot has (series, and movies or others) and only starts after you type 取消訂閱. Series and movie subscriptions are all cancelled, not just the ones Mi302 created.
+- They are cancelled one by one in the background (`DELETE /api/v1/subscribe/{id}`). The card shows the progress, and **Stop** (停止) keeps whatever has not been cancelled yet; what is already cancelled does not come back.
+- Only the subscriptions are removed. Files already downloaded and organised are untouched; MoviePilot just stops searching for and following those titles.
+- It does not run at the same time as a check or a fill. It needs the MoviePilot account login; with an administrator account it sees and cancels everyone's subscriptions.
 
 ### Results
 

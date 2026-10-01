@@ -261,6 +261,9 @@ MoviePilot 說完成之後再看一次有沒有真的寫出 nfo、劇照：認�
 媒體庫裡的集號當場算每一季缺哪幾集（season_missing，和補全同一套判斷），網頁預設只列真的缺集的劇；沒有空洞的季也可能
 缺前面、後面幾集，只看集號的空洞看不出來。「檢查缺集」（fill 的 check=True）只查、只記，不建訂閱。
 
+取消所有訂閱（unsubscribe_all）：列出 MoviePilot 的訂閱（GET /api/v1/subscribe/）一個一個刪（DELETE /api/v1/subscribe/{id}），
+和補全共用一把鎖。清單可能分頁，所以刪完一輪再列一次，直到沒有還沒試過的；刪不掉的記下來、不重試。
+
 ## embyserver/intro.py
 
 片頭片尾：從播放行為學出來，給播放器「跳過片頭」「跳過片尾」用。

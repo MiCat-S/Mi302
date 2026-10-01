@@ -147,6 +147,28 @@ class FillResult:
         return asdict(self)
 
 
+@dataclass
+class UnsubscribeResult:
+    """取消 MoviePilot 裡的訂閱：一個一個刪的進度。"""
+
+    started: float = 0.0
+    finished: float = 0.0
+    running: bool = False
+    total: int = 0
+    done: int = 0
+    failed: int = 0
+    stopped: bool = False  # 按了停止：刪掉的就刪掉了，剩下的留著
+    current: str = ""
+    errors: List[str] = field(default_factory=list)
+
+    def as_dict(self) -> dict:
+        return asdict(self)
+
+
+MAX_UNSUB_ERRORS = 20
+TV_TYPE = "电视剧"  # MoviePilot 訂閱的類型
+
+
 class MoviePilot:
     def __init__(
         self,
@@ -164,6 +186,7 @@ class MoviePilot:
         self.verify_wait = 0.5  # MoviePilot 回報完成後等檔案出現（網路磁碟可能慢一點）
         self.result = ScrapeResult()
         self.fill_result = FillResult()
+        self.unsubscribe_result = UnsubscribeResult()
         self._lock = threading.Lock()
         self._fill_lock = threading.Lock()
         self._fill_excluded_lock = threading.Lock()
@@ -174,7 +197,7 @@ class MoviePilot:
         self._stop = threading.Event()
         self.workers = Workers(self._stop)  # 刮削、補全缺集；程式結束時停在兩項之間
         # 按了停止：刮削和補全缺集可能同時在跑，各停各的
-        self._cancel = {"scrape": threading.Event(), "fill": threading.Event()}
+        self._cancel = {"scrape": threading.Event(), "fill": threading.Event(), "unsubscribe": threading.Event()}
         self._transport = transport
         self._jwt: Optional[str] = None
         self._jwt_lock = threading.Lock()  # 登入 token 過期時只讓一個請求重新登入，其他的等它、用新的 token
@@ -950,10 +973,77 @@ class MoviePilot:
     def cancel(self, what: str) -> bool:
         """按了停止（what 是 scrape 或 fill）：刮削送出去的做完、沒送的不送；補全缺集做完手上這一季就停。
         沒在跑回傳 False。"""
-        running = self.result.running if what == "scrape" else self.fill_result.running
+        running = {"scrape": self.result.running, "fill": self.fill_result.running,
+                   "unsubscribe": self.unsubscribe_result.running}.get(what)
         if what not in self._cancel or not running:
             return False
         self._cancel[what].set()
+        return True
+
+    # ---------------- 取消訂閱 ----------------
+
+    def subscriptions(self) -> List[dict]:
+        """MoviePilot 裡這個帳號看得到的訂閱（管理員看得到全部）：id、name、year、type（电视剧／电影）、season。"""
+        res = self._request("GET", SUBSCRIBE_API, timeout=60)
+        items = res.get("data") if isinstance(res, dict) else res
+        return [{"id": int(s["id"]), "name": str(s.get("name") or ""), "year": s.get("year"), "type": str(s.get("type") or ""),
+                 "season": s.get("season")} for s in items or [] if isinstance(s, dict) and str(s.get("id") or "").isdecimal()]
+
+    def subscription_counts(self) -> dict:
+        subs = self.subscriptions()
+        tv = sum(1 for s in subs if s["type"] == TV_TYPE)
+        return {"total": len(subs), "tv": tv, "other": len(subs) - tv}
+
+    def unsubscribe_all(self) -> UnsubscribeResult:
+        """把 MoviePilot 裡的訂閱一個一個刪掉（DELETE /api/v1/subscribe/{id}）。只刪訂閱，下載好、整理好的檔案不動。
+        和補全缺集不同時跑（共用一把鎖）。清單可能分頁，所以刪完一輪再列一次，直到沒有還沒試過的。"""
+        if not self._fill_lock.acquire(blocking=False):
+            return self.unsubscribe_result
+        self.unsubscribe_result = r = UnsubscribeResult(started=time.time(), running=True)
+        self._cancel["unsubscribe"].clear()
+        tried: Set[int] = set()
+        try:
+            if not self.can_subscribe:
+                raise MoviePilotError("訂閱的 API 只接受帳號登入，請在 MoviePilot 連線設定填帳號密碼")
+            while True:
+                todo = [s for s in self.subscriptions() if s["id"] not in tried]
+                r.total = len(tried) + len(todo)
+                if not todo:
+                    break
+                for s in todo:
+                    if self._stop.is_set() or self._cancel["unsubscribe"].is_set():
+                        r.stopped = not self._stop.is_set()
+                        return r
+                    tried.add(s["id"])
+                    label = s["name"] + (f" S{int(s['season']):02d}" if str(s.get("season") or "").isdecimal() else "")
+                    r.current = label
+                    try:
+                        self._request("DELETE", f"{SUBSCRIBE_API}{s['id']}", timeout=60)
+                        r.done += 1
+                    except MoviePilotError as exc:
+                        if exc.status == 404:  # 已經不在了（別的地方刪掉）
+                            r.done += 1
+                            continue
+                        if exc.kind or exc.status in (401, 403):
+                            raise  # 連不上、被拒絕：後面的也不會成功
+                        r.failed += 1
+                        if len(r.errors) < MAX_UNSUB_ERRORS:
+                            r.errors.append(f"{label}：{exc}")
+            log.info("取消 MoviePilot 的訂閱：刪了 %s 個，失敗 %s 個", r.done, r.failed)
+        except MoviePilotError as exc:
+            r.errors.append(str(exc))
+            log.error("取消訂閱中止：%s", exc)
+        finally:
+            r.running = False
+            r.current = ""
+            r.finished = time.time()
+            self._fill_lock.release()
+        return r
+
+    def unsubscribe_all_in_background(self) -> bool:
+        if self._fill_lock.locked():
+            return False
+        self.workers.start(self.unsubscribe_all)
         return True
 
     def fill_excluded(self) -> Dict[str, str]:

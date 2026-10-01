@@ -67,6 +67,7 @@ class FakeMP:
     def __init__(self, episodes, existing=(), v2=False):
         self.episodes, self.existing, self.v2 = episodes, set(existing), v2
         self.sent = []
+        self.subs = []  # MoviePilot 裡現有的訂閱
 
     def __call__(self, request: httpx.Request) -> httpx.Response:
         self.sent.append(request)
@@ -82,6 +83,16 @@ class FakeMP:
             return httpx.Response(200, json=items if self.v2 else {"success": True, "data": items})
         if request.headers.get("authorization") != "Bearer jwt":
             return httpx.Response(401, json={"detail": "Not authenticated"})  # 建訂閱、搜尋不接受 API 令牌
+        if path == "/api/v1/subscribe/" and request.method == "GET":  # 現有的訂閱，一次只給 2 個（分頁）
+            return httpx.Response(200, json=self.subs[:2])
+        if request.method == "DELETE" and path.startswith("/api/v1/subscribe/"):
+            sid = int(path.rsplit("/", 1)[1])
+            if sid == 3:
+                return httpx.Response(500, json={"detail": "boom"})
+            if not any(s["id"] == sid for s in self.subs):
+                return httpx.Response(404, json={"detail": "订阅不存在"})
+            self.subs = [s for s in self.subs if s["id"] != sid]
+            return httpx.Response(200, json={"success": True, "data": {"status": "deleted"}})
         if path == "/api/v1/subscribe/":
             body = json.loads(request.content)
             if self.v2 and body["season"] in self.existing:
@@ -293,3 +304,31 @@ def test_undated_episodes_after_the_last_one_are_not_counted(tmp_path: Path):
         "另有 2 集（E05–E06）TMDB 沒有播出日期，不確定播了沒，沒算進去",
         "Show A S02：TMDB 已播出的 1 集都有，不建訂閱；另有 2 集（E02–E03）TMDB 沒有播出日期，不確定播了沒，沒算進去",
     ]
+
+
+def test_unsubscribe_all(tmp_path: Path):
+    """取消 MoviePilot 裡所有的訂閱：要輸入確認字、要帳號登入；清單分頁也刪得完，刪不掉的記下來、其他照刪。"""
+    app = build(tmp_path, username="cat", password="pw")
+    c = TestClient(app)
+    h = {"X-Emby-Token": c.post("/Users/AuthenticateByName", json={"Username": "admin", "Pw": "pw"}).json()["AccessToken"]}
+    fake = FakeMP({})
+    fake.subs = [{"id": i, "name": f"劇 {i}", "type": "电影" if i == 5 else "电视剧", "season": 1} for i in range(1, 6)]
+    mp = app.state.moviepilot
+    mp._transport = httpx.MockTransport(fake)
+    assert c.get("/web/api/moviepilot/subscriptions", headers=h).json() == {"total": 2, "tv": 2, "other": 0}  # 假的一頁 2 個
+    assert c.post("/web/api/moviepilot/subscriptions/clear", json={}, headers=h).status_code == 400
+    assert len(fake.subs) == 5
+    r = mp.unsubscribe_all()
+    assert (r.total, r.done, r.failed, r.stopped) == (5, 4, 1, False) and "劇 3 S01" in r.errors[0]
+    assert [s["id"] for s in fake.subs] == [3]  # 刪不掉的那個留著，不會一直重試
+    assert c.get("/web/api/moviepilot/status", headers=h).json()["unsubscribe"]["done"] == 4
+    # 經過 API：帶了確認字才開始（在背景跑）
+    started = []
+    mp.unsubscribe_all_in_background = lambda: started.append(1) or True
+    assert c.post("/web/api/moviepilot/subscriptions/clear", json={"confirm": "取消訂閱"}, headers=h).json()["started"]
+    assert started == [1]
+    # 只有 API 令牌：訂閱的 API 要帳號登入
+    c2 = TestClient(build(tmp_path / "nologin"))
+    h2 = {"X-Emby-Token": c2.post("/Users/AuthenticateByName", json={"Username": "admin", "Pw": "pw"}).json()["AccessToken"]}
+    assert c2.get("/web/api/moviepilot/subscriptions", headers=h2).status_code == 400
+    assert c2.post("/web/api/moviepilot/subscriptions/clear", json={"confirm": "取消訂閱"}, headers=h2).status_code == 400

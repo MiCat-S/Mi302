@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from starlette.concurrency import run_in_threadpool
 
 from ...auth import AuthContext, require_admin
-from ...moviepilot import library_series
+from ...moviepilot import MoviePilotError, library_series
 from ..common import q, q_int, state
 from .common import json_body
 
@@ -27,7 +27,7 @@ def moviepilot_status(request: Request, ctx: AuthContext = Depends(require_admin
     mp = state(request).moviepilot
     return {
         "enabled": mp.enabled, "can_subscribe": mp.can_subscribe,
-        "result": mp.result.as_dict(), "fill": mp.fill_result.as_dict(),
+        "result": mp.result.as_dict(), "fill": mp.fill_result.as_dict(), "unsubscribe": mp.unsubscribe_result.as_dict(),
     }
 
 
@@ -43,11 +43,12 @@ def moviepilot_scrape(request: Request, ctx: AuthContext = Depends(require_admin
 
 @router.post("/web/api/moviepilot/stop")
 async def moviepilot_stop(request: Request, ctx: AuthContext = Depends(require_admin)):
-    """停止刮削或補全缺集：{"what": "scrape" | "fill"}。刮削送出去的做完、沒送的不送；補全做完手上這一季就停。"""
+    """停止刮削、補全缺集或取消訂閱：{"what": "scrape" | "fill" | "unsubscribe"}。刮削送出去的做完、沒送的不送；
+    補全做完手上這一季就停；取消訂閱刪掉的就刪掉了，剩下的留著。"""
     body = await json_body(request)
     what = str(body.get("what") or "")
-    if what not in ("scrape", "fill"):
-        raise HTTPException(status_code=400, detail="what 要是 scrape 或 fill")
+    if what not in ("scrape", "fill", "unsubscribe"):
+        raise HTTPException(status_code=400, detail="what 要是 scrape、fill 或 unsubscribe")
     return {"stopped": state(request).moviepilot.cancel(what)}
 
 
@@ -113,3 +114,39 @@ async def moviepilot_fill(request: Request, ctx: AuthContext = Depends(require_a
         raise HTTPException(status_code=400, detail="沒有可以送的劇：要先刮削過、有 tmdbid")
     started = mp.fill_in_background(shows, "manual", check) if check else mp.fill_in_background(shows, "manual")
     return {"started": started, "result": mp.fill_result.as_dict()}
+
+
+# ---------------- 取消訂閱 ----------------
+
+UNSUBSCRIBE_WORD = "取消訂閱"
+
+
+def _need_login(mp) -> None:
+    if not mp.enabled:
+        raise HTTPException(status_code=400, detail="請先填好 MoviePilot 網址與 API 令牌並儲存")
+    if not mp.can_subscribe:
+        raise HTTPException(status_code=400, detail="訂閱的 API 只接受帳號登入，請在「MoviePilot 帳號密碼」填好再儲存")
+
+
+@router.get("/web/api/moviepilot/subscriptions")
+def moviepilot_subscriptions(request: Request, ctx: AuthContext = Depends(require_admin)):
+    """MoviePilot 裡現在有幾個訂閱：{total, tv, other}（給「取消所有訂閱」的確認框）。"""
+    mp = state(request).moviepilot
+    _need_login(mp)
+    try:
+        return mp.subscription_counts()
+    except MoviePilotError as exc:
+        raise HTTPException(status_code=502, detail=f"讀不到 MoviePilot 的訂閱：{exc}")
+
+
+@router.post("/web/api/moviepilot/subscriptions/clear")
+async def moviepilot_subscriptions_clear(request: Request, ctx: AuthContext = Depends(require_admin)):
+    """取消 MoviePilot 裡所有的訂閱：{"confirm": "取消訂閱"}，沒帶 confirm 不做。在背景一個一個刪，進度看
+    GET /web/api/moviepilot/status 的 unsubscribe。只刪訂閱，下載好、整理好的檔案不動。"""
+    body = await json_body(request)
+    if body.get("confirm") != UNSUBSCRIBE_WORD:
+        raise HTTPException(status_code=400, detail=f"要在 confirm 帶上「{UNSUBSCRIBE_WORD}」才會取消訂閱")
+    mp = state(request).moviepilot
+    _need_login(mp)
+    started = mp.unsubscribe_all_in_background()
+    return {"started": started, "unsubscribe": mp.unsubscribe_result.as_dict()}
