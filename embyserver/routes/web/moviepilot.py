@@ -83,7 +83,7 @@ async def moviepilot_fill_exclude(request: Request, ctx: AuthContext = Depends(r
     """補全缺集時跳過這部劇：{"tmdbid": 123, "name": "劇名", "exclude": true}；exclude=false 取消。照 tmdbid 記。"""
     body = await json_body(request)
     tmdbid = str(body.get("tmdbid") or "")
-    if not tmdbid.isdigit():
+    if not tmdbid.isdecimal():
         raise HTTPException(status_code=400, detail="要有 tmdbid（沒有 tmdbid 的劇本來就不會補）")
     excluded = state(request).moviepilot.set_fill_excluded(int(tmdbid), str(body.get("name") or ""),
                                                            bool(body.get("exclude", True)))
@@ -101,7 +101,7 @@ async def moviepilot_fill(request: Request, ctx: AuthContext = Depends(require_a
     if not mp.can_subscribe:
         raise HTTPException(status_code=400, detail="建訂閱的 API 只接受帳號登入，請在「MoviePilot 帳號密碼」填好再儲存")
     ids = body.get("series")
-    wanted = {int(i) for i in ids if str(i).isdigit()} if isinstance(ids, list) and ids else None
+    wanted = {int(i) for i in ids if str(i).isdecimal()} if isinstance(ids, list) and ids else None
     all_shows = (await run_in_threadpool(library_series, st.db))[0]
     shows = [s for s in all_shows if (s["id"] in wanted if wanted is not None else bool(s["tmdbid"]))]
     if not shows:

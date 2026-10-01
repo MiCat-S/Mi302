@@ -52,7 +52,7 @@ def episode_template(name: str) -> Optional[str]:
         return None
     m = found[0]
     start, end = m.span("episode")
-    if not stem[start:end].isdigit():
+    if not stem[start:end].isdecimal():
         return None  # 中文數字（第十二集）：模板取不出來，交給 MoviePilot 自己認
     prefix = ("{b}" if m.start() > 0 else "") + _esc(stem[m.start():start])
     suffix = _esc(name[end]) + "{a}" if end < len(name) else ""

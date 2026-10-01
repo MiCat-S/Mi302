@@ -114,7 +114,7 @@ class _Remote:
                 else:
                     self.ranged = False
                     length = resp.headers.get("content-length")
-                    self.total = int(length) if length and length.isdigit() else self.total
+                    self.total = int(length) if length and length.isdecimal() else self.total
                     if start > 0:
                         return b""
                 buf = bytearray()

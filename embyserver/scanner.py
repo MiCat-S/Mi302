@@ -96,7 +96,7 @@ def clean_title(stem: str) -> Tuple[str, Optional[int]]:
 
 def _number(text: str) -> int:
     """阿拉伯數字或中文數字（十二、二十三、一百零五）。"""
-    if text.isdigit():
+    if text.isdecimal():
         return int(text)
     total, cur = 0, 0
     for ch in text:
@@ -245,7 +245,7 @@ def parse_nfo(path: Path) -> Dict:
         data["genres"] = genres
     data["people"] = parse_people(root)  # 空清單也要寫：nfo 拿掉演員時資料庫跟著清
     runtime = text("runtime")
-    if runtime and runtime.isdigit():
+    if runtime and runtime.isdecimal():
         data["runtime_ticks"] = int(runtime) * 60 * 10_000_000
     providers = _nfo_ids(root, text)
     if providers:
@@ -253,7 +253,7 @@ def parse_nfo(path: Path) -> Dict:
     # 季、集號；刮削時沒認出來的會寫成 -1，當成沒寫，改從資料夾和檔名判斷
     for tag, key in (("season", "parent_index_number"), ("episode", "index_number")):
         value = text(tag)
-        if value and value.isdigit():
+        if value and value.isdecimal():
             data[key] = int(value)
     return data
 
@@ -285,12 +285,12 @@ def _nfo_rating(text, data: Dict) -> None:
 def _nfo_dates(text, data: Dict) -> None:
     """年份和首播日期；只填了年份（2019）或年月的 nfo 不產生假日期。"""
     year = text("year")
-    if year and year.isdigit():
+    if year and year.isdecimal():
         data["year"] = int(year)
     premiered = text("premiered") or text("aired") or text("releasedate") or ""
     if DATE_RE.match(premiered):
         data["premiere_date"] = premiered[:10] + "T00:00:00.0000000Z"
-    if "year" not in data and premiered[:4].isdigit():
+    if "year" not in data and premiered[:4].isdecimal():
         data["year"] = int(premiered[:4])
 
 
@@ -354,7 +354,7 @@ class Scanner:
                     for f in self.images_dir.iterdir():
                         item_id, _, rest = f.name.partition("-")
                         col = rest.rsplit(".", 1)[0]
-                        if item_id.isdigit() and col in IMAGE_FIELDS:
+                        if item_id.isdecimal() and col in IMAGE_FIELDS:
                             self._custom[(int(item_id), col)] = str(f)
             return self._custom
 

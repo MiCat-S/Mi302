@@ -113,7 +113,7 @@ def series_tmdbid(series_dir: Path) -> Optional[str]:
     from .scanner import parse_nfo
 
     tmdb = str((parse_nfo(series_dir / "tvshow.nfo").get("provider_ids") or {}).get("Tmdb") or "")
-    return tmdb if tmdb.isdigit() else None
+    return tmdb if tmdb.isdecimal() else None
 
 
 @dataclass
@@ -605,7 +605,7 @@ class MoviePilot:
         items = body.get("data") if isinstance(body, dict) else body  # V3 包在 data 裡，V2 直接是清單
         episodes = {
             int(e["episode_number"]): str(e.get("air_date") or "")[:10]
-            for e in items or [] if isinstance(e, dict) and str(e.get("episode_number") or "").isdigit()
+            for e in items or [] if isinstance(e, dict) and str(e.get("episode_number") or "").isdecimal()
         }
         return episodes or None
 
@@ -623,7 +623,7 @@ class MoviePilot:
         res = self._post(SUBSCRIBE_API, body, timeout=60)
         message = str(res.get("message") or "")
         data = res.get("data") if isinstance(res.get("data"), dict) else {}
-        sid = int(data["id"]) if str(data.get("id") or "").isdigit() and int(data["id"]) else None
+        sid = int(data["id"]) if str(data.get("id") or "").isdecimal() and int(data["id"]) else None
         if "订阅已存在" in message or "訂閱已存在" in message:  # V3 對已存在的訂閱也回 success
             return "existing", message, sid
         if res.get("success"):
@@ -1006,7 +1006,7 @@ def library_series(
             continue
         out.append({
             "id": r["id"], "name": name, "year": r["year"], "library": r["library"],
-            "tmdbid": int(tmdbid) if tmdbid.isdigit() else None, "seasons": seasons, "gaps": gap_count,
+            "tmdbid": int(tmdbid) if tmdbid.isdecimal() else None, "seasons": seasons, "gaps": gap_count,
         })
     out.sort(key=lambda x: (-x["gaps"], x["name"].lower()))
     total = len(out)

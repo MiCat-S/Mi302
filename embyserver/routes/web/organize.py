@@ -101,7 +101,11 @@ async def organize_folder(request: Request, ctx: AuthContext = Depends(require_a
     """瀏覽 115 裡挑的資料夾：{cid, path}。列一次目錄、問 MoviePilot 叫什麼，釘在清單最上面；回傳它。"""
     st = state(request)
     body = await json_body(request)
-    return await run_in_threadpool(_run, st.organizer.folder_unit, int(body.get("cid") or 0), str(body.get("path") or ""))
+    try:
+        cid = int(body.get("cid") or 0)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="cid 要是資料夾 id（數字）")
+    return await run_in_threadpool(_run, st.organizer.folder_unit, cid, str(body.get("path") or ""))
 
 
 @router.delete("/web/api/115/organize/folder/{unit_id}")
@@ -140,7 +144,7 @@ async def organize_execute(request: Request, ctx: AuthContext = Depends(require_
     body = await json_body(request)
     _can_organize(st)
     tokens = body.get("tokens") if isinstance(body.get("tokens"), list) else [body.get("token")]
-    cleanup = [c for c in body.get("cleanup") or [] if isinstance(c, dict) and str(c.get("cid") or "").isdigit()]
+    cleanup = [c for c in body.get("cleanup") or [] if isinstance(c, dict) and str(c.get("cid") or "").isdecimal()]
     _run(st.reorganizer.execute_in_background, [str(t or "") for t in tokens], cleanup)
     return {"job": st.reorganizer.job.as_dict()}
 
@@ -161,7 +165,7 @@ async def organize_delete(request: Request, ctx: AuthContext = Depends(require_a
     body = await json_body(request)
     if body.get("id"):
         return await run_in_threadpool(_run, st.organizer.delete, str(body["id"]))
-    ids = [int(i) for i in body.get("file_ids") or [] if str(i).isdigit()]
+    ids = [int(i) for i in body.get("file_ids") or [] if str(i).isdecimal()]
     try:
         series_id = int(body.get("series_id") or 0)
     except ValueError:

@@ -1244,10 +1244,10 @@ class Organizer:
 def _override(o: dict) -> dict:
     """網頁上某一部分的指定：類型 tv／movie、TMDB 編號、季、集數定位；空的讓 MoviePilot 自己認。"""
     tmdbid = str(o.get("tmdbid") or "").strip()
-    if tmdbid and not tmdbid.isdigit():
+    if tmdbid and not tmdbid.isdecimal():
         raise OrganizeError("TMDB 編號要是數字")
     season = o.get("season")
-    season = int(season) if str(season if season is not None else "").strip().isdigit() else None
+    season = int(season) if str(season if season is not None else "").strip().isdecimal() else None
     type_name = {"tv": "电视剧", "movie": "电影"}.get(str(o.get("type") or ""))
     fmt = str(o.get("format") or "").strip()
     if fmt and "{ep}" not in fmt:
@@ -1269,8 +1269,8 @@ def _view(r: dict, part: Part, roots: List[str], overwrite: str = "never") -> di
     也不知道同步目錄在哪）。overwrite：這次目標媒體庫目錄的覆蓋模式。"""
     source = str(r.get("source") or "")
     target = str(r.get("target") or r.get("target_dir") or "")
-    episode = int(r["episode"]) if str(r.get("episode") or "").isdigit() else None
-    season = int(r["season"]) if str(r.get("season") if r.get("season") is not None else "").isdigit() else None
+    episode = int(r["episode"]) if str(r.get("episode") or "").isdecimal() else None
+    season = int(r["season"]) if str(r.get("season") if r.get("season") is not None else "").isdecimal() else None
     ok = bool(r.get("success")) and bool(target)
     message, warnings, skip = str(r.get("message") or ""), [], ""
 

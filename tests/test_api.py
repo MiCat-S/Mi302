@@ -377,6 +377,13 @@ def test_paging_ignores_negative_values(client):
     eps = client.get(f"/Shows/{series}/Episodes", params={"Limit": -2, "StartIndex": -1}, headers=h).json()
     assert len(eps["Items"]) == 3 and eps["StartIndex"] == 0  # 以前負數會變成 Python 切片「少最後兩集」
     assert client.get("/Shows/NextUp", params={"Limit": 0}, headers=h).json()["Items"] == []
+    # 看不懂的值不能變成 500：「²」這種 isdigit() 是真、int() 卻轉不了的字；播放回報裡的片長不是數字
+    assert client.get("/Items", params={"Ids": "²"}, headers=h).json()["Items"] == []
+    assert client.get("/Shows/²/Seasons", headers=h).json()["Items"] == []
+    episode = eps["Items"][0]["Id"]
+    client.app.state.db.execute("UPDATE items SET runtime_ticks=NULL WHERE id=?", (int(episode),))
+    stopped = {"ItemId": episode, "PositionTicks": 5, "RunTimeTicks": "abc"}
+    assert client.post("/Sessions/Playing/Stopped", json=stopped, headers=h).status_code == 204
 
 
 def test_shutdown_closes_database_and_connections(media: Path, tmp_path: Path):

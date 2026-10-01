@@ -1195,6 +1195,6 @@ def _json(resp: httpx.Response) -> dict:
 def _expire_ts(url: str) -> float:
     """115 直鏈的 t 參數是到期時間，提前 5 分鐘失效；取不到就快取 10 分鐘。"""
     for k, v in parse_qsl(urlsplit(url).query):
-        if k == "t" and v.isdigit():
+        if k == "t" and v.isdecimal():
             return int(v) - 300
     return time.time() + 600

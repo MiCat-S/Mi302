@@ -22,7 +22,7 @@ def intro_status(request: Request, ctx: AuthContext = Depends(require_admin)):
 def intro_clear(request: Request, ctx: AuthContext = Depends(require_admin), body: dict = Depends(json_body)):
     """清掉學到的片頭片尾（{"season_id": id} 只清一季，沒有就全清）。"""
     sid = body.get("season_id")
-    return {"removed": state(request).intro.clear(int(sid) if str(sid or "").isdigit() else None)}
+    return {"removed": state(request).intro.clear(int(sid) if str(sid or "").isdecimal() else None)}
 
 
 @router.get("/web/api/intro/seasons")

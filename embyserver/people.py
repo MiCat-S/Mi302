@@ -89,7 +89,7 @@ def parse_people(root: ET.Element) -> List[dict]:
 
 
 def person_id(tmdbid: Optional[str], name: str) -> str:
-    if tmdbid and str(tmdbid).isdigit():
+    if tmdbid and str(tmdbid).isdecimal():
         return f"p{tmdbid}"
     return "pn" + hashlib.md5(name.strip().lower().encode()).hexdigest()[:12]
 
@@ -271,7 +271,7 @@ class PersonNames:
 
     def _from_wikidata(self, ids: List[str]) -> Optional[Dict[str, str]]:
         """批次查；連不上回傳 None（這次當作沒問到）。"""
-        ids = [i for i in ids if i.isdigit()]
+        ids = [i for i in ids if i.isdecimal()]
         if not ids:  # VALUES 空的 SPARQL 會回 400
             return {}
         values = " ".join(f'"{i}"' for i in ids)

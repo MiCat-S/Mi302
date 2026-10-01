@@ -96,7 +96,7 @@ def _coerce(obj, name: str, value):
         if kind is float:
             return float(value or 0)
         return str(value if value is not None else "").strip()
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):  # OverflowError：1e999 這種轉不成整數的
         raise SettingsError(f"{name} 的值不正確：{value}")
 
 
@@ -144,6 +144,10 @@ def apply_settings(config: Config, raw: dict) -> None:
         _set_fields(config.p115.strm, STRM_FIELDS, p115["strm"] or {})
         if "tasks" in (p115["strm"] or {}):
             config.p115.strm.tasks[:] = _tasks(p115["strm"]["tasks"])
+    strm = config.p115.strm  # 負數沒有意義：request_delay 是負的，逐層列目錄時 time.sleep 會丟 ValueError、整個任務失敗
+    strm.request_delay = max(0.0, min(float(strm.request_delay), 60.0))
+    strm.min_size_mb = max(0.0, float(strm.min_size_mb))
+    strm.interval, strm.full_interval = max(0, int(strm.interval)), max(0, int(strm.full_interval))
     redirect = raw.get("redirect") or {}
     _set_fields(config.redirect, REDIRECT_FIELDS, redirect)
     if "path_rules" in redirect:

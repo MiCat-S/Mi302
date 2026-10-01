@@ -118,6 +118,14 @@ async def _json_body(request: Request) -> dict:
         return {}
 
 
+def _ticks(value) -> Optional[int]:
+    """播放器回報裡的片長；不是數字（字串、Infinity）就當成沒給，不能讓回報變成 500。"""
+    try:
+        return int(value)
+    except (TypeError, ValueError, OverflowError):
+        return None
+
+
 def _report(request: Request, ctx: AuthContext, body: dict, stopped: bool) -> Response:
     lb = {k.lower(): v for k, v in body.items()}
     item_id = lb.get("itemid") or q(request, "ItemId")
@@ -132,13 +140,13 @@ def _report(request: Request, ctx: AuthContext, body: dict, stopped: bool) -> Re
         pos = q_int(request, "PositionTicks")
     try:
         pos = int(pos)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         # 沒帶位置（舊版 API 的開始播放一定不帶）：不知道播到哪，只記最後播放時間，不能把續播點清成 0，
         # 也不拿去學片頭（會把「從 0 跳到續播點」當成跳過片頭）
         set_user_data(request, ctx, item_id, last_played=now_iso())
         return Response(status_code=204)
     fields = {"last_played": now_iso(), "position_ticks": pos}
-    runtime: Optional[int] = row["runtime_ticks"] or lb.get("runtimeticks")
+    runtime: Optional[int] = row["runtime_ticks"] or _ticks(lb.get("runtimeticks"))
     st.intro.report(ctx.user_id, row, pos, stopped)  # 從播放行為學片頭片尾
     finished = bool(stopped and runtime and pos >= runtime * WATCHED_RATIO)
     if finished:

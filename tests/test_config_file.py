@@ -291,3 +291,7 @@ def test_update_proxy_settings_are_checked(tmp_path: Path):
     assert c.put("/web/api/settings", json={"server": good}, headers=h).status_code == 200
     saved = load_config(str(path)).server
     assert (saved.update_proxy, saved.update_github_proxy) == ("socks5://127.0.0.1:1080", "https://ghfast.top/")
+    # 轉不成數字的回 400（以前 1e999 是 500）；負的間隔當成 0（負的 request_delay 會讓逐層列目錄時 time.sleep 出錯）
+    assert c.put("/web/api/settings", json={"p115": {"strm": {"interval": "1e999"}}}, headers=h).status_code == 400
+    assert c.put("/web/api/settings", json={"p115": {"strm": {"request_delay": -1}}}, headers=h).status_code == 200
+    assert load_config(str(path)).p115.strm.request_delay == 0

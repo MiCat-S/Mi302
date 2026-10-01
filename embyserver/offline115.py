@@ -173,7 +173,7 @@ class OfflineDownloads:
 
         def num(*keys) -> Optional[int]:
             for k in keys:
-                if str(data.get(k, "")).lstrip("-").isdigit():
+                if str(data.get(k, "")).lstrip("-").isdecimal():
                     return int(data[k])
             return None
 

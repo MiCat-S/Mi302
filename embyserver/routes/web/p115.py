@@ -107,7 +107,7 @@ async def browse_delete(request: Request, ctx: AuthContext = Depends(require_adm
     資料夾連同裡面所有檔案；同步目錄裡的本機 strm、nfo 和媒體庫跟著拿掉。要用掃碼登入 115。"""
     st = state(request)
     body = await json_body(request)
-    ids = [int(i) for i in body.get("ids") or [] if str(i).isdigit()]
+    ids = [int(i) for i in body.get("ids") or [] if str(i).isdecimal()]
     try:
         parent = int(body.get("parent") or 0)
         result = await run_in_threadpool(st.reorganizer.delete_in_folder, parent, ids)
@@ -217,7 +217,7 @@ async def mediainfo_probe(request: Request, ctx: AuthContext = Depends(require_a
         limit = max(int(body.get("limit") or 0), 0)
     except (TypeError, ValueError):
         raise HTTPException(status_code=400, detail="「這次最多幾支」要填數字")
-    ids = [int(i) for i in body.get("ids") or [] if str(i).isdigit()]
+    ids = [int(i) for i in body.get("ids") or [] if str(i).isdecimal()]
 
     def start():
         if st.prober.busy():

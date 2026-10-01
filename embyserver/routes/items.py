@@ -243,7 +243,7 @@ def _scope(request: Request, st, types: List[str]) -> Optional[Tuple[List[str], 
     ids = q_list(request, "Ids")
     if ids:
         where.append(f"i.id IN ({','.join('?' for _ in ids)})")
-        params += [int(x) if x.isdigit() else -1 for x in ids]
+        params += [int(x) if x.isdecimal() else -1 for x in ids]
     elif parent_id:
         parent = st.db.get_item(parent_id)
         if not parent:
@@ -298,7 +298,7 @@ def _item_filters(request: Request, types: List[str], where: List[str], params: 
     if starts:
         where.append("i.sort_name LIKE ?")
         params.append(starts.lower() + "%")
-    years = [int(y) for y in q_list(request, "Years") if y.isdigit()]
+    years = [int(y) for y in q_list(request, "Years") if y.isdecimal()]
     if years:
         where.append(f"i.year IN ({','.join('?' for _ in years)})")
         params += years
@@ -359,7 +359,7 @@ def latest(user_id: str, request: Request, ctx: AuthContext = Depends(require_us
     where = "i.type IN ('Movie','Series')"
     if parent_id:
         where += " AND i.library_id=?"
-        params.append(int(parent_id) if parent_id.isdigit() else -1)
+        params.append(int(parent_id) if parent_id.isdecimal() else -1)
     types = [t.lower() for t in q_list(request, "IncludeItemTypes")]
     if types:
         # 要求 Episode 時仍以劇集為單位回傳（與 Emby 的分組行為相近）
@@ -467,7 +467,7 @@ def seasons(series_id: str, request: Request, ctx: AuthContext = Depends(require
     ctx = _query_user(request, ctx)
     rows = st.db.query(
         "SELECT * FROM items WHERE type='Season' AND series_id=? ORDER BY index_number",
-        (int(series_id) if series_id.isdigit() else -1,),
+        (int(series_id) if series_id.isdecimal() else -1,),
     )
     items = _dtos(request, ctx, rows)
     return query_result(items, len(items))
@@ -477,13 +477,13 @@ def seasons(series_id: str, request: Request, ctx: AuthContext = Depends(require
 def episodes(series_id: str, request: Request, ctx: AuthContext = Depends(require_user)):
     st = state(request)
     ctx = _query_user(request, ctx)
-    params: List[Any] = [int(series_id) if series_id.isdigit() else -1]
+    params: List[Any] = [int(series_id) if series_id.isdecimal() else -1]
     where = "type='Episode' AND series_id=?"
     season_id = q(request, "SeasonId")
     season_no = q_int(request, "Season")
     if season_id:
         where += " AND season_id=?"
-        params.append(int(season_id) if season_id.isdigit() else -1)
+        params.append(int(season_id) if season_id.isdecimal() else -1)
     elif season_no is not None:
         where += " AND parent_index_number=?"
         params.append(season_no)
@@ -506,7 +506,7 @@ def next_up(request: Request, ctx: AuthContext = Depends(require_user)):
     series_filter = q(request, "SeriesId")
     params: List[Any] = [ctx.user_id]
     extra = ""
-    if series_filter and series_filter.isdigit():
+    if series_filter and series_filter.isdecimal():
         extra = " AND i.series_id=?"
         params.append(int(series_filter))
     # 每部劇取最後看過的集數，下一集即為「接著看」
