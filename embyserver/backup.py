@@ -22,7 +22,7 @@ from pathlib import Path
 from typing import List, Optional
 
 from .config import Config
-from .db import Database
+from .db import Database, make_private
 from .workers import Workers
 
 log = logging.getLogger(__name__)
@@ -88,9 +88,12 @@ class Backup:
             except BaseException:
                 tmp.unlink(missing_ok=True)
                 raise
+            make_private(tmp)  # 備份裡有 115 的 cookie、登入 token、密碼雜湊
             os.replace(tmp, target)
             if self.config.path and Path(self.config.path).is_file():
-                shutil.copy2(self.config.path, self.dir / f"mi302-{stamp}.yaml")
+                copy = self.dir / f"mi302-{stamp}.yaml"
+                shutil.copy2(self.config.path, copy)
+                make_private(copy)
             self.db.set_meta(LAST_META_KEY, str(time.time()))
             self._prune()
             log.info("已備份資料庫：%s（%s KB）", target.name, target.stat().st_size // 1024)

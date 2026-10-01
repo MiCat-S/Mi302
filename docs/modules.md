@@ -49,6 +49,10 @@
 - /d/{pickcode}、/p115/redirect 不用登入（strm 裡的網址，播放器不帶 token）：同一個來源一分鐘取不到 10 次、
   所有來源加起來 60 次，就先回 429 不再替它問 115（ratelimit.FailureLimiter）；快取裡有的照給。
 
+## embyserver/db.py
+
+- 資料庫、備份、設定檔建立時就是 0600（make_private）：裡面有 115 的 cookie、登入 token、密碼。
+
 ## embyserver/auth.py、embyserver/ratelimit.py
 
 登入猜密碼的限制（播放器登入和 WebDAV 共用）：同一個來源對同一個帳號連續錯 5 次之後，每錯一次要等的時間加倍

@@ -2,10 +2,21 @@
 
 from __future__ import annotations
 
+import os
 import sqlite3
 import threading
 from pathlib import Path
 from typing import Any, Iterable, List, Optional
+
+
+def make_private(path: Path | str) -> None:
+    """只給執行 Mi302 的帳號讀寫（0600）。資料庫、備份、設定檔裡有 115 的 cookie、登入 token、密碼雜湊和明碼密碼，
+    照預設的 umask 022 建出來是 0644，同一台機器上的其他帳號都讀得到。改不了（別人的檔案、不支援的檔案系統）就算了。"""
+    try:
+        os.chmod(path, 0o600)
+    except OSError:
+        pass
+
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS meta (
@@ -244,6 +255,11 @@ class Database:
         self.path = str(path)
         if self.path != ":memory:":
             Path(self.path).parent.mkdir(parents=True, exist_ok=True)
+            # 先用 0600 建好檔案：SQLite 建 -wal、-shm 時照主檔的權限
+            os.close(os.open(self.path, os.O_RDWR | os.O_CREAT, 0o600))
+            for name in (self.path, self.path + "-wal", self.path + "-shm"):
+                if os.path.exists(name):
+                    make_private(name)
         self.conn = sqlite3.connect(self.path, check_same_thread=False)
         self.conn.row_factory = sqlite3.Row
         self.lock = threading.RLock()

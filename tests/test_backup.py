@@ -1,5 +1,6 @@
 """每天自動備份資料庫和設定檔。"""
 
+import os
 import sqlite3
 import time
 from pathlib import Path
@@ -32,6 +33,9 @@ def test_backup_copies_database_and_config(tmp_path: Path):
     db.close()
     stamp = name[len("mi302-"):-len(".db")]
     assert (bk.dir / f"mi302-{stamp}.yaml").read_text(encoding="utf-8").startswith("server:")
+    if os.name != "nt":  # 資料庫和備份裡有 115 的 cookie、登入 token：只給執行 Mi302 的帳號讀（不照 umask 022 變成 0644）
+        for f in (bk.dir / name, bk.dir / f"mi302-{stamp}.yaml", Path(app.state.db.path)):
+            assert f.stat().st_mode & 0o777 == 0o600, f
     assert not bk.due()  # 一天內不再自動備份
     app.state.db.set_meta(LAST_META_KEY, str(time.time() - DAY - 1))
     assert bk.due()

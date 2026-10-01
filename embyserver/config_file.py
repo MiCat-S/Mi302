@@ -15,6 +15,7 @@ from typing import Any, List
 import yaml
 
 from .config import Config, PathRule
+from .db import make_private
 
 
 def _v(value: Any) -> str:
@@ -162,13 +163,20 @@ def write(config: Config, path: str) -> float:
     target = Path(path)
     target.parent.mkdir(parents=True, exist_ok=True)
     tmp = target.with_name(target.name + ".tmp")
-    tmp.write_text(render(config), encoding="utf-8")
+    # 設定檔有 MoviePilot 的密碼、API 金鑰、明碼的帳號密碼：建檔時就是 0600，不照 umask（預設 022 會是 0644）
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        f.write(render(config))
+    make_private(tmp)  # 上次留下的暫存檔可能是舊權限
     if target.exists():
-        shutil.copy2(target, target.with_name(target.name + ".bak"))
+        backup = target.with_name(target.name + ".bak")
+        shutil.copy2(target, backup)
+        make_private(backup)
     try:
         os.replace(tmp, target)
     except OSError:
         # 設定檔是掛載進來的單一檔案時不能替換，只能直接覆寫內容
         target.write_text(tmp.read_text(encoding="utf-8"), encoding="utf-8")
         tmp.unlink(missing_ok=True)
+        make_private(target)
     return target.stat().st_mtime

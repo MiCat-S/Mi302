@@ -68,6 +68,8 @@ def test_web_changes_are_written_to_config_file(tmp_path: Path):
     assert saved.p115.strm.interval == 5 and saved.p115.strm.tasks[0].remote == "/影視"
     assert saved.users[0].name == "admin" and saved.server.port == 8097  # 沒改的保留
     assert (tmp_path / "config.yaml.bak").exists()
+    if os.name != "nt":  # 設定檔有密碼、API 令牌：改寫後只給執行 Mi302 的帳號讀
+        assert {f.stat().st_mode & 0o777 for f in (path, tmp_path / "config.yaml.bak")} == {0o600}
     # 資料庫裡不再另外存一份
     assert c.app.state.db.get_meta("web_settings") is None
 
