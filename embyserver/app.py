@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import re
 import time
 import uuid
@@ -17,7 +18,7 @@ from starlette.requests import ClientDisconnect
 from .auth import AuthService
 from .backup import Backup
 from .config import Config
-from .db import Database
+from .db import Database, make_private
 from .dupes import DupeFinder
 from .emptydirs import EmptyDirs
 from .intro import IntroLearner
@@ -131,6 +132,10 @@ def close_app(app: FastAPI) -> None:
 def create_app(config: Config, db_path: Optional[str] = None, scan_on_start: bool = True) -> FastAPI:
     logs.attach()
     db = Database(db_path or config.data_path / "library.db")
+    if config.path:  # 舊版建的設定檔是 0644（裡面有密碼、令牌）：啟動時就改成只有自己讀得到，不等到下次在網頁上儲存
+        for name in (config.path, config.path + ".bak"):
+            if os.path.exists(name):
+                make_private(name)
     server_id = db.get_meta("server_id")
     if not server_id:
         server_id = uuid.uuid4().hex

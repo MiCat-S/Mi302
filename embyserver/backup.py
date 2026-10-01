@@ -42,6 +42,8 @@ class Backup:
         self._lock = threading.Lock()
         self._stop = threading.Event()
         self.workers = Workers(self._stop, busy=self._lock)  # 程式結束時等手上的備份做完
+        for item in self.items():  # 舊版留下的備份是 0644（裡面有 115 的 cookie、登入 token）
+            make_private(self.dir / item["name"])
 
     @property
     def keep(self) -> int:

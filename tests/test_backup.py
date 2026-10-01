@@ -36,6 +36,13 @@ def test_backup_copies_database_and_config(tmp_path: Path):
     if os.name != "nt":  # 資料庫和備份裡有 115 的 cookie、登入 token：只給執行 Mi302 的帳號讀（不照 umask 022 變成 0644）
         for f in (bk.dir / name, bk.dir / f"mi302-{stamp}.yaml", Path(app.state.db.path)):
             assert f.stat().st_mode & 0o777 == 0o600, f
+        # 舊版留下的設定檔和備份（0644）：啟動時就改掉，不等到下次改寫
+        old = bk.dir / "mi302-20200101-000000.db"
+        old.write_bytes(b"x")
+        for f in (old, tmp_path / "config.yaml"):
+            f.chmod(0o644)
+        make(tmp_path)
+        assert {f.stat().st_mode & 0o777 for f in (old, tmp_path / "config.yaml")} == {0o600}
     assert not bk.due()  # 一天內不再自動備份
     app.state.db.set_meta(LAST_META_KEY, str(time.time() - DAY - 1))
     assert bk.due()
