@@ -325,7 +325,8 @@ async def dupes_delete(request: Request, ctx: AuthContext = Depends(require_admi
     """刪重複：{"overrides": {"檔案 id": true/false}} 逐個指定要不要刪，沒指定的照預設。
 
     use_suggestions：沒指定的檔案要不要照建議刪（不是建議保留的都刪）。完全相同（kind=exact，預設）預設 true，
-    不同版本（kind=versions）預設 false。{"sha1", "size"}（完全相同）或 {"grp"}（不同版本）只處理那一組。
+    不同版本（kind=versions）預設 false。{"sha1", "size"}（完全相同）或 {"grp"}（不同版本）只處理那一組；
+    {"q"} 只處理符合搜尋的那幾組（和清單同一套比對）。
     送進 115 回收站，每組至少留一份；本機 strm 跟著刪、觀看紀錄轉到保留的那份。在背景跑。
     {"dry_run": true} 只算會刪幾個、多大，不刪（網頁上的數量和確認框用；不用登入 115）。
     kind=big（大檔案）：overrides 裡勾了的；use_suggestions 為真時加上符合 {min_size, type, q} 的全部。不必留一份。
@@ -352,7 +353,8 @@ async def dupes_delete(request: Request, ctx: AuthContext = Depends(require_admi
         grp = str(body["grp"]) if body.get("grp") else None
         use_suggestions = bool(body.get("use_suggestions", kind == "exact"))
         try:
-            plan = await run_in_threadpool(st.dupes.plan, overrides, body.get("sha1"), size, kind, grp, use_suggestions)
+            plan = await run_in_threadpool(st.dupes.plan, overrides, body.get("sha1"), size, kind, grp, use_suggestions,
+                                           str(body.get("q") or ""))
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc))
     if body.get("dry_run"):

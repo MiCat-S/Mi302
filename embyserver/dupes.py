@@ -588,8 +588,10 @@ class DupeFinder:
     # ---------------- 刪重複 ----------------
 
     def plan(self, overrides: Dict[int, bool], sha1: Optional[str] = None, size: Optional[int] = None,
-             kind: str = "exact", grp: Optional[str] = None, use_suggestions: Optional[bool] = None) -> List[dict]:
+             kind: str = "exact", grp: Optional[str] = None, use_suggestions: Optional[bool] = None,
+             query: str = "") -> List[dict]:
         """要刪哪些：overrides 逐個指定（file_id → 要不要刪），沒指定的照預設。
+        query：只看符合搜尋的那幾組（和清單同一套比對）；畫面上搜尋出哪些，刪的就只有那些。
 
         use_suggestions 為真時，沒指定的照建議刪（不是建議保留的都刪），為假時不刪；
         沒給的話，完全相同的照建議、不同版本的不刪（內容不同，要使用者自己挑）。
@@ -598,6 +600,10 @@ class DupeFinder:
         if kind == "versions":
             if grp:
                 rows = self.db.query("SELECT * FROM dup_versions WHERE grp=? ORDER BY file_id", (grp,))
+            elif query.strip():
+                rows = self.db.query(
+                    "SELECT * FROM dup_versions WHERE grp IN (SELECT grp FROM dup_versions WHERE title LIKE ? OR name LIKE ? "
+                    "OR path LIKE ?) ORDER BY grp, file_id", [f"%{query.strip()}%"] * 3)
             else:
                 rows = self.db.query("SELECT * FROM dup_versions ORDER BY grp, file_id")
 
@@ -612,6 +618,10 @@ class DupeFinder:
         else:
             if sha1:
                 rows = self.db.query("SELECT * FROM dup_files WHERE sha1=? AND size=? ORDER BY file_id", (sha1, int(size or 0)))
+            elif query.strip():
+                rows = self.db.query(
+                    "SELECT * FROM dup_files WHERE sha1 IN (SELECT sha1 FROM dup_files WHERE name LIKE ? OR path LIKE ?) "
+                    "ORDER BY sha1, size, file_id", [f"%{query.strip()}%"] * 2)
             else:
                 rows = self.db.query("SELECT * FROM dup_files ORDER BY sha1, size, file_id")
 

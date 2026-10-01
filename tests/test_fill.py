@@ -224,9 +224,17 @@ def test_fill_endpoints(tmp_path: Path):
     assert c.get("/web/api/series", params={"gaps": "1"}, headers=h).json()["total"] == 1
     r = c.get("/web/api/series", params={"year": 2020}, headers=h).json()
     assert r["total"] == 1 and r["years"] == [2020]  # years 給下拉選單，不受篩選影響
-    assert c.get("/web/api/series", params={"year": 1999}, headers=h).json() | {"years": None} == {
-        "items": [], "total": 0, "offset": 0, "more": False, "years": None, "excluded": 0, "subscriptions": None,
-        "stats": {"missing": 0, "subscribed": 0, "unchecked": 1, "notmdb": 1, "complete": 0, "excluded": 0, "total": 2}}
+    # 分頁上的數字（stats）照篩選算：1999 年的一部都沒有；不篩選時兩部
+    assert c.get("/web/api/series", params={"year": 1999}, headers=h).json() | {"years": None, "libraries": None} == {
+        "items": [], "total": 0, "offset": 0, "more": False, "years": None, "libraries": None, "excluded": 0,
+        "subscriptions": None,
+        "stats": {"missing": 0, "subscribed": 0, "unchecked": 0, "notmdb": 0, "complete": 0, "excluded": 0, "total": 0}}
+    everything = c.get("/web/api/series", headers=h).json()
+    assert (everything["stats"]["unchecked"], everything["stats"]["notmdb"], everything["stats"]["total"]) == (1, 1, 2)
+    # 媒體庫（國產劇、國漫…）也可以篩
+    (lib,) = everything["libraries"]
+    assert lib["name"] == "劇集" and c.get("/web/api/series", params={"library": lib["id"]}, headers=h).json()["total"] == 2
+    assert c.get("/web/api/series", params={"library": lib["id"] + 99}, headers=h).json()["stats"]["total"] == 0
     assert c.get("/web/api/series", params={"view": "missing"}, headers=h).json()["total"] == 0  # 還沒對照過 TMDB
     assert c.get("/web/api/series", params={"view": "unchecked"}, headers=h).json()["total"] == 2
 
@@ -263,6 +271,13 @@ def test_fill_endpoints(tmp_path: Path):
     picked = []
     real_bg, mp.fill_in_background = mp.fill_in_background, lambda shows, source, check=False: picked.append([s["name"] for s in shows]) or True
     assert c.post("/web/api/moviepilot/fill", json={"view": "missing"}, headers=h).json()["count"] == 1 and picked == [["Show A"]]
+    # 畫面上篩選出哪些，「補全這 N 部」「檢查這 N 部」就只送哪些：年份、媒體庫、搜尋都算
+    fill = lambda **body: c.post("/web/api/moviepilot/fill", json=body, headers=h)  # noqa: E731
+    assert fill(view="missing", year=1999).status_code == 400 and fill(view="missing", q="show b").status_code == 400
+    assert fill(view="missing", library=lib["id"] + 99).status_code == 400
+    assert fill(view="missing", year=2020, library=lib["id"], q="show a").json()["count"] == 1
+    assert fill(check=True, year=2020).json()["count"] == 1 and fill(check=True, year=1999).status_code == 400
+    assert picked == [["Show A"]] * 3
     mp.fill_in_background = real_bg
     asked = len([q for q in fake.sent if "/tmdb/" in q.url.path])
     mp.cfg.fill_max_missing = 3

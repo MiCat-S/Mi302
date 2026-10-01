@@ -266,6 +266,11 @@ subscribed 缺集的季 MoviePilot 都訂閱了（等它下載）、unchecked �
 訂閱了沒是讀 MoviePilot 的訂閱清單（known_subscriptions，記 SUBS_CACHE_SECONDS 秒，補全、取消訂閱做完時清掉）；
 讀不到時不分 missing 和 subscribed。
 
+清單的篩選（q 搜尋、year 年份、library 媒體庫）在算狀態之前套用，stats（各狀態幾部）是篩選後、不看分頁的數字；
+POST /web/api/moviepilot/fill 帶同一組篩選加 view 時用同一個 library_series 挑劇，所以畫面上篩出哪些，
+「補全這 N 部」「檢查這 N 部」就只處理哪些。重複檔案的刪除（dupes.plan 的 query）、整理 115 網盤的全部整理
+（organize115 的 q、kind、root）也是同一個原則：批次操作的範圍等於目前清單的篩選。
+
 取消所有訂閱（unsubscribe_all）：列出 MoviePilot 的訂閱（GET /api/v1/subscribe/）一個一個刪（DELETE /api/v1/subscribe/{id}），
 和補全共用一把鎖。清單可能分頁，所以刪完一輪再列一次，直到沒有還沒試過的；刪不掉的記下來、不重試。
 

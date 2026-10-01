@@ -34,12 +34,13 @@ def _run(fn, *args):
 
 @router.get("/web/api/115/organize")
 def organize_list(request: Request, ctx: AuthContext = Depends(require_admin)):
-    """要整理的資料夾：問過 MoviePilot 名稱不一樣的、集號不對的（q 搜尋、kind=series|movie|episodes|held、offset、limit）；
+    """要整理的資料夾：問過 MoviePilot 名稱不一樣的、集號不對的（q 搜尋、kind=series|movie|episodes|held、
+    root=只看這個同步目錄底下的、offset、limit）；
     瀏覽 115 加進來的在 pinned。附上背景檢查的進度（job）、還沒問過的數量（unchecked）、缺什麼設定（ready）、
     目前的整理工作（reorg_job）。不向 MoviePilot 請求。"""
     st = state(request)
     offset, limit = max(q_int(request, "offset") or 0, 0), min(max(q_int(request, "limit") or 50, 1), 200)
-    result = st.organizer.list(q(request, "q") or "", q(request, "kind") or "", offset, limit)
+    result = st.organizer.list(q(request, "q") or "", q(request, "kind") or "", offset, limit, q(request, "root") or "")
     return {**result, "offset": offset, "ready": st.reorganizer.ready(), "reorg_job": st.reorganizer.job.as_dict()}
 
 
@@ -59,7 +60,7 @@ def organize_all_status(request: Request, ctx: AuthContext = Depends(require_adm
 
 @router.post("/web/api/115/organize/all")
 async def organize_all(request: Request, ctx: AuthContext = Depends(require_admin)):
-    """全部整理：{q, kind（清單上的搜尋、種類）, target, target_path, cleanup, max_videos}。清單上符合的（加上瀏覽 115
+    """全部整理：{q, kind, root（清單上的搜尋、種類、同步目錄）, target, target_path, cleanup, max_videos}。清單上符合的（加上瀏覽 115
     釘上來的）在背景一個一個預覽，沒問題的直接整理，有問題的跳過記下來；標了「先不整理」的、一次要送超過 max_videos
     支影片的（預設 300，0 = 不限）這次不做。進度看 GET /web/api/115/organize/job。"""
     st = state(request)
@@ -71,7 +72,7 @@ async def organize_all(request: Request, ctx: AuthContext = Depends(require_admi
         raise HTTPException(status_code=400, detail="max_videos 要是整數")
     return {"batch": await run_in_threadpool(
         _run, st.organizer.organize_all, str(body.get("q") or ""), str(body.get("kind") or ""), str(body.get("target") or ""),
-        str(body.get("target_path") or ""), bool(body.get("cleanup", True)), max_videos)}
+        str(body.get("target_path") or ""), bool(body.get("cleanup", True)), max_videos, str(body.get("root") or ""))}
 
 
 @router.post("/web/api/115/organize/hold")

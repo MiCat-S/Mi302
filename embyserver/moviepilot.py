@@ -1146,7 +1146,7 @@ VIEWS = {"missing": {MISSING}, "subscribed": {SUBSCRIBED}, "unchecked": {UNCHECK
 def library_series(
     db: Database, query: str = "", gaps_only: bool = False, limit: int = 0, offset: int = 0,
     year: Optional[int] = None, view: str = "", excluded: Optional[Set[str]] = None,
-    subscribed: Optional[Set[Tuple[int, int]]] = None, stats: Optional[dict] = None,
+    subscribed: Optional[Set[Tuple[int, int]]] = None, stats: Optional[dict] = None, library: Optional[int] = None,
 ) -> Tuple[List[dict], int]:
     """媒體庫裡的劇：名稱、年份、tmdbid、每一季有幾集、集號的空洞（有第 2、4 集沒有第 3 集），
     以及對照 TMDB 缺哪幾集（檢查缺集、補全缺集時記下的 tmdb_seasons；還沒對照過的季是 None）。
@@ -1156,9 +1156,10 @@ def library_series(
     （要先刮削）；complete = 對照過、齊全；excluded = 標了「不補」（excluded：這些 tmdbid 字串）。
     subscribed 參數是 MoviePilot 裡已經訂閱的（tmdbid, 季）；沒給（讀不到）時缺集的都算 missing。to_fill 是還沒訂閱的缺集季數。
 
-    回傳 (清單, 符合條件的總數)。view 只列那一種：missing、subscribed、unchecked（含 notmdb）、excluded，空的是全部；
-    gaps_only 只列集號有空洞的，year 只列那一年的，limit、offset 分頁。照 state 排，要補的在最前面。特別篇（第 0 季）不算。
-    stats 給了就填上整個媒體庫各種狀態幾部（不受篩選影響）和 total。
+    回傳 (清單, 符合條件的總數)。篩選：query 搜尋劇名、year 只列那一年的、library 只列那個媒體庫（項目 id）的、
+    gaps_only 只列集號有空洞的；view 再從篩選出來的裡面只列一種狀態：missing、subscribed、unchecked（含 notmdb）、excluded，
+    空的是全部。limit、offset 分頁。照 state 排，要補的在最前面。特別篇（第 0 季）不算。
+    stats 給了就填上篩選出來的（不看 view）各種狀態幾部和 total：網頁的分頁數字、「補全這 N 部」都照篩選算。
     """
     episodes: Dict[int, Dict[int, Set[int]]] = {}
     for r in db.query(
@@ -1175,10 +1176,15 @@ def library_series(
     needle_py = pinyin_full(query) if cjk_count(query) >= 2 else ""
     out: List[dict] = []
     for r in db.query(
-        "SELECT i.id, i.name, i.year, i.original_title, i.provider_ids, i.search_text, l.name AS library FROM items i "
-        "LEFT JOIN items l ON l.id=i.library_id WHERE i.type='Series' ORDER BY i.sort_name"
+        "SELECT i.id, i.name, i.year, i.original_title, i.provider_ids, i.search_text, i.library_id, l.name AS library "
+        "FROM items i LEFT JOIN items l ON l.id=i.library_id WHERE i.type='Series' ORDER BY i.sort_name"
     ):
         name = r["name"] or ""
+        hay = f"{name} {r['original_title'] or ''} {r['year'] or ''} {r['search_text'] or ''}".lower()
+        if needle and needle not in hay and not (needle_py and needle_py in hay):
+            continue  # 片名、原名、年份、拼音、首字母都認
+        if (year and r["year"] != year) or (library and r["library_id"] != library):
+            continue
         providers = json.loads(r["provider_ids"]) if r["provider_ids"] else {}
         tmdbid = str(providers.get("Tmdb") or "")
         has_id = tmdbid.isdecimal()
@@ -1201,11 +1207,6 @@ def library_series(
                  else SUBSCRIBED if missing_count else UNCHECKED if unchecked else COMPLETE)
         counts[state] += 1
         counts["total"] += 1
-        hay = f"{name} {r['original_title'] or ''} {r['year'] or ''} {r['search_text'] or ''}".lower()
-        if needle and needle not in hay and not (needle_py and needle_py in hay):
-            continue  # 片名、原名、年份、拼音、首字母都認
-        if year and r["year"] != year:
-            continue
         if view in VIEWS and state not in VIEWS[view]:
             continue
         if gaps_only and not gap_count:

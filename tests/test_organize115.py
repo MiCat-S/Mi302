@@ -341,6 +341,11 @@ def test_moviepilot_decides_what_is_nonstandard(tmp_path: Path):
     assert set(units) == {FANREN, "康熙来了 (2004)", "D 斗破苍穹{tmdbid-292388} 更186", "Dark", "星际穿越 Interstellar 2014 4K",
                           "Old Movie (2001)", "Up.2009.1080p"}
     assert job["found"] == 7 and r["counts"] == {"series": 4, "movie": 3, "episodes": 3, "held": 0}
+    # 只看某個同步目錄（分類）底下的；「全部整理」也照這個篩選
+    assert r["roots"] == ["/影視"]
+    movies = listing(c, h, root="/影視/電影")
+    assert movies["total"] == 3 and all(u["path"].startswith("/影視/電影/") for u in movies["items"])
+    assert listing(c, h, root="/別的地方")["total"] == 0
 
     fr = units[FANREN]
     assert fr["mp_name"] == "凡人修仙传 (2020) {tmdbid=106449}" and fr["error"] == "" and fr["checked"]

@@ -43,6 +43,9 @@ def test_find_and_delete_exact_duplicates(tmp_path: Path):
     assert [(m["file_id"], m["keep"], m["path"], m["local"]) for m in ep["members"]][1] == (
         8, False, "/待整理/Dark.S01E01.mkv", None)
     assert c.get("/web/api/dupes/groups", params={"q": "待整理"}, headers=h).json()["total"] == 1
+    # 搜尋時，照建議刪的只算符合搜尋的那幾組：畫面上看到哪些，刪的就是哪些（以前不管搜尋，全部都刪）
+    count = lambda **b: c.post("/web/api/dupes/delete", json={"dry_run": True, **b}, headers=h).json()["count"]  # noqa: E731
+    assert (count(), count(q="待整理"), count(q="沒有這個檔名")) == (2, 1, 0)
 
     # 每組至少留一份
     r = c.post("/web/api/dupes/delete", json={"overrides": {"1": True}}, headers=h)

@@ -645,11 +645,15 @@ class Organizer:
 
     # ---- 清單 ----
 
-    def _matching(self, units: List[Unit], q: str, kind: str) -> List[Unit]:
-        """清單上看得到的（要整理的），照搜尋和種類篩選；不含瀏覽 115 釘上來的。"""
+    def _matching(self, units: List[Unit], q: str, kind: str, root: str = "") -> List[Unit]:
+        """清單上看得到的（要整理的），照搜尋、種類和同步目錄（root：115 路徑，例如 /影視/國產劇）篩選；
+        不含瀏覽 115 釘上來的。"""
         text = q.strip().casefold()
+        root = _dir_path(root) if root.strip("/ ") else ""
 
         def wanted(u: Unit) -> bool:
+            if root and not _inside(u.path, root):
+                return False
             if kind == "series" and u.kind != "series" or kind == "movie" and u.kind == "series":
                 return False
             if kind == "held" and u.path not in self._held:
@@ -661,15 +665,16 @@ class Organizer:
         found = [u for u in units if u.listed and wanted(u) and u.id not in self._pinned]
         return sorted(found, key=lambda u: u.path in self._held)  # 先不整理的排在後面
 
-    def list(self, q: str = "", kind: str = "", offset: int = 0, limit: int = 50) -> dict:
+    def list(self, q: str = "", kind: str = "", offset: int = 0, limit: int = 50, root: str = "") -> dict:
         units = self.units()
         found = [u for u in units if u.listed]
         counts = {"series": sum(1 for u in found if u.kind == "series"), "movie": sum(1 for u in found if u.kind != "series"),
                   "episodes": sum(1 for u in found if u.ep_guessed or u.ep_unknown),
                   "held": sum(1 for u in found if u.path in self._held)}
-        shown = self._matching(units, q, kind)
+        shown = self._matching(units, q, kind, root)
         return {
             "job": self.job.as_dict(), "batch": self.batch.as_dict(results=False), "total": len(shown), "folders": len(units),
+            "roots": sorted(set(self._roots())),  # 同步任務的 115 目錄，給「只看哪個目錄」的下拉選單
             "unchecked": sum(1 for u in units if not u.checked), "counts": counts,
             "pinned": [self._view(u) for u in self._pinned.values()],
             "items": [self._view(u) for u in shown[offset:offset + limit]],
@@ -1047,8 +1052,8 @@ class Organizer:
     # ---- 全部整理 ----
 
     def organize_all(self, q: str, kind: str, target: str, target_path: str, cleanup: bool,
-                     max_videos: int = BIG_FOLDER) -> dict:
-        """清單上符合搜尋、種類的（加上瀏覽 115 釘上來的）全部整理：在背景一個一個請 MoviePilot 預覽，沒問題的直接照預覽
+                     max_videos: int = BIG_FOLDER, root: str = "") -> dict:
+        """清單上符合搜尋、種類、同步目錄的（加上瀏覽 115 釘上來的）全部整理：在背景一個一個請 MoviePilot 預覽，沒問題的直接照預覽
         整理，有問題的（見 _preview 的 review）跳過記下來；最後同步一次。和單獨整理共用一把鎖，同時只有一批在動 115；
         「問 MoviePilot 檢查」在跑時不開始。標了「先不整理」的（只看它們時除外）、一次要送的影片超過 max_videos 支的
         （0 = 不限）這次不做。"""
@@ -1059,7 +1064,7 @@ class Organizer:
                 raise OrganizeError("已經在全部整理了")
             if self._lock.locked():
                 raise OrganizeError("正在問 MoviePilot 檢查，等它問完再全部整理")
-            units = list(self._pinned.values()) + self._matching(self.units(), q, kind)
+            units = list(self._pinned.values()) + self._matching(self.units(), q, kind, root)
             if not units:
                 raise OrganizeError("清單上沒有要整理的")
             limit = max(0, int(max_videos or 0))
