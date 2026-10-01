@@ -319,6 +319,8 @@ def test_concurrency_setting_is_clamped_and_saved(tmp_path: Path):
     settings.apply_settings(cfg, {"moviepilot": {"concurrency": 0}})
     assert cfg.moviepilot.concurrency == 1
     assert "concurrency: 1" in config_file.render(cfg)
+    settings.apply_settings(cfg, {"moviepilot": {"timeout": 0}})  # 0 會讓每個請求馬上逾時
+    assert cfg.moviepilot.timeout == 10
 
 
 def test_episode_without_still_uses_series_banner(tmp_path: Path):

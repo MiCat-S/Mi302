@@ -156,6 +156,7 @@ def apply_settings(config: Config, raw: dict) -> None:
     _set_fields(config.moviepilot, MOVIEPILOT_FIELDS, mp)
     config.moviepilot.url = config.moviepilot.url.rstrip("/")
     config.moviepilot.concurrency = max(1, min(config.moviepilot.concurrency, 8))
+    config.moviepilot.timeout = max(10.0, min(float(config.moviepilot.timeout), 3600.0))  # 0 或負的會讓每個請求馬上逾時
     config.moviepilot.fill_interval = max(0.0, min(float(config.moviepilot.fill_interval), 3600.0))
     config.moviepilot.fill_max_missing = max(0, min(int(config.moviepilot.fill_max_missing), 100000))
     if config.moviepilot.url and not config.moviepilot.url.startswith(("http://", "https://")):

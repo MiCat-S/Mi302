@@ -40,6 +40,7 @@ When you save in the web page, or when Mi302 reads an edited file, it checks the
 | `server.backup_keep` | 0–90 |
 | `server.log_level` | `info` or `debug`; anything else becomes `info` |
 | `moviepilot.concurrency` | 1–8 |
+| `moviepilot.timeout` | 10–3600 |
 | `mediainfo.concurrency` | 1–3 |
 | `mediainfo.interval` | 0.5–60 |
 | `mediainfo.timeout` | 10–3600 |
