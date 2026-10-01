@@ -3,18 +3,20 @@
 「空」是整個資料夾（含子資料夾）裡一支影片、一首音樂都沒有：完全是空的，或只剩 nfo、海報、字幕、文字檔這類東西
 （常是整理後留下的舊資料夾）。只列最外面那一層：一部劇的資料夾整個是空的，就列劇的資料夾，不再列裡面的季。
 
-掃描（每個範圍）：
-1. 用 115 的「導出目錄樹」一次拿到所有資料夾和檔案的名稱，再列一次範圍裡的所有檔案：目錄樹分不出最底層的是檔案
-   還是空資料夾，115 列出的檔案裡有那個名稱的才是檔案。導出失敗（例如只用開放平台登入）時改成逐層列目錄，慢很多。
-2. 從名稱算出底下沒有影音檔的資料夾，只留最外層的。
-3. 一個一個到 115 上確認：列一次上一層，拿到資料夾 id 和修改時間；再把它整個列一遍，記下裡面有什麼、多大。
-   列的時候發現有影音檔（導出之後才放進去的）就不算。
+掃描（每個範圍；範圍是整個網盤時，最上層的資料夾一個一個掃）：
+1. 用 115 的「導出目錄樹」一次拿到所有資料夾和檔案的名稱，再列一次範圍裡的所有檔案（附所在資料夾 id 和大小）：
+   目錄樹分不出最底層的是檔案還是空資料夾，115 列出的檔案裡有那個名稱的才是檔案。要用 cookie；導出失敗時那個範圍
+   這次不掃，不改成逐層列目錄（幾千個資料夾一個一個列，會被 115 限流）。
+2. 從名稱算出底下沒有影音檔的資料夾，只留最外層的；裡面有什麼、多大也從這兩份資料算，不必一個一個列。
+3. 每個上一層列一次，拿到這些資料夾的 id 和修改時間。只有子資料夾裡也有檔案的，才把它整個列一遍算大小。
+   一個一個列資料夾時至少間隔 PACE 秒：上一版每個都列一遍、一秒好幾次，碰上定時同步就被 115 回 405 熔斷。
 不列：範圍本身、115 最上層的資料夾、同步任務的目錄、MoviePilot 目錄設定裡存儲是 115 的下載目錄和媒體庫目錄
 （以及它們的上層）、藍光和 DVD 原盤裡的資料夾（路徑上有 BDMV、VIDEO_TS 這類，或和它們放在同一層）、
 一小時內剛有變動的（可能還在整理或下載）。
 
-刪除：勾的資料夾在背景照上一層一組一組處理。刪之前再到 115 上確認一次：還在原本的上一層、名稱沒變、一小時內沒有
-變動、裡面還是沒有影音檔，才送進 115 回收站（在 115 還原得回來）；確認不過的不刪，記下原因。同步目錄裡的，本機對應的
+刪除：勾的資料夾在背景照上一層一組一組處理。刪之前再到 115 上確認一次：每個上一層重新導出一次目錄樹、列一次，
+還在原本的上一層、名稱沒變、一小時內沒有變動、裡面還是沒有影音檔，才送進 115 回收站（在 115 還原得回來）；
+確認不過的不刪，記下原因。同步目錄裡的，本機對應的
 資料夾裡 Mi302 下載的 nfo、圖片跟著拿掉，再重新掃描那些位置。和整理、刪除共用 Reorganizer 的鎖：MoviePilot 正在
 整理時不刪，免得把它剛建好、影片還沒搬進去的資料夾刪掉。
 """
@@ -26,7 +28,7 @@ import logging
 import posixpath
 import threading
 import time
-from collections import Counter
+from collections import Counter, defaultdict
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Set, Tuple
@@ -35,7 +37,7 @@ from .db import Database
 from .dupes import DELETE_BATCH
 from .filetypes import MEDIA_EXTS
 from .moviepilot import MoviePilotError
-from .p115 import P115Error, P115NotFound, P115Throttled
+from .p115 import P115Error, P115Throttled
 from .strm_sync import outer_roots, remote_root
 from .workers import Stopped, Workers
 
@@ -46,6 +48,7 @@ RECENT = 3600  # 一小時內有變動的資料夾先不列、不刪（可能還
 SAMPLE = 5  # 每個資料夾記下幾個裡面的檔名給網頁看
 BIG = 100 << 20  # 裡面的檔案加起來超過這麼大，網頁上提醒看一下（不只是 nfo、圖片）
 RESULTS = 200  # 刪除時最多記幾個沒刪的原因
+PACE = 1.0  # 一個一個列資料夾時至少間隔幾秒（同步設定的 request_delay 比較大就照它）
 # 藍光、DVD 原盤的資料夾：BDMV 裡沒有影片的 CLIPINF、PLAYLIST，和 BDMV 並排的 CERTIFICATE 都是原盤的一部分
 DISC_DIRS = {"bdmv", "video_ts", "audio_ts", "hvdvd_ts", "certificate", "aacs", "bdav"}
 DISC_ROOTS = {"bdmv", "video_ts"}
@@ -95,6 +98,22 @@ def find_empty(nodes: Dict[str, bool]) -> List[str]:
                   if is_dir and rel not in media and posixpath.dirname(rel) in media and not disc(rel))
 
 
+def contents(nodes: Dict[str, bool], cands: Iterable[str]) -> Dict[str, Tuple[List[str], int]]:
+    """每個資料夾裡有什麼（從目錄樹看，不用再列）：檔案（相對於它的路徑，照名稱排）和子資料夾數。"""
+    files: Dict[str, List[str]] = {c: [] for c in cands}
+    dirs: Counter = Counter()
+    for rel, is_dir in nodes.items():
+        d = posixpath.dirname(rel)
+        while d and d not in files:
+            d = posixpath.dirname(d)
+        if d in files:
+            if is_dir:
+                dirs[d] += 1
+            else:
+                files[d].append(rel[len(d) + 1:])
+    return {c: (sorted(names), dirs[c]) for c, names in files.items()}
+
+
 @dataclass
 class EmptyJob:
     """掃描或刪除的進度；網頁每幾秒查一次。"""
@@ -103,7 +122,7 @@ class EmptyJob:
     running: bool = False
     started: float = 0.0
     finished: float = 0.0
-    listed: int = 0  # 掃描：看過幾個 115 項目（目錄樹裡的，或逐層列到的）
+    listed: int = 0  # 掃描：目錄樹裡有幾個項目
     found: int = 0  # 掃描：從名稱看起來是空的，要到 115 上確認幾個
     checked: int = 0  # 掃描：確認過幾個
     total: int = 0  # 刪除：勾了幾個
@@ -131,6 +150,7 @@ class EmptyDirs:
         self._lock = threading.Lock()  # 掃描、刪除同時只做一個
         self.workers = Workers(busy=self._lock)  # 程式結束時停在兩個資料夾之間
         self._stop = self.workers.stop
+        self.pace = PACE
 
     @property
     def p115(self):
@@ -149,9 +169,10 @@ class EmptyDirs:
     def default_roots(self) -> List[str]:
         return outer_roots(self.strm_sync.tasks)
 
-    def _delay(self) -> None:
-        """每列一個 115 目錄之間等一下（同步設定的 request_delay），按了停止或程式要結束就丟 Stopped。"""
-        delay = getattr(self.strm_sync.cfg, "request_delay", 0) or 0
+    def _pace(self) -> None:
+        """每列一個 115 目錄之前等一下：至少 pace 秒，同步設定的 request_delay 比較大就照它，熔斷剛恢復時再放慢。
+        按了停止或程式要結束就丟 Stopped。"""
+        delay = max(getattr(self.strm_sync.cfg, "request_delay", 0) or 0, self.pace) * self.p115.breaker.slowdown()
         if delay:
             self.workers.wait(delay)
         self.workers.check()
@@ -196,6 +217,8 @@ class EmptyDirs:
 
     def scan_in_background(self, roots: Optional[List[str]] = None) -> bool:
         """在背景掃描；已經在掃描或刪除回傳 False。同步時不掃：兩邊都要用 115 的導出目錄樹，同時只能有一個。"""
+        if not self.p115.cookies:
+            raise EmptyDirsError("找空資料夾要用掃碼登入（cookie）：要用 115 的導出目錄樹")
         if self.strm_sync.result.running:
             raise EmptyDirsError("115 正在同步，等同步完成再掃描")
         if not self._lock.acquire(blocking=False):
@@ -214,7 +237,7 @@ class EmptyDirs:
             protected = self._protected(job)
             skipped: Counter = Counter()
             rows: List[tuple] = []
-            for root in roots:
+            for root in self._expand(roots):
                 rows += self._scan_root(root, job, protected, skipped)
             self.workers.check()  # 換掉上次的結果之前再看一次：按了停止就保留上次的
             with self.db.lock:
@@ -261,53 +284,62 @@ class EmptyDirs:
                 p = posixpath.dirname(p)
         return out
 
-    def _nodes(self, root: str, cid: int, job: EmptyJob) -> Dict[str, bool]:
-        """範圍裡每個項目：{相對路徑: 是不是資料夾}。先用導出目錄樹，不行再逐層列目錄。"""
-        if self.p115.cookies:
-            try:
-                job.current = f"{root}：等 115 導出目錄樹"
-                tree = self.p115.export_tree(cid, root)
-                job.listed += len(tree)
-                names: Set[str] = set()
-                for info in self.p115.iter_changed_files(cid, 0):  # since = 0：全部
-                    self.workers.check()
-                    names.add(info["name"])
-                    if len(names) % 1000 == 1:
-                        job.current = f"{root}：列出檔案（{len(names)} 個檔名）"
-                return classify(tree, names)
-            except P115Throttled:
-                raise  # 被限流時改逐層列目錄只會打得更多
-            except P115Error as exc:
-                log.warning("找空資料夾：%s 導出目錄樹失敗，改成逐層列目錄：%s", root, exc)
-                job.notes.append(f"{root}：導出目錄樹失敗（{exc}），改成逐層列目錄，比較慢")
-        job.current = f"{root}：逐層列目錄"
-        delay = getattr(self.strm_sync.cfg, "request_delay", 0) or 0
-        nodes: Dict[str, bool] = {}
-        for rel, entry in self.p115.walk(cid, delay=delay, dirs=True):
+    def _expand(self, roots: List[str]) -> List[str]:
+        """範圍是整個網盤時，最上層的資料夾一個一個掃（它們本身不列，也不知道導出整個網盤的目錄樹 115 收不收）。"""
+        out: List[str] = []
+        for root in roots:
+            if root == "/":
+                self.p115.breaker.check()
+                out += ["/" + e["name"] for e in self.p115.list_dir(0) if e["is_dir"]]
+            else:
+                out.append(root)
+        return list(dict.fromkeys(out))
+
+    def _snapshot(self, root: str, cid: int, job: EmptyJob) -> Tuple[Dict[str, bool], Dict[int, List[dict]]]:
+        """範圍裡每個項目 {相對路徑: 是不是資料夾}（導出目錄樹），和 115 列出的檔案照所在資料夾 id 分好。"""
+        job.current = f"{root}：等 115 導出目錄樹"
+        tree = self.p115.export_tree(cid, root)
+        job.listed += len(tree)
+        by_parent: Dict[int, List[dict]] = defaultdict(list)
+        names: Set[str] = set()
+        for n, info in enumerate(self.p115.iter_changed_files(cid, 0), 1):  # since = 0：全部
             self.workers.check()
-            job.listed += 1
-            nodes[rel] = bool(entry["is_dir"])
-        return nodes
+            names.add(info["name"])
+            by_parent[info["parent_id"]].append(info)
+            if n % 1000 == 1:
+                job.current = f"{root}：列出檔案（{n} 個）"
+        return classify(tree, names), by_parent
 
     def _scan_root(self, root: str, job: EmptyJob, protected: Set[str], skipped: Counter) -> List[tuple]:
         self.p115.breaker.check()
         job.current = root
         cid = self.p115.dir_id(root)
+        try:
+            nodes, by_parent = self._snapshot(root, cid, job)
+        except P115Throttled:
+            raise
+        except P115Error as exc:
+            log.warning("找空資料夾：%s 導出目錄樹失敗：%s", root, exc)
+            job.notes.append(f"{root}：115 導出目錄樹失敗（{exc}），這個目錄這次沒掃（清單上留著上次的結果），等一下再掃描")
+            return [tuple(r) for r in self.db.query(
+                "SELECT cid, parent_cid, path, files, dirs, size, sample, mtime FROM empty_dirs WHERE substr(path, 1, ?)=?",
+                (len(root) + 1, root.rstrip("/") + "/"))]
         cands = []
-        for rel in find_empty(self._nodes(root, cid, job)):
+        for rel in find_empty(nodes):
             path = _join(root, rel)
             if path in protected or path.count("/") <= 1:  # 115 最上層的資料夾也不列
                 skipped["protected"] += 1
             else:
                 cands.append(rel)
         job.found += len(cands)
-        by_parent: Dict[str, List[str]] = {}
+        inside = contents(nodes, cands)
+        groups: Dict[str, List[str]] = {}
         for rel in cands:
-            by_parent.setdefault(posixpath.dirname(rel), []).append(rel)
+            groups.setdefault(posixpath.dirname(rel), []).append(rel)
         rows: List[tuple] = []
-        for parent, rels in sorted(by_parent.items()):
+        for parent, rels in sorted(groups.items()):
             self.p115.breaker.check()
-            self._delay()
+            self._pace()
             job.current = _join(root, parent)
             try:
                 pid = self.p115.dir_id(_join(root, parent)) if parent else cid
@@ -326,9 +358,16 @@ class EmptyDirs:
                 if e["mtime"] and time.time() - e["mtime"] < RECENT:
                     skipped["recent"] += 1
                     continue
-                self._delay()
-                job.current = _join(root, rel)
-                content = self._content(e["id"])
+                files, dirs = inside[rel]
+                if any("/" in f for f in files):  # 子資料夾裡也有檔案：整個列一遍才知道多大
+                    self._pace()
+                    job.current = _join(root, rel)
+                    content = self._content(e["id"])
+                else:  # 檔案都直接放在裡面：115 列出的檔案裡就有大小
+                    direct = by_parent.get(e["id"], [])
+                    content = None if any(is_media(f["name"]) for f in direct) else {
+                        "files": len(files), "dirs": dirs, "size": sum(int(f.get("size") or 0) for f in direct),
+                        "sample": files[:SAMPLE]}
                 if content is None:
                     skipped["media"] += 1
                     continue
@@ -354,7 +393,7 @@ class EmptyDirs:
                     size += int(e.get("size") or 0)
                     names.append(name)
             if stack:
-                self._delay()
+                self._pace()
         return {"files": files, "dirs": dirs, "size": size, "sample": sorted(names)[:SAMPLE]}
 
     # ---------------- 刪除 ----------------
@@ -385,23 +424,30 @@ class EmptyDirs:
                 groups.setdefault(r["parent_cid"], []).append(r)
             for parent, rows in groups.items():
                 self.p115.breaker.check()
-                self._delay()
-                job.current = posixpath.dirname(rows[0]["path"])
+                self._pace()
+                folder = posixpath.dirname(rows[0]["path"])
+                job.current = f"{folder}：重新導出目錄樹確認"
                 try:
+                    # 上一層底下有影音檔的資料夾（名稱）；重新導出一次，不必一個一個列
+                    media = {p[0] for p in self.p115.export_tree(parent, folder) if is_media(p[-1])}
+                    self._pace()
                     entries = {e["id"]: e for e in self.p115.list_dir(parent)}
-                except P115NotFound:
-                    entries = {}  # 上一層已經不在了
+                except P115Throttled:
+                    raise
+                except P115Error as exc:  # 上一層不在了、115 正在導出別的目錄樹…：這一組先不刪
+                    for r in rows:
+                        self._kept(job, r, f"重新確認時 115 出錯（{exc}），這次沒刪，之後再試")
+                    continue
                 ok = []
                 for r in rows:
-                    job.current = r["path"]
-                    why = self._recheck(r, entries.get(r["cid"]))
+                    why = self._recheck(r, entries.get(r["cid"]), media)
                     if why:
-                        job.kept += 1
-                        if len(job.results) < RESULTS:
-                            job.results.append({"path": r["path"], "why": why})
+                        self._kept(job, r, why)
                     else:
                         ok.append(r)
                 for start in range(0, len(ok), DELETE_BATCH):
+                    if start:
+                        self._pace()
                     batch = ok[start:start + DELETE_BATCH]
                     self.p115.delete_files([r["cid"] for r in batch])
                     job.done += len(batch)
@@ -431,16 +477,22 @@ class EmptyDirs:
                 self.reorg.release()
                 self._lock.release()
 
-    def _recheck(self, r: dict, entry: Optional[dict]) -> str:
-        """刪之前再到 115 上看一次；可以刪回傳空字串，不行回傳原因（已經不是這個資料夾、不再是空的就從清單拿掉）。"""
-        if not entry or not entry["is_dir"] or entry["name"] != posixpath.basename(r["path"]):
+    @staticmethod
+    def _kept(job: EmptyJob, r: dict, why: str) -> None:
+        job.kept += 1
+        if len(job.results) < RESULTS:
+            job.results.append({"path": r["path"], "why": why})
+
+    def _recheck(self, r: dict, entry: Optional[dict], media: Set[str]) -> str:
+        """刪之前再看一次（entry：剛列出的上一層裡的它；media：剛導出的目錄樹裡底下有影音檔的資料夾名稱）。
+        可以刪回傳空字串，不行回傳原因；已經不是這個資料夾、不再是空的就從清單拿掉。"""
+        name = posixpath.basename(r["path"])
+        if not entry or not entry["is_dir"] or entry["name"] != name:
             self.db.execute("DELETE FROM empty_dirs WHERE cid=?", (r["cid"],))
             return "已經不在原本的位置（搬走、改名或刪掉了），沒有動它"
         if entry["mtime"] and time.time() - entry["mtime"] < RECENT:
             return "一小時內剛有變動（可能正在整理或下載），先不刪；之後重新掃描再看"
-        self._delay()
-        content = self._content(r["cid"])
-        if content is None:
+        if name in media:
             self.db.execute("DELETE FROM empty_dirs WHERE cid=?", (r["cid"],))
             return "現在裡面有影音檔了，沒有刪"
         return ""

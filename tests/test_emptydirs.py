@@ -95,11 +95,17 @@ def build(tmp_path: Path):
         holder.p115 = svc
     svc.download_url = lambda pc, ua="": f"https://cdn.115.test/{pc}"
     svc.export_poll = 0
+    app.state.empty_dirs.pace = 0
     app.state.strm_sync.run(FULL)
     app.state.scanner.scan_all()
     c = TestClient(app)
     h = {"X-Emby-Token": c.post("/Users/AuthenticateByName", json={"Username": "admin", "Pw": "pw"}).json()["AccessToken"]}
     return app, fake, media, c, h
+
+
+def listings(fake):
+    """一層一層列目錄的請求（不含遞迴列檔案、導出目錄樹）。"""
+    return [c[1]["cid"] for c in fake.calls if c[0] == "/files" and c[1].get("cur") == "1"]
 
 
 def wait_job(app):
@@ -121,8 +127,11 @@ def test_scan_and_delete_empty_folders(tmp_path: Path):
     (media / "劇集" / "Show" / "Season 1").mkdir(parents=True)
 
     assert c.get("/web/api/empty-dirs", headers=h).json()["default_roots"] == ["/影視"]
+    fake.calls.clear()
     assert c.post("/web/api/empty-dirs/scan", json={}, headers=h).json()["started"]
     job = wait_job(app)
+    # 不一個一個列空資料夾：每個上一層列一次（電影、劇集、Dark），只有子資料夾裡也有檔案的 Show 整個列一遍
+    assert sorted(listings(fake)) == ["101", "102", "103", "106", "107", "108"]
     assert not job.errors and not job.notes and job.listed > 0
     s = c.get("/web/api/empty-dirs", headers=h).json()
     assert (s["count"], s["size"], s["roots"], s["skipped"]) == (4, 51_010, ["/影視"], {"recent": 1})
@@ -150,12 +159,15 @@ def test_scan_and_delete_empty_folders(tmp_path: Path):
     # 掃描之後有影片搬進「Empty」：刪之前再確認時發現，不刪
     fake.files.append({"fid": 30, "cid": 105, "n": "New.S01E01.mkv", "pc": "l" * 17, "s": 900_000_000, "te": T0})
     deleted_before = len(fake.deleted)
+    fake.calls.clear()
     r = c.post("/web/api/empty-dirs/delete", json={"all": True}, headers=h).json()
     assert (r["started"], r["count"]) == (True, 4)
     job = wait_job(app)
     assert not job.errors and (job.done, job.kept, job.freed) == (3, 1, 51_010)
     assert job.results == [{"path": "/影視/劇集/Empty", "why": "現在裡面有影音檔了，沒有刪"}]
-    assert sorted(fake.deleted[deleted_before:]) == ["104", "106", "109"]
+    # 每個上一層重新導出一次目錄樹、列一次，不一個一個列
+    assert sorted(listings(fake)) == ["101", "102", "103"]
+    assert sorted(i for i in fake.deleted[deleted_before:] if not i.startswith("9")) == ["104", "106", "109"]  # 9xxx 是目錄樹檔
     assert 105 in fake.dirs and 103 in fake.dirs and 110 in fake.dirs
     # 本機對應的資料夾跟著拿掉，有影片的不動
     assert not leftover.exists() and not (media / "劇集" / "Show").exists()
@@ -164,17 +176,31 @@ def test_scan_and_delete_empty_folders(tmp_path: Path):
     assert c.get("/web/api/empty-dirs", headers=h).json()["count"] == 0
 
 
-def test_scan_falls_back_to_listing_folders(tmp_path: Path):
-    """導出目錄樹不行時改成逐層列目錄，結果一樣；範圍是整個網盤時，最上層的資料夾不列。"""
+def test_scan_whole_drive_and_export_failures(tmp_path: Path):
+    """範圍是整個網盤時最上層的資料夾一個一個掃；導出目錄樹失敗時不改成逐層列目錄，刪除也先不刪。"""
     app, fake, media, c, h = build(tmp_path)
     app.state.strm_sync.result.running = True  # 同步也要導出目錄樹：等它做完
     r = c.post("/web/api/empty-dirs/scan", json={}, headers=h)
     assert r.status_code == 409 and "同步" in r.text
     app.state.strm_sync.result.running = False
-    fake.export_ok = False
+
     assert c.post("/web/api/empty-dirs/scan", json={"paths": ["/"]}, headers=h).json()["started"]
     job = wait_job(app)
-    assert not job.errors and "逐層列目錄" in job.notes[0]
+    assert not job.errors and not job.notes
     s = c.get("/web/api/empty-dirs", headers=h).json()
-    assert s["roots"] == ["/"] and s["skipped"] == {"recent": 1, "protected": 1}  # /待整理
+    assert (s["roots"], s["skipped"], s["count"]) == (["/"], {"recent": 1}, 4)
     assert [d["path"] for d in c.get("/web/api/empty-dirs/list", headers=h).json()["items"]] == EXPECTED
+
+    fake.export_ok = False  # 例如 115 正在導出別的目錄樹
+    deleted_before = list(fake.deleted)
+    assert c.post("/web/api/empty-dirs/delete", json={"all": True}, headers=h).json()["started"]
+    job = wait_job(app)
+    assert not job.errors and (job.done, job.kept) == (0, 4) and fake.deleted == deleted_before
+    assert "重新確認時 115 出錯" in job.results[0]["why"]
+
+    fake.calls.clear()
+    assert c.post("/web/api/empty-dirs/scan", json={}, headers=h).json()["started"]
+    job = wait_job(app)
+    assert not job.errors and "導出目錄樹失敗" in job.notes[0]
+    assert listings(fake) == []  # 不一層一層列
+    assert c.get("/web/api/empty-dirs", headers=h).json()["count"] == 4  # 留著上次的結果

@@ -2276,7 +2276,7 @@ function emptyStatHtml(s) {
   let h = `<p class="hint">範圍：${roots.length ? roots.map(r => `<code>${esc(r)}</code>`).join('、') : '還沒有同步任務，請按「改選 115 目錄…」'}` +
     (edRoot ? '（自己選的，<button class="link" data-act="edRootReset">改回同步任務的目錄</button>）' : roots.length ? '（同步任務的目錄）' : '') + '</p>';
   if (j.running && j.kind === 'scan') {
-    h += `<div class="row mt8"><span class="pill accent"><span class="spin"></span>掃描中</span><span class="hint sp grow"><span>已看 ${j.listed} 個項目</span>${j.found ? `<span>確認了 ${j.checked} / ${j.found} 個</span>` : ''}${j.current ? `<span>${esc(j.current)}</span>` : ''}</span><button class="btn sm ghost danger" data-act="stopJob" data-job="empty">停止</button></div>`;
+    h += `<div class="row mt8"><span class="pill accent"><span class="spin"></span>掃描中</span><span class="hint sp grow"><span>目錄樹裡 ${j.listed} 個項目</span>${j.found ? `<span>確認了 ${j.checked} / ${j.found} 個</span>` : ''}${j.current ? `<span>${esc(j.current)}</span>` : ''}</span><button class="btn sm ghost danger" data-act="stopJob" data-job="empty">停止</button></div>`;
   } else if (j.running) {
     const n = j.done + j.kept, pct = j.total ? n / j.total * 100 : 0;
     h += `<div class="row my8"><span class="pill accent"><span class="spin"></span>刪除中</span><span class="hint sp grow"><span>${n} / ${j.total}</span>${j.current ? `<span>${esc(j.current)}</span>` : ''}</span><button class="btn sm ghost danger" data-act="stopJob" data-job="empty">停止</button></div><div class="meter"><div style="width:${pct.toFixed(1)}%"></div></div>`;
@@ -2285,7 +2285,7 @@ function emptyStatHtml(s) {
     h += `<div class="chips mt8">${chip(s.count, '個空資料夾', true)}${chip(fmtSize(s.size), '裡面的檔案共')}</div>
       <p class="hint mt6">上次在 ${ago(s.scanned_at)} 掃描過（${s.roots.map(esc).join('、')}）。${skipped.length ? `另外 ${skipped.join('、')}，沒有列出來。` : ''}115 上有變動的話，先重新掃描一次。</p>`;
   } else {
-    h += '<p class="hint mt8">還沒掃描過。按「掃描」開始：先用 115 的「導出目錄樹」一次拿到所有資料夾，再到 115 上一個一個確認。</p>';
+    h += '<p class="hint mt8">還沒掃描過。按「掃描」開始：用 115 的「導出目錄樹」一次拿到所有資料夾和檔案，不必一個一個列（要用掃碼登入）。</p>';
   }
   if (!j.running) h += j.notes.map(n => `<p class="notice warn mt8">${esc(n)}</p>`).join('');
   if (!j.running && j.kind === 'delete' && j.finished) {
