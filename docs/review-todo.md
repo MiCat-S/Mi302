@@ -42,6 +42,7 @@ StartIndex、Limit 的負數當成沒給。另外測試加了管理網頁 node -
 | 506e2af | 媒體資訊可以挑著提取：搜尋片名、媒體庫、電影或劇集、年份範圍篩選；先做哪些（最近加入、年份新舊、評分、片名）；這次最多幾支；每一部可以單獨提取。「整庫探測」開關改名「批次探測」 |
 | b3697ab | README 改成繁中、简中、English 三份概覽；詳細說明拆成 12 頁 × 3 語的 wiki，原始檔在 `docs/wiki`，用 `docs/publish-wiki.sh` 發布 |
 | 73cf045 | 片頭片尾範圍照查證資料改：片頭起點前 10 分鐘內、一次跳 15 秒–3 分鐘；片尾最後 5 分鐘，片尾區裡往前跳 60 秒以上也算；短的集用前後 25%（24 分鐘動畫＝前 6 分鐘、後 5 分鐘），不用判斷是不是動畫。依據：AniSkip 27 部動畫統計、TheIntroDB 影集統計、廣電《電視劇母版製作規範》、Emby／Intro Skipper／神醫助手的預設 |
+| 35b4de4…5865cb2 | 照 review-2026-10-02 修：補全缺集不替 TMDB 沒有的季建訂閱；/Users/Query、RemoteImages；忙碌清單；刪媒體庫提示觀看紀錄；V3 只要 API 令牌；檢查、執行、strm 改寫可停，刪除勾選的改伺服器端；掃描停止與結果保留；改密碼收回登入；刪除紀錄；P3 小項。經 Opus 子代理兩輪複審 |
 | 130349c | 補全缺集：年份篩選、每頁 20–200 部可選、上一頁／下一頁；搜尋或換篩選回到第 1 頁，回應帶序號不被舊回應蓋掉（管理網頁第 4 項）。用 Chromium 實際跑過 |
 
 ## 待辦
@@ -102,7 +103,7 @@ StartIndex、Limit 的負數當成沒給。另外測試加了管理網頁 node -
 5. **macOS 找不到 brew 裝的 ffprobe。** launchd plist 沒設 PATH，`/opt/homebrew/bin` 不在預設路徑裡。在 plist 加 PATH，或安裝時把 `command -v ffprobe` 寫進 `mediainfo.ffprobe`。
 6. **macOS 上 `mi302` 指令建不起來時 README 沒說怎麼辦。** `/usr/local/bin` 是 root 擁有時會失敗；可以改試 `/opt/homebrew/bin`、`~/.local/bin`。（wiki「安裝」已寫替代方式。）
 7. ~~**日誌頁說「最近 3000 筆」，實際 `LOG_MAX = 1000`。**~~（見 review-2026-09-28）
-8. **低優先。** ~~`startQr` 連點兩下會有兩個輪詢互相覆蓋；`loadUsers`、`logoutOpen`、`logout115`、`loadKeys`、`addKey` 沒有 try/catch；`qrcode_image` 用 innerHTML 沒 `esc`~~（見 review-2026-09-28）；非管理員登入網頁時已發的 token 沒登出；`install.sh -y` 遇到埠被占用直接結束、沒說明；舊版目錄 chown 後 git 擁有者不一致，更新時會誤報連不上 GitHub。
+8. **低優先。** ~~`startQr` 連點兩下會有兩個輪詢互相覆蓋；`loadUsers`、`logoutOpen`、`logout115`、`loadKeys`、`addKey` 沒有 try/catch；`qrcode_image` 用 innerHTML 沒 `esc`~~（見 review-2026-09-28）；~~非管理員登入網頁時已發的 token 沒登出~~（見 review-2026-10-02）；`install.sh -y` 遇到埠被占用直接結束、沒說明；舊版目錄 chown 後 git 擁有者不一致，更新時會誤報連不上 GitHub。
 9. **可讀性。** install.sh 的 `TZ`、`TZ_NAME`、`host_tz` 算了沒用，`set_conf` 重複呼叫，`current_port` 是多餘的別名；admin.html 的 ~~`pollQr` 的 img 參數沒用、`.steps{counter-reset}` 沒用~~（見 review-2026-09-28）、AppID 有兩個輸入框、~~`syncWatch` 宣告在使用之後~~（見 review-2026-09-28）。（README 那幾點已隨 README 改寫和 wiki 處理掉。）
 
 ### 六、寫 wiki 時發現程式和說明對不上的地方（2026-09-27）
@@ -111,7 +112,7 @@ wiki 已經照程式實際行為寫；下面是程式本身值得改、或註解
 
 1. ~~**設定檔的 `users` 每次啟動都會建立。** `app.create_app` 每次啟動都對 `users` 裡的每個帳號呼叫 `auth.ensure_user`，在網頁上刪掉的帳號，只要還寫在設定檔裡，下次啟動又會出現。但 `config_file.render` 的註解、config.example.yaml 都說「只在第一次啟動時用」。二選一：真的只在資料庫還沒有任何帳號時建立，或改註解。~~（見 review-2026-09-29：網頁上刪掉的帳號一起從設定檔拿掉）
 2. ~~**手改設定檔啟動時不做檢查。** `settings.apply_settings` 的檢查和範圍限制（任務資料夾要絕對路徑、不能互相包含，各數值的上下限）只在網頁儲存或執行中重讀檔案時跑，啟動時讀到的值原樣使用。啟動時跑同一套檢查，有問題寫警告。~~（見 review-2026-09-29：啟動時照網頁的規則檢查，有錯的同步任務先不用）
-3. **`moviepilot.timeout` 沒有範圍限制。**
+3. ~~**`moviepilot.timeout` 沒有範圍限制。**~~（見 review-2026-10-02：限制在 10–3600 秒）
 4. ~~**要重新啟動才生效的設定不只 host、port、data_dir。** `users`、`p115.cookies`、`p115.timeout`、`redirect.resolve_timeout` 也只在啟動時讀。改成執行中也能套用，或更新 `config_file.render` 開頭的註解（config.example.yaml 同步）。~~（見 review-2026-09-29：p115.timeout、redirect.resolve_timeout 改成不用重新啟動，註解和 wiki 跟著改）
 5. ~~**過時的說明文字。** admin.html `fillAll()` 的確認框和 `app.py` `after_sync` 的註解說「已經齊全的季 MoviePilot 會拒絕」；現在 Mi302 自己先查 TMDB，齊全的不建訂閱。~~（見 review-2026-09-28）
 6. **熔斷恢復後放慢只作用在探測。** `p115.Breaker` 的說明寫「背景工作先放慢」，實際只有 `prober.pace` 用到，同步不會放慢。二選一：同步也放慢，或改說明。
