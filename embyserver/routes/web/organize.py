@@ -152,6 +152,8 @@ async def organize_execute(request: Request, ctx: AuthContext = Depends(require_
     st = state(request)
     body = await json_body(request)
     _can_organize(st)
+    if st.organizer.deleting.running:
+        raise HTTPException(status_code=400, detail="正在刪除勾選的，等它做完再整理")
     tokens = body.get("tokens") if isinstance(body.get("tokens"), list) else [body.get("token")]
     cleanup = [c for c in body.get("cleanup") or [] if isinstance(c, dict) and str(c.get("cid") or "").isdecimal()]
     _run(st.reorganizer.execute_in_background, [str(t or "") for t in tokens], cleanup)
@@ -181,7 +183,8 @@ async def organize_delete(request: Request, ctx: AuthContext = Depends(require_a
     st = state(request)
     body = await json_body(request)
     if isinstance(body.get("ids"), list):
-        return {"deleting": _run(st.organizer.delete_many_in_background, [str(i) for i in body["ids"]])}
+        ids = [str(i) for i in body["ids"]]
+        return {"deleting": await run_in_threadpool(_run, st.organizer.delete_many_in_background, ids)}
     if body.get("id"):
         return await run_in_threadpool(_run, st.organizer.delete, str(body["id"]))
     ids = [int(i) for i in body.get("file_ids") or [] if str(i).isdecimal()]

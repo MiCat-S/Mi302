@@ -82,6 +82,11 @@ def test_library_series_lists_gaps(tmp_path: Path):
     assert (a["state"], a["absent"], a["unchecked"], [s["absent"] for s in a["seasons"]]) == ("mismatch", 1, 0, [False, True])
     db.execute("UPDATE tmdb_seasons SET episodes='壞掉' WHERE season=2")  # 壞掉的當成沒對照過
     assert [s["state"] for s in library_series(db)[0] if s["name"] == "Show A"] == ["unchecked"]
+    # 有一季對不上、另一季還沒對照：先檢查（在「還沒對照」，檢查得到），檢查完還對不上才算季號對不上
+    db.execute("UPDATE tmdb_seasons SET episodes='{}' WHERE season=2")
+    db.execute("DELETE FROM tmdb_seasons WHERE season=1")
+    (a,), _ = library_series(db, view="unchecked", query="show a")
+    assert (a["state"], a["absent"], a["unchecked"]) == ("unchecked", 1, 1)
 
 
 class FakeMP:
@@ -264,7 +269,7 @@ def test_fill_endpoints(tmp_path: Path):
     # 分頁上的數字（stats）照篩選算：1999 年的一部都沒有；不篩選時兩部
     assert c.get("/web/api/series", params={"year": 1999}, headers=h).json() | {"years": None, "libraries": None} == {
         "items": [], "total": 0, "offset": 0, "more": False, "years": None, "libraries": None, "excluded": 0,
-        "subscriptions": None,
+        "subscriptions": None, "unsubscribed": 0,
         "stats": {"missing": 0, "pending": 0, "mismatch": 0, "unchecked": 0, "notmdb": 0, "complete": 0, "excluded": 0,
                   "total": 0}}
     everything = c.get("/web/api/series", headers=h).json()
@@ -421,10 +426,13 @@ def test_unsubscribe_all(tmp_path: Path):
     assert (r.total, r.done, r.failed, r.stopped) == (5, 4, 1, False) and "劇 3 S01" in r.errors[0]
     assert [s["id"] for s in fake.subs] == [3]  # 刪不掉的那個留著，不會一直重試
     # 取消前的訂閱清單留了一份（每一輪列出來的都記），取消錯了可以照它重建
-    kept = c.get("/web/api/moviepilot/subscriptions/unsubscribed", headers=h).json()
+    (kept,) = c.get("/web/api/moviepilot/subscriptions/unsubscribed", headers=h).json()["backups"]
     assert kept["at"] == r.started and sorted(s["id"] for s in kept["items"]) == [1, 2, 3, 4, 5]
     assert {"name": "劇 5", "type": "电影", "season": 1}.items() <= next(s for s in kept["items"] if s["id"] == 5).items()
     assert c.get("/web/api/moviepilot/status", headers=h).json()["unsubscribe"]["done"] == 4
+    again = mp.unsubscribe_all()  # 下一次取消不蓋掉上一次的清單（留最近幾次，新的在前面）
+    assert [b["at"] for b in mp.unsubscribed()] == [again.started, r.started]
+    assert c.get("/web/api/series", headers=h).json()["unsubscribed"] == 2
     # 經過 API：帶了確認字才開始（在背景跑）
     started = []
     mp.unsubscribe_all_in_background = lambda: started.append(1) or True

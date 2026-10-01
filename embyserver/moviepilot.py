@@ -58,6 +58,7 @@ NO_IMAGE_RETRY_SECONDS = 30 * 86400
 FILL_EXCLUDED_KEY = "fill_excluded"  # 補全缺集時跳過的劇（資料庫 meta，JSON：tmdbid → 劇名）
 LAST_SCRAPE_KEY = "mp_last_scrape"  # 上一次刮削的結果摘要（資料庫 meta），重新啟動後網頁照樣顯示
 UNSUBSCRIBED_KEY = "mp_unsubscribed"  # 「取消所有訂閱」取消前的訂閱清單（資料庫 meta）：取消錯了可以照它重建
+UNSUBSCRIBED_KEEP = 5  # 留最近幾次的清單
 # 這麼久以內查過 TMDB 的季直接用記下的，不再問一次：檢查完接著補全、同一天重跑，不必再問上千次
 TMDB_FRESH_SECONDS = 6 * 3600
 
@@ -218,6 +219,7 @@ class MoviePilot:
         self._transport = transport
         self._jwt: Optional[str] = None
         self._jwt_lock = threading.Lock()  # 登入 token 過期時只讓一個請求重新登入，其他的等它、用新的 token
+        self._token_in_query = False  # 這個 MoviePilot（舊版）要在查詢參數帶令牌才認：試過一次成功後就一直帶
         self._preview_ok_at = 0.0  # 上次確認 MoviePilot 夠新、支援整理預覽的時間
 
     @property
@@ -261,10 +263,12 @@ class MoviePilot:
         try:
             with self._client(timeout or self.cfg.timeout) as client:
                 token = self._jwt
-                resp = self._send(client, method, path, body, query, token)
-                if resp.status_code in (401, 403) and not token and self.cfg.api_token:
+                resp = self._send(client, method, path, body, query, token, legacy_token=self._token_in_query)
+                if resp.status_code in (401, 403) and not token and self.cfg.api_token and not self._token_in_query:
                     # 舊版有些端點只認查詢參數 ?token=；令牌平常只放標頭，免得出現在代理、MoviePilot 的存取日誌
                     resp = self._send(client, method, path, body, query, None, legacy_token=True)
+                    if resp.status_code not in (401, 403):
+                        self._token_in_query = True  # 之後直接帶，不必每個請求都先被拒一次
                 if resp.status_code in (401, 403) and self.cfg.username and self.cfg.password:
                     # 舊版 MoviePilot 的刮削 API 只認登入 token；或是之前的登入 token 過期了。
                     # 刮削是好幾個請求同時送：別的請求已經換了新 token 就直接用，不再登入一次
@@ -339,6 +343,7 @@ class MoviePilot:
     def rename_plugin_ready(self) -> bool:
         """MoviePilot 裝好、啟用了 Mi302 整理助手外掛，而且設定裡沒關掉；5 分鐘內問過就不再問。"""
         if not self.cfg.rename_plugin:
+            self.plugin_problems = []
             return False
         now = time.time()
         if now - self._plugin_checked[0] < 300:
@@ -1191,16 +1196,21 @@ class MoviePilot:
         return r
 
     def _save_unsubscribed(self, subs: List[dict], started: float) -> None:
+        """這一次（started）取消前的清單記進去，同一次的覆蓋、別次的留著，最多 UNSUBSCRIBED_KEEP 次。"""
         if self.db is not None:
-            self.db.set_meta(UNSUBSCRIBED_KEY, json.dumps({"at": started, "items": subs}, ensure_ascii=False))
+            older = [b for b in self.unsubscribed() if b.get("at") != started]
+            backups = ([{"at": started, "items": subs}] + older)[:UNSUBSCRIBED_KEEP]
+            self.db.set_meta(UNSUBSCRIBED_KEY, json.dumps(backups, ensure_ascii=False))
 
-    def unsubscribed(self) -> dict:
-        """上一次「取消所有訂閱」取消前的訂閱清單：{at, items: [{id, name, year, type, season, tmdbid}]}；沒有是空的。"""
+    def unsubscribed(self) -> List[dict]:
+        """最近幾次「取消所有訂閱」取消前的訂閱清單，新的在前面：[{at, items: [{id, name, year, type, season, tmdbid}]}]。"""
         try:
-            value = json.loads(self.db.get_meta(UNSUBSCRIBED_KEY) or "{}") if self.db is not None else {}
+            value = json.loads(self.db.get_meta(UNSUBSCRIBED_KEY) or "[]") if self.db is not None else []
         except ValueError:
-            value = {}
-        return value if isinstance(value, dict) else {}
+            value = []
+        if isinstance(value, dict):  # 只留一份時的格式
+            value = [value]
+        return [b for b in value if isinstance(b, dict)] if isinstance(value, list) else []
 
     def unsubscribe_all_in_background(self) -> bool:
         if self._fill_lock.locked():
@@ -1294,7 +1304,7 @@ def ep_ranges(nums: List[int], limit: int = 6) -> str:
 # 一部劇在補全缺集裡的狀態（互不重疊，清單的分頁照這個分）
 MISSING, PENDING, MISMATCH, UNCHECKED, NO_TMDB, COMPLETE, EXCLUDED = (
     "missing", "pending", "mismatch", "unchecked", "notmdb", "complete", "excluded")
-STATE_ORDER = {MISSING: 0, PENDING: 1, MISMATCH: 2, UNCHECKED: 3, NO_TMDB: 4, COMPLETE: 5, EXCLUDED: 6}
+STATE_ORDER = {MISSING: 0, PENDING: 1, UNCHECKED: 2, MISMATCH: 3, NO_TMDB: 4, COMPLETE: 5, EXCLUDED: 6}
 VIEWS = {"missing": {MISSING}, "pending": {PENDING}, "mismatch": {MISMATCH}, "unchecked": {UNCHECKED, NO_TMDB},
          "excluded": {EXCLUDED}}
 
@@ -1309,8 +1319,8 @@ def library_series(
     以及對照 TMDB 缺哪幾集（檢查缺集、補全缺集時記下的 tmdb_seasons；還沒對照過的季是 None）。
 
     每一部有一個 state（互不重疊，照「接下來要做什麼」分）：missing = 對照過、缺集、還有季沒交給 MoviePilot（要補）；
-    pending = 缺集的季 MoviePilot 都在處理了（等它下載、入庫）；mismatch = 有季在 TMDB 上不存在（季號對不上，要先整理）；
-    unchecked = 還有季沒對照過 TMDB（要檢查）；notmdb = 沒有 tmdbid（要先刮削）；complete = 對照過、齊全；
+    pending = 缺集的季 MoviePilot 都在處理了（等它下載、入庫）；unchecked = 還有季沒對照過 TMDB（要檢查）；
+    mismatch = 都對照過了，有季在 TMDB 上不存在（季號對不上，要先整理）；notmdb = 沒有 tmdbid（要先刮削）；complete = 對照過、齊全；
     excluded = 標了「不補」（excluded：這些 tmdbid 字串）。每一季的 absent 是 TMDB 上沒有這一季。
     MoviePilot 在處理的季有兩種：subscribed 參數是它裡面還訂閱著的（tmdbid, 季）；sent 參數是它最近找到資源、送去下載、
     把訂閱記成完成的（sent_seasons：{(tmdbid, 季): 完成的時間}），集還沒入庫，那之後才播出的集不算在內。
@@ -1369,7 +1379,7 @@ def library_series(
         unchecked = sum(1 for x in seasons if x["missing"] is None and not x["absent"]) if has_id else 0
         to_fill = sum(1 for x in seasons if x["missing"] and not x["subscribed"] and not x["sent"])
         state = (NO_TMDB if not has_id else EXCLUDED if tmdbid in excluded else MISSING if to_fill
-                 else PENDING if missing_count else MISMATCH if absent else UNCHECKED if unchecked else COMPLETE)
+                 else PENDING if missing_count else UNCHECKED if unchecked else MISMATCH if absent else COMPLETE)
         counts[state] += 1
         counts["total"] += 1
         if view in VIEWS and state not in VIEWS[view]:

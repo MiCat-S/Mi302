@@ -756,7 +756,7 @@ dialog .card-b{max-height:70vh;overflow:auto}
           <details class="more"><summary id="subsSummary">MoviePilot 的訂閱</summary><div class="in stack">
           <p class="hint" id="subsText">補全建的訂閱都在 MoviePilot 裡。建了太多不想要的、想清掉重來時，可以在這裡一次取消。</p>
           <div id="unsub"></div>
-          <div><button class="btn sm ghost danger" onclick="unsubAll()">取消所有訂閱…</button></div>
+          <div class="row wrap gap6"><button class="btn sm ghost danger" onclick="unsubAll()">取消所有訂閱…</button><button class="btn sm ghost hidden" id="unsubDl" data-act="unsubList" title="最近幾次取消前的訂閱清單（名稱、年份、類型、季、tmdbid），取消錯了可以照它重新訂閱">下載之前取消的訂閱清單</button></div>
           </div></details>
         </div>
       </div>
@@ -2546,6 +2546,7 @@ function renderSeriesBar() {
   for (const b of document.querySelectorAll('#series .js-run')) b.disabled = busy;
   const subs = r.subscriptions;
   $('subsSummary').textContent = subs == null ? 'MoviePilot 的訂閱' : `MoviePilot 的訂閱（${subs} 個）`;
+  $('unsubDl').classList.toggle('hidden', !r.unsubscribed);
   $('subsText').textContent = (subs == null ? '' : subs ? `MoviePilot 現在有 ${subs} 個訂閱。` : 'MoviePilot 現在沒有訂閱。')
     + '補全建的訂閱都在 MoviePilot 裡。建了太多不想要的、想清掉重來時，可以在這裡一次取消：只刪訂閱，已經下載、整理好的檔案不動。';
 }
@@ -2611,7 +2612,7 @@ async function loadSeries(page) {
     if (s.state === 'missing') acts.push(['補全', 'btn sm js-run', '向 MoviePilot 訂閱這部劇缺集的季，並請它搜尋', () => fillSeries({series: [s.id]}, name)]);
     if (s.state === 'pending' && s.seasons.some(x => x.sent)) acts.push(['再補一次', 'btn sm ghost js-run', '下載失敗、種子被刪了的時候用：不等 3 天，現在就再訂閱一次、請 MoviePilot 重新搜尋', () => fillSeries({series: [s.id], force: true}, name)]);
     if (s.state === 'unchecked') acts.push(['檢查', 'btn sm js-run', '對照 TMDB，看這部劇缺哪幾集（不建訂閱）', () => fillSeries({series: [s.id], check: true}, name)]);
-    if (s.absent) acts.push(['去整理', 'btn sm ghost', '到「115 網盤 → 整理 115 網盤」找這部劇，把季號整理成和 TMDB 一樣', () => findInOrganize(s.name)]);
+    if (s.absent) acts.push(['去整理', 'btn sm ghost', '把劇集資料夾加進「115 網盤 → 整理 115 網盤」最上面，預覽時在對不上的那一季指定 TMDB 的季號', () => findInOrganize(s)]);
     if (s.state === 'excluded') acts.push(['恢復補全', 'btn sm ghost', '之後檢查、補全時照常處理這部劇', () => fillExclude(s, false)]);
     else if (s.state !== 'notmdb') acts.push(['不補', 'btn sm ghost', '之後檢查、補全（手動、全部、全量同步後自動）都跳過這部劇', () => fillExclude(s, true)]);
     row.innerHTML = `<div class="main"><div class="row wrap"><b>${esc(s.name)}</b>${s.year ? `<span class="hint">${s.year}</span>` : ''}${s.library ? `<span class="pill">${esc(s.library)}</span>` : ''}${SERIES_PILL[s.state] || ''}${(s.state === 'missing' || s.state === 'pending') && s.unchecked ? SERIES_PILL.unchecked : ''}${s.absent && s.state !== 'mismatch' && s.state !== 'excluded' ? SERIES_PILL.mismatch : ''}</div>
@@ -2676,7 +2677,7 @@ function unsubHtml(u) {
   else h += `<span class="pill ${u.errors.length || u.stopped ? 'warn' : 'ok'}">${u.stopped ? '已停止' : u.errors.length ? '有問題' : '完成'}</span><span class="hint">上次取消訂閱・${ago(u.finished)}</span>`;
   h += `</div><div class="chips">${chip(u.done, '取消了', true)}${chip(u.failed, '失敗')}${u.stopped ? chip(u.total - u.done - u.failed, '還留著') : ''}</div>`;
   if (u.errors.length) h += `<div class="notice bad mt10">${u.errors.slice(0, 5).map(esc).join('<br>')}</div>`;
-  if (!u.running && u.done) h += '<p class="hint mt8">取消前的訂閱清單 Mi302 留了一份：<button class="link" data-act="unsubList">下載（JSON）</button>，取消錯了可以照它重新訂閱。</p>';
+  if (!u.running && u.done) h += '<p class="hint mt8">取消前的訂閱清單 Mi302 留了一份（最近 5 次）：<button class="link" data-act="unsubList">下載（JSON）</button>，取消錯了可以照它重新訂閱。</p>';
   return h;
 }
 ACTS.unsubList = async () => downloadBlob(await fetch('/web/api/moviepilot/subscriptions/unsubscribed', {headers: H()}), 'moviepilot-訂閱清單.json');
@@ -2712,7 +2713,7 @@ function reoJobHtml(j) {
   let h = '<div class="row wrap mb8">';
   if (j.running) h += `<span class="pill accent"><span class="spin"></span>${j.stopping ? '停止中' : '整理中'}</span><span class="hint sp grow"><span>${esc(j.title)}・${j.done + j.failed + (j.queued || 0) + (j.skipped || 0)} / ${j.total}</span>${j.current ? `<span>${esc(j.current)}</span>` : ''}</span>` +
     (j.stopping ? '' : '<button class="btn sm ghost danger" data-act="stopJob" data-job="reo">停止</button>');
-  else h += `<span class="pill ${j.stopped || j.failed || j.errors.length ? 'warn' : 'ok'}">${j.stopped ? '已停止' : j.failed || j.errors.length ? '部分失敗' : '完成'}</span><span class="hint">上次整理：${esc(j.title)}・${ago(j.finished)}</span>`;
+  else h += `<span class="pill ${j.stopped || j.failed || j.skipped || j.errors.length ? 'warn' : 'ok'}">${j.stopped ? '已停止' : j.failed || j.errors.length ? '部分失敗' : j.skipped ? '有略過的' : '完成'}</span><span class="hint">上次整理：${esc(j.title)}・${ago(j.finished)}</span>`;
   h += `</div><div class="chips">${chip(j.done, '整理好', true)}${j.queued ? chip(j.queued, 'MoviePilot 背景處理') : ''}${j.skipped ? chip(j.skipped, 'MoviePilot 略過') : ''}${chip(j.failed, '失敗')}</div>`;
   if (j.queued) h += `<p class="hint mt8">${REO_QUEUED}</p>`;
   if (!j.running && j.synced) h += `<p class="hint mt8">${j.synced === 'started' ? '已經開始增量同步 115，本機的 strm 會跟著搬到新名字，再重新掃描。' : '115 同步正在進行，這次的變動會在下一次同步時帶到。'}</p>`;
@@ -2772,8 +2773,10 @@ async function pollReorgJob() {
   organizeButtons();
   if (r.job.running) { later('reo', pollReorgJob); return; }
   if (wasRunning) {
-    toast('MoviePilot 整理完成', r.job.failed || r.job.errors.length ? 'bad' : '');
-    organizeSent();
+    const j = r.job;
+    toast(j.stopped ? 'MoviePilot 整理已停止，沒送的可以重新預覽' : j.skipped ? `MoviePilot 整理完成，${j.skipped} 個被它略過（原因看每個檔案的結果）` : 'MoviePilot 整理完成',
+      j.stopped || j.failed || j.skipped || j.errors.length ? 'bad' : '');
+    organizeSent(j.stopped);
   }
 }
 
@@ -3102,8 +3105,9 @@ async function organizeDeleteSelected() {
 function ogDeleteHtml(d) {
   if (d.running) return `<div class="row wrap mb8"><span class="pill accent"><span class="spin"></span>${d.stopping ? '停止中' : '刪除中'}</span><span class="hint sp grow"><span>移到 115 回收站：${d.done + d.failed} / ${d.total}</span>${d.current ? `<span>${esc(d.current)}</span>` : ''}</span>` +
     (d.stopping ? '' : '<button class="btn sm ghost danger" data-act="stopJob" data-job="ogdel">停止</button>') + '</div>';
-  if (!d.started || !(d.failed || d.stopped)) return '';
-  return `<p class="hint mb8">上次刪除勾選的（${ago(d.finished)}）：${d.done} 個移到 115 回收站${d.failed ? `，${d.failed} 個沒刪` : ''}${d.stopped ? `，按了停止，${d.total - d.done - d.failed} 個沒動` : ''}</p>` +
+  if (!d.started || !(d.failed || d.stopped || d.errors.length)) return '';
+  const left = d.total - d.done - d.failed;
+  return `<p class="hint mb8">上次刪除勾選的（${ago(d.finished)}）：${d.done} 個移到 115 回收站${d.failed ? `，${d.failed} 個沒刪` : ''}${left ? `，${left} 個沒動${d.stopped ? '（按了停止）' : ''}` : ''}</p>` +
     (d.errors.length ? `<div class="notice bad mb8">${d.errors.slice(0, 5).map(esc).join('<br>')}</div>` : '');
 }
 async function pollOgDelete() {
@@ -3116,7 +3120,8 @@ async function pollOgDelete() {
   organizeButtons();
   if (d.running) { later('ogdel', pollOgDelete); return; }
   if (was) {
-    toast(d.failed ? `已把 ${d.done} 個移到 115 回收站；${d.failed} 個沒刪：${d.errors[0] || ''}` : `已把 ${d.done} 個移到 115 回收站`, d.failed ? 'bad' : '');
+    const bad = d.failed || d.errors.length || d.done + d.failed < d.total;
+    toast(`已把 ${d.done} 個移到 115 回收站` + (bad ? `；${d.total - d.done} 個沒刪${d.errors[0] ? '：' + d.errors[0] : ''}` : ''), bad ? 'bad' : '');
     organizeLoad(og.page, true);
   }
 }
@@ -3232,7 +3237,7 @@ function organizeButtons() {
   const running = !!S.reo?.running || !!og.batch?.running, all = (og.total || 0) + (og.pinned?.length || 0);
   // 檢查和全部整理不同時跑：兩邊都會改同一批資料夾、同時問 MoviePilot
   const checking = !!og.job?.running, batch = !!og.batch?.running;
-  $('ogAll').disabled = !all || running || lack || checking;
+  $('ogAll').disabled = !all || running || lack || checking || !!og.deleting;
   $('ogAll').textContent = `全部整理（${all} 個）`;
   $('ogAll').title = checking ? '正在問 MoviePilot 檢查，問完才能全部整理'
     : '清單上符合搜尋、種類的全部（不只這一頁）：一個一個預覽，沒問題的直接整理，有問題的跳過';
@@ -3248,11 +3253,11 @@ function organizeButtons() {
   $('ogDel').disabled = !sel.length || running || busy || !!og.deleting;
   $('ogDel').textContent = og.deleting ? '刪除中…' : sel.length ? `刪除（${sel.length} 個）` : '刪除';
   $('ogDel').title = running ? '整理中不能刪除，做完再刪' : '勾選的整個移到 115 回收站（可以還原）';
-  $('ogRun').disabled = !ready.length || running || busy;
+  $('ogRun').disabled = !ready.length || running || busy || !!og.deleting;
   $('ogRun').textContent = ready.length ? `執行（${ready.length} 個）` : '執行';
   for (const st of Object.values(og.state)) {  // 每一列自己的預覽、整理
     if (!st.el?.isConnected) continue;
-    const off = st.sent || st.busy || running || lack, pv = st.el.querySelector('.js-pv-btn'), run = st.el.querySelector('.js-run-btn');
+    const off = st.sent || st.busy || running || lack || !!og.deleting, pv = st.el.querySelector('.js-pv-btn'), run = st.el.querySelector('.js-run-btn');
     pv.disabled = off;
     run.disabled = off || !!(st.preview && !st.preview.token);  // 預覽過、沒有可以整理的
     run.textContent = st.preview?.token ? `整理（${st.preview.summary.ok}）` : '整理';
@@ -3299,10 +3304,12 @@ async function organizeRun(ready) {
   for (const st of ready) st.running = true;
   toast('已交給 MoviePilot 整理'); organizeButtons(); pollReorgJob();
 }
-function organizeSent() {
+function organizeSent(stopped) {
   for (const st of Object.values(og.state)) {
     if (!st.running) continue;
-    st.running = false; st.sent = true; st.on = false; st.preview = null;
+    st.running = false; st.preview = null;  // 預覽代碼用掉了
+    if (stopped) { organizeShow(st); continue; }  // 按了停止：沒送的要能重新預覽、整理（送了的同步後會從清單消失）
+    st.sent = true; st.on = false;
     const box = st.el?.querySelector('.js-on');
     if (box) { box.checked = false; box.disabled = true; }
     const head = st.el?.querySelector('.main .row');
@@ -3458,8 +3465,19 @@ async function openBrowse() {
 }
 function b115GoLabel() { $('b115Go').textContent = b115.added.size ? `去整理（${b115.added.size}）` : '去整理'; }
 function goOrganize() { location.hash = '#115/organize'; }
-// 補全缺集「季號對不上」的劇：到整理 115 網盤用劇名搜尋（切到那一頁時照搜尋框讀清單）
-function findInOrganize(name) { $('ogQ').value = name; location.hash = '#115/organize'; }
+// 補全缺集「季號對不上」的劇：把劇集資料夾釘到整理 115 網盤最上面（名稱照格式的劇本來不在清單上，用劇名搜不到）；
+// 不是 115 同步來的劇（找不到劇集資料夾）才退回用劇名搜尋
+async function findInOrganize(s) {
+  let folder = null;
+  try { folder = (await api(`/web/api/115/organize/episodes?series=${encodeURIComponent(s.id)}`)).folder; } catch (e) {}
+  if (folder?.cid) {
+    toast('讀取資料夾、問 MoviePilot…');
+    try { await api('/web/api/115/organize/folder', {method: 'POST', body: JSON.stringify({cid: String(folder.cid), path: folder.path})}); }
+    catch (e) { toast(e.message, 'bad'); return; }
+    $('ogQ').value = '';
+  } else $('ogQ').value = s.name;
+  location.hash = '#115/organize';
+}
 const joinPath = (dir, name) => (dir === '/' ? '' : dir.replace(/\/+$/, '')) + '/' + name;
 const parentPath = path => path.replace(/\/[^/]*$/, '') || '/';
 function browse115Start() {

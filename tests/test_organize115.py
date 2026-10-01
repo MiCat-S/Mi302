@@ -518,6 +518,10 @@ def test_api_token_is_enough_for_moviepilot_v3(tmp_path: Path):
     assert c.post("/web/api/115/organize/check", json={"refresh": True}, headers=h).json()["started"]
     wait(lambda: not app.state.organizer.job.running)
     assert "帳號密碼" in app.state.organizer.job.error
+    # 沒設定 MoviePilot：檢查、預覽在送出之前就擋下來，說要填網址和 API 令牌
+    app.state.moviepilot.cfg.url = ""
+    for r in (c.post("/web/api/115/organize/check", json={}, headers=h), preview(c, h, listing(c, h)["items"][0])):
+        assert r.status_code == 400 and "還沒設定 MoviePilot" in r.text
 
 
 def test_recommend_episode_format(tmp_path: Path):
@@ -856,11 +860,22 @@ def test_organize_all_can_be_stopped_and_holds_the_lock(tmp_path: Path):
     real_delete = org.delete
     org.delete = lambda unit_id: (started.set(), gate.wait(5), real_delete(unit_id))[-1]
     assert c.post("/web/api/115/organize/delete", json={"ids": ["d120", "d119"]}, headers=h).status_code == 200
-    assert started.wait(5) and c.post("/web/api/115/organize/delete/stop", headers=h).json()["stopped"]
+    assert started.wait(5)
+    # 刪的時候不能全部整理、執行（兩個刪除之間整理的鎖是空的，被拿走的話剩下的都刪不掉）
+    r = c.post("/web/api/115/organize/all", json={"target": "parent"}, headers=h)
+    assert r.status_code == 400 and "正在刪除勾選的" in r.text
+    assert "正在刪除勾選的" in c.post(EXECUTE, json={"tokens": ["x"]}, headers=h).text
+    assert c.post("/web/api/115/organize/delete/stop", headers=h).json()["stopped"]
     assert "刪除勾選的" in c.get("/web/api/server", headers=h).json()["busy"]  # 重新啟動前會列出來
     gate.set()
     wait(lambda: not org.deleting.running)
     assert org.deleting.stopped and org.deleting.done == 1 and "119" not in fake.deleted
+    del org.delete
+    # 115 限流熔斷中：整批停下、寫明原因（不是每一個都報「資料夾已經不在原本的位置」）
+    app.state.p115.breaker.trip("HTTP 405")
+    c.post("/web/api/115/organize/delete", json={"ids": ["d119"]}, headers=h)
+    wait(lambda: not org.deleting.running)
+    assert (org.deleting.done, org.deleting.failed) == (0, 0) and "115 限流" in org.deleting.errors[0]
 
 
 def test_organize_all_gives_up_when_previews_keep_failing(tmp_path: Path):

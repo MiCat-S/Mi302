@@ -45,7 +45,10 @@ def missing_internals() -> List[str]:
             missing.append(module)
             continue
         for name, methods in names.items():
-            obj = getattr(mod, name, None)
+            try:
+                obj = getattr(mod, name, None)  # 有的模組用 __getattr__ 惰性匯入，這時才會出錯
+            except Exception:
+                obj = None
             if obj is None:
                 missing.append(f"{module}.{name}")
                 continue

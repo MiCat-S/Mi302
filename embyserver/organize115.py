@@ -1118,6 +1118,8 @@ class Organizer:
         with self._starting:
             if self.batch.running:
                 raise OrganizeError("已經在全部整理了")
+            if self.deleting.running:  # 兩個刪除之間整理的鎖是空的：批次一拿走，剩下的刪除全部失敗
+                raise OrganizeError("正在刪除勾選的，等它做完再全部整理")
             if self._lock.locked():
                 raise OrganizeError("正在問 MoviePilot 檢查，等它問完再全部整理")
             units = list(self._pinned.values()) + self._matching(self.units(), q, kind, root)
@@ -1324,6 +1326,9 @@ class Organizer:
                     self._stop.wait(self.delete_pace * self.reorg.p115.breaker.slowdown())
                 if job.stopping or self._stop.is_set():
                     job.stopped = job.stopping
+                    break
+                if self.reorg.p115.breaker.tripped:  # 不然每一個都會報誤導的「資料夾已經不在原本的位置」
+                    job.errors.append(f"{self.reorg.p115.breaker.message()}，還有 {job.total - job.done - job.failed} 個沒刪")
                     break
                 name = unit_id
                 try:

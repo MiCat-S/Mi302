@@ -9,6 +9,10 @@
 
 從 115 目錄產生 strm（以及下載 nfo／圖片／字幕）。
 
+每次同步結束把結果摘要（數量、前 20 個錯誤，不含新檔清單）記進 meta（p115_sync_last_result），啟動時讀回，
+重新啟動後網頁還看得到上次同步。把現有 strm 改成新網址（rewrite_strm）可以停（cancel_rewrite）：在兩個檔案之間停下，
+改好的留著，再改一次會接著改（改過的算不用改）。
+
 兩種同步方式：
 - 全量：比對任務目錄裡所有檔案；可以刪除 115 上已不存在的 strm。
   1. 用 115 的「導出目錄樹」一次拿到所有資料夾的路徑（只有名稱）；
@@ -65,6 +69,9 @@ READERS 條唯讀連線，不必等寫入、也不必等別的查詢，一個慢
 登入猜密碼的限制（播放器登入和 WebDAV 共用）：同一個來源對同一個帳號連續錯 5 次之後，每錯一次要等的時間加倍
 （30 秒起，最多 15 分鐘），回 429 和 Retry-After；登入成功或 15 分鐘沒再錯就歸零。同時算密碼雜湊的請求最多
 HASHING_SLOTS 個；帳號不存在時也算一次雜湊，回應時間看不出帳號存不存在。只記在記憶體，重新啟動就歸零。
+
+改密碼（update_user，網頁和命令列的 reset-password 都走這裡）刪掉這個人其他的 token：播放器、網頁要用新密碼重新登入；
+keep_token 是現在這個請求的（管理員改自己的密碼不會把自己登出）。token 沒有期限，靠登出、改密碼、刪帳號收回。
 
 ## embyserver/p115_open.py
 
@@ -289,8 +296,8 @@ GET /api/v1/tmdb/seasons/{tmdbid}），確定沒有才在 tmdb_seasons 記成空
 記一筆 absent。連不上、出錯（tmdb_episodes 回傳 None）時照舊交給 MoviePilot 判斷。
 
 清單把每一部劇分成互不重疊的狀態，網頁照這個分頁（照「接下來要做什麼」）：missing 缺集又還沒交給 MoviePilot（要補）、
-pending 缺集的季 MoviePilot 都在處理（等它下載、入庫）、mismatch 有季在 TMDB 上不存在（要先整理季號）、unchecked 還沒對照、
-notmdb 沒有 tmdbid、complete 齊全、excluded 標了不補。
+pending 缺集的季 MoviePilot 都在處理（等它下載、入庫）、unchecked 還有季沒對照、mismatch 都對照過了但有季在 TMDB 上不存在
+（要先整理季號；還有季沒對照的先算 unchecked，檢查完還對不上才是 mismatch）、notmdb 沒有 tmdbid、complete 齊全、excluded 標了不補。
 MoviePilot 在處理的季有兩種。還訂閱著的：讀它的訂閱清單（known_subscriptions）；新版不回 tmdbid，改成 media_source 加
 media_id（_sub_tmdbid）。已送下載的：它找到資源、交給下載器就把訂閱記成完成、移到訂閱歷史，集還在下載、還沒入庫，
 只看訂閱清單會以為沒人在處理、又訂閱一次；所以另外讀訂閱歷史（sent_seasons，GET /api/v1/subscribe/history/电视剧），
@@ -305,6 +312,7 @@ POST /web/api/moviepilot/fill 帶同一組篩選加 view 時用同一個 library
 
 取消所有訂閱（unsubscribe_all）：列出 MoviePilot 的訂閱（GET /api/v1/subscribe/）一個一個刪（DELETE /api/v1/subscribe/{id}），
 和補全共用一把鎖。清單可能分頁，所以刪完一輪再列一次，直到沒有還沒試過的；刪不掉的記下來、不重試。
+每一輪刪之前先把列出來的訂閱存進 meta（mp_unsubscribed，留最近 UNSUBSCRIBED_KEEP 次），取消錯了可以照它重建。
 
 ## embyserver/intro.py
 

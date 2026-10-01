@@ -111,9 +111,12 @@ class Mi302Organizer(_PluginBase):
 
     def api_status(self) -> Dict[str, Any]:
         if self._missing is None:
-            from .naming import missing_internals
+            try:
+                from .naming import missing_internals
 
-            self._missing = missing_internals()
+                self._missing = missing_internals()
+            except Exception as exc:  # 自我檢查本身出錯：當成對不上，不算名字（改名照常）
+                self._missing = [f"{type(exc).__name__}: {exc}"]
             if self._missing:
                 logger.warning(f"Mi302 整理助手：這版 MoviePilot 少了 {', '.join(self._missing)}，不算名字（Mi302 改用整理預覽）")
         return {"enabled": self._enabled, "version": self.plugin_version, "busy": self._lock.locked(),

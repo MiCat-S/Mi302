@@ -190,7 +190,7 @@ Scraping is delegated to MoviePilot. See [MoviePilot](MoviePilot).
 | `fill_interval` | `60` | Seconds between new subscriptions when filling missing episodes (each one makes MoviePilot search all sites; too many at once gets blocked by Cloudflare), 0–3600, 0 = no gap | MoviePilot → Fill missing episodes (補全缺集) → Settings (設定) → **Seconds between new subscriptions** (兩個新訂閱之間隔幾秒) |
 | `fill_max_missing` | `0` | When filling missing episodes, a season missing more episodes than this (compared with TMDB) gets no subscription, for example a long anime where you only kept a few episodes; 0 = no limit | MoviePilot → Fill missing episodes (補全缺集) → Settings (設定) → **Skip seasons missing more than** (缺超過幾集的季不補) |
 | `rename_plugin` | `true` | When organising 115, let MoviePilot's **Mi302 Organizer** plugin work out the names for previews (from 1.1.0) and rename rename-only folders directly (it must be installed and enabled in MoviePilot; without it MoviePilot's organise preview and flow are used) | 115 Cloud → Organise 115 → **Use MoviePilot's Mi302 Organizer plugin for names and renames** |
-| `timeout` | `300` | Maximum seconds to wait for each scraped item | File only |
+| `timeout` | `300` | Maximum seconds to wait for each scraped item (and other MoviePilot requests without their own timeout), 10–3600 | File only |
 | `concurrency` | `3` | Items sent to MoviePilot at the same time, 1–8. Too many may hit TMDB's rate limit | MoviePilot → Connection → **Items to scrape at once** (同時刮削幾項) |
 | `path_mappings` | `[]` | When the two see different paths: Mi302's path (`from`) → MoviePilot's path (`to`) | MoviePilot → Connection → **Path mappings** (路徑對應), one per line as `Mi302 path => MoviePilot path` |
 

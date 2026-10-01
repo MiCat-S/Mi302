@@ -5,11 +5,15 @@
 
 from __future__ import annotations
 
+import logging
 import posixpath
+import sqlite3
 import time
 from typing import Iterable, List, Tuple
 
 from .db import Database
+
+log = logging.getLogger(__name__)
 
 KEEP = 5000  # 最多留幾筆，舊的刪掉
 # 從哪裡刪的（網頁上的名稱）
@@ -18,17 +22,23 @@ SOURCES = {"dupes": "重複檔案", "empty": "空資料夾", "browse": "瀏覽 1
 
 
 def record(db: Database, source: str, rows: Iterable[dict]) -> None:
-    """記下這次送進回收站的：rows 每一筆 {file_id, path, name?, is_dir?, size?}；沒給 name 用 path 的最後一段。"""
+    """記下這次送進回收站的：rows 每一筆 {file_id, path, name?, is_dir?, size?}；沒給 name 用 path 的最後一段。
+    寫不進去只記日誌、不丟出去：呼叫的地方多半拿著整理的鎖，丟出去會讓鎖放不掉、本機的 strm 也拿不掉。"""
     now = int(time.time())
     values = [(source, int(r.get("file_id") or 0), str(r.get("name") or posixpath.basename(str(r.get("path") or "").rstrip("/"))),
                str(r.get("path") or ""), int(bool(r.get("is_dir"))), int(r.get("size") or 0), now) for r in rows]
     if not values:
         return
-    with db.lock:
-        c = db.conn
-        c.executemany("INSERT INTO deleted_log(source, file_id, name, path, is_dir, size, at) VALUES(?,?,?,?,?,?,?)", values)
-        c.execute("DELETE FROM deleted_log WHERE id <= (SELECT id FROM deleted_log ORDER BY id DESC LIMIT 1 OFFSET ?)", (KEEP,))
-        c.commit()
+    try:
+        with db.lock:
+            c = db.conn
+            c.executemany("INSERT INTO deleted_log(source, file_id, name, path, is_dir, size, at) VALUES(?,?,?,?,?,?,?)",
+                          values)
+            c.execute("DELETE FROM deleted_log WHERE id <= (SELECT id FROM deleted_log ORDER BY id DESC LIMIT 1 OFFSET ?)",
+                      (KEEP,))
+            c.commit()
+    except sqlite3.Error as exc:
+        log.warning("刪除紀錄沒寫進去（%s 個，%s）：%s", len(values), source, exc)
 
 
 def recent(db: Database, source: str = "", limit: int = 50, offset: int = 0) -> Tuple[List[dict], int]:

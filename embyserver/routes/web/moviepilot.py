@@ -89,7 +89,7 @@ def list_series(request: Request, ctx: AuthContext = Depends(require_admin)):
         "SELECT id, name FROM items WHERE type='CollectionFolder' AND collection_type='tvshows' ORDER BY id")]
     return {"items": items, "total": total, "offset": offset, "more": offset + len(items) < total, "years": years,
             "libraries": libraries, "excluded": len(excluded), "stats": stats,
-            "subscriptions": len(subs) if subs is not None else None}
+            "subscriptions": len(subs) if subs is not None else None, "unsubscribed": len(mp.unsubscribed())}
 
 
 @router.post("/web/api/moviepilot/fill/exclude")
@@ -170,8 +170,8 @@ def moviepilot_subscriptions(request: Request, ctx: AuthContext = Depends(requir
 
 @router.get("/web/api/moviepilot/subscriptions/unsubscribed")
 def moviepilot_unsubscribed(request: Request, ctx: AuthContext = Depends(require_admin)):
-    """上一次「取消所有訂閱」取消前的訂閱清單（名稱、年份、類型、季、tmdbid），取消錯了可以照它重新訂閱。"""
-    return state(request).moviepilot.unsubscribed()
+    """最近幾次「取消所有訂閱」取消前的訂閱清單（名稱、年份、類型、季、tmdbid），新的在前面；取消錯了可以照它重新訂閱。"""
+    return {"backups": state(request).moviepilot.unsubscribed()}
 
 
 @router.post("/web/api/moviepilot/subscriptions/clear")

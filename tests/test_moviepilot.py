@@ -104,6 +104,17 @@ def test_scrape_falls_back_to_login_for_old_moviepilot(tmp_path: Path):
         ("/api/v1/media/scrape/local", False),
     ]
 
+    # 只認查詢參數 ?token= 的舊版：試過一次成功就記住，之後直接帶，不必每個請求都先被拒一次
+    seen = []
+
+    def query_only(request: httpx.Request) -> httpx.Response:
+        seen.append("token" in request.url.params)
+        return httpx.Response(200, json={}) if request.url.params.get("token") == "tok" else httpx.Response(401)
+
+    old = MoviePilot(make_config(tmp_path).moviepilot, cfg, transport=httpx.MockTransport(query_only))
+    old._request("GET", "/api/v1/a"), old._request("GET", "/api/v1/b")
+    assert seen == [False, True, True]
+
     # 好幾個請求同時被拒（登入 token 過期）：只登入一次，其他的用新 token 重送
     import threading
 

@@ -138,7 +138,7 @@ The card sorts the series in your library into tabs by what there is to do next;
 | --- | --- | --- |
 | 缺集 (missing) | Compared with TMDB, really missing episodes, and not subscribed yet | **Fill** (補全) on a series, or **Fill these N** (補全這 N 部) next to the tabs |
 | 處理中 (in progress) | Every season with missing episodes has been handed to MoviePilot: still subscribed (it is looking for a release), or already sent to the downloader and not in the library yet | Usually nothing; **Fill again** (再補一次) if the download failed |
-| 季號對不上 (season mismatch) | Seasons in the library that TMDB does not have (for example TMDB merges several seasons into one), which MoviePilot cannot subscribe to; the tab is hidden when there are none | **Organise** (去整理): opens **115 → Organise 115** (115 網盤 → 整理 115 網盤) searching for the series, to renumber the seasons as on TMDB |
+| 季號對不上 (season mismatch) | After every season was compared: seasons in the library that TMDB does not have (for example TMDB merges several seasons into one; series that still have uncompared seasons stay on 還沒對照 first), which MoviePilot cannot subscribe to; the tab is hidden when there are none | **Organise** (去整理): pins the series folder at the top of **115 → Organise 115** (115 網盤 → 整理 115 網盤); in the preview, set the TMDB season number (or the episode format) for the season that does not match, then organise |
 | 還沒對照 (not compared) | New series and new seasons not yet compared with TMDB; series without a tmdbid are here too (scrape them first) | **Check** (檢查) on a series, or **Check these N** (檢查這 N 部) |
 | 不補 (skipped) | Series you marked **Skip** | **Fill again** (恢復補全) |
 | 全部 (all) | Every series; complete ones are marked 齊全 | |

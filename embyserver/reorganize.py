@@ -402,13 +402,14 @@ class Reorganizer:
     def _run(self, previews: List[dict], cleanup: List[dict]) -> None:
         job = self.job
         try:
-            for pv in previews:
-                for batch in pv["batches"]:
-                    self._run_items(pv, batch, job)
-            if job.stopping:
-                job.stopped = True
-                left = max(0, job.total - job.done - job.failed - job.queued - job.skipped)
-                job.errors.append(f"按了停止，還有 {left} 個沒送給 MoviePilot；整理好的留著，重新預覽會接著做剩下的")
+            batches = [(pv, b) for pv in previews for b in pv["batches"]]
+            for i, (pv, batch) in enumerate(batches):
+                if job.stopping:  # 按了停止：後面的不送（最後一批送出去之後才按的不算停下，照常收尾）
+                    job.stopped = True
+                    left = sum(b["count"] for _, b in batches[i:])
+                    job.errors.append(f"按了停止，還有 {left} 個沒送給 MoviePilot；整理好的留著，重新預覽會接著做剩下的")
+                    break
+                self._run_items(pv, batch, job)
             log.info("MoviePilot 整理 %s：%s 個完成，%s 個失敗%s", job.title, job.done, job.failed, "，按了停止" if job.stopped else "")
             if cleanup and not job.stopped:
                 self._remove_empty_folders(cleanup, job)
@@ -495,6 +496,8 @@ class Reorganizer:
             job.down = job.down or exc.kind
             log.warning("MoviePilot 改名 %s 失敗：%s", batch["label"], exc)
             return
+        if cancelled and job.stopping:
+            job.stopped = True  # 網頁按了停止：外掛做完手上這一項就停了，後面的沒改
         results = st.get("results") or []
         for r in results:
             job.items.append({"name": str(r.get("old") or ""), "state": "completed" if r.get("ok") else "failed",
