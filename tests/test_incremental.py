@@ -228,25 +228,23 @@ def test_delete_stale_keeps_moviepilot_metadata(tmp_path: Path):
     assert (media / "電影" / "Other (2003).strm").exists() and r.removed == 0
     assert any("一支影片都沒列出來" in n for n in r.notes)
 
-
-def test_delete_stale_spares_a_mass_of_unknown_strm(tmp_path: Path):
-    """115 目錄改填成另一個也有影片的資料夾：本機一大批 strm 不在同步紀錄裡，不刪；紀錄裡有的照刪。"""
-    fake = Fake115()
-    sync = make(tmp_path, fake, delete_stale=True)
-    media = tmp_path / "media"
-    other = media / "別的片庫"
-    other.mkdir(parents=True)
-    for i in range(150):  # 不是從這個 115 目錄同步來的
-        (other / f"片{i}.strm").write_text(f"http://x/{i}")
+    # 115 目錄改填成另一個也有影片的資料夾：本機一大批 strm 不在同步紀錄裡，不刪；紀錄裡有的照刪，只差幾個的也照刪
+    other_movie = {"fid": 9, "cid": 101, "n": "Other (2003).mkv", "pc": "z" * 17, "s": 900_000_000, "te": T0}
+    fake.files = [other_movie]
+    sync.run()
+    library = media / "別的片庫"
+    library.mkdir()
+    for i in range(150):
+        (library / f"片{i}.strm").write_text(f"http://x/{i}")
+    fake.files = [{**other_movie, "fid": 10, "n": "New (2005).mkv", "pc": "y" * 17}]
     r = sync.run()
-    assert len(list(other.glob("*.strm"))) == 150 and any("115 目錄填錯了" in n for n in r.notes)
-    fake.files = [f for f in fake.files if f["fid"] != 1]  # 115 上真的刪掉的（紀錄裡有）照刪
-    r = sync.run()
-    assert not (media / "電影" / "Old Movie (2001).strm").exists() and r.removed == 1
-    for f in list(other.glob("*.strm"))[:140]:  # 只差幾個的照刪
+    assert len(list(library.glob("*.strm"))) == 150 and any("115 目錄填錯了" in n for n in r.notes)
+    assert not (media / "電影" / "Other (2003).strm").exists()
+    for f in list(library.glob("*.strm"))[:140]:
         f.unlink()
     r = sync.run()
-    assert not list(other.glob("*.strm")) and not any("填錯" in n for n in r.notes)
+    assert not list(library.glob("*.strm")) and not any("填錯" in n for n in r.notes)
+
 
 
 def test_account_info():

@@ -935,8 +935,8 @@ def test_organize_all_does_not_resend_after_moviepilot_drops(tmp_path: Path, mon
 
 
 def test_rename_only_folders_go_to_the_plugin(tmp_path: Path):
-    """結構已經對、只是名字不對的資料夾：交給 Mi302 整理助手直接改名（先檔案、字幕，最後資料夾），不送 MoviePilot 整理。
-    要併進旁邊已經有的資料夾、沒裝外掛的，照舊走整理。"""
+    """結構已經對、只是名字不對的資料夾：交給 Mi302 整理助手直接改名（先檔案、字幕，最後資料夾），不送 MoviePilot 整理；
+    只改資料夾名也要同步。要併進旁邊已經有的資料夾、互換或連鎖改名、沒裝外掛的，照舊走整理。"""
     app, fake, mp, media, c, h = setup(tmp_path)
     mp.MEDIA = {**mp.MEDIA, "777": ("测试剧", 2020, "tv")}
     fake.dirs.update({130: ("C-测试剧-2020-[tmdb=777]", 102), 131: ("Season 1", 130),
@@ -970,6 +970,7 @@ def test_rename_only_folders_go_to_the_plugin(tmp_path: Path):
     pv = preview(c, h, unit).json()
     assert pv["notes"][0].startswith("只需要改名")
     mp.renamed.clear()
+    wait(lambda: not app.state.strm_sync.result.running)  # 上一次整理之後的同步做完，這次才看得出有沒有安排同步
     assert c.post(EXECUTE, json={"tokens": [pv["token"]]}, headers=h).status_code == 200
     wait(lambda: not app.state.reorganizer.job.running)
     job = app.state.reorganizer.job
@@ -979,15 +980,11 @@ def test_rename_only_folders_go_to_the_plugin(tmp_path: Path):
     unit = c.post(folder, json={"cid": 140, "path": "/影視/劇集/H-流浪-2019-[tmdb=9]"}, headers=h).json()
     pv = preview(c, h, unit).json()
     assert pv["token"] and not any(n.startswith("只需要改名") for n in pv["notes"])
-
-
-def test_rename_plan_refuses_swapped_names(tmp_path: Path):
-    """同一個資料夾裡互換、連鎖改名（新名字是另一個要改名的檔案現在的名字）：外掛一個一個改會撞名，不走直接改名。"""
-    app, fake, mp, media, c, h = setup(tmp_path)
+    # 同一個資料夾裡互換、連鎖改名（新名字是另一個要改名的檔案現在的名字）：外掛一個一個改會撞名，不走直接改名
     fake.dirs[160] = ("换名剧", 102)
     for fid, n in [(95, "A.mp4"), (96, "B.mp4"), (97, "C.mp4")]:
         fake.files.append({"fid": fid, "cid": 160, "n": n, "pc": f"sw{fid}".ljust(17, "x"), "s": 900_000_000, "te": T0})
-    c.post("/web/api/115/organize/folder", json={"cid": 160, "path": "/影視/劇集/换名剧"}, headers=h)
+    c.post(folder, json={"cid": 160, "path": "/影視/劇集/换名剧"}, headers=h)
     org, base = app.state.organizer, "/影視/劇集/换名剧/"
     unit = org.unit("d160")
 

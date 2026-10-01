@@ -72,23 +72,10 @@ def test_only_sync_folders_are_visible(tmp_path):
         assert c.get(path, headers=ADMIN, follow_redirects=False).status_code == 404, path
 
 
-def test_folder_moved_out_is_not_reachable_by_cached_id(tmp_path, monkeypatch):
-    """在 115 上把資料夾移出露出範圍：清單快取過期後，舊路徑和它底下的檔案都找不到，不靠記住的 id 繼續列。"""
+def test_play_redirects_and_writes_are_refused(tmp_path, monkeypatch):
     import embyserver.webdav as dav
 
-    app, c = make(tmp_path, root="/影視/劇集")
-    fake = app.state.fake115
-    assert c.get("/dav/影視/劇集/Dark/Dark.S01E01.mkv", headers=ADMIN, follow_redirects=False).status_code == 302
-    fake.dirs[103] = ("Dark", 100)  # 移到 /影視（露出範圍外）
-    now = [dav.time.time() + dav.LIST_TTL + 1]
-    monkeypatch.setattr(dav.time, "time", lambda: now[0])
-    assert c.get("/dav/影視/劇集/Dark/Dark.S01E01.mkv", headers=ADMIN, follow_redirects=False).status_code == 404
-    assert c.request("PROPFIND", "/dav/影視/劇集/Dark/", headers=ADMIN).status_code == 404
-    assert c.request("PROPFIND", "/dav/影視/劇集/", headers=ADMIN).status_code == 207
-
-
-def test_play_redirects_and_writes_are_refused(tmp_path):
-    _, c = make(tmp_path, root="/影視")  # 指定 115 資料夾：同步任務以外的也看得到
+    app, c = make(tmp_path, root="/影視")  # 指定 115 資料夾：同步任務以外的也看得到
     r = c.get("/dav/影視/劇集/Dark/Dark.S01E01.mkv", headers={**ADMIN, "User-Agent": "Infuse/8"}, follow_redirects=False)
     assert r.status_code == 302 and r.headers["location"] == f"https://cdn.115.test/{'b' * 17}?ua=Infuse/8"
     assert c.head("/dav/影視/電影/Old Movie (2001).mkv", headers=ADMIN).headers["content-length"] == "900000000"
@@ -98,3 +85,10 @@ def test_play_redirects_and_writes_are_refused(tmp_path):
         r = c.request(method, "/dav/影視/電影/Old Movie (2001).mkv", headers=ADMIN)
         assert r.status_code == 405, method
     assert c.request("DELETE", "/dav/影視/電影/Old Movie (2001).mkv").status_code == 401
+    # 在 115 上把資料夾移出露出範圍：清單快取過期後，舊路徑和它底下的檔案都找不到，不靠記住的 id 繼續列
+    app.state.fake115.dirs[103] = ("Dark", 0)
+    later = dav.time.time() + dav.LIST_TTL + 1
+    monkeypatch.setattr(dav.time, "time", lambda: later)
+    assert c.get("/dav/影視/劇集/Dark/Dark.S01E01.mkv", headers=ADMIN, follow_redirects=False).status_code == 404
+    assert c.request("PROPFIND", "/dav/影視/劇集/Dark/", headers=ADMIN).status_code == 404
+    assert c.request("PROPFIND", "/dav/影視/劇集/", headers=ADMIN).status_code == 207

@@ -16,27 +16,6 @@ from embyserver.strm_sync import FULL
 from test_incremental import T0, Fake115
 
 
-def test_find_empty_lists_outermost_folders_without_media():
-    tree = [
-        ("電影",), ("電影", "A (2001)"), ("電影", "A (2001)", "A.mkv"),
-        ("電影", "A (2001)", "Extras"), ("電影", "A (2001)", "Extras", "x.nfo"),  # 電影資料夾裡只有 nfo 的子資料夾
-        ("劇集",), ("劇集", "Show"), ("劇集", "Show", "Season 1"),  # 整部劇都沒有影片：只列劇的資料夾
-        ("劇集", "Show", "Season 2"), ("劇集", "Show", "Season 2", "s.nfo"),
-        ("劇集", "Dark"), ("劇集", "Dark", "Dark.S01E01.mp4"), ("劇集", "Dark", "Season 9"),
-        # 藍光原盤：BDMV 裡沒有影片的資料夾、和 BDMV 並排的都是原盤的一部分
-        ("原盤",), ("原盤", "Film"), ("原盤", "Film", "BDMV"), ("原盤", "Film", "BDMV", "STREAM"),
-        ("原盤", "Film", "BDMV", "STREAM", "00001.m2ts"), ("原盤", "Film", "BDMV", "CLIPINF"),
-        ("原盤", "Film", "CERTIFICATE"), ("原盤", "Film", "ANY!"),
-        ("音樂",), ("音樂", "OST"), ("音樂", "OST", "01.flac"),  # 音樂也算影音檔
-        ("空的",), ("README",),
-    ]
-    names = {"A.mkv", "x.nfo", "s.nfo", "Dark.S01E01.mp4", "00001.m2ts", "01.flac", "README"}
-    nodes = classify(tree, names)
-    # 最底層的：115 列出的檔案裡有這個名稱的是檔案，沒有的是空資料夾
-    assert nodes["README"] is False and nodes["空的"] is True and nodes["劇集/Dark/Season 9"] is True
-    assert find_empty(nodes) == ["劇集/Dark/Season 9", "劇集/Show", "空的", "電影/A (2001)/Extras"]
-
-
 class Fake(Fake115):
     """刪資料夾時連裡面的一起拿掉；資料夾可以有修改時間（列目錄時的 te）。"""
 
@@ -120,6 +99,26 @@ EXPECTED = ["/影視/劇集/Dark/Season 9", "/影視/劇集/Empty", "/影視/劇
 
 
 def test_scan_and_delete_empty_folders(tmp_path: Path):
+    # 什麼算空資料夾：底下沒有影音檔（音樂也算），只列最外層；藍光原盤裡的、和 BDMV 並排的不算
+    tree = [
+        ("電影",), ("電影", "A (2001)"), ("電影", "A (2001)", "A.mkv"),
+        ("電影", "A (2001)", "Extras"), ("電影", "A (2001)", "Extras", "x.nfo"),  # 電影資料夾裡只有 nfo 的子資料夾
+        ("劇集",), ("劇集", "Show"), ("劇集", "Show", "Season 1"),  # 整部劇都沒有影片：只列劇的資料夾
+        ("劇集", "Show", "Season 2"), ("劇集", "Show", "Season 2", "s.nfo"),
+        ("劇集", "Dark"), ("劇集", "Dark", "Dark.S01E01.mp4"), ("劇集", "Dark", "Season 9"),
+        # 藍光原盤：BDMV 裡沒有影片的資料夾、和 BDMV 並排的都是原盤的一部分
+        ("原盤",), ("原盤", "Film"), ("原盤", "Film", "BDMV"), ("原盤", "Film", "BDMV", "STREAM"),
+        ("原盤", "Film", "BDMV", "STREAM", "00001.m2ts"), ("原盤", "Film", "BDMV", "CLIPINF"),
+        ("原盤", "Film", "CERTIFICATE"), ("原盤", "Film", "ANY!"),
+        ("音樂",), ("音樂", "OST"), ("音樂", "OST", "01.flac"),  # 音樂也算影音檔
+        ("空的",), ("README",),
+    ]
+    names = {"A.mkv", "x.nfo", "s.nfo", "Dark.S01E01.mp4", "00001.m2ts", "01.flac", "README"}
+    nodes = classify(tree, names)
+    # 最底層的：115 列出的檔案裡有這個名稱的是檔案，沒有的是空資料夾
+    assert nodes["README"] is False and nodes["空的"] is True and nodes["劇集/Dark/Season 9"] is True
+    assert find_empty(nodes) == ["劇集/Dark/Season 9", "劇集/Show", "空的", "電影/A (2001)/Extras"]
+
     app, fake, media, c, h = build(tmp_path)
     leftover = media / "電影" / "Old Movie Copy"
     leftover.mkdir(parents=True)

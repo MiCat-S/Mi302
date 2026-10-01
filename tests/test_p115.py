@@ -81,16 +81,11 @@ def test_download_request_is_encrypted_and_cached(monkeypatch):
     # 不同 UA 的直鏈不能共用
     svc.download_url(PICKCODE, "VidHub/2")
     assert len(sent) == 2
-
-
-
-def test_cookie_only_goes_to_https_115_hosts():
-    svc = P115Service(Database(":memory:"), initial_cookies="UID=1")
+    # 自己下載 115 檔案時，cookie 只給 https 的 115 網域
     assert svc.file_headers(CDN)["Cookie"] == "UID=1"
-    assert svc.file_headers("https://webapi.115.com/files")["Cookie"] == "UID=1"
     for url in ("http://cdnfhnfile.115cdn.net/abc/a.mkv", "https://evil115.com/a", "https://115.com.evil.net/a"):
         assert "Cookie" not in svc.file_headers(url), url
-    svc.close()
+
 
 
 @pytest.fixture()

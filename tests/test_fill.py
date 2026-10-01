@@ -121,31 +121,6 @@ def test_fill_subscribes_only_missing_seasons_and_searches(tmp_path: Path):
     assert r.total == 0 and "帳號密碼" in r.errors[0]
 
 
-def test_fill_skips_seasons_missing_too_much_and_excluded_shows(tmp_path: Path):
-    """一季缺的集數超過「缺超過幾集的季不補」不建訂閱；標了「不補」的劇整部跳過（照 tmdbid 記在資料庫）。"""
-    fake = FakeMP({(4321, 1): [(e, "2020-01-01") for e in range(1, 9)], (4321, 2): [(1, "2021-01-01")]})
-    app = build(tmp_path, username="cat", password="pw", fill_max_missing=3)
-    mp = app.state.moviepilot
-    mp._transport = httpx.MockTransport(fake)
-    r = mp.fill([SHOW_A], "manual")
-    assert (r.total, r.done, r.created, r.too_many, r.complete, r.missing) == (2, 2, 0, 1, 1, 0)
-    assert r.details[0] == "Show A S01：缺 5 集（E03、E05–E08），超過「缺超過幾集的季不補」的 3 集，不建訂閱"
-    assert not fake.posts("/api/v1/subscribe/")
-
-    c = TestClient(app)
-    h = {"X-Emby-Token": c.post("/Users/AuthenticateByName", json={"Username": "admin", "Pw": "pw"}).json()["AccessToken"]}
-    r = c.post("/web/api/moviepilot/fill/exclude", json={"tmdbid": 4321, "name": "Show A", "exclude": True}, headers=h)
-    assert r.json() == {"excluded": True, "count": 1}
-    listed = c.get("/web/api/series", headers=h).json()
-    assert listed["excluded"] == 1 and [(s["name"], s["excluded"]) for s in listed["items"]] == [("Show A", True), ("Show B", False)]
-    assert [s["name"] for s in c.get("/web/api/series", params={"excluded": 1}, headers=h).json()["items"]] == ["Show A"]
-    r = mp.fill([SHOW_A, SHOW_B], "manual")
-    assert (r.total, r.excluded, r.skipped) == (0, 1, 1) and "Show A：標了「不補」，略過" in r.details
-    assert c.post("/web/api/moviepilot/fill/exclude", json={"tmdbid": 4321, "exclude": False}, headers=h).json()["count"] == 0
-    assert c.post("/web/api/moviepilot/fill/exclude", json={"name": "Show B"}, headers=h).status_code == 400
-    assert mp.fill([SHOW_A], "manual").total == 2
-
-
 def test_fill_does_not_search_existing_subscriptions_again(tmp_path: Path):
     fake = FakeMP({(4321, 1): [(e, "2020-01-01") for e in range(1, 5)]}, existing={1})
     cfg = make_config(tmp_path, username="cat", password="pw")
@@ -224,6 +199,26 @@ def test_fill_endpoints(tmp_path: Path):
     assert calls == [(["Show A"], "manual"), (["Show A"], "manual")]
     status = c.get("/web/api/moviepilot/status", headers=h).json()
     assert status["can_subscribe"] is True and status["fill"]["running"] is False
+
+    # 一季缺的集數超過「缺超過幾集的季不補」不建訂閱；標了「不補」的劇整部跳過（照 tmdbid 記在資料庫）
+    fake = FakeMP({(4321, 1): [(e, "2020-01-01") for e in range(1, 9)], (4321, 2): [(1, "2021-01-01")]})
+    mp = app.state.moviepilot
+    mp._transport = httpx.MockTransport(fake)
+    mp.cfg.fill_max_missing = 3
+    f = mp.fill([SHOW_A], "manual")
+    assert (f.total, f.done, f.created, f.too_many, f.complete, f.missing) == (2, 2, 0, 1, 1, 0)
+    assert f.details[0] == "Show A S01：缺 5 集（E03、E05–E08），超過「缺超過幾集的季不補」的 3 集，不建訂閱"
+    assert not fake.posts("/api/v1/subscribe/")
+    r = c.post("/web/api/moviepilot/fill/exclude", json={"tmdbid": 4321, "name": "Show A", "exclude": True}, headers=h)
+    assert r.json() == {"excluded": True, "count": 1}
+    listed = c.get("/web/api/series", headers=h).json()
+    assert listed["excluded"] == 1 and [(s["name"], s["excluded"]) for s in listed["items"]] == [("Show A", True), ("Show B", False)]
+    assert [s["name"] for s in c.get("/web/api/series", params={"excluded": 1}, headers=h).json()["items"]] == ["Show A"]
+    f = mp.fill([SHOW_A, SHOW_B], "manual")
+    assert (f.total, f.excluded, f.skipped) == (0, 1, 1) and "Show A：標了「不補」，略過" in f.details
+    assert c.post("/web/api/moviepilot/fill/exclude", json={"tmdbid": 4321, "exclude": False}, headers=h).json()["count"] == 0
+    assert c.post("/web/api/moviepilot/fill/exclude", json={"name": "Show B"}, headers=h).status_code == 400
+    assert mp.fill([SHOW_A], "manual").total == 2
 
     # 沒填帳號密碼：不送，說清楚原因
     app2 = build(tmp_path / "nologin")
