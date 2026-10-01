@@ -804,6 +804,7 @@ class Organizer:
             views = [_view(r, part, roots, tgt.overwrite) for r in results]
             _mark_duplicates(views)
             self._mark_existing(views, part, tgt.overwrite, listings, notes, review)
+            self._mark_no_episode(views, part, listings)
             recognized = _recognized(views)
             _check_recognized(unit, part, o, views, recognized, notes, review, identity)
             skipped = Counter(v["skip"] for v in views if v["skip"])
@@ -1001,6 +1002,12 @@ class Organizer:
                 else:
                     v["warnings"].append(f"目標已經有同名的檔案，MoviePilot 的覆蓋模式是「{OVERWRITE_NAMES.get(overwrite, overwrite)}」，"
                                          + ("會用這支蓋掉它" if overwrite == "always" else "會照這個模式留下其中一個"))
+
+    def _mark_no_episode(self, views: List[dict], part: Part, listings: Dict[str, List[dict]]) -> None:
+        """認不出集號的（番外、合集、預告片…）MoviePilot 不會整理：附上這支的 id、所在資料夾和大小，網頁上可以只刪這一支。"""
+        for v in views:
+            if not v["ok"] and not v["skip"] and NO_EPISODE in v["message"]:
+                v.update(self._source_file(v["source"], part, listings))
 
     def _source_file(self, source: str, part: Part, listings: Dict[str, List[dict]]) -> dict:
         """預覽裡一個來源檔案在 115 上的 id、所在資料夾 id 和大小（給網頁上「刪掉這支」）；找不到回空的。"""
@@ -1274,6 +1281,7 @@ def _override(o: dict) -> dict:
 SKIP_LABELS = {"same": "已經照格式命名", "outside": "會搬出同步目錄", "latest": "在同一個資料夾裡改名、覆蓋模式是「保留最新」",
                "exists": "目標已經有同名檔案（多半是重複的）"}
 NAMED_NOTE = "新名字由 MoviePilot 的「Mi302 整理助手」照它的整理規則算（和它整理的名字一樣，不必跑它的整理預覽）"
+NO_EPISODE = "未识别到文件集数"  # MoviePilot（和外掛）認不出集號時的說明；番外、合集時是「…，识别为特典/附加视频文件」
 VAGUE_FAILURE = "整理任务处理失败"  # MoviePilot 預覽時對不上目錄設定、算不出計畫都只說這句，原因只寫在它的日誌
 
 

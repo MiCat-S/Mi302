@@ -2387,7 +2387,7 @@ function reoItemsHtml(items) {
     return `<div class="li top"><div class="main"><b>${esc(i.name)}</b>
       ${i.target && !i.skip ? `<div class="reo-to">→ ${esc(i.target)}</div>` : ''}
       <div class="sub">${esc([i.episode != null ? `第 ${i.episode} 集` : '', !i.ok ? i.message : ''].filter(Boolean).join('・'))}</div>
-      ${i.skip === 'exists' ? reoDupHtml(i) : ''}
+      ${i.skip === 'exists' ? reoDupHtml(i) : !i.ok && !i.skip && i.file_id ? reoNoEpHtml(i) : ''}
       ${i.warnings.map(w => `<div class="sub t-warn">${esc(w)}</div>`).join('')}</div>${pills}</div>`;
   }).join('');
 }
@@ -2398,11 +2398,17 @@ function reoDupHtml(i) {
     <div class="row wrap gap6 mt6"><span class="hint">這支 ${i.size ? esc(fmtSize(i.size)) : '大小不明'}${same ? '，一樣大' : i.size ? '，大小不一樣，確認一下再刪' : ''}</span>
     ${i.file_id ? `<button class="btn sm ghost danger" data-act="ogDelDup" data-parent="${esc(i.parent_cid)}" data-id="${esc(i.file_id)}" data-name="${esc(i.name)}" data-target="${esc(i.target)}">刪掉這支</button>` : ''}</div>`;
 }
-ACTS.ogDelDup = async el => {
-  // 只刪預覽裡這一支（移到 115 回收站），目標那一份不動；刪完重新整理清單
-  const {parent, id, name, target} = el.dataset;
-  if (!await ask({title: `刪掉「${name}」？`, text: `移到 115 回收站（在 115 可以還原），本機的 strm 和媒體庫裡的跟著拿掉。已經在目標的那一份（${target}）不動。`,
-    ok: '刪掉', danger: true})) return;
+function reoNoEpHtml(i) {
+  // 認不出集號（番外、合集、預告片…）：MoviePilot 不會整理，留著也不會動它；不要的話只刪這一支
+  return `<div class="row wrap gap6 mt6"><span class="hint">這支 ${i.size ? esc(fmtSize(i.size)) : '大小不明'}，留著的話整理時照舊不動它</span>
+    <button class="btn sm ghost danger" data-act="ogDelOne" data-parent="${esc(i.parent_cid)}" data-id="${esc(i.file_id)}" data-name="${esc(i.name)}">刪掉這支</button></div>`;
+}
+ACTS.ogDelDup = el => ogDelFile(el, `移到 115 回收站（在 115 可以還原），本機的 strm 和媒體庫裡的跟著拿掉。已經在目標的那一份（${el.dataset.target}）不動。`);
+ACTS.ogDelOne = el => ogDelFile(el, '移到 115 回收站（在 115 可以還原），本機的 strm 和媒體庫裡的跟著拿掉。同一個資料夾裡的其他檔案不動。');
+async function ogDelFile(el, text) {
+  // 只刪預覽裡這一支（移到 115 回收站）；刪完重新整理清單
+  const {parent, id, name} = el.dataset;
+  if (!await ask({title: `刪掉「${name}」？`, text, ok: '刪掉', danger: true})) return;
   el.disabled = true;
   try { await api('/web/api/115/delete', {method: 'POST', body: JSON.stringify({parent, ids: [id]})}); }
   catch (e) { toast(e.message, 'bad'); el.disabled = false; return; }
@@ -2411,7 +2417,7 @@ ACTS.ogDelDup = async el => {
   if (st) { st.preview = null; organizeShow(st); organizeButtons(); }
   document.activeElement?.blur();  // 焦點還在清單裡時，安靜的重新整理不會重畫
   organizeLoad(og.page, true);
-};
+}
 async function pollReorgJob() {
   // 整理的進度顯示在「瀏覽 115」和「整理 115 網盤」；做完時把送出的標成已整理
   cancel('reo');

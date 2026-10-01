@@ -1022,3 +1022,23 @@ def test_plugin_names_match_moviepilot_preview(tmp_path: Path):
         assert any(n.startswith("新名字由 MoviePilot 的「Mi302 整理助手」") for n in new["notes"])
         broken, sent = run(units[uid], "broken")
         assert sent and key(broken) == key(old) and any("算名字失敗" in n for n in broken["notes"])
+
+
+def test_file_without_episode_number_can_be_deleted_alone(tmp_path: Path):
+    """認不出集號的（番外、合集）MoviePilot 不會整理：預覽附上這支的 id、所在資料夾和大小，網頁上「刪掉這支」
+    只把它移到 115 回收站，本機的 strm 跟著拿掉，同一個資料夾的其他檔案不動；刪掉後這部劇就不會因為它被跳過。"""
+    app, fake, mp, media, c, h = setup(tmp_path)
+    check(app, c, h)
+    unit = {u["id"]: u for u in listing(c, h)["items"]}["d114"]
+    pv = preview(c, h, unit).json()
+    bad = next(i for i in pv["items"] if i["name"] == "特别篇.mp4")
+    assert not bad["ok"] and "未识别到文件集数" in bad["message"]
+    assert (bad["file_id"], bad["parent_cid"], bad["size"]) == ("62", "114", 900_000_000)
+    assert not any("file_id" in i for i in pv["items"] if i["ok"])
+    strm = media / "劇集" / "D 斗破苍穹{tmdbid-292388} 更186" / "特别篇.strm"
+    assert strm.exists()
+    r = c.post("/web/api/115/delete", json={"parent": bad["parent_cid"], "ids": [bad["file_id"]]}, headers=h)
+    assert r.status_code == 200 and r.json()["names"] == ["特别篇.mp4"] and fake.deleted[-1] == "62"
+    assert not strm.exists() and {60, 61} <= {f["fid"] for f in fake.files}
+    pv = preview(c, h, unit).json()
+    assert not any("未识别到文件集数" in x for x in pv["review"])
