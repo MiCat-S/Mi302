@@ -70,6 +70,18 @@ def test_find_and_delete_exact_duplicates(tmp_path: Path):
     # 之後的同步不會把刪掉的再產生回來
     assert app.state.strm_sync.run(FULL).strm_created == 0 and not copy.exists()
 
+    # 清單過期：找重複之後，建議保留的那份在別的地方（115 App、MoviePilot）被刪了。照舊清單刪下去會一份都不剩，
+    # 所以刪之前向 115 重新列一次，要保留的那份不在了就不刪
+    fake.files.append({"fid": 20, "cid": 200, "n": "Old Movie (2001).mkv", "pc": "h" * 17, "s": 900_000_000,
+                       "te": T0 + 70, "sha": SHA_MOVIE})
+    assert c.post("/web/api/dupes/scan", json={"paths": ["/"]}, headers=h).json()["started"]
+    wait_dupes(app)
+    assert [(r["file_id"], r["keep"]) for r in db.query("SELECT file_id, keep FROM dup_files ORDER BY file_id")] == [(1, 1), (20, 0)]
+    fake.files = [f for f in fake.files if f["fid"] != 1]
+    assert c.post("/web/api/dupes/delete", json={}, headers=h).json()["started"]
+    job = wait_dupes(app)
+    assert "20" not in fake.deleted and job.done == 0 and "清單過期" in job.errors[0]
+
 
 def test_override_and_single_group(tmp_path: Path):
     """可以改成保留別份；也可以只處理某一組。"""

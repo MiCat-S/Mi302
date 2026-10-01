@@ -664,9 +664,17 @@ class DupeFinder:
         job = self.job if self.job.running and self.job.kind == "delete" else DupeJob(
             kind="delete", running=True, started=time.time(), total=len(plan))
         self.job = job
-        planned = {r["file_id"] for r in plan}
         removed: List[str] = []
         try:
+            # 清單是上次「找重複」時的樣子：刪之前向 115 重新列一次，建議保留的那份已經不在了就不刪剩下的
+            job.current = "向 115 確認清單還對不對"
+            try:
+                plan, removed = self._recheck(plan, job)
+            except P115Error as exc:
+                job.errors.append(f"刪之前向 115 確認清單時失敗，一個都沒刪：{exc}")
+                log.warning("刪重複：確認清單失敗，沒有刪：%s", exc)
+                return job
+            planned = {r["file_id"] for r in plan}
             for start in range(0, len(plan), DELETE_BATCH):
                 if self.workers.halted:
                     job.stopped = self.workers.by_user
@@ -682,6 +690,9 @@ class DupeFinder:
                 if delay and start + DELETE_BATCH < len(plan):
                     self.workers.wait(delay)
             log.info("刪重複：%s 個檔案送進 115 回收站，省下 %.1f GB", job.done, job.freed / 1024 ** 3)
+        except Stopped:
+            job.stopped = self.workers.by_user
+            job.errors.append(f"{'按了停止' if job.stopped else '程式要結束'}，確認清單時停下，一個都沒刪")
         except P115Error as exc:
             job.errors.append(f"刪到第 {job.done + 1} 個時失敗：{exc}")
             log.warning("刪重複失敗：%s", exc)
@@ -699,6 +710,57 @@ class DupeFinder:
                 job.finished = time.time()
                 self._lock.release()
         return job
+
+    def _recheck(self, plan: List[dict], job: DupeJob) -> Tuple[List[dict], List[str]]:
+        """刪之前再看一次 115：重新列出上次找重複的範圍（和找重複一樣，四萬個檔案約四十次請求，不是一個一個查），
+        只留下確定還能刪的。清單可能是幾天前的，這段時間檔案可能在 115 App、MoviePilot 那邊被刪、被覆蓋：
+        - 要刪的檔案已經不在了：不用刪，從清單拿掉；
+        - 重複的（完全相同、不同版本）：同一組裡不刪的那幾份，115 上至少還有一份（完全相同的還要 SHA1 沒變），
+          不然刪下去這部片就一份都不剩；大檔案本來就不必留一份，只確認它還在。
+        不能刪的寫進 job.errors。115 列不出來丟 P115Error（呼叫的人一個都不刪）。
+        回傳 (還能刪的, 已經不在 115 上的那些在本機刪掉的 strm：要重新掃描)。"""
+        meta = json.loads(self.db.get_meta(SCAN_META_KEY) or "{}")
+        live: Dict[int, Tuple[str, int]] = {}  # 115 上現在有的影片：id → (SHA1, 大小)
+        for root in meta.get("roots") or self.default_roots():
+            self.p115.breaker.check()
+            cid = self.p115.dir_id(root)
+            for info in self.p115.iter_changed_files(cid, 0):
+                self.workers.check()
+                live[info["id"]] = (info.get("sha1") or "", info.get("size") or 0)
+        planned = {r["file_id"] for r in plan}
+        ok: List[dict] = []
+        gone: List[dict] = []
+        kept = 0
+        for r in plan:
+            if r["file_id"] not in live:
+                gone.append(r)
+                continue
+            if r.get("kind") == "versions":
+                others = self.db.query("SELECT file_id, sha1, size FROM dup_versions WHERE grp=?", (r["grp"],))
+                survivors = [o for o in others if o["file_id"] not in planned and o["file_id"] in live]
+            elif r.get("kind") == "big":
+                survivors = [r]  # 不必留一份
+            else:
+                others = self.db.query("SELECT file_id FROM dup_files WHERE sha1=? AND size=?", (r["sha1"], r["size"]))
+                survivors = [o for o in others if o["file_id"] not in planned and live.get(o["file_id"]) == (r["sha1"], r["size"])]
+            if survivors:
+                ok.append(r)
+                continue
+            kept += 1
+            if kept <= 20:
+                job.errors.append(f"{r['name']}：115 上已經沒有同一組裡要保留的那份（清單過期了），這個沒刪；請重新找重複")
+        if kept > 20:
+            job.errors.append(f"另外還有 {kept - 20} 個也因為要保留的那份不在了而沒刪")
+        removed: List[str] = []
+        if gone:  # 已經不在 115 上的：本機的 strm、清單照「已刪除」處理，但不記進刪除紀錄
+            removed = self.strm_sync.remove_local([r["file_id"] for r in gone])
+            with self.db.lock:
+                for table in ("dup_files", "dup_versions", "big_files"):
+                    self.db.conn.executemany(f"DELETE FROM {table} WHERE file_id=?", [(r["file_id"],) for r in gone])
+                self.db.conn.commit()
+            job.errors.append(f"{len(gone)} 個已經不在 115 上（別的地方刪掉了），從清單拿掉")
+        job.total = len(ok)
+        return ok, removed
 
     def _after_delete(self, batch: List[dict], planned: Set[int]) -> List[str]:
         """115 上已經刪了：觀看紀錄轉到保留的那份、刪本機 strm、記下刪了什麼、從清單拿掉。"""
