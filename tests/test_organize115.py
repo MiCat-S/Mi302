@@ -470,8 +470,19 @@ def test_execute_moves_and_cleans_up(tmp_path: Path):
     cleanup = [{"cid": 110, "path": units["d110"]["path"]}, {"cid": 111, "path": units["d111"]["path"]}]
     assert c.post(EXECUTE, json={"tokens": [fr["token"]], "cleanup": [{"cid": 114, "path": "/x"}]}, headers=h).status_code == 400
     mp.calls.clear()
+    real_transfer, sent_batches = app.state.moviepilot.transfer, []
+
+    def stop_on_last_batch(*a, **k):  # 最後一批（第 3 批）送出去的時候按停止：沒有沒送的，照常收尾（清舊資料夾）
+        sent_batches.append(1)
+        if len(sent_batches) == 3:
+            app.state.reorganizer.cancel()
+        return real_transfer(*a, **k)
+
+    app.state.moviepilot.transfer = stop_on_last_batch
     assert c.post(EXECUTE, json={"tokens": [fr["token"], kx["token"]], "cleanup": cleanup}, headers=h).status_code == 200
     wait(lambda: not app.state.reorganizer.job.running)
+    assert not app.state.reorganizer.job.stopped
+    del app.state.moviepilot.transfer
     sent = [b for p_, b in mp.calls if p_ == "/api/v1/transfer/manual"]
     assert [b.get("season") for b in sent] == [None, 1, None]  # 執行時照預覽時指定的
     job = app.state.reorganizer.job
@@ -849,8 +860,12 @@ def test_organize_all_can_be_stopped_and_holds_the_lock(tmp_path: Path):
     assert not [i for i in job.items if i["state"] in ("kept", "removed")]  # 停下來就不清舊資料夾
     del mp_obj.transfer
 
-    # 刪除勾選的：在伺服器上一個一個刪，可以停；清單上沒有的記成沒刪
+    # 刪除勾選的：在伺服器上一個一個刪，可以停；清單上沒有的記成沒刪。單獨執行的整理還在跑時開始不了（它拿著鎖）
     org.delete_pace = 0
+    app.state.reorganizer.job.running = True
+    r = c.post("/web/api/115/organize/delete", json={"ids": ["f81"]}, headers=h)
+    assert r.status_code == 400 and "正在整理" in r.text
+    app.state.reorganizer.job.running = False
     r = c.post("/web/api/115/organize/delete", json={"ids": ["f81", "nope"]}, headers=h).json()["deleting"]
     assert r["running"] and r["total"] == 2
     wait(lambda: not org.deleting.running)
@@ -1137,6 +1152,8 @@ def test_plugin_names_match_moviepilot_preview(tmp_path: Path):
         # 自我檢查不過的：不叫它算名字，直接用 MoviePilot 的預覽，說明為什麼比較慢
         mismatch, sent = run(units[uid], "mismatch")
         assert sent and key(mismatch) == key(old) and any("對不上" in n for n in mismatch["notes"])
+    app.state.moviepilot.cfg.rename_plugin = False  # 關掉「用外掛」：自我檢查的結果也不算了，預覽不再說對不上
+    assert not app.state.moviepilot.rename_plugin_ready() and app.state.moviepilot.plugin_problems == []
 
 
 def test_plugin_self_test_lists_missing_moviepilot_internals(monkeypatch):

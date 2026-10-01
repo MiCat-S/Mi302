@@ -114,6 +114,9 @@ def test_scrape_falls_back_to_login_for_old_moviepilot(tmp_path: Path):
     old = MoviePilot(make_config(tmp_path).moviepilot, cfg, transport=httpx.MockTransport(query_only))
     old._request("GET", "/api/v1/a"), old._request("GET", "/api/v1/b")
     assert seen == [False, True, True]
+    old.cfg.url = "http://v3.test"  # 設定頁換了一台 MoviePilot：重新判斷，令牌先只放標頭
+    old._request("GET", "/api/v1/c")
+    assert seen[3:] == [False, True]
 
     # 好幾個請求同時被拒（登入 token 過期）：只登入一次，其他的用新 token 重送
     import threading

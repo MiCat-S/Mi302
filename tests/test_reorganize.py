@@ -268,3 +268,8 @@ def test_delete_from_browse(tmp_path: Path, monkeypatch):
     monkeypatch.setattr(deletelog, "KEEP", 2)
     deletelog.record(app.state.db, "empty", [{"file_id": 9, "path": "/x/空的", "is_dir": True}])
     assert [i["name"] for i in deletelog.recent(app.state.db)[0]] == ["空的", "Old Movie (2001).mkv"]
+    # 寫不進去（資料庫關了、壞了）只記日誌，不丟出去：呼叫的地方拿著整理的鎖，丟出去鎖就放不掉
+    from embyserver.db import Database
+    broken = Database(":memory:")
+    broken.close()
+    deletelog.record(broken, "empty", [{"file_id": 1, "path": "/x"}])

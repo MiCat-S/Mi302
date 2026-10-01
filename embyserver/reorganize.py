@@ -429,8 +429,8 @@ class Reorganizer:
 
     def _run_items(self, pv: dict, batch: dict, job: ReorgJob) -> None:
         """一批：一個資料夾或幾個檔案交給 MoviePilot，照預覽時的指定（沒指定的是 None，讓它自己認）；結果照它回的每個檔案記。"""
-        if self._stop.is_set() or job.stopping:
-            return  # 程式要結束、按了停止：還沒送的不送了
+        if self._stop.is_set():
+            return  # 程式要結束：還沒送的不送了（網頁按的停止在 _run 裡看，才算得出還有幾個沒送）
         if batch.get("mode") == "rename":
             self._run_renames(batch, job)
             return

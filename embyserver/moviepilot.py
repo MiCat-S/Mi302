@@ -219,7 +219,9 @@ class MoviePilot:
         self._transport = transport
         self._jwt: Optional[str] = None
         self._jwt_lock = threading.Lock()  # 登入 token 過期時只讓一個請求重新登入，其他的等它、用新的 token
-        self._token_in_query = False  # 這個 MoviePilot（舊版）要在查詢參數帶令牌才認：試過一次成功後就一直帶
+        # 這個 MoviePilot（舊版）要在查詢參數帶令牌才認：試過一次成功後就一直帶。記的是當時的（網址, 令牌），
+        # 設定頁改了網址或令牌就重新判斷
+        self._token_in_query: Optional[Tuple[str, str]] = None
         self._preview_ok_at = 0.0  # 上次確認 MoviePilot 夠新、支援整理預覽的時間
 
     @property
@@ -263,12 +265,13 @@ class MoviePilot:
         try:
             with self._client(timeout or self.cfg.timeout) as client:
                 token = self._jwt
-                resp = self._send(client, method, path, body, query, token, legacy_token=self._token_in_query)
-                if resp.status_code in (401, 403) and not token and self.cfg.api_token and not self._token_in_query:
+                legacy = self._token_in_query == (self.cfg.url, self.cfg.api_token)
+                resp = self._send(client, method, path, body, query, token, legacy_token=legacy)
+                if resp.status_code in (401, 403) and not token and self.cfg.api_token and not legacy:
                     # 舊版有些端點只認查詢參數 ?token=；令牌平常只放標頭，免得出現在代理、MoviePilot 的存取日誌
                     resp = self._send(client, method, path, body, query, None, legacy_token=True)
                     if resp.status_code not in (401, 403):
-                        self._token_in_query = True  # 之後直接帶，不必每個請求都先被拒一次
+                        self._token_in_query = (self.cfg.url, self.cfg.api_token)  # 之後直接帶，不必每個請求都先被拒一次
                 if resp.status_code in (401, 403) and self.cfg.username and self.cfg.password:
                     # 舊版 MoviePilot 的刮削 API 只認登入 token；或是之前的登入 token 過期了。
                     # 刮削是好幾個請求同時送：別的請求已經換了新 token 就直接用，不再登入一次

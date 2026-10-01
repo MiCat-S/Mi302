@@ -498,8 +498,9 @@ class Scanner:
 
     def scan_all(self) -> None:
         """掃描全部媒體庫。已經有一次在排隊時不重複排。"""
+        # 每次要求都記時間（先記再看有沒有在排隊）：併進排隊的那一次時，按停止之後才要求的，它就不能被停止丟掉
+        self._full_asked_at = time.monotonic()
         if self._full_waiting:
-            self._full_asked_at = time.monotonic()  # 併進排隊的那一次：按停止之後才要求的，它就不能被停止丟掉
             log.info("已經有一次完整掃描在排隊，略過")
             return
         self._full_waiting = True

@@ -1307,6 +1307,8 @@ class Organizer:
                 raise OrganizeError("上一批還在刪，等它做完")
             if self.batch.running:
                 raise OrganizeError("正在全部整理，等它做完再刪")
+            if self.reorg.job.running:  # 單獨執行的整理拿著整理的鎖：每一個都會刪不掉
+                raise OrganizeError("MoviePilot 正在整理，等它做完再刪")
             self.deleting = DeleteJob(running=True, started=time.time(), total=len(ids))
         self.workers.start(self._delete_many, ids)
         return self.deleting.as_dict()
