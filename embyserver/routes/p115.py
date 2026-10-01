@@ -179,6 +179,13 @@ def p115_strm_rewrite(request: Request, ctx: AuthContext = Depends(require_admin
     return {"started": st.strm_sync.rewrite_in_background(), "rewrite": st.strm_sync.rewrite_result.as_dict()}
 
 
+@router.post("/p115/strm/rewrite/stop")
+def p115_strm_rewrite_stop(request: Request, ctx: AuthContext = Depends(require_admin)):
+    """停止改寫 strm：在兩個檔案之間停下，改好的留著；再改一次會接著改剩下的。"""
+    st = state(request)
+    return {"stopped": st.strm_sync.cancel_rewrite(), "rewrite": st.strm_sync.rewrite_result.as_dict()}
+
+
 @router.put("/p115/strm/tasks")
 async def p115_strm_tasks(request: Request, ctx: AuthContext = Depends(require_admin)):
     try:

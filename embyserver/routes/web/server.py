@@ -22,7 +22,8 @@ def _busy(request: Request) -> list:
         ("MoviePilot 刮削", st.moviepilot.result.running), ("補全缺集", st.moviepilot.fill_result.running),
         ("取消訂閱", st.moviepilot.unsubscribe_result.running),
         ("MoviePilot 整理", st.reorganizer.job.running), ("全部整理", st.organizer.batch.running),
-        ("問 MoviePilot 檢查", st.organizer.job.running), ("媒體資訊提取", st.prober.result.running),
+        ("問 MoviePilot 檢查", st.organizer.job.running), ("刪除勾選的", st.organizer.deleting.running),
+        ("媒體資訊提取", st.prober.result.running),
         ("重複檔案", st.dupes.job.running), ("空資料夾", st.empty_dirs.job.running),
         ("查中文名", st.person_names.running),
     ]

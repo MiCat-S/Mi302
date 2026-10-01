@@ -779,6 +779,7 @@ def test_organize_all_skips_the_ones_that_need_a_look(tmp_path: Path):
 
 
 def test_organize_all_can_be_stopped_and_holds_the_lock(tmp_path: Path):
+    """全部整理、問 MoviePilot 檢查、執行、刪除勾選的都可以停：做完手上這一個就停。"""
     import threading
 
     app, fake, mp, media, c, h = setup(tmp_path)
@@ -804,6 +805,53 @@ def test_organize_all_can_be_stopped_and_holds_the_lock(tmp_path: Path):
     wait(lambda: not org.batch.running)
     assert org.batch.stopped and org.batch.done == 1
     assert c.post(EXECUTE, json={"tokens": [token]}, headers=h).status_code == 200  # 停下來後鎖放開了
+    wait(lambda: not app.state.reorganizer.job.running)
+
+    # 問 MoviePilot 檢查：問完手上這幾個就停，沒問的不問
+    gate.clear(); started.clear()
+    real_ask = org._ask
+    org._ask = lambda u: (started.set(), gate.wait(5), real_ask(u))
+    assert c.post("/web/api/115/organize/check", json={"refresh": True}, headers=h).json()["started"]
+    assert started.wait(5) and c.post("/web/api/115/organize/check/stop", headers=h).json()["stopped"]
+    gate.set()
+    wait(lambda: not org.job.running)
+    assert org.job.stopped and not org.job.error and org.job.done < org.job.todo
+    assert c.post("/web/api/115/organize/check/stop", headers=h).json()["stopped"] is False
+    del org._ask
+
+    # 執行：送給 MoviePilot 的這一批做完，後面的不送，也不清舊資料夾
+    units = {u["id"]: u for u in listing(c, h)["items"]}
+    tokens = [preview(c, h, units["d110"], {"loose": {"season": 1}}).json()["token"]]  # 兩批：子資料夾、直接放著的
+    gate.clear(); started.clear()
+    mp_obj = app.state.moviepilot
+    sent, real_transfer = [], mp_obj.transfer
+    mp_obj.transfer = lambda *a, **k: (sent.append(1), started.set(), gate.wait(5), real_transfer(*a, **k))[-1]
+    cleanup = [{"cid": 110, "path": units["d110"]["path"]}]
+    assert c.post(EXECUTE, json={"tokens": tokens, "cleanup": cleanup}, headers=h).status_code == 200
+    assert started.wait(5) and c.post("/web/api/115/organize/execute/stop", headers=h).json()["stopped"]
+    gate.set()
+    job = app.state.reorganizer.job
+    wait(lambda: not job.running)
+    assert job.stopped and len(sent) == 1 and "按了停止" in job.errors[-1]
+    assert not [i for i in job.items if i["state"] in ("kept", "removed")]  # 停下來就不清舊資料夾
+    del mp_obj.transfer
+
+    # 刪除勾選的：在伺服器上一個一個刪，可以停；清單上沒有的記成沒刪
+    org.delete_pace = 0
+    r = c.post("/web/api/115/organize/delete", json={"ids": ["f81", "nope"]}, headers=h).json()["deleting"]
+    assert r["running"] and r["total"] == 2
+    wait(lambda: not org.deleting.running)
+    d = c.get("/web/api/115/organize/job", headers=h).json()["deleting"]
+    assert (d["done"], d["failed"]) == (1, 1) and "81" in fake.deleted and d["errors"][0].startswith("nope：")
+    gate.clear(); started.clear()
+    real_delete = org.delete
+    org.delete = lambda unit_id: (started.set(), gate.wait(5), real_delete(unit_id))[-1]
+    assert c.post("/web/api/115/organize/delete", json={"ids": ["d120", "d119"]}, headers=h).status_code == 200
+    assert started.wait(5) and c.post("/web/api/115/organize/delete/stop", headers=h).json()["stopped"]
+    assert "刪除勾選的" in c.get("/web/api/server", headers=h).json()["busy"]  # 重新啟動前會列出來
+    gate.set()
+    wait(lambda: not org.deleting.running)
+    assert org.deleting.stopped and org.deleting.done == 1 and "119" not in fake.deleted
 
 
 def test_organize_all_gives_up_when_previews_keep_failing(tmp_path: Path):

@@ -114,6 +114,8 @@ class ReorgJob:
     items: List[dict] = field(default_factory=list)
     errors: List[str] = field(default_factory=list)
     down: str = ""  # MoviePilot 連線出事（MoviePilotError.kind）：offline＝連不上、dropped／timeout＝它可能還在背景做
+    stopping: bool = False  # 按了停止：送出去的這一批做完，還沒送的不送
+    stopped: bool = False
 
     def as_dict(self) -> dict:
         return asdict(self)
@@ -379,14 +381,25 @@ class Reorganizer:
         self.job = ReorgJob(running=True, started=time.time(), title=title, total=total)
         self.workers.start(self._run, previews, cleanup)
 
+    def cancel(self) -> bool:
+        """按了停止（網頁上的執行）：送給 MoviePilot 的這一批做完，還沒送的不送，也不清舊資料夾。沒在整理回傳 False。"""
+        if not self.job.running:
+            return False
+        self.job.stopping = True
+        return True
+
     def _run(self, previews: List[dict], cleanup: List[dict]) -> None:
         job = self.job
         try:
             for pv in previews:
                 for batch in pv["batches"]:
                     self._run_items(pv, batch, job)
-            log.info("MoviePilot 整理 %s：%s 個完成，%s 個失敗", job.title, job.done, job.failed)
-            if cleanup:
+            if job.stopping:
+                job.stopped = True
+                left = max(0, job.total - job.done - job.failed - job.queued)
+                job.errors.append(f"按了停止，還有 {left} 個沒送給 MoviePilot；整理好的留著，重新預覽會接著做剩下的")
+            log.info("MoviePilot 整理 %s：%s 個完成，%s 個失敗%s", job.title, job.done, job.failed, "，按了停止" if job.stopped else "")
+            if cleanup and not job.stopped:
                 self._remove_empty_folders(cleanup, job)
             if job.done or job.queued or job.renamed:
                 # MoviePilot 背景處理的也要同步：它做完之後本機的 strm 只靠增量同步讀 115 生活事件搬，
@@ -404,8 +417,8 @@ class Reorganizer:
 
     def _run_items(self, pv: dict, batch: dict, job: ReorgJob) -> None:
         """一批：一個資料夾或幾個檔案交給 MoviePilot，照預覽時的指定（沒指定的是 None，讓它自己認）；結果照它回的每個檔案記。"""
-        if self._stop.is_set():
-            return  # 程式要結束：還沒送的不送了
+        if self._stop.is_set() or job.stopping:
+            return  # 程式要結束、按了停止：還沒送的不送了
         if batch.get("mode") == "rename":
             self._run_renames(batch, job)
             return
@@ -457,7 +470,7 @@ class Reorganizer:
                 job.current = f"MoviePilot 改名中：{batch['label']}（{st.get('done', 0)} / {len(renames)}）"
                 if cancelled:
                     time.sleep(1)  # 已經請它停了，等它做完手上這一項
-                elif self._stop.wait(2):
+                elif self._stop.wait(2) or job.stopping:
                     self.mp.plugin_cancel(job_id)
                     cancelled = True
         except MoviePilotError as exc:

@@ -46,10 +46,11 @@ def organize_list(request: Request, ctx: AuthContext = Depends(require_admin)):
 
 @router.get("/web/api/115/organize/job")
 def organize_job(request: Request, ctx: AuthContext = Depends(require_admin)):
-    """目前（或上一次）的整理工作，和全部整理的進度（不含跳過、失敗的明細，明細看 GET /web/api/115/organize/all）。"""
+    """目前（或上一次）的整理工作、全部整理的進度（不含跳過、失敗的明細，明細看 GET /web/api/115/organize/all）、
+    刪除勾選的進度（deleting）。"""
     st = state(request)
     return {"job": st.reorganizer.job.as_dict(), "batch": st.organizer.batch.as_dict(results=False),
-            "ready": st.reorganizer.ready()}
+            "deleting": st.organizer.deleting.as_dict(), "ready": st.reorganizer.ready()}
 
 
 @router.get("/web/api/115/organize/all")
@@ -95,6 +96,13 @@ async def organize_check(request: Request, ctx: AuthContext = Depends(require_ad
     body = await json_body(request)
     started = _run(st.organizer.check_in_background, bool(body.get("refresh")))
     return {"started": started, "job": st.organizer.job.as_dict()}
+
+
+@router.post("/web/api/115/organize/check/stop")
+def organize_check_stop(request: Request, ctx: AuthContext = Depends(require_admin)):
+    """停止檢查：問完手上這幾個就停，問過的留著，沒問的下次再問。"""
+    st = state(request)
+    return {"stopped": st.organizer.stop_check(), "job": st.organizer.job.as_dict()}
 
 
 @router.post("/web/api/115/organize/folder")
@@ -150,6 +158,13 @@ async def organize_execute(request: Request, ctx: AuthContext = Depends(require_
     return {"job": st.reorganizer.job.as_dict()}
 
 
+@router.post("/web/api/115/organize/execute/stop")
+def organize_execute_stop(request: Request, ctx: AuthContext = Depends(require_admin)):
+    """停止執行：送給 MoviePilot 的這一批做完，還沒送的不送，也不清舊資料夾。"""
+    st = state(request)
+    return {"stopped": st.reorganizer.cancel(), "job": st.reorganizer.job.as_dict()}
+
+
 @router.get("/web/api/115/organize/episodes")
 def organize_episodes(request: Request, ctx: AuthContext = Depends(require_admin)):
     """一部劇在媒體庫裡的每一集（給刪除對話框勾），集號不對的標 problem；附上劇集資料夾。只看資料庫。"""
@@ -161,9 +176,12 @@ def organize_episodes(request: Request, ctx: AuthContext = Depends(require_admin
 async def organize_delete(request: Request, ctx: AuthContext = Depends(require_admin)):
     """刪除，都是送進 115 回收站（可以還原），本機 strm、nfo 和媒體庫跟著拿掉。要用掃碼登入 115。
     {id}：清單上的一個整個刪掉（劇集或電影資料夾、沒有自己資料夾的電影、瀏覽 115 加進來的資料夾）；
-    {series_id, file_ids, remove_folder}：刪劇的這幾集，劇集資料夾刪空了可以一起移走。"""
+    {series_id, file_ids, remove_folder}：刪劇的這幾集，劇集資料夾刪空了可以一起移走；
+    {ids: [...]}：清單上勾選的整個刪掉，在背景一個一個做，進度看 GET /web/api/115/organize/job 的 deleting。"""
     st = state(request)
     body = await json_body(request)
+    if isinstance(body.get("ids"), list):
+        return {"deleting": _run(st.organizer.delete_many_in_background, [str(i) for i in body["ids"]])}
     if body.get("id"):
         return await run_in_threadpool(_run, st.organizer.delete, str(body["id"]))
     ids = [int(i) for i in body.get("file_ids") or [] if str(i).isdecimal()]
@@ -172,3 +190,10 @@ async def organize_delete(request: Request, ctx: AuthContext = Depends(require_a
     except ValueError:
         raise HTTPException(status_code=400, detail="series_id 格式錯誤")
     return await run_in_threadpool(_run, st.reorganizer.delete_episodes, series_id, ids, bool(body.get("remove_folder")))
+
+
+@router.post("/web/api/115/organize/delete/stop")
+def organize_delete_stop(request: Request, ctx: AuthContext = Depends(require_admin)):
+    """停止刪除勾選的：做完手上這一個就停，已經移到 115 回收站的留在回收站。"""
+    st = state(request)
+    return {"stopped": st.organizer.stop_delete(), "deleting": st.organizer.deleting.as_dict()}

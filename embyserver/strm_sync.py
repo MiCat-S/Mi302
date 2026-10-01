@@ -15,7 +15,7 @@ import threading
 import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Callable, Dict, Iterable, List, Optional, Set, Tuple
+from typing import Callable, Dict, Iterable, Iterator, List, Optional, Set, Tuple
 from urllib.parse import quote, unquote
 
 import httpx
@@ -102,6 +102,8 @@ class RewriteResult:
     rewritten: int = 0
     unchanged: int = 0
     skipped: int = 0  # 不是 Mi302 產生的 strm（別的工具的網址、本機路徑），不動
+    stopping: bool = False  # 按了停止：在兩個檔案之間停下，改好的留著
+    stopped: bool = False
     errors: List[str] = field(default_factory=list)
 
     def as_dict(self) -> dict:
@@ -464,18 +466,33 @@ class StrmSync:
             with self._lock:
                 r.base_url = self.base_url
                 try:
-                    for task in self.tasks:
-                        local = Path(task.local).expanduser()
-                        for dirpath, _, filenames in os.walk(local):
-                            for name in filenames:
-                                if name.lower().endswith(".strm"):
-                                    self._rewrite_one(Path(dirpath) / name, r)
+                    for path in self._task_strm_files():
+                        if r.stopping or self.workers.stop.is_set():
+                            r.stopped = r.stopping
+                            break
+                        self._rewrite_one(path, r)
                 finally:
                     r.running = False
                     r.finished = time.time()
-            log.info("現有 strm 改成 %s：改了 %s 個，不用改 %s 個，不是 Mi302 的 %s 個，失敗 %s 個",
-                     r.base_url, r.rewritten, r.unchanged, r.skipped, len(r.errors))
+            log.info("現有 strm 改成 %s：改了 %s 個，不用改 %s 個，不是 Mi302 的 %s 個，失敗 %s 個%s",
+                     r.base_url, r.rewritten, r.unchanged, r.skipped, len(r.errors), "，按了停止" if r.stopped else "")
             return r
+
+    def cancel_rewrite(self) -> bool:
+        """按了停止：在兩個檔案之間停下，改好的留著；再按一次「改成這個網址」會接著改剩下的（改過的算不用改）。
+        沒在改回傳 False。"""
+        if not self.rewrite_result.running:
+            return False
+        self.rewrite_result.stopping = True
+        return True
+
+    def _task_strm_files(self) -> Iterator[Path]:
+        """同步任務本機資料夾裡所有的 strm。"""
+        for task in self.tasks:
+            for dirpath, _, filenames in os.walk(Path(task.local).expanduser()):
+                for name in filenames:
+                    if name.lower().endswith(".strm"):
+                        yield Path(dirpath) / name
 
     def _rewrite_one(self, path: Path, r: RewriteResult) -> None:
         try:

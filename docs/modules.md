@@ -222,6 +222,10 @@ Mi302 自己不判斷名稱對不對，也不猜 TMDB 編號、類型和季，�
   「已整理過」跳過，預覽卻看不出來。
 執行、清掉搬空的舊資料夾、之後的增量同步、刪除沿用 reorganize.Reorganizer。
 
+停止：檢查（stop_check）問完手上這幾個就停，還沒開始問的 future 取消；網頁的「刪除勾選的」（delete_many_in_background）
+在背景一個一個呼叫 delete，兩個之間隔 DELETE_PACE 秒乘熔斷的 slowdown（每個都要問 115 資料夾還在不在），
+stop_delete 做完手上這一個就停；清單上找不到、刪不掉的記進 deleting.errors，其他照刪。
+
 ## embyserver/reorganize.py
 
 整理的執行和刪除（「整理 115 網盤」預覽過的交給這裡執行），以及集數定位模板的小工具。
@@ -229,6 +233,8 @@ Mi302 自己不判斷名稱對不對，也不猜 TMDB 編號、類型和季，�
 - 執行（execute_in_background）：照一個或幾個預覽代碼送 MoviePilot 整理（每一批是一個資料夾或幾個檔案），
   結果照它回的每個檔案記；完成後刪掉本機寫著 -1 的舊 nfo（免得同步時它跟著 strm 搬到新名字），
   沒有影片留下的來源資料夾移到 115 回收站（cleanup，先確認資料夾 id 還在原本的路徑），再跑增量同步。
+  cancel（網頁的停止）設 job.stopping：送出去的這一批做完，後面的不送，外掛改名的工作請它停，也不清舊資料夾；
+  全部整理（organize115）每個資料夾用自己的 ReorgJob，停止看的是它的 BatchJob。
 - 刪除：劇的任何一集（delete_episodes）、整部劇（delete_series）、一個資料夾或檔案（delete_item），
   都是送進 115 回收站（可以還原），本機 strm、nfo 和媒體庫跟著拿掉。
 - 集數定位（episode_template）：MoviePilot 推薦不出來時的備用，依 Mi302 在檔名裡找到集號的位置產生模板

@@ -22,7 +22,7 @@ from .db import Database
 from .filetypes import VIDEO_EXTS
 from .moviepilot import FRONTEND_HINT, MoviePilot, MoviePilotError
 from .p115 import P115Error
-from .reorganize import ReorgJob, episode_template
+from .reorganize import ReorgError, ReorgJob, episode_template
 from .strm_sync import remote_root, task_key
 from .textutil import simplified
 from .workers import Workers
@@ -47,6 +47,7 @@ MP_COOLDOWN = 60  # MoviePilot 恢復、或途中斷線之後，再等幾秒才�
 OK, ERROR, RETRY, DOWN = "ok", "error", "retry", "down"
 DOWN_WORDS = {"offline": "連不上", "dropped": "斷線", "timeout": "等太久沒有回應"}
 RECOMMEND_FILES = 50  # 請 MoviePilot 推薦集數定位時最多給幾個檔名
+DELETE_PACE = 1.0  # 刪除勾選的：兩個之間至少隔幾秒（每個都要問 115 資料夾還在不在，太快會被 115 限流）
 P115_NEEDED = "要先登入 115（掃碼或貼上 cookie）才能整理"
 
 
@@ -387,7 +388,28 @@ class CheckJob:
     done: int = 0  # 這次問完的
     found: int = 0  # 目前要整理的
     current: str = ""
+    stopping: bool = False  # 按了停止：問完手上這幾個就停
+    stopped: bool = False
     error: str = ""
+
+    def as_dict(self) -> dict:
+        return asdict(self)
+
+
+@dataclass
+class DeleteJob:
+    """刪除勾選的：一個一個移到 115 回收站，在伺服器上做（關掉網頁也會做完），可以停。"""
+
+    running: bool = False
+    started: float = 0.0
+    finished: float = 0.0
+    total: int = 0
+    done: int = 0
+    failed: int = 0
+    current: str = ""
+    stopping: bool = False
+    stopped: bool = False
+    errors: List[str] = field(default_factory=list)
 
     def as_dict(self) -> dict:
         return asdict(self)
@@ -440,6 +462,8 @@ class Organizer:
         self._stamp: tuple = ()  # 上次算清單時媒體庫掃描、115 同步完成的時間；變了就重算
         self.job = CheckJob()
         self.batch = BatchJob()
+        self.deleting = DeleteJob()
+        self.delete_pace = DELETE_PACE
         self._lock = threading.Lock()  # 同時只跑一個檢查
         # 檢查和全部整理不同時跑（兩邊都會改同一批資料夾、同時問 MoviePilot）；這把鎖只包「看對方、標記自己」那一段
         self._starting = threading.Lock()
@@ -523,6 +547,13 @@ class Organizer:
         self.workers.start(self._check, refresh)
         return True
 
+    def stop_check(self) -> bool:
+        """按了停止：問完手上這幾個就停，問過的留著，沒問的下次再問。沒在檢查回傳 False。"""
+        if not self.job.running:
+            return False
+        self.job.stopping = True
+        return True
+
     def _check(self, refresh: bool) -> None:
         job = self.job
         try:
@@ -551,6 +582,11 @@ class Organizer:
                     job.done += 1
                     job.current = u.name
                     job.found += 1 if u.listed else 0
+                    if job.stopping:  # 還沒開始問的不問了，已經在問的做完（結果照樣記下）
+                        job.stopped = True
+                        for f in futures:
+                            f.cancel()
+                        break
             live = {u.path for u in units} | {u.path for u in self._pinned.values()}
             with self.db.lock:
                 old = [r["path"] for r in self.db.query("SELECT path FROM organize_checks")]
@@ -1234,6 +1270,55 @@ class Organizer:
         return {"format": "", "source": "", "note": f"MoviePilot 推薦不出來（{why or '還沒設定 MoviePilot'}），Mi302 也看不出集號在哪"}
 
     # ---- 刪除（電影、瀏覽 115 加進來的資料夾；劇集用 Reorganizer.delete_episodes／delete_series）----
+
+    def delete_many_in_background(self, ids: List[str]) -> dict:
+        """勾選的一個一個刪（和 delete 一樣，都送進 115 回收站），在背景做；進度看 self.deleting。"""
+        ids = list(dict.fromkeys(str(i) for i in ids if i))
+        if not ids:
+            raise OrganizeError("沒有勾要刪的")
+        with self._starting:
+            if self.deleting.running:
+                raise OrganizeError("上一批還在刪，等它做完")
+            if self.batch.running:
+                raise OrganizeError("正在全部整理，等它做完再刪")
+            self.deleting = DeleteJob(running=True, started=time.time(), total=len(ids))
+        self.workers.start(self._delete_many, ids)
+        return self.deleting.as_dict()
+
+    def stop_delete(self) -> bool:
+        """按了停止：做完手上這一個就停，已經移到 115 回收站的留在回收站。沒在刪回傳 False。"""
+        if not self.deleting.running:
+            return False
+        self.deleting.stopping = True
+        return True
+
+    def _delete_many(self, ids: List[str]) -> None:
+        job = self.deleting
+        try:
+            for i, unit_id in enumerate(ids):
+                if i:  # 每個都要問 115 資料夾還在不在：隔開一點，限流剛恢復時再放慢
+                    self._stop.wait(self.delete_pace * self.reorg.p115.breaker.slowdown())
+                if job.stopping or self._stop.is_set():
+                    job.stopped = job.stopping
+                    break
+                name = unit_id
+                try:
+                    name = self.unit(unit_id).name
+                    job.current = name
+                    self.delete(unit_id)
+                    job.done += 1
+                except (OrganizeError, ReorgError) as exc:
+                    job.failed += 1
+                    job.errors.append(f"{name}：{exc}")
+            log.info("整理 115 網盤：刪除勾選的 %s 個，移到回收站 %s 個，失敗 %s 個%s", job.total, job.done, job.failed,
+                     "，按了停止" if job.stopped else "")
+        except Exception as exc:  # 背景執行緒：記下來，不讓網頁一直顯示「刪除中」
+            job.errors.append(f"{type(exc).__name__}: {exc}")
+            log.exception("整理 115 網盤刪除勾選的時發生錯誤")
+        finally:
+            job.current = ""
+            job.running = False
+            job.finished = time.time()
 
     def delete(self, unit_id: str) -> dict:
         unit = self.unit(unit_id)

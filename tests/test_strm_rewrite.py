@@ -59,6 +59,17 @@ def test_rewrite_changes_only_mi302_strm_without_touching_115(tmp_path: Path):
     r = sync.run(FULL)
     assert r.strm_unchanged == 2 and r.strm_created == 0
 
+    # 按了停止：在兩個檔案之間停下，改好的留著；再改一次接著改剩下的（改過的算不用改）
+    assert sync.cancel_rewrite() is False  # 沒在改
+    sync.cfg.base_url = "https://new.example.com"
+    real = sync._rewrite_one
+    sync._rewrite_one = lambda path, res: (real(path, res), sync.cancel_rewrite())  # 改完第一個就按停止
+    r = sync.rewrite_strm()
+    assert r.stopped and r.rewritten + r.unchanged + r.skipped == 1
+    del sync._rewrite_one
+    r = sync.rewrite_strm()
+    assert not r.stopped and r.rewritten + r.unchanged == 2 and movie.read_text() == f"https://new.example.com/d/{PC}.mkv"
+
 
 def test_settings_save_rewrites_in_background(tmp_path: Path):
     media = tmp_path / "media"
@@ -88,6 +99,7 @@ def test_settings_save_rewrites_in_background(tmp_path: Path):
     s = c.get("/p115/strm/status", headers=h).json()
     assert (s["base_url"], s["rewrite"]["rewritten"], s["rewrite"]["running"]) == ("https://emby.example.com", 1, False)
 
+    assert c.post("/p115/strm/rewrite/stop", headers=h).json()["stopped"] is False  # 沒在改
     # 手動按「把現有 strm 改成這個網址」
     old.write_text(f"http://10.0.0.5:8096/d/{PC}.mkv")
     assert c.post("/p115/strm/rewrite", headers=h).json()["started"] is True

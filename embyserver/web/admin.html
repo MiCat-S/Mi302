@@ -515,6 +515,7 @@ dialog .card-b{max-height:70vh;overflow:auto}
         <div class="card-b stack">
           <p class="hint">問 MoviePilot 媒體庫裡每一部劇、每一部電影該叫什麼，和它給的名稱不一樣的、集號不對的列出來，整個資料夾交給它整理（影片、字幕一起搬），先預覽再執行；不要的直接刪。辨識、命名都是 MoviePilot 做的。 <a class="doc" href="https://github.com/MiCat-S/Mi302/wiki/115-網盤與同步#整理-115-網盤" target="_blank" rel="noopener">說明</a></p>
           <div id="ogJob"></div>
+          <div id="ogDelJob"></div>
           <div id="ogBatch"></div>
           <p id="ogMsg" class="notice hidden" aria-live="polite"></p>
           <div id="ogProgress" aria-live="polite"></div>
@@ -2015,9 +2016,12 @@ async function pollSync(first) {
   $('base').textContent = s.base_url;
   const rw = s.rewrite || {};
   $('rewriteStat').hidden = !(rw.running || rw.finished);
-  $('rewriteStat').textContent = rw.running ? '正在把現有的 strm 改成新網址…'
-    : `上次改寫 strm（${ago(rw.finished)}，改成 ${rw.base_url}）：改了 ${rw.rewritten} 個，本來就是新網址的 ${rw.unchanged} 個` +
-      `${rw.skipped ? '，不是 Mi302 產生的 ' + rw.skipped + ' 個沒動' : ''}${rw.errors?.length ? '，失敗 ' + rw.errors.length + ' 個（' + rw.errors[0] + '）' : ''}`;
+  setHtml($('rewriteStat'), rw.running
+    ? `<span class="row wrap"><span class="grow">正在把現有的 strm 改成新網址…（改了 ${rw.rewritten} 個${rw.stopping ? '，停止中' : ''}）</span>` +
+      (rw.stopping ? '' : '<button class="btn sm ghost danger" data-act="stopJob" data-job="rewrite">停止</button>') + '</span>'
+    : esc(`上次改寫 strm（${ago(rw.finished)}，改成 ${rw.base_url}）：改了 ${rw.rewritten} 個，本來就是新網址的 ${rw.unchanged} 個` +
+      `${rw.skipped ? '，不是 Mi302 產生的 ' + rw.skipped + ' 個沒動' : ''}${rw.errors?.length ? '，失敗 ' + rw.errors.length + ' 個（' + rw.errors[0] + '）' : ''}` +
+      (rw.stopped ? '。按了停止，再按一次「把現有 strm 改成這個網址」會接著改剩下的' : '')));
   const html = syncHtml(s);
   for (const el of document.querySelectorAll('.js-sync')) setHtml(el, html);
   const done = syncWatch && !s.result.running && s.result.started === syncWatch;
@@ -2682,8 +2686,9 @@ const REO_QUEUED = '「MoviePilot 背景處理」的放進了它的整理佇列�
 function reoJobHtml(j) {
   if (!j.started) return '';
   let h = '<div class="row wrap mb8">';
-  if (j.running) h += `<span class="pill accent"><span class="spin"></span>整理中</span><span class="hint sp"><span>${esc(j.title)}・${j.done + j.failed + (j.queued || 0)} / ${j.total}</span>${j.current ? `<span>${esc(j.current)}</span>` : ''}</span>`;
-  else h += `<span class="pill ${j.failed || j.errors.length ? 'warn' : 'ok'}">${j.failed || j.errors.length ? '部分失敗' : '完成'}</span><span class="hint">上次整理：${esc(j.title)}・${ago(j.finished)}</span>`;
+  if (j.running) h += `<span class="pill accent"><span class="spin"></span>${j.stopping ? '停止中' : '整理中'}</span><span class="hint sp grow"><span>${esc(j.title)}・${j.done + j.failed + (j.queued || 0)} / ${j.total}</span>${j.current ? `<span>${esc(j.current)}</span>` : ''}</span>` +
+    (j.stopping ? '' : '<button class="btn sm ghost danger" data-act="stopJob" data-job="reo">停止</button>');
+  else h += `<span class="pill ${j.stopped || j.failed || j.errors.length ? 'warn' : 'ok'}">${j.stopped ? '已停止' : j.failed || j.errors.length ? '部分失敗' : '完成'}</span><span class="hint">上次整理：${esc(j.title)}・${ago(j.finished)}</span>`;
   h += `</div><div class="chips">${chip(j.done, '整理好', true)}${j.queued ? chip(j.queued, 'MoviePilot 背景處理') : ''}${chip(j.failed, '失敗')}</div>`;
   if (j.queued) h += `<p class="hint mt8">${REO_QUEUED}</p>`;
   if (!j.running && j.synced) h += `<p class="hint mt8">${j.synced === 'started' ? '已經開始增量同步 115，本機的 strm 會跟著搬到新名字，再重新掃描。' : '115 同步正在進行，這次的變動會在下一次同步時帶到。'}</p>`;
@@ -2895,7 +2900,7 @@ function organizeProgress(r) {
   const j = og.job = r.job;
   organizeButtons();  // 檢查中不能全部整理，全部整理中不能檢查
   let h = '';
-  if (j.running) h = `<p class="hint row"><span class="spin"></span>問 MoviePilot 中：${j.done} / ${j.todo}，找到 ${j.found} 個要整理的${j.current ? `・${esc(j.current)}` : ''}</p>`;
+  if (j.running) h = `<div class="row wrap"><p class="hint row grow"><span class="spin"></span>問 MoviePilot 中：${j.done} / ${j.todo}，找到 ${j.found} 個要整理的${j.current ? `・${esc(j.current)}` : ''}${j.stopping ? '（停止中，問完手上這幾個）' : ''}</p>${j.stopping ? '' : '<button class="btn sm ghost danger" data-act="stopJob" data-job="ogcheck">停止</button>'}</div>`;
   else if (j.error) h = `<p class="notice bad">${esc(j.error)}</p>`;
   else if (!r.folders) h = '<p class="hint">媒體庫裡沒有在 115 同步目錄底下的劇集、電影。</p>';
   else if (r.unchecked === r.folders) h = `<p class="hint">媒體庫裡有 ${r.folders} 個資料夾，還沒問過 MoviePilot（下面先列出集號不對的）。按「問 MoviePilot 檢查」，每個資料夾問它一次整理後該叫什麼（在背景跑，資料夾多的要一陣子）。</p>`;
@@ -2935,6 +2940,7 @@ async function organizeLoad(page, quiet) {
   $('ogBar').classList.toggle('hidden', !r.total && !r.pinned.length);
   organizeButtons();
   if (r.reorg_job.running) pollReorgJob();
+  if (!og.delPolled) { og.delPolled = true; pollOgDelete(); }  // 第一次打開這一頁：之前開始的刪除可能還在跑
   b115.added = new Set(r.pinned.map(p => p.id.slice(1)));
 }
 function ogState(u) {
@@ -3062,18 +3068,33 @@ async function organizeDeleteSelected() {
   if (!await ask({title: `刪除勾選的 ${sel.length} 個？`, ok: `刪除 ${sel.length} 個`, danger: true,
     text: `115 上這些資料夾（或那支影片）整個移到 115 回收站（在 115 可以還原），本機的 strm、nfo 和媒體庫裡的也拿掉。\n\n`
       + names.slice(0, 10).join('\n') + (names.length > 10 ? `\n…等 ${names.length} 個` : '')})) return;
-  og.deleting = true; organizeButtons();
-  let done = 0; const bad = [];
-  for (const st of sel) {
-    try {
-      await api('/web/api/115/organize/delete', {method: 'POST', body: JSON.stringify({id: st.unit.id})});
-      done++; delete og.state[st.unit.id];
-    } catch (e) { bad.push(`${st.unit.name}：${e.message}`); }
+  // 在伺服器上一個一個刪（關掉網頁也會做完），這裡只看進度
+  let r;
+  try { r = await api('/web/api/115/organize/delete', {method: 'POST', body: JSON.stringify({ids: sel.map(st => st.unit.id)})}); }
+  catch (e) { toast(e.message, 'bad'); return; }
+  for (const st of sel) delete og.state[st.unit.id];  // 刪不掉的重新讀清單時會再出現
+  og.deleting = r.deleting; organizeButtons(); pollOgDelete();
+}
+function ogDeleteHtml(d) {
+  if (d.running) return `<div class="row wrap mb8"><span class="pill accent"><span class="spin"></span>${d.stopping ? '停止中' : '刪除中'}</span><span class="hint sp grow"><span>移到 115 回收站：${d.done + d.failed} / ${d.total}</span>${d.current ? `<span>${esc(d.current)}</span>` : ''}</span>` +
+    (d.stopping ? '' : '<button class="btn sm ghost danger" data-act="stopJob" data-job="ogdel">停止</button>') + '</div>';
+  if (!d.started || !(d.failed || d.stopped)) return '';
+  return `<p class="hint mb8">上次刪除勾選的（${ago(d.finished)}）：${d.done} 個移到 115 回收站${d.failed ? `，${d.failed} 個沒刪` : ''}${d.stopped ? `，按了停止，${d.total - d.done - d.failed} 個沒動` : ''}</p>` +
+    (d.errors.length ? `<div class="notice bad mb8">${d.errors.slice(0, 5).map(esc).join('<br>')}</div>` : '');
+}
+async function pollOgDelete() {
+  cancel('ogdel');
+  let r;
+  try { r = await api('/web/api/115/organize/job'); } catch (e) { return; }
+  const d = r.deleting, was = !!og.deleting;
+  og.deleting = d.running ? d : null;
+  setHtml($('ogDelJob'), ogDeleteHtml(d));
+  organizeButtons();
+  if (d.running) { later('ogdel', pollOgDelete); return; }
+  if (was) {
+    toast(d.failed ? `已把 ${d.done} 個移到 115 回收站；${d.failed} 個沒刪：${d.errors[0] || ''}` : `已把 ${d.done} 個移到 115 回收站`, d.failed ? 'bad' : '');
+    organizeLoad(og.page, true);
   }
-  og.deleting = false;
-  if (bad.length) toast(`已把 ${done} 個移到 115 回收站；${bad.length} 個沒刪：${bad[0]}${bad.length > 1 ? ' …' : ''}`, 'bad');
-  else toast(`已把 ${done} 個移到 115 回收站`);
-  organizeLoad(og.page, true);
 }
 const OG_TARGET = {auto: '照 MoviePilot 的目錄設定', parent: '同一層'};
 function organizeRoots(roots) {
@@ -3167,6 +3188,10 @@ const STOPS = {
   scrape: ['/web/api/moviepilot/stop', {what: 'scrape'}, '停止刮削？', '已經送給 MoviePilot 的會做完，還沒送的不送，下次刮削再送。', () => pollMP()],
   fill: ['/web/api/moviepilot/stop', {what: 'fill'}, '停止補全缺集？', '做完手上這一季就停，已經建好的訂閱留著。', () => pollMP()],
   unsubscribe: ['/web/api/moviepilot/stop', {what: 'unsubscribe'}, '停止取消訂閱？', '已經取消的不會回來，還沒取消的留著。', () => pollMP()],
+  rewrite: ['/p115/strm/rewrite/stop', {}, '停止改寫 strm？', '在兩個檔案之間停下，改好的留著。之後再按一次「把現有 strm 改成這個網址」會接著改剩下的。', () => pollSync()],
+  ogcheck: ['/web/api/115/organize/check/stop', {}, '停止檢查？', '問完手上這幾個就停，問過的結果留著，沒問的下次按「問 MoviePilot 檢查」再問。', () => organizeLoad(og.page, true)],
+  reo: ['/web/api/115/organize/execute/stop', {}, '停止整理？', '已經送給 MoviePilot 的這一批會做完，還沒送的不送，也不清舊資料夾。整理好的留著，重新預覽會接著做剩下的。', () => pollReorgJob()],
+  ogdel: ['/web/api/115/organize/delete/stop', {}, '停止刪除？', '做完手上這一個就停，已經移到 115 回收站的留在回收站。', () => pollOgDelete()],
 };
 ACTS.stopJob = async el => {
   const [url, body, title, text, after] = STOPS[el.dataset.job];
