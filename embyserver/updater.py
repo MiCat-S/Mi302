@@ -1,19 +1,6 @@
 """網頁上的「檢查更新」「更新到最新版」「重新啟動」。
 
-程式資料夾是 git clone 下來的（install.sh 裝的都是），更新的做法和 install.sh update 一樣：
-1. 檢查：git fetch 遠端的同一個分支，比較 HEAD 和 origin/分支，新的提交標題就是更新內容。
-   啟動一分鐘後查一次，之後每 6 小時一次（server.update_check 關掉就只在網頁上按了才查）。
-2. 更新：自己改過的程式檔備份成 local-changes-*.patch 再還原，切到 origin/分支；requirements.txt 有變就用
-   目前這個 Python（.venv 裡的）安裝相依套件；再用新程式試著 import 一次。任何一步失敗就退回原本的版本、
-   不重新啟動，網頁照常可用。
-3. 重新啟動：請 uvicorn 停下（進行中的請求最多等 5 秒），__main__ 再用同一個指令 exec 自己。程序編號不變，
-   systemd、launchd、背景執行都不用另外處理。
-
-install.sh 本身管的東西（服務設定、ffprobe、Python 版本）網頁更新不會動，那些要在終端機執行 mi302 update。
-
-連不上 GitHub 時（國內網路），server.update_proxy 是 git 和安裝相依套件用的代理（http:// 或 socks5://），
-server.update_github_proxy 是 GitHub 加速網址（例如 https://ghfast.top/），下載時接在 GitHub 網址前面；
-和 MoviePilot 的「網路代理」「GitHub 加速代理」一樣的用法。pip 鏡像照 install.sh 記在 .env 的 PIP_MIRROR。
+詳細說明見 docs/modules.md 的「embyserver/updater.py」。
 """
 
 from __future__ import annotations

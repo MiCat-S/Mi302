@@ -1,16 +1,6 @@
 """用 ffprobe 探測 strm 指向的影片，寫出 X-mediainfo.json 並存進資料庫。
 
-做法參考 xiao-vvv/emby-mediainfo（MIT）：
-- 取直鏈用一般瀏覽器的 UA（115 的直鏈通常綁定取得時的 UA；115Browser 的 UA 會被 CDN 要 cookie）。
-- 網路上的影片不讓 ffprobe 自己去讀：它會開好幾條連線來回跳著讀（mp4 的 moov 常在檔尾），115 的 CDN
-  常常拒絕，結果是「moov atom not found」「Invalid data found」。改成 Mi302 用一條連線、一段一段讀
-  需要的部分（檔頭幾 MB；mp4 照 box 找到 moov；其他格式讀檔尾一段），帶著取直鏈的 UA 和 cookie，
-  寫進和原檔一樣大的稀疏暫存檔（沒讀的地方不佔空間），ffprobe 讀這個本機檔。
-  115 回的不是影片（錯誤網頁、空的）時，錯誤訊息直接寫出 115 回了什麼。
-- 伺服器不支援分段讀取（Range）時，才照舊讓 ffprobe 直接讀網址。
-- 115 同時最多 3 條連線；取直鏈有全域間隔（用單調時鐘，系統時間往回跳也不會卡住）；
-  被限流就熔斷（P115Service.breaker），剩下的這次先不做。
-- 錯誤訊息裡的直鏈網址抹掉，不寫進日誌。
+詳細說明見 docs/modules.md 的「embyserver/prober.py」。
 """
 
 from __future__ import annotations
@@ -49,7 +39,7 @@ QUEUE_MAX = 500  # 打開即探測的佇列上限；一次打開很多集時，�
 RETRY_AFTER = 3600  # 打開即探測失敗的，一小時內不再排
 FFPROBE_ARGS = ["-threads", "0", "-v", "error", "-print_format", "json", "-show_streams", "-show_chapters", "-show_format"]
 MAX_ERRORS = 50
-# 網路上的影片由 Mi302 讀這幾段給 ffprobe（見模組說明）
+# 網路上的影片由 Mi302 讀這幾段給 ffprobe（見 docs/modules.md 的「embyserver/prober.py」）
 HEAD_BYTES = 6 << 20  # 檔頭；ffprobe 預設最多分析 5 MB
 TAIL_BYTES = 2 << 20  # 檔尾（mkv 的 Cues、Tags，ts 的最後時間戳，avi 的索引）
 MOOV_MAX = 64 << 20  # mp4 的 moov 超過這麼大就不讀
@@ -397,7 +387,8 @@ class MediaProber:
         return probe
 
     def _probe_remote(self, exe: str, url: str, ua: str, hint: str) -> dict:
-        """網路上的影片：Mi302 用一條連線讀需要的幾段，寫進稀疏暫存檔給 ffprobe 讀（見模組說明）。"""
+        """網路上的影片：Mi302 用一條連線讀需要的幾段，寫進稀疏暫存檔給 ffprobe 讀
+        （見 docs/modules.md 的「embyserver/prober.py」）。"""
         headers = self.p115.file_headers(url, ua)  # 取直鏈的 UA；115 的網域再帶 cookie
         timeout = httpx.Timeout(max(10.0, float(self.cfg.timeout or 60)), connect=15.0)
         with httpx.Client(timeout=timeout, follow_redirects=True, transport=self.http_transport) as client:

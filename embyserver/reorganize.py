@@ -1,12 +1,6 @@
 """整理的執行和刪除（「整理 115 網盤」預覽過的交給這裡執行），以及集數定位模板的小工具。
 
-- 執行（execute_in_background）：照一個或幾個預覽代碼送 MoviePilot 整理（每一批是一個資料夾或幾個檔案），
-  結果照它回的每個檔案記；完成後刪掉本機寫著 -1 的舊 nfo（免得同步時它跟著 strm 搬到新名字），
-  沒有影片留下的來源資料夾移到 115 回收站（cleanup，先確認資料夾 id 還在原本的路徑），再跑增量同步。
-- 刪除：劇的任何一集（delete_episodes）、整部劇（delete_series）、一個資料夾或檔案（delete_item），
-  都是送進 115 回收站（可以還原），本機 strm、nfo 和媒體庫跟著拿掉。
-- 集數定位（episode_template）：MoviePilot 推薦不出來時的備用，依 Mi302 在檔名裡找到集號的位置產生模板
-  （「10.潘玮柏…」是 {ep}.{a}、「03-比赛…」是 {ep}-{a}）。
+詳細說明見 docs/modules.md 的「embyserver/reorganize.py」。
 """
 
 from __future__ import annotations

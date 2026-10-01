@@ -1,33 +1,6 @@
 """媒體資訊（解析度、HDR、音軌、字幕軌、章節）：ffprobe 結果 → Emby 的 MediaSourceInfo。
 
-存在影片旁邊的 X-mediainfo.json，格式和 Emby 神醫助手（StrmAssistant）「媒體資訊持久化」一樣：
-[{"MediaSourceInfo": {...}, "Chapters": [...]}]。所以用過神醫、emby-mediainfo 產生的檔案可以直接讀，
-Mi302 自己探測的結果 Emby 那邊也能共用。讀到的結果另外存一份在資料表 media_info，回給播放器時不必讀檔。
-
-ffprobe → MediaSourceInfo 的對照改寫自 xiao-vvv/emby-mediainfo 的 app/mapper3.py，
-規則來自大量神醫產出的統計，並逐欄位對過帳。原專案授權：
-
-    MIT License
-
-    Copyright (c) 2026 xiao-vvv
-
-    Permission is hereby granted, free of charge, to any person obtaining a copy
-    of this software and associated documentation files (the "Software"), to deal
-    in the Software without restriction, including without limitation the rights
-    to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-    copies of the Software, and to permit persons to whom the Software is
-    furnished to do so, subject to the following conditions:
-
-    The above copyright notice and this permission notice shall be included in all
-    copies or substantial portions of the Software.
-
-    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-    IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-    FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-    AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-    SOFTWARE.
+詳細說明見 docs/modules.md 的「embyserver/mediainfo.py」。
 """
 
 from __future__ import annotations

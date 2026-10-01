@@ -1,14 +1,6 @@
 """115 開放平台（open.115.com）通道。
 
-與 cookie 通道的差別：用 OAuth PKCE 裝置碼授權取得 access_token（約 2 小時）與 refresh_token，
-呼叫 proapi.115.com/open/* 官方授權介面，比較不容易被風控或被其他登入踢下線。
-需要先在 115 開放平台申請應用，取得 AppID（client_id）。
-
-授權流程：
-1. POST passportapi.115.com/open/authDeviceCode（client_id + code_challenge）→ uid、time、sign
-2. 用 uid 顯示二維碼，輪詢 qrcodeapi.115.com/get/status/
-3. 確認後 POST passportapi.115.com/open/deviceCodeToToken（uid + code_verifier）→ token
-4. 過期前 POST passportapi.115.com/open/refreshToken 續期
+詳細說明見 docs/modules.md 的「embyserver/p115_open.py」。
 """
 
 from __future__ import annotations
