@@ -28,6 +28,7 @@ from .reorganize import Reorganizer
 from .p115 import P115Service
 from .people import PeopleStore, PersonNames
 from .prober import MediaProber
+from .ratelimit import FailureLimiter
 from .redirect import Redirector
 from .routes import dav, items, p115, playback, system, web
 from .routes.common import SafeJSONResponse
@@ -167,6 +168,8 @@ def create_app(config: Config, db_path: Optional[str] = None, scan_on_start: boo
         db, config.p115.cookies, config.p115.app, config.p115.timeout, open_app_id=config.p115.open_app_id
     )
     app.state.redirector = Redirector(config.redirect, app.state.p115)
+    # /d/{pickcode} 這類轉址不用登入：同一個來源一分鐘取不到 10 次、所有來源加起來 60 次，就先不替它問 115
+    app.state.link_guard = FailureLimiter(per_client=10, overall=60, window=60.0)
     app.state.moviepilot = MoviePilot(config.moviepilot, config, on_done=scanner.scan_paths, db=db)
     app.state.prober = MediaProber(config.mediainfo, config, app.state.p115, db)
     app.state.backup = Backup(db, config)
@@ -203,7 +206,7 @@ def create_app(config: Config, db_path: Optional[str] = None, scan_on_start: boo
     @app.exception_handler(HTTPException)
     async def http_error(request: Request, exc: HTTPException):
         # Emby 的錯誤回應是純文字
-        return PlainTextResponse(str(exc.detail), status_code=exc.status_code)
+        return PlainTextResponse(str(exc.detail), status_code=exc.status_code, headers=getattr(exc, "headers", None))
 
     @app.exception_handler(ClientDisconnect)
     async def client_gone(request: Request, exc: ClientDisconnect):

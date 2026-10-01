@@ -11,6 +11,7 @@ from starlette.concurrency import run_in_threadpool
 
 from ..auth import AuthContext, client_info, require_admin, require_user
 from ..dto import user_dto
+from ..ratelimit import TooManyAttempts
 from .common import as_user, q, state
 
 router = APIRouter()
@@ -127,15 +128,19 @@ async def authenticate_by_name(request: Request):
     if password is None:
         password = q(request, "pw", "") or ""
     info = client_info(request)
+    source = request.client.host if request.client else ""
 
     def login():
         # 驗證密碼要算幾十毫秒的雜湊，不能擋住事件迴圈，其他人的播放請求會跟著卡
-        found = st.auth.authenticate(username, password)
+        found = st.auth.authenticate(username, password, source)
         if not found:
             return None, None
         return st.auth.get_user(found["id"]), st.auth.issue_token(found, info)
 
-    user, token = await run_in_threadpool(login)
+    try:
+        user, token = await run_in_threadpool(login)
+    except TooManyAttempts as exc:  # 猜太多次：先擋一陣子
+        raise HTTPException(status_code=429, detail=str(exc), headers={"Retry-After": str(int(exc.retry_after) + 1)})
     if not user:
         raise HTTPException(status_code=401, detail="Invalid username or password entered.")
     return {

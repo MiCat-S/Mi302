@@ -55,6 +55,9 @@ def test_login_and_admin_only(tmp_path):
     admin = app.state.auth.authenticate("admin", "pw")
     app.state.auth.update_user(admin["id"], password="new")
     assert c.request("PROPFIND", "/dav/", headers=ADMIN).status_code == 401
+    # 猜密碼猜太多次先擋（和播放器登入共用）
+    guess = [c.request("PROPFIND", "/dav/", headers=basic("guest", f"x{i}")).status_code for i in range(6)]
+    assert guess == [401] * 5 + [429]
     app.state.config.webdav.enabled = False
     assert c.request("PROPFIND", "/dav/", headers=basic("admin", "new")).status_code == 404
 

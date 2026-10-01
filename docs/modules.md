@@ -46,6 +46,14 @@
 - 取直鏈：115 明確說取不到的 pickcode 記 BAD_PICKCODE_SECONDS 秒，這段時間不再問 115；限流、連不上、開放平台
   token 的問題是暫時的，不記。
 - 播放器的 User-Agent 照收到的位元組原樣送給 115（http_util.header_value）：直鏈綁 UA，UA 裡有中文也不能改。
+- /d/{pickcode}、/p115/redirect 不用登入（strm 裡的網址，播放器不帶 token）：同一個來源一分鐘取不到 10 次、
+  所有來源加起來 60 次，就先回 429 不再替它問 115（ratelimit.FailureLimiter）；快取裡有的照給。
+
+## embyserver/auth.py、embyserver/ratelimit.py
+
+登入猜密碼的限制（播放器登入和 WebDAV 共用）：同一個來源對同一個帳號連續錯 5 次之後，每錯一次要等的時間加倍
+（30 秒起，最多 15 分鐘），回 429 和 Retry-After；登入成功或 15 分鐘沒再錯就歸零。同時算密碼雜湊的請求最多
+HASHING_SLOTS 個；帳號不存在時也算一次雜湊，回應時間看不出帳號存不存在。只記在記憶體，重新啟動就歸零。
 
 ## embyserver/p115_open.py
 

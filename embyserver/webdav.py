@@ -61,8 +61,8 @@ class WebDAV:
 
     # ---------------- 登入 ----------------
 
-    def login(self, header: str) -> Optional[dict]:
-        """HTTP Basic 登入，回傳使用者；帳號密碼不對回傳 None。
+    def login(self, header: str, client: str = "") -> Optional[dict]:
+        """HTTP Basic 登入，回傳使用者；帳號密碼不對回傳 None，同一個來源（client）猜太多次丟 TooManyAttempts。
         記住的登入每次還是查一下使用者：刪掉了、改了密碼的馬上失效。"""
         if not header.lower().startswith("basic "):
             return None
@@ -78,7 +78,7 @@ class WebDAV:
             name, _, password = base64.b64decode(header[6:].strip()).decode("utf-8").partition(":")
         except (binascii.Error, UnicodeDecodeError):
             return None
-        user = self.auth.authenticate(name, password)
+        user = self.auth.authenticate(name, password, client)
         with self._lock:
             self._users = {k: v for k, v in self._users.items() if now - v[0] < AUTH_TTL and k != key}
             if user:

@@ -202,12 +202,24 @@ async def p115_strm_tasks(request: Request, ctx: AuthContext = Depends(require_a
 
 
 def _redirect(request: Request, pickcode: str) -> Response:
+    """不用登入就能打（strm 裡的網址，播放器不帶 token）。每個沒快取的 pickcode 都要向 115 問一次，
+    所以取不到的次數有上限：亂打 pickcode 的來源先回 429，不讓它把 115 帳號打到限流（背景同步會停 45 分鐘）。"""
     if not PICKCODE_RE.match(pickcode):
         raise HTTPException(status_code=400, detail=f"Bad pickcode: {pickcode}")
-    try:
-        url = state(request).p115.download_url(pickcode, request.headers.get("user-agent", ""))
-    except P115Error as exc:
-        raise HTTPException(status_code=502, detail=str(exc))
+    st = state(request)
+    ua = request.headers.get("user-agent", "")
+    url = st.p115.cached_download_url(pickcode, ua)  # 剛取過的直接給，不算次數
+    if not url:
+        source = request.client.host if request.client else ""
+        wait = st.link_guard.retry_after(source)
+        if wait > 0:
+            raise HTTPException(status_code=429, detail="取不到直鏈的請求太多，等一下再試",
+                                headers={"Retry-After": str(int(wait) + 1)})
+        try:
+            url = st.p115.download_url(pickcode, ua)
+        except P115Error as exc:
+            st.link_guard.failed(source)
+            raise HTTPException(status_code=502, detail=str(exc))
     return RedirectResponse(url=url, status_code=302)
 
 

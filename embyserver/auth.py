@@ -7,6 +7,7 @@ import hmac
 import json
 import re
 import secrets
+import threading
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -15,11 +16,14 @@ from typing import Dict, Optional
 from fastapi import HTTPException, Request
 
 from .db import Database
+from .ratelimit import LoginThrottle, TooManyAttempts
 
 _AUTH_PAIR_RE = re.compile(r'(\w+)="([^"]*)"')
 ISO_FORMAT = "%Y-%m-%dT%H:%M:%S.0000000Z"  # Emby 的時間格式；同格式的字串可以直接比先後
 # tokens.last_used 最多隔這麼久才寫一次：每個請求都會驗 token，每次都寫資料庫太浪費
 TOKEN_TOUCH_SECONDS = 3600
+# 同時最多幾個請求在算密碼雜湊：一次要十幾到上百毫秒的 CPU，猜密碼的請求一多會佔滿處理請求的執行緒，播放跟著卡
+HASHING_SLOTS = 4
 
 
 def now_iso() -> str:
@@ -41,6 +45,10 @@ def verify_password(password: str, stored: Optional[str]) -> bool:
         return False
     digest = hashlib.pbkdf2_hmac("sha256", password.encode(), salt.encode(), 200_000)
     return hmac.compare_digest(digest.hex(), hexdigest)
+
+
+# 帳號不存在時也照樣算一次雜湊：回應時間一樣，看不出帳號存不存在
+_DUMMY_HASH = hash_password(secrets.token_hex(8))
 
 
 def parse_emby_authorization(value: str) -> Dict[str, str]:
@@ -116,6 +124,8 @@ class AuthService:
     def __init__(self, db: Database, api_keys: list[str]):
         self.db = db
         self.api_keys = api_keys  # 設定檔的 api_keys（同一個 list，設定檔重新讀取時跟著變）
+        self.throttle = LoginThrottle()  # 猜密碼猜太多次的先擋（播放器登入、WebDAV 共用）
+        self._hashing = threading.BoundedSemaphore(HASHING_SLOTS)
 
     # ---- API 金鑰（給 MoviePilot 等工具用，網頁上建立） ----
     def list_api_keys(self) -> list[dict]:
@@ -201,10 +211,19 @@ class AuthService:
     def list_users(self) -> list[dict]:
         return [dict(r) for r in self.db.query("SELECT * FROM users ORDER BY name")]
 
-    def authenticate(self, username: str, password: str) -> Optional[dict]:
+    def authenticate(self, username: str, password: str, client: str = "") -> Optional[dict]:
+        """帳號密碼對了回傳使用者，不對回傳 None。client 是來源 IP：同一個來源猜太多次丟 TooManyAttempts，
+        這時不查帳號、不算雜湊。"""
+        wait = self.throttle.retry_after(username, client)
+        if wait > 0:
+            raise TooManyAttempts(wait)
         row = self.db.one("SELECT * FROM users WHERE name=?", (username,))
-        if not row or not verify_password(password, row["password_hash"]):
+        with self._hashing:
+            ok = verify_password(password, row["password_hash"] if row else _DUMMY_HASH)
+        if not row or not ok:
+            self.throttle.failed(username, client)
             return None
+        self.throttle.succeeded(username, client)
         return dict(row)
 
     # ---- tokens ----

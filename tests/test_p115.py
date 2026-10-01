@@ -144,6 +144,18 @@ def test_short_link_endpoint(client):
         r = client.get(path, follow_redirects=False)
         assert r.status_code == 302 and r.headers["location"] == CDN, path
     assert client.get("/d/bad.mkv", follow_redirects=False).status_code == 400
+    # 不用登入就能打：亂打 pickcode 的來源，取不到 10 次之後先回 429，不再替它問 115；剛取過的照給
+    asked = []
+
+    def missing(pickcode, ua):
+        asked.append(pickcode)
+        raise P115Error("文件不存在")
+
+    client.app.state.p115._fetch_download_url = missing
+    codes = [client.get(f"/d/{i:017d}.mkv", follow_redirects=False).status_code for i in range(12)]
+    assert codes == [502] * 10 + [429] * 2 and len(asked) == 10
+    assert client.get(f"/p115/redirect?pickcode={99:017d}", follow_redirects=False).headers["retry-after"]
+    assert client.get(f"/d/{PICKCODE}.mkv", follow_redirects=False).status_code == 302 and len(asked) == 10
 
 
 def test_other_tools_strm_endpoint(client):

@@ -1,5 +1,6 @@
 """以模擬 Emby 客戶端的請求順序測試：登入 → 媒體庫 → 項目 → PlaybackInfo → 302。"""
 
+import time
 from pathlib import Path
 from urllib.parse import unquote
 
@@ -95,6 +96,16 @@ def test_public_info_and_login(client):
     r = client.get(f"/Users/{user_id}", params={"api_key": token})
     assert r.json()["Name"] == "cat"
     assert r.json()["Policy"]["IsAdministrator"] is True
+
+    # 猜密碼：同一個來源連續錯 5 次之後先擋（429、Retry-After），這時密碼對了也要等；時間過了、登入成功就歸零
+    guess = [client.post("/Users/AuthenticateByName", json={"Username": "cat", "Pw": f"guess{i}"}).status_code for i in range(6)]
+    assert guess == [401] * 5 + [429]
+    r = client.post("/Users/AuthenticateByName", json={"Username": "CAT", "Pw": "secret"})
+    assert r.status_code == 429 and int(r.headers["retry-after"]) > 0
+    throttle = client.app.state.auth.throttle
+    throttle.clock = throttle._by_client.clock = lambda: time.monotonic() + 1000
+    login(client)
+    assert client.post("/Users/AuthenticateByName", json={"Username": "cat", "Pw": "no"}).status_code == 401
 
 
 def test_views_and_movies(client):

@@ -6,6 +6,7 @@ from fastapi import APIRouter, Request, Response
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from ..p115 import P115Error
+from ..ratelimit import TooManyAttempts
 from ..webdav import DavError, content_type
 from .common import state
 
@@ -31,7 +32,10 @@ def dav(request: Request, path: str = "") -> Response:
     method = request.method
     if method == "OPTIONS":
         return Response(status_code=200, headers={"DAV": "1", "Allow": ALLOW, "MS-Author-Via": "DAV"})
-    user = dav.login(request.headers.get("authorization", ""))
+    try:
+        user = dav.login(request.headers.get("authorization", ""), request.client.host if request.client else "")
+    except TooManyAttempts as exc:
+        return _text(429, str(exc), {"Retry-After": str(int(exc.retry_after) + 1)})
     if not user:
         # 管理網頁的「測試」帶 X-Mi302-Test：不回 WWW-Authenticate，瀏覽器才不會跳出自己的登入框
         return _text(401, "要用 Mi302 的帳號密碼登入", None if request.headers.get("x-mi302-test") else CHALLENGE)
