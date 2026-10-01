@@ -430,6 +430,7 @@ class BatchJob:
     organized: int = 0  # 整理了的資料夾
     files: int = 0  # MoviePilot 整理好的檔案
     queued: int = 0  # 放進它背景佇列的檔案（結果在它的整理記錄）
+    renamed: int = 0  # Mi302 整理助手改好名字的資料夾
     nothing: int = 0  # 預覽後沒有要整理的（都已經照格式命名，或都不送）
     skipped: int = 0  # 有問題跳過的，要人看
     failed: int = 0  # 執行時有檔案失敗的資料夾
@@ -958,6 +959,8 @@ class Organizer:
             final = [n for n in here if n not in moving] + list(moving.values())
             if len(final) != len(set(final)) or any(n not in here for n in moving):
                 return None  # 改名後會和留在這裡的檔案撞名，或 115 上已經沒有這個檔案
+            if any(new != old and new in moving for old, new in moving.items()):
+                return None  # 新名字是同一批另一個檔案現在的名字（互換、連鎖）：外掛一個一個改，改的時候那個檔案還在
             renames += [{"fileid": str(here[old]["id"]), "name": new, "old": old, "path": posixpath.join(folder, old),
                          "type": "file"} for old, new in sorted(moving.items()) if old != new]
         for old, new in sorted(folders.items(), key=lambda kv: -kv[0].count("/")):
@@ -1128,7 +1131,7 @@ class Organizer:
                     break
             log.info("全部整理：%s 個資料夾，整理了 %s 個（%s 個檔案），跳過 %s 個，失敗 %s 個",
                      job.done, job.organized, job.files, job.skipped, job.failed)
-            if job.files or job.queued:
+            if job.files or job.queued or job.renamed:
                 # MoviePilot 背景處理的也要同步：它做完之後本機的 strm 只靠增量同步讀 115 生活事件搬
                 job.current = f"等 115 記下變動，{int(self.reorg.sync_delay)} 秒後同步"
                 job.synced = self.reorg.sync_later()
@@ -1173,11 +1176,12 @@ class Organizer:
         run = ReorgJob()
         folders = [{"cid": int(c["cid"]), "path": c["path"]} for c in u.cleanup_folders()] if cleanup else []
         self.reorg.run_plan(plan, folders, run)
-        if run.down == "offline" and not (run.done or run.queued) and not retried:
+        if run.down == "offline" and not (run.done or run.queued or run.renamed) and not retried:
             return RETRY  # 第一批就連不上：什麼都沒送出去，等它回來重新預覽、整理
         job.files += run.done
         job.queued += run.queued
-        if run.done or run.queued:
+        job.renamed += run.renamed
+        if run.done or run.queued or run.renamed:
             job.organized += 1
         if run.down:
             record("failed", f"MoviePilot 整理途中{DOWN_WORDS.get(run.down, '連不上')}：{run.errors[-1]}。"
@@ -1399,4 +1403,3 @@ def _mark_duplicates(views: List[dict]) -> None:
     for v in views:
         if v["ok"] and seen.get(v["target"], 0) > 1:
             v["warnings"].append(f"有 {seen[v['target']]} 個檔案會整理到同一個位置，只會留一個")
-

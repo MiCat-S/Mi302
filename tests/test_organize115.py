@@ -961,10 +961,42 @@ def test_rename_only_folders_go_to_the_plugin(tmp_path: Path):
                           ("file", "测试剧.E01.mp4", "测试剧 - S01E01 - 第 1 集.mp4"),
                           ("file", "测试剧.E02.mp4", "测试剧 - S01E02 - 第 2 集.mp4"),
                           ("dir", "C-测试剧-2020-[tmdb=777]", "测试剧 (2020) {tmdbid=777}")]  # Season 1 本來就對
+    # 檔名本來就對、只有資料夾名不對：改完也要同步（本機的 strm 跟著搬）
+    mp.MEDIA = {**mp.MEDIA, "778": ("另一剧", 2021, "tv")}
+    fake.dirs.update({150: ("D-另一剧-2021-[tmdb=778]", 102), 151: ("Season 1", 150)})
+    fake.files.append({"fid": 94, "cid": 151, "n": "另一剧 - S01E03 - 第 3 集.mp4", "pc": "rn94".ljust(17, "x"),
+                       "s": 900_000_000, "te": T0})
+    unit = c.post(folder, json={"cid": 150, "path": "/影視/劇集/D-另一剧-2021-[tmdb=778]"}, headers=h).json()
+    pv = preview(c, h, unit).json()
+    assert pv["notes"][0].startswith("只需要改名")
+    mp.renamed.clear()
+    assert c.post(EXECUTE, json={"tokens": [pv["token"]]}, headers=h).status_code == 200
+    wait(lambda: not app.state.reorganizer.job.running)
+    job = app.state.reorganizer.job
+    assert mp.renamed == [("dir", "D-另一剧-2021-[tmdb=778]", "另一剧 (2021) {tmdbid=778}")]
+    assert (job.done, job.renamed, job.synced) == (0, 1, "started")
     # 旁邊已經有「流浪 (2019) {tmdbid=9}」：要併進去，原地改名會撞名，照舊走整理
     unit = c.post(folder, json={"cid": 140, "path": "/影視/劇集/H-流浪-2019-[tmdb=9]"}, headers=h).json()
     pv = preview(c, h, unit).json()
     assert pv["token"] and not any(n.startswith("只需要改名") for n in pv["notes"])
+
+
+def test_rename_plan_refuses_swapped_names(tmp_path: Path):
+    """同一個資料夾裡互換、連鎖改名（新名字是另一個要改名的檔案現在的名字）：外掛一個一個改會撞名，不走直接改名。"""
+    app, fake, mp, media, c, h = setup(tmp_path)
+    fake.dirs[160] = ("换名剧", 102)
+    for fid, n in [(95, "A.mp4"), (96, "B.mp4"), (97, "C.mp4")]:
+        fake.files.append({"fid": fid, "cid": 160, "n": n, "pc": f"sw{fid}".ljust(17, "x"), "s": 900_000_000, "te": T0})
+    c.post("/web/api/115/organize/folder", json={"cid": 160, "path": "/影視/劇集/换名剧"}, headers=h)
+    org, base = app.state.organizer, "/影視/劇集/换名剧/"
+    unit = org.unit("d160")
+
+    def plan(*pairs):
+        return org._rename_plan(unit, [{"ok": True, "source": base + a, "target": base + b} for a, b in pairs], {})
+
+    assert [(r["old"], r["name"]) for r in plan(("A.mp4", "X.mp4"), ("B.mp4", "Y.mp4"))] == [("A.mp4", "X.mp4"), ("B.mp4", "Y.mp4")]
+    assert plan(("A.mp4", "B.mp4"), ("B.mp4", "A.mp4")) is None  # 互換
+    assert plan(("A.mp4", "B.mp4"), ("B.mp4", "C.mp4"), ("C.mp4", "D.mp4")) is None  # 連鎖
 
 
 def test_wrong_tmdbid_in_folder_name_needs_a_look(tmp_path: Path):

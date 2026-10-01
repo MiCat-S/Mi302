@@ -113,6 +113,7 @@ class ReorgJob:
     total: int = 0
     done: int = 0  # MoviePilot 整理好的檔案
     queued: int = 0  # MoviePilot 放進它的整理佇列在背景做（結果在它的整理記錄）
+    renamed: int = 0  # Mi302 整理助手改好名字的資料夾（檔案算在 done）：115 上的路徑也變了，要同步
     failed: int = 0
     current: str = ""
     synced: str = ""  # 之後的增量同步：started / busy
@@ -393,7 +394,7 @@ class Reorganizer:
             log.info("MoviePilot 整理 %s：%s 個完成，%s 個失敗", job.title, job.done, job.failed)
             if cleanup:
                 self._remove_empty_folders(cleanup, job)
-            if job.done or job.queued:
+            if job.done or job.queued or job.renamed:
                 # MoviePilot 背景處理的也要同步：它做完之後本機的 strm 只靠增量同步讀 115 生活事件搬，
                 # 它通知媒體伺服器只會讓 Mi302 重新掃描本機。這次還沒做完的，等下一次同步
                 job.current = f"等 115 記下變動，{int(self.sync_delay)} 秒後同步"
@@ -477,6 +478,7 @@ class Reorganizer:
                               "target": str(r.get("name") or ""), "message": str(r.get("message") or "")})
         files = [r for r in results if r.get("type") == "file"]
         job.done += sum(1 for r in files if r.get("ok"))
+        job.renamed += sum(1 for r in results if r.get("ok") and r.get("type") != "file")
         job.failed += sum(1 for r in results if not r.get("ok"))
         left = len(renames) - len(results)
         if left:
