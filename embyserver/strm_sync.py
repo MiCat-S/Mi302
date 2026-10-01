@@ -1046,10 +1046,28 @@ class StrmSync:
         if src.suffix.lower() == ".strm":
             self._move_sidecars(src, dst)
         shutil.move(str(src), str(dst))
+        self._repath(src, dst, is_dir=False)
         self.result.moved += 1
         self.result.changed += [str(src), str(dst)]
         log.info("115 上移動或改名，本機跟著搬：%s -> %s", old, new)
         ctx.to_prune.add(src.parent)
+
+    def _repath(self, src: Path, dst: Path, is_dir: bool) -> None:
+        """本機的 strm（或整個資料夾）搬了：媒體庫裡的項目和媒體資訊跟著改路徑，項目的 id 不變。
+        媒體庫的項目是用路徑認的，不改的話掃描會把舊路徑的項目刪掉、新路徑當成新項目，看過、續播點、收藏、
+        片頭片尾紀錄全部不見（「整理 115 網盤」之後整部劇變成沒看過）。新路徑已經有項目的不動（OR IGNORE）。"""
+        db, old, new = self.p115.db, str(src), str(dst)
+        for table in ("items", "media_info"):
+            if not is_dir:
+                db.execute(f"UPDATE OR IGNORE {table} SET path=? WHERE path=?", (new, old))
+                continue
+            # 資料夾：它自己（劇）、底下的檔案和資料夾（old/…）、劇集沒有季資料夾時的「資料夾#season1」
+            n = len(old) + 1
+            db.execute(
+                f"UPDATE OR IGNORE {table} SET path=? || substr(path, ?) "
+                "WHERE path=? OR substr(path, 1, ?)=? OR substr(path, 1, ?)=?",
+                (new, n, old, n, old + os.sep, n, old + "#"),
+            )
 
     def _move_sidecars(self, src: Path, dst: Path) -> None:
         """strm 改名或搬家時，X.nfo、X-poster.jpg 這些跟著改成新名字（已有同名檔的不動）。"""
@@ -1066,6 +1084,7 @@ class StrmSync:
             else:
                 dst.parent.mkdir(parents=True, exist_ok=True)
                 shutil.move(str(src), str(dst))
+            self._repath(src, dst, is_dir=True)
             self.result.moved += 1
             self.result.changed += [str(src), str(dst)]
             log.info("115 上移動或改名資料夾，本機跟著搬：%s -> %s", old, new)

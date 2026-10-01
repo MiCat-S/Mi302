@@ -172,6 +172,12 @@ def test_life_events_upload_move_rename_delete(tmp_path: Path):
     (media / "劇集" / "Dark" / "Dark.S01E01.nfo").write_text("<ep/>")
     (media / "電影" / "Old Movie (2001).nfo").write_text("<movie/>")
     (media / "電影" / "Old Movie (2001)-poster.jpg").write_bytes(b"jpg")
+    # 媒體庫裡已經有這些項目（項目是用路徑認的）：搬了之後 id 要一樣，觀看紀錄才不會不見
+    db = sync.p115.db
+    old_paths = [media / "電影" / "Old Movie (2001).strm", media / "劇集" / "Dark", f"{media / '劇集' / 'Dark'}#season1",
+                 media / "劇集" / "Dark" / "Dark.S01E01.strm"]
+    ids = [db.execute("INSERT INTO items(type, path) VALUES('x', ?)", (str(p),)).lastrowid for p in old_paths]
+    db.execute("INSERT INTO media_info(path, data) VALUES(?, '{}')", (str(old_paths[0]),))
 
     # 上傳新片（修改時間很舊，只有事件抓得到）
     fake.files.append({"fid": 7, "cid": 101, "n": "Up (2009).mkv", "pc": "u" * 17, "s": 900_000_000, "te": T0 - 99999})
@@ -202,6 +208,9 @@ def test_life_events_upload_move_rename_delete(tmp_path: Path):
     assert not (media / "劇集" / "Dark").exists()
     assert r.moved == 2 and sync.task_states()[0]["life_id"] == 1005
     assert not (media / "待整理").exists()
+    new_paths = [moved / "Old Movie (2001).strm", show, f"{show}#season1", show / "Dark.S01E01.strm"]
+    assert [db.scalar("SELECT path FROM items WHERE id=?", (i,)) for i in ids] == [str(p) for p in new_paths]
+    assert db.scalar("SELECT path FROM media_info") == str(new_paths[0])
 
     # 刪除：strm 連同刮削資料一起刪
     fake.files = [f for f in fake.files if f["fid"] != 1]
