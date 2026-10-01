@@ -290,6 +290,7 @@ def test_checks_what_moviepilot_actually_wrote(tmp_path: Path):
 
 
 def test_no_image_marks_persist_in_database(tmp_path: Path):
+    """沒有劇照的集、上一次刮削的結果都記在資料庫，重新啟動後還在。"""
     from embyserver.db import Database
 
     touch(tmp_path / "tv" / "Show" / "tvshow.nfo")
@@ -301,6 +302,9 @@ def test_no_image_marks_persist_in_database(tmp_path: Path):
     assert mp.plan([ep], with_images=True) == [(Path(ep), False)]
     mp._mark_no_image(Path(ep))
     assert MoviePilot(cfg.moviepilot, cfg, db=db).plan([ep], with_images=True) == []
+    r = mp.scrape([ep], "manual")  # 已經有 nfo，什麼都不送；結果照樣記下
+    last = MoviePilot(cfg.moviepilot, cfg, db=db).result
+    assert (last.source, last.total, last.finished, last.running) == ("manual", 0, r.finished, False) and r.finished
 
 
 def test_concurrency_setting_is_clamped_and_saved(tmp_path: Path):

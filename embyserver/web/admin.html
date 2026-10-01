@@ -1811,7 +1811,11 @@ async function probeMI(ids, label) {
   pollMI();
 }
 function scanHtml(s) {
-  if (!s.scanning) return '';
+  if (!s.scanning) {  // 沒在掃：一行上次的結果（按了停止的話說沒掃到的下次再補）
+    const l = s.last || {};
+    return l.finished ? `<p class="hint">上次掃描${l.what ? '「' + esc(l.what) + '」' : ''}・${ago(l.finished)}：處理了 ${l.touched} 個項目` +
+      `${l.stopped ? '。按了停止，沒掃到的不會從媒體庫刪掉，下次掃描再補' : ''}</p>` : '';
+  }
   // 分母是上次掃描後的項目數；第一次掃描沒有分母，顯示來回滑動的忙碌條
   const p = s.progress || {}, pct = p.total ? Math.min(99, Math.floor(p.done / p.total * 100)) : null, label = p.item || s.current;
   return `<div class="scanbar"><span class="row"><span class="spin"></span><span class="grow">掃描中${pct === null ? '' : ' ' + pct + '%'}${label ? '：' + esc(label) : ''}</span><button class="btn sm ghost danger" data-act="stopJob" data-job="scan">停止</button></span>` +

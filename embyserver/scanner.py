@@ -337,6 +337,8 @@ class Scanner:
         self._custom_lock = threading.RLock()
         self.workers = Workers()  # 背景掃描（開機、網頁、設定改了）；程式結束或按了停止時停在兩項之間，不刪沒掃到的
         self.stopped = False  # 上一次掃描是按了停止才停下的
+        self._cancelled_at = float("-inf")  # 上次按停止的時間（monotonic）：那之前就在排隊的掃描也不做
+        self.last: dict = {}  # 上一次掃描：what、finished、touched、stopped（網頁顯示用）
 
     def in_background(self, job, *args) -> None:
         """在背景掃描（job 是 scan_all、scan_libraries、scan_paths）；程式結束時會等它停下。"""
@@ -436,7 +438,16 @@ class Scanner:
         """按了停止：這一次掃描在兩項之間停下，不刪沒掃到的（下次掃描再補）。沒在掃描回傳 False。"""
         if not self.scanning:
             return False
+        self._cancelled_at = time.monotonic()
         self.workers.cancel.set()
+        return True
+
+    def _queued_and_stopped(self, queued_at: float) -> bool:
+        """這次掃描排隊等鎖的時候按了停止：停止是停這一串（開機、同步後、設定改了排在後面的），不做了。"""
+        if self._cancelled_at < queued_at:
+            return False
+        self.stopped = True
+        log.info("按了停止，排在後面的掃描不做（沒掃到的下次掃描再補）")
         return True
 
     def _stopped(self) -> None:
@@ -453,6 +464,7 @@ class Scanner:
         self.expected = 0
 
     def _end(self) -> None:
+        self.last = {"what": self.current, "finished": time.time(), "touched": self.touched, "stopped": self.stopped}
         self.scanning = False
         self.current = ""
         self.item = ""
@@ -488,8 +500,11 @@ class Scanner:
             log.info("已經有一次完整掃描在排隊，略過")
             return
         self._full_waiting = True
+        queued_at = time.monotonic()
         with self._lock:
             self._full_waiting = False
+            if self._queued_and_stopped(queued_at):
+                return
             self._begin("全部媒體庫")
             try:
                 self.workers.check()
@@ -509,7 +524,10 @@ class Scanner:
     def scan_libraries(self, names: Iterable[str]) -> None:
         """只掃描指定的媒體庫，並移除設定裡已經沒有的媒體庫。"""
         wanted = set(names)
+        queued_at = time.monotonic()
         with self._lock:
+            if self._queued_and_stopped(queued_at):
+                return
             self._begin("、".join(sorted(wanted)) or "媒體庫")
             try:
                 self.workers.check()
@@ -558,7 +576,10 @@ class Scanner:
             # 變動太多（例如第一次全量同步），逐一處理不如整庫掃
             self.scan_libraries({lib.name for lib, *_ in units})
             return
+        queued_at = time.monotonic()
         with self._lock:
+            if self._queued_and_stopped(queued_at):
+                return
             self._begin(units[0][2].name if len(units) == 1 else f"{len(units)} 個位置")
             try:
                 self.workers.check()

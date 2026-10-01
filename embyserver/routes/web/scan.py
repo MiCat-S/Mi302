@@ -41,6 +41,7 @@ def scan_status(request: Request, ctx: AuthContext = Depends(require_admin)):
     return {
         "scanning": st.scanner.scanning, "current": st.scanner.current, "libraries": libs,
         "stopped": st.scanner.stopped,  # 上一次掃描是按了停止才停下的
+        "last": st.scanner.last,  # 上一次掃描：what、finished、touched、stopped
         # 進度：total 是上次掃描後的項目數，第一次掃描是 0（網頁顯示忙碌條）
         "progress": {"done": st.scanner.touched, "total": st.scanner.expected, "item": st.scanner.item},
     }

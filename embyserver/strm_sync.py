@@ -11,9 +11,10 @@ import os
 import posixpath
 import re
 import shutil
+import sqlite3
 import threading
 import time
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
 from typing import Callable, Dict, Iterable, Iterator, List, Optional, Set, Tuple
 from urllib.parse import quote, unquote
@@ -37,6 +38,7 @@ log = logging.getLogger(__name__)
 # 自動偵測到的伺服器位址、各任務的同步進度，存在資料庫 meta
 SERVER_URL_META_KEY = "server_url"
 STATE_META_KEY = "p115_sync_state"
+LAST_RESULT_META_KEY = "p115_sync_last_result"  # 上一次同步的結果摘要，重新啟動後網頁照樣顯示
 # 增量同步往回多看一段時間，避免 115 與本機時間差或同一秒上傳的檔案漏掉；重複處理只會判定為「未變」
 INCREMENTAL_OVERLAP = 600
 # 全量同步：115 一次列出的影片少於目錄樹裡的這個比例，代表清單不完整，改成逐層列目錄
@@ -399,7 +401,7 @@ class StrmSync:
         self.cfg = cfg
         self.port = port
         self.on_done = on_done
-        self.result = SyncResult()
+        self.result = self._load_last_result()  # 重新啟動前最後一次同步的結果，網頁才不會顯示「還沒同步過」
         self._lock = threading.Lock()
         self._http = httpx.Client(timeout=60, follow_redirects=True)
         self._stop = threading.Event()
@@ -610,6 +612,7 @@ class StrmSync:
             self.result.finished = time.time()
             self._lock.release()
         r = self.result
+        self._save_last_result(r)
         log.info(
             "115 strm %s同步完成：生活事件 %s，搬移 %s，新增/更新 %s（新檔 %s），未變 %s，下載中繼資料 %s，刪除 %s，錯誤 %s",
             "增量" if mode == INCREMENTAL else "全量", r.events, r.moved,
@@ -621,6 +624,28 @@ class StrmSync:
             except Exception:
                 log.exception("同步後續處理失敗")
         return r
+
+    def _load_last_result(self) -> SyncResult:
+        """上一次同步的結果摘要（存在 meta）；沒有、壞掉回傳空的。"""
+        db = getattr(self.p115, "db", None)
+        try:
+            raw = json.loads(db.get_meta(LAST_RESULT_META_KEY) or "{}") if db is not None else {}
+            keep = {f.name for f in fields(SyncResult)} - {"running", "new_files", "replaced", "changed"}
+            return SyncResult(**{k: v for k, v in raw.items() if k in keep})
+        except (ValueError, TypeError, AttributeError, sqlite3.Error):
+            return SyncResult()
+
+    def _save_last_result(self, r: SyncResult) -> None:
+        """同步結果的摘要記進 meta（新檔清單這些只記數量、錯誤最多 20 條）：重新啟動後網頁還看得到上次同步。"""
+        db = getattr(self.p115, "db", None)
+        if db is None:
+            return
+        d = {k: v for k, v in r.as_dict().items() if k not in ("running", "new_files", "replaced", "changed")}
+        d["errors"] = d["errors"][:20]
+        try:
+            db.set_meta(LAST_RESULT_META_KEY, json.dumps(d, ensure_ascii=False))
+        except sqlite3.Error as exc:  # 程式正在結束、資料庫已經關了
+            log.debug("記不下同步結果：%s", exc)
 
     def _run(self, mode: str) -> None:
         if self.p115.breaker.tripped:

@@ -28,6 +28,10 @@ def test_stopped_sync_keeps_strm_and_next_sync_runs(tmp_path: Path):
     sync._handle_file = real
     r = sync.run(FULL)  # 停止只算那一次
     assert not r.stopped and not movie.exists()
+    # 結果摘要記在資料庫：重新啟動後網頁照樣顯示上次同步（不是「還沒同步過」）
+    from embyserver.strm_sync import StrmSync
+    again = StrmSync(sync.p115, sync.cfg).result
+    assert (again.started, again.finished, again.running, again.removed) == (r.started, r.finished, False, 1)
 
 
 def test_stopped_scan_keeps_items(tmp_path: Path):
@@ -51,6 +55,39 @@ def test_stopped_scan_keeps_items(tmp_path: Path):
     sc._scan_library = real
     sc.scan_all()
     assert not sc.stopped and db.one("SELECT COUNT(*) AS c FROM items WHERE type='Movie'")["c"] == 1
+    assert (sc.last["what"], sc.last["touched"], sc.last["stopped"]) == ("全部媒體庫", 1, False)  # 網頁顯示上次掃描
+
+    # 停止是停這一串：正在掃的那一次停下，排在後面等著的（開機、同步後、設定改了）也不做
+    import threading
+
+    class WatchedLock:  # 第二個來等鎖的時候通知測試（它排隊的時間已經記下了）
+        def __init__(self):
+            self.lock, self.waiting = threading.Lock(), threading.Event()
+
+        def __enter__(self):
+            if self.lock.locked():
+                self.waiting.set()
+            self.lock.acquire()
+
+        def __exit__(self, *exc):
+            self.lock.release()
+
+    gate, started = threading.Event(), threading.Event()
+    sc._lock = WatchedLock()
+    sc._scan_library = lambda lib: (started.set(), gate.wait(5), real(lib))[-1]
+    first = threading.Thread(target=sc.scan_all)
+    first.start()
+    assert started.wait(5)
+    queued = threading.Thread(target=sc.scan_libraries, args=({"電影"},))
+    queued.start()
+    assert sc._lock.waiting.wait(5) and sc.cancel()
+    gate.set()
+    first.join(5)
+    queued.join(5)
+    assert sc.stopped and (sc.last["what"], sc.last["stopped"]) == ("全部媒體庫", True)  # 排隊的那次沒掃
+    sc._scan_library = real
+    sc.scan_all()  # 停止之後新開始的照常掃
+    assert not sc.stopped
 
 
 def test_stopped_delete_finishes_the_batch_and_stops(tmp_path: Path, monkeypatch):

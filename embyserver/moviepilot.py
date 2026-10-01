@@ -9,11 +9,12 @@ import json
 import logging
 import os
 import re
+import sqlite3
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
 from typing import Callable, Dict, Iterable, List, Optional, Set, Tuple
 from urllib.parse import urlsplit
@@ -55,6 +56,7 @@ MAX_CONCURRENCY = 8  # 同時送幾項刮削的上限
 # 送過卻沒有劇照的集（TMDB 沒有這集的圖），這段時間內手動刮削不再重送；過了這段時間的紀錄順手清掉
 NO_IMAGE_RETRY_SECONDS = 30 * 86400
 FILL_EXCLUDED_KEY = "fill_excluded"  # 補全缺集時跳過的劇（資料庫 meta，JSON：tmdbid → 劇名）
+LAST_SCRAPE_KEY = "mp_last_scrape"  # 上一次刮削的結果摘要（資料庫 meta），重新啟動後網頁照樣顯示
 # 這麼久以內查過 TMDB 的季直接用記下的，不再問一次：檢查完接著補全、同一天重跑，不必再問上千次
 TMDB_FRESH_SECONDS = 6 * 3600
 
@@ -195,7 +197,7 @@ class MoviePilot:
         self.db = db
         self._no_image: Dict[str, float] = {}  # 沒有資料庫時（測試）記在記憶體
         self.verify_wait = 0.5  # MoviePilot 回報完成後等檔案出現（網路磁碟可能慢一點）
-        self.result = ScrapeResult()
+        self.result = self._load_scrape_result()  # 重新啟動前最後一次刮削的結果，網頁才不會顯示「還沒有刮削紀錄」
         self.fill_result = FillResult()
         self.unsubscribe_result = UnsubscribeResult()
         self._subs_cache: Optional[Tuple[float, Optional[List[dict]]]] = None  # (時間, 訂閱清單；讀不到是 None)
@@ -608,10 +610,30 @@ class MoviePilot:
             r.current = ""
             r.finished = time.time()
             self._lock.release()
+        self._save_scrape_result(r)
         done = [scraped[i] for i in sorted(scraped)]
         if done and self.on_done:
             self.on_done(done)  # 只重新掃描刮削過的地方
         return r
+
+    def _load_scrape_result(self) -> ScrapeResult:
+        """上一次刮削的結果摘要（存在 meta）；沒有資料庫、沒有、壞掉回傳空的。"""
+        try:
+            raw = json.loads(self.db.get_meta(LAST_SCRAPE_KEY) or "{}") if self.db is not None else {}
+            keep = {f.name for f in fields(ScrapeResult)} - {"running", "current"}
+            return ScrapeResult(**{k: v for k, v in raw.items() if k in keep})
+        except (ValueError, TypeError, AttributeError, sqlite3.Error):
+            return ScrapeResult()
+
+    def _save_scrape_result(self, r: ScrapeResult) -> None:
+        if self.db is None:
+            return
+        d = {k: v for k, v in r.as_dict().items() if k not in ("running", "current")}
+        d["errors"] = d["errors"][:20]
+        try:
+            self.db.set_meta(LAST_SCRAPE_KEY, json.dumps(d, ensure_ascii=False))
+        except sqlite3.Error as exc:  # 程式正在結束、資料庫已經關了
+            log.debug("記不下刮削結果：%s", exc)
 
     def scrape_in_background(self, paths: Optional[List[str]], source: str) -> bool:
         """paths 為 None 時送媒體庫裡所有還沒有 nfo 的影片。"""
