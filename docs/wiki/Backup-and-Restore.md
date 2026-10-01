@@ -87,6 +87,7 @@ mi302 start
 - With the one-line installer on macOS, use `~/Mi302/config` instead of `/opt/mi302/config`.
 - With a manual Python install, stop Mi302 first (Ctrl+C in its terminal, or `sudo systemctl stop mi302`). `data` and `config.yaml` are in the folder you start Mi302 from.
 - These files belong to the account that runs Mi302. Work as that account. If you copy with `sudo`, give the files back to that account afterwards, for example `sudo chown <user> data/library.db config.yaml`, or Mi302 cannot write to them.
+- The database, the backups and the config file are readable only by the account that runs Mi302 (mode 600): they hold the 115 login and passwords. Other accounts need `sudo` to read them.
 
 After a restore:
 

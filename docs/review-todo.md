@@ -77,7 +77,7 @@ StartIndex、Limit 的負數當成沒給。另外測試加了管理網頁 node -
 
 1. **舊 cookie 失效會連累開放平台。** 全量同步的導出目錄樹只能用 cookie；cookie 失效時熔斷變成「登入失效」，連開放平台正常可用的背景工作也全停，直到重新設定 cookie。開放平台有授權時，cookie 失效應該只停用 cookie 通道，並在網頁提示。
 2. **cookie 用 http 明文送出。** `DOWNLOAD_API` 是 `http://proapi.115.com/...`。試試 https 能不能用。
-3. **不用登入的轉址端點可能打出限流。** `/d/{code}`、`/p115/redirect` 每個亂打的 pickcode 都會向 115 請求一次，打出限流會讓背景同步停 45 分鐘。考慮負面快取或每個 IP 限速。
+3. ~~**不用登入的轉址端點可能打出限流。** `/d/{code}`、`/p115/redirect` 每個亂打的 pickcode 都會向 115 請求一次，打出限流會讓背景同步停 45 分鐘。考慮負面快取或每個 IP 限速。~~（2026-10-02：取不到的 pickcode 記 60 秒，取不到的次數有上限）
 4. **可讀性。**
    - `Breaker.tripped` 是有副作用的 property（會改狀態、寫日誌）。
    - 魔術數字：`LIST_PAGE_SIZE = 1150`、`life_events` 的 64 和 1000、`_snippet` 的 2000 和 120。
@@ -90,7 +90,7 @@ StartIndex、Limit 的負數當成沒給。另外測試加了管理網頁 node -
 ### 四、同步與掃描（strm_sync.py、scanner.py）
 
 1. **大量刪除沒有上限。** 已加「115 一支都沒列出時不刪」，但 115 目錄填到另一個只有幾支影片的資料夾時，還是會刪掉本機大部分 strm。考慮刪除數超過本機 strm 的一半且多於 20 支時不刪、留說明。
-2. **路徑逃逸的保險。** 115 檔名若有 `..`（沒確認 115 允許）會組出任務資料夾外的路徑。在 `_target` 或 `_handle_file` 加一道「結果要在 local 底下」的檢查。
+2. ~~**路徑逃逸的保險。** 115 檔名若有 `..`（沒確認 115 允許）會組出任務資料夾外的路徑。在 `_target` 或 `_handle_file` 加一道「結果要在 local 底下」的檢查。~~（2026-10-02：`strm_sync.safe_rel`）
 3. **可讀性。** `_run_full` 自己組 local 和 `_TaskIndex`，其他地方都用 `_Ctx`；`_handle_file` 和 `_place_file` 名稱太像；~~「列出來的少於九成就改逐層列目錄」的 0.9 沒命名~~（見 review-2026-09-28）；~~`parse_nfo` 每個欄位 `text()` 叫兩次~~（見 review-2026-09-28）；~~`scanner.image_ext` 夾在常數中間~~（見 review-2026-09-28）。
 
 ### 五、管理網頁、安裝腳本、README

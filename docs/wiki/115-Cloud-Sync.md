@@ -124,6 +124,9 @@ With **Also download nfo, posters and subtitles from 115** (一併下載 115 上
 
 - A local file with the same size is not downloaded again.
 - Failed downloads appear in the sync errors and are retried by the next full sync.
+- Every file needs one direct-link request to 115, so downloads are spaced at least 0.5 seconds apart (or `p115.strm.request_delay` if that is larger; 0 turns the spacing off). A full sync writes all strm files first and downloads these files last, so new videos do not wait for them.
+- If 115 starts rate limiting during the downloads, the rest are skipped for this run while strm files are still written; the sync result says so, and the next full sync fetches them.
+- Files larger than 64 MB are not downloaded (a normal nfo, image or subtitle is never that big).
 - Mi302 does not scrape by itself. When 115 has no nfo files and posters, let MoviePilot do the scraping (fetching metadata and artwork). See [MoviePilot](MoviePilot).
 
 ## Incremental sync and full sync
@@ -436,6 +439,7 @@ The **Duplicates and big files** card (重複和大檔案) on the **Tools** tab 
 - A bar above the list has **Tick all as suggested** (全部照建議勾選; on Big files, **Tick everything that matches**) and **Untick all** (全部取消勾選), which work on every tab and include pages you have not opened, plus a **Delete ticked** button that shows how many files are ticked and their total size (刪除勾選的 N 個). The same button is repeated below the list.
 - **Delete ticked** (刪除勾選的) handles every group on the current tab, including pages you have not opened; **Delete ticked in this group** (刪這一組勾選的) handles one group. The confirmation shows the count and size, and more than 50 files asks a second time. Every duplicate group must keep at least one copy (big files need not).
 - Files go to the 115 recycle bin and can be restored there, until the bin is emptied (see [115 recycle bin](#115-recycle-bin)). One request handles up to a hundred files.
+- The lists reflect the last scan, so right before deleting Mi302 lists the scanned folders on 115 again (the same way the scan does, not file by file). A file is deleted only if at least one of the copies to keep in its group is still there; if the copies to keep are gone (deleted in the 115 app or by MoviePilot), it is left alone and you are asked to scan again. Files that are already gone from 115 are dropped from the list, and if 115 cannot be listed nothing is deleted.
 - The local strm and its same-name nfo, posters, subtitles and `X-mediainfo.json` are deleted too (regardless of the follow-deletions setting), and only the affected series or movies are rescanned.
 - Watch history of the deleted copy (played, resume position, favourite) moves to the kept copy, per user. For big files it moves to another version of the same title or an identical copy; if there is none, it is gone.
 - **Recently deleted** (最近刪掉的) at the bottom of the card lists what was deleted (duplicates and big files) and where, to find it in the recycle bin.
@@ -489,10 +493,11 @@ While the breaker is open:
 - No sync starts, and the sync result says why. A running sync stops as soon as it is rate-limited, and the remaining tasks are skipped.
 - Scheduled syncs wait, and media-info probing stops.
 - Playback does not go through the breaker and still fetches direct links from 115.
+- The breaker state is stored in the database: after Mi302 restarts (an update, a reboot) the cooldown keeps counting, so it does not go straight back to hitting 115.
 
 The notice appears on the Account cards of the 115 Cloud and Overview tabs and on the **Media info** card (媒體資訊) of the Tools tab.
 
-For one hour after recovering from rate limiting, media-info probing runs slower: for the first 30 minutes the interval between direct-link requests is 4 times longer and the hourly cap is a quarter, for the next 30 minutes 2 times and a half, then back to normal. Sync is not slowed down. The Media info card says it is slowing down while this lasts.
+For one hour after recovering from rate limiting, media-info probing runs slower: for the first 30 minutes the interval between direct-link requests is 4 times longer and the hourly cap is a quarter, for the next 30 minutes 2 times and a half, then back to normal. Sync spaces its metadata downloads out by the same factor and is otherwise not slowed down. The Media info card says it is slowing down while this lasts.
 
 ## Other settings
 

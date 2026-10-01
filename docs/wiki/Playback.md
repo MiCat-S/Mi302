@@ -161,9 +161,10 @@ Set it to the reverse proxy's public address (a sub-path works, for example `htt
 ### Security
 
 - Keep **Require login for playback URLs** on and use strong passwords.
+- Password guessing is limited: after 5 wrong passwords in a row for one account from one source, the next attempt has to wait (30 seconds at first, doubling with each further mistake, up to 15 minutes), even with the right password. This applies to player logins and WebDAV alike, and resets after a successful login or 15 minutes without a mistake.
 - Consider turning off **List user names on the player login screen** (播放器登入畫面列出使用者名稱, `server.public_users`) in the **Server** card, so the login screen does not list accounts.
 - The web admin page `/web` is only available to admin accounts, and API keys cannot call its API.
-- The strm short links `/d/{pickcode}` do not check login, but they require knowing the 17-character pickcode.
+- The strm short links `/d/{pickcode}` do not check login, but they require knowing the 17-character pickcode. When too many requests fail to get a link (10 a minute from one source, or 60 a minute overall), Mi302 answers 429 and stops asking 115 for them; links fetched a moment ago are still served.
 - [WebDAV](#webdav) requires a user name and password; turn on **Administrators only** when exposing the whole of 115.
 
 ## WebDAV
