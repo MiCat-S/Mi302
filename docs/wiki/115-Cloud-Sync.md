@@ -246,6 +246,7 @@ To avoid deleting by mistake, full sync skips deletion in these cases and says s
 - Some folders' paths could not be resolved, so some files have an unknown location.
 - 115 listed no videos at all while the local folder has videos. Usually the 115 folder is wrong, or 115 returned an incomplete answer.
 - Videos in the tree but missing from 115's listing keep their strm files. They are only deleted when a later full sync finds them in neither.
+- More than 100 strm files to delete are unknown to the sync records (they did not come from this 115 folder) and they are more than half of the local strm files: most likely the task's 115 folder was changed to another folder that also has videos, so these are kept. Files really deleted on 115 are in the sync records and are still deleted. If the folder is right, delete those local strm files yourself.
 
 When 115 returns an error or rate-limits the request, the whole task fails instead of being treated as an empty folder.
 

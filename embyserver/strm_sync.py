@@ -56,6 +56,9 @@ STATE_META_KEY = "p115_sync_state"
 INCREMENTAL_OVERLAP = 600
 # 全量同步：115 一次列出的影片少於目錄樹裡的這個比例，代表清單不完整，改成逐層列目錄
 MIN_LISTED_RATIO = 0.9
+# 跟著刪：115 上沒有、同步紀錄裡也沒有的 strm 超過這麼多個、又超過本機的這個比例時不刪（多半是 115 目錄填錯了）
+STALE_GUARD = 100
+STALE_GUARD_RATIO = 0.5
 
 FULL = "full"
 INCREMENTAL = "incremental"
@@ -770,7 +773,8 @@ class StrmSync:
                 # 多半是 115 目錄填錯（另一個空資料夾）或 115 沒回完整，不能把整個媒體庫清掉
                 self.result.notes.append(f"{remote}：115 上一支影片都沒列出來，這次不刪除本機的 strm")
             else:
-                self._remove_stale(local, produced | {str(local / p) for p in keep})
+                kept = produced | {str(local / p) for p in keep}
+                self._remove_stale(local, kept | self._unknown_stale(remote, local, kept, index))
         index.replace_all(rows)
         self._save_state(
             task, since=newest or int(time.time()), full_at=int(time.time()), indexed=True,
@@ -1196,6 +1200,30 @@ class StrmSync:
         os.replace(tmp, target)
         self.result.metadata_downloaded += 1
         self.result.changed.append(str(target))
+
+    def _unknown_stale(self, remote: str, local: Path, kept: Set[str], index: "_TaskIndex") -> Set[str]:
+        """這次要刪的 strm 裡，同步紀錄沒記過的（不是從這個 115 目錄同步來的）一大批時，這些先不刪，回傳它們。
+
+        115 上刪掉、移走的檔案，同步紀錄裡都有，照刪。紀錄裡沒有的一大批，多半是 115 目錄改填成了另一個也有影片的
+        資料夾（本機資料夾沒換），照刪會把本機媒體庫清掉一大半；只差幾個的照刪。
+        """
+        known = set(index.files())
+        total, unknown = 0, set()
+        for dirpath, _, filenames in os.walk(local):
+            for name in filenames:
+                if not name.lower().endswith(".strm"):
+                    continue
+                total += 1
+                path = Path(dirpath) / name
+                if str(path) not in kept and path.relative_to(local).as_posix() not in known:
+                    unknown.add(str(path))
+        if len(unknown) <= STALE_GUARD or len(unknown) <= total * STALE_GUARD_RATIO:
+            return set()
+        log.warning("%s：本機 %s 個 strm 裡有 %s 個 115 上沒有、同步紀錄裡也沒有，不刪", remote, total, len(unknown))
+        self.result.notes.append(
+            f"{remote}：本機有 {len(unknown)} 個 strm（共 {total} 個）在 115 上找不到、同步紀錄裡也沒有，不像是 115 上刪掉的，"
+            "多半是同步任務的 115 目錄填錯了，這次不刪。確認沒填錯的話，自己刪掉本機這些 strm")
+        return unknown
 
     def _remove_stale(self, local: Path, produced: set[str]) -> None:
         """刪除 115 上已不存在的 strm，以及跟著它的中繼資料。
