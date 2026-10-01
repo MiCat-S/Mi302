@@ -7,8 +7,8 @@ import pytest
 
 from embyserver.db import Database
 from embyserver.p115 import P115Error, P115Service, parse_recycle_bin
-from test_p115_open import Fake115 as FakeOpen
-from test_web import admin_headers, make_client
+
+from fakes import FakeOpen115, admin_headers, make_client
 
 COOKIE_ITEMS = [
     {"id": "11", "file_name": "Dark.S01E01.mkv", "file_size": "900000000", "dtime": "1700000000", "parent_name": "Dark"},
@@ -16,7 +16,7 @@ COOKIE_ITEMS = [
 ]
 
 
-class Fake115(FakeOpen):
+class Fake115(FakeOpen115):
     """開放平台（授權、回收站）加上 cookie 的回收站。"""
 
     def __init__(self, key: str = "123456"):

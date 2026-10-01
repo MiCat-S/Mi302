@@ -10,7 +10,7 @@ from embyserver.db import Database
 from embyserver.p115 import P115Error, P115Service, P115Throttled
 from embyserver.strm_sync import FULL
 
-from test_incremental import Fake115, make
+from fakes import Fake115, make
 
 
 def service(handler) -> P115Service:

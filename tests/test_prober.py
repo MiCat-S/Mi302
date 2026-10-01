@@ -15,7 +15,7 @@ from embyserver.config import config_from_dict
 from embyserver.mediainfo import sidecar_path
 from embyserver.p115 import PLAIN_UA
 
-from test_mediainfo import PROBE
+from fakes import PROBE
 
 
 class FakeCDN:

@@ -11,7 +11,7 @@ from embyserver.config import config_from_dict
 from embyserver.db import Database
 from embyserver.p115 import P115Service
 
-from test_incremental import Fake115
+from fakes import Fake115
 
 
 def basic(name, pw):

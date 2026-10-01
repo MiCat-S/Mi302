@@ -5,9 +5,7 @@ from pathlib import Path
 
 from embyserver.strm_sync import FULL
 
-from test_dupes import build, wait_job
-from test_incremental import T0, Fake115, make
-from test_moviepilot import make_config, touch
+from fakes import T0, Fake115, build_dupes, make, make_config, touch, wait_dupes
 
 
 def test_stopped_sync_keeps_strm_and_next_sync_runs(tmp_path: Path):
@@ -58,9 +56,9 @@ def test_stopped_scan_keeps_items(tmp_path: Path):
 def test_stopped_delete_finishes_the_batch_and_stops(tmp_path: Path, monkeypatch):
     import embyserver.dupes as dupes
 
-    app, fake, media, c, h = build(tmp_path)
+    app, fake, media, c, h = build_dupes(tmp_path)
     c.post("/web/api/dupes/scan", json={"paths": ["/"]}, headers=h)
-    assert not wait_job(app).errors
+    assert not wait_dupes(app).errors
     monkeypatch.setattr(dupes, "DELETE_BATCH", 1)
     finder = app.state.dupes
     real = finder.p115.delete_files
@@ -74,6 +72,6 @@ def test_stopped_delete_finishes_the_batch_and_stops(tmp_path: Path, monkeypatch
     plan = finder.plan({}, use_suggestions=True)
     assert len(plan) == 2
     assert finder.delete_in_background(plan)
-    job = wait_job(app)
+    job = wait_dupes(app)
     assert job.stopped and job.done == 1 and len(fake.deleted) - before == 1
     assert "按了停止，還有 1 個沒刪" in job.errors[0]

@@ -1,7 +1,6 @@
 """115 上內容完全相同的影片：找出來、建議保留、刪掉多的，本機 strm 和觀看紀錄跟著處理。"""
 
 import json
-import time
 from pathlib import Path
 
 import httpx
@@ -12,61 +11,12 @@ from embyserver.config import config_from_dict
 from embyserver.p115 import P115Service
 from embyserver.strm_sync import FULL
 
-from test_incremental import T0, Fake115
+from fakes import SHA_EP, SHA_MOVIE, T0, Fake115, build_dupes, wait_dupes
 
-SHA_MOVIE = "A" * 40
-SHA_EP = "B" * 40
-
-
-def build(tmp_path: Path):
-    fake = Fake115()
-    fake.dirs.update({104: ("Old Movie Copy", 101), 200: ("待整理", 0)})
-    fake.file(1)["sha"] = SHA_MOVIE
-    fake.file(2)["sha"] = SHA_EP
-    fake.files += [
-        # 同一部電影轉存了兩次，都在同步目錄裡：兩份都有 strm，早上傳的那份建議保留
-        {"fid": 3, "cid": 104, "n": "Old Movie (2001).mkv", "pc": "c" * 17, "s": 900_000_000, "te": T0 + 50, "sha": SHA_MOVIE},
-        # 同步目錄外面的一份（待整理）：沒有 strm
-        {"fid": 8, "cid": 200, "n": "Dark.S01E01.mkv", "pc": "d" * 17, "s": 900_000_000, "te": T0 + 60, "sha": SHA_EP},
-        # 不是影片、或大小不同的，不算重複
-        {"fid": 9, "cid": 200, "n": "poster.jpg", "pc": "e" * 17, "s": 10, "te": T0, "sha": "C" * 40},
-        {"fid": 10, "cid": 200, "n": "poster copy.jpg", "pc": "f" * 17, "s": 10, "te": T0, "sha": "C" * 40},
-        {"fid": 11, "cid": 200, "n": "other.mkv", "pc": "g" * 17, "s": 123, "te": T0, "sha": SHA_MOVIE},
-    ]
-    media = tmp_path / "media"
-    app = create_app(config_from_dict({
-        "server": {"data_dir": str(tmp_path / "data")},
-        "users": [{"name": "admin", "password": "pw", "admin": True}],
-        "libraries": [
-            {"name": "電影", "type": "movies", "paths": [str(media / "電影")]},
-            {"name": "劇集", "type": "tvshows", "paths": [str(media / "劇集")]},
-        ],
-        "p115": {"cookies": "UID=1", "strm": {"tasks": [{"remote": "/影視", "local": str(media)}], "request_delay": 0,
-                                               "scan_after_sync": False}},
-    }), scan_on_start=False)
-    # 換成接假 115 的客戶端（一開始就指定 transport；事後換 _transport 會被環境變數裡的代理繞過去）
-    svc = P115Service(app.state.db, initial_cookies="UID=1", transport=httpx.MockTransport(fake.handler))
-    for holder in (app.state, app.state.strm_sync, app.state.dupes, app.state.prober, app.state.redirector):
-        holder.p115 = svc
-    svc.download_url = lambda pc, ua="": f"https://cdn.115.test/{pc}"
-    svc.export_poll = 0
-    assert app.state.strm_sync.run(FULL).strm_created == 3
-    app.state.scanner.scan_all()
-    c = TestClient(app)
-    h = {"X-Emby-Token": c.post("/Users/AuthenticateByName", json={"Username": "admin", "Pw": "pw"}).json()["AccessToken"]}
-    return app, fake, media, c, h
-
-
-def wait_job(app):
-    for _ in range(200):
-        if not app.state.dupes.job.running:
-            return app.state.dupes.job
-        time.sleep(0.02)
-    raise AssertionError("找重複／刪重複沒有結束")
 
 
 def test_find_and_delete_exact_duplicates(tmp_path: Path):
-    app, fake, media, c, h = build(tmp_path)
+    app, fake, media, c, h = build_dupes(tmp_path)
     copy = media / "電影" / "Old Movie Copy" / "Old Movie (2001).strm"
     keeper = media / "電影" / "Old Movie (2001).strm"
     (copy.parent / "Old Movie (2001).nfo").write_text("<movie/>")
@@ -78,7 +28,7 @@ def test_find_and_delete_exact_duplicates(tmp_path: Path):
 
     assert c.get("/web/api/dupes", headers=h).json()["default_roots"] == ["/影視"]
     assert c.post("/web/api/dupes/scan", json={"paths": ["/"]}, headers=h).json()["started"]
-    job = wait_job(app)
+    job = wait_dupes(app)
     assert not job.errors and job.listed == 7
     s = c.get("/web/api/dupes", headers=h).json()
     assert (s["groups"], s["files"], s["reclaimable"], s["roots"]) == (2, 4, 1_800_000_000, ["/"])
@@ -106,7 +56,7 @@ def test_find_and_delete_exact_duplicates(tmp_path: Path):
     # 照建議刪：115 上送進回收站、本機的 strm 和 nfo 跟著刪、觀看紀錄轉到保留的那份
     r = c.post("/web/api/dupes/delete", json={}, headers=h).json()
     assert (r["started"], r["count"], r["size"]) == (True, 2, 1_800_000_000)
-    job = wait_job(app)
+    job = wait_dupes(app)
     assert not job.errors and (job.done, job.freed) == (2, 1_800_000_000)
     assert sorted(fake.deleted[-2:]) == ["3", "8"]
     assert not copy.exists() and not copy.parent.exists() and keeper.exists()
@@ -123,14 +73,14 @@ def test_find_and_delete_exact_duplicates(tmp_path: Path):
 
 def test_override_and_single_group(tmp_path: Path):
     """可以改成保留別份；也可以只處理某一組。"""
-    app, fake, media, c, h = build(tmp_path)
+    app, fake, media, c, h = build_dupes(tmp_path)
     c.post("/web/api/dupes/scan", json={"paths": ["/"]}, headers=h)
-    wait_job(app)
+    wait_dupes(app)
     # 電影那一組：改成留複本、刪原本那份
     r = c.post("/web/api/dupes/delete", json={"sha1": SHA_MOVIE, "size": 900_000_000,
                                               "overrides": {"1": True, "3": False}}, headers=h).json()
     assert r["count"] == 1
-    wait_job(app)
+    wait_dupes(app)
     assert fake.deleted[-1:] == ["1"]
     assert not (media / "電影" / "Old Movie (2001).strm").exists()
     assert (media / "電影" / "Old Movie Copy" / "Old Movie (2001).strm").exists()
@@ -202,7 +152,7 @@ def test_versions_are_grouped_and_deleted_only_when_picked(tmp_path: Path):
                (uid, ep_item))
 
     c.post("/web/api/dupes/scan", json={}, headers=h)
-    job = wait_job(app)
+    job = wait_dupes(app)
     assert not job.errors
     s = c.get("/web/api/dupes", headers=h).json()
     assert s["versions"]["groups"] == 2 and s["versions"]["files"] == 4
@@ -231,7 +181,7 @@ def test_versions_are_grouped_and_deleted_only_when_picked(tmp_path: Path):
     # 只刪那一集的 1080p：觀看進度轉到 2160p
     r = c.post("/web/api/dupes/delete", json={"kind": "versions", "grp": ep["grp"], "use_suggestions": True}, headers=h).json()
     assert (r["started"], r["count"]) == (True, 1)
-    job = wait_job(app)
+    job = wait_dupes(app)
     assert not job.errors and fake.deleted[-1:] == ["2"]
     assert not ep1080.exists() and (media / "劇集" / "Dark" / "Dark.S01E01.2160p.HDR.strm").exists()
     kept = db.one("SELECT id FROM items WHERE path=?", (str(media / "劇集" / "Dark" / "Dark.S01E01.2160p.HDR.strm"),))["id"]
@@ -259,7 +209,7 @@ def test_version_suggestion_follows_preference(tmp_path: Path):
     MediaInfoStore(app.state.db).put(str(media / "劇集" / "Dark" / "Dark.S01E01.strm"), {"source": {"MediaStreams": [
         {"Type": "Video", "Width": 1920, "Height": 1080}]}}, 0, "ffprobe")
     c.post("/web/api/dupes/scan", json={}, headers=h)
-    assert not wait_job(app).errors
+    assert not wait_dupes(app).errors
     db = app.state.db
 
     def kept():
@@ -308,7 +258,7 @@ def test_versions_need_known_matching_episode_numbers(tmp_path: Path):
     app.state.scanner.scan_all()
 
     c.post("/web/api/dupes/scan", json={}, headers=h)
-    assert not wait_job(app).errors
+    assert not wait_dupes(app).errors
     r = c.get("/web/api/dupes/groups", params={"kind": "versions"}, headers=h).json()
     by_title = {g["title"]: g for g in r["items"]}
     assert set(by_title) == {"Dark S01E01", "Old Movie (2001)"}
@@ -320,7 +270,7 @@ def test_old_version_results_are_cleared_after_rule_change(tmp_path: Path):
 
     app, fake, media, c, h = build_versions(tmp_path)
     c.post("/web/api/dupes/scan", json={}, headers=h)
-    assert not wait_job(app).errors
+    assert not wait_dupes(app).errors
     db = app.state.db
     assert db.one("SELECT COUNT(*) AS n FROM dup_versions")["n"] == 4
     # 模擬舊版留下的結果：規則版本還是舊的，重新啟動時清掉，並提醒重新找
@@ -336,7 +286,7 @@ def test_old_version_results_are_cleared_after_rule_change(tmp_path: Path):
     # 重新找過就好了
     app.state.dupes = finder
     c.post("/web/api/dupes/scan", json={}, headers=h)
-    assert not wait_job(app).errors
+    assert not wait_dupes(app).errors
     s = c.get("/web/api/dupes", headers=h).json()
     assert not s["versions_outdated"] and s["versions"]["groups"] == 2
 
@@ -397,7 +347,7 @@ def test_big_files_are_deleted_only_when_picked(tmp_path: Path):
     db.execute("INSERT INTO user_data(user_id, item_id, played, play_count, last_played) VALUES(?,?,1,1,'2026-09-03')",
                (uid, db.one("SELECT id FROM items WHERE path=?", (str(ep4k),))["id"]))
     c.post("/web/api/dupes/scan", json={}, headers=h)
-    assert not wait_job(app).errors
+    assert not wait_dupes(app).errors
     assert c.get("/web/api/dupes", headers=h).json()["big"] == {"files": 2, "size": 7_000_000_000}  # 1 GB 以下的不記
 
     def big(**params):
@@ -420,7 +370,7 @@ def test_big_files_are_deleted_only_when_picked(tmp_path: Path):
 
     r = c.post("/web/api/dupes/delete", json={"kind": "big", "overrides": {"12": True}}, headers=h).json()
     assert (r["started"], r["count"]) == (True, 1)
-    assert not wait_job(app).errors and fake.deleted[-1:] == ["12"]
+    assert not wait_dupes(app).errors and fake.deleted[-1:] == ["12"]
     assert not ep4k.exists() and ep1080.exists()
     kept = db.one("SELECT id FROM items WHERE path=?", (str(ep1080),))["id"]
     assert db.one("SELECT played FROM user_data WHERE user_id=? AND item_id=?", (uid, kept))["played"] == 1

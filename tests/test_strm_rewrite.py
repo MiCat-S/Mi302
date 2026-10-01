@@ -10,7 +10,7 @@ from embyserver.config import config_from_dict
 from embyserver.mediainfo import MediaInfoStore
 from embyserver.strm_sync import FULL
 
-from test_incremental import Fake115, make
+from fakes import Fake115, make
 
 PC = "a" * 17
 

@@ -13,7 +13,7 @@ from embyserver.emptydirs import classify, find_empty
 from embyserver.p115 import P115Service
 from embyserver.strm_sync import FULL
 
-from test_incremental import T0, Fake115
+from fakes import T0, Fake115
 
 
 class Fake(Fake115):

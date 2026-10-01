@@ -8,7 +8,7 @@ import pytest
 from embyserver.p115 import BROWSER_UA, PLAIN_UA, P115Error, parse_export_tree, tree_relative
 from embyserver.strm_sync import FULL, INCREMENTAL, _TaskIndex, task_key, match_tree_dirs
 
-from test_incremental import T0, Fake115, make
+from fakes import T0, Fake115, make
 
 
 def listings(fake: Fake115):

@@ -4,7 +4,7 @@ from pathlib import Path
 
 from embyserver import library_suggest
 from embyserver.config import LibraryConfig
-from test_web import admin_headers, make_client
+from fakes import admin_headers, make_client
 
 
 def touch(path: Path, text: str = "") -> None:

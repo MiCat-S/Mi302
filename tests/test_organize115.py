@@ -19,8 +19,7 @@ from embyserver.p115 import P115Service
 from embyserver.reorganize import template_episode
 from embyserver.strm_sync import FULL
 
-from test_incremental import T0, Fake115
-from test_reorganize import wait
+from fakes import T0, Fake115, wait
 
 FANREN = "F 凡人修仙传{tmdbid-106449} 更176｜停更｜预计第二季度更新"
 XUTIAN = "虚天战纪.导演剪辑版 (2025) [tmdb-282348]"

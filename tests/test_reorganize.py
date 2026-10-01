@@ -2,7 +2,6 @@
 
 import json
 import re
-import time
 from pathlib import Path
 
 import httpx
@@ -14,7 +13,7 @@ from embyserver.p115 import P115Service
 from embyserver.reorganize import episode_template, template_episode
 from embyserver.strm_sync import INCREMENTAL
 
-from test_incremental import T0, Fake115
+from fakes import T0, Fake115
 
 SHOW = "/影視/劇集/中国新说唱 (2017)"
 
@@ -146,14 +145,6 @@ def build(tmp_path: Path, login: bool = True):
     c = TestClient(app)
     h = {"X-Emby-Token": c.post("/Users/AuthenticateByName", json={"Username": "admin", "Pw": "pw"}).json()["AccessToken"]}
     return app, fake, mp, media, c, h
-
-
-def wait(cond):
-    for _ in range(300):
-        if cond():
-            return
-        time.sleep(0.02)
-    raise AssertionError("等不到")
 
 
 def test_browse_115_lists_folders(tmp_path: Path):

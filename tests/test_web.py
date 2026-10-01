@@ -3,21 +3,10 @@
 import time
 from pathlib import Path
 
-from fastapi.testclient import TestClient
 
-from embyserver.app import create_app
-from embyserver.config import config_from_dict, load_config
+from embyserver.config import load_config
 
-
-def make_client(tmp_path: Path, raw=None) -> TestClient:
-    raw = raw or {}
-    raw.setdefault("server", {})["data_dir"] = str(tmp_path / "data")
-    return TestClient(create_app(config_from_dict(raw), scan_on_start=False))
-
-
-def admin_headers(c: TestClient, name="admin", pw="pw") -> dict:
-    r = c.post("/Users/AuthenticateByName", json={"Username": name, "Pw": pw})
-    return {"X-Emby-Token": r.json()["AccessToken"]}
+from fakes import admin_headers, make_client
 
 
 def wait_scan(c):

@@ -10,7 +10,7 @@ from embyserver.app import create_app
 from embyserver.moviepilot import MoviePilot, library_series
 from embyserver.strm_sync import SyncResult
 
-from test_moviepilot import make_config, touch
+from fakes import make_config, touch
 
 TVSHOW_NFO = '<tvshow><title>Show A</title><year>2020</year><uniqueid type="tmdb" default="true">4321</uniqueid></tvshow>'
 

@@ -5,142 +5,11 @@ from pathlib import Path
 
 import httpx
 
-from embyserver.config import P115StrmConfig, StrmTask
 from embyserver.db import Database
 from embyserver.p115 import P115Service
-from embyserver.strm_sync import FULL, INCREMENTAL, StrmSync, _sidecars
+from embyserver.strm_sync import FULL, INCREMENTAL, _sidecars
 
-T0 = 1_700_000_000
-
-
-class Fake115:
-    """cid → (名稱, 上層 cid)；檔案 {fid, cid, n, pc, s, te}。"""
-
-    def __init__(self):
-        self.dirs = {0: ("根目录", None), 100: ("影視", 0), 101: ("電影", 100), 102: ("劇集", 100), 103: ("Dark", 102)}
-        self.files = [
-            {"fid": 1, "cid": 101, "n": "Old Movie (2001).mkv", "pc": "a" * 17, "s": 900_000_000, "te": T0},
-            {"fid": 2, "cid": 103, "n": "Dark.S01E01.mkv", "pc": "b" * 17, "s": 900_000_000, "te": T0 + 10},
-        ]
-        self.calls = []
-        self.events = []  # 生活事件，由舊到新
-        self.life_enabled = False
-        self.export_ok = True  # 支援導出目錄樹
-        self.exports = {}  # export_id → [cid, 還要輪詢幾次]
-        self.deleted = []
-
-    def tree(self, cid):
-        """115 導出目錄樹的格式：根目录、導出的資料夾，再往下每層多一個「| 」。"""
-        lines = ["|——根目录", "| |-" + self.dirs[cid][0]]
-
-        def rec(c, depth):
-            for d, (name, parent) in self.dirs.items():
-                if parent == c:
-                    lines.append("| " * depth + "|-" + name)
-                    rec(d, depth + 1)
-            lines.extend("| " * depth + "|-" + f["n"] for f in self.files if f["cid"] == c)
-
-        rec(cid, 2)
-        return ("\n".join(lines) + "\n").encode("utf-16")
-
-    # ---- 在假 115 上操作，同時記一筆生活事件（不改修改時間，確定是靠事件抓到的） ----
-    def event(self, type_, fid, is_dir=False):
-        if is_dir:
-            name, parent = self.dirs.get(fid, ("", 0))
-            pc, size = "", 0
-        else:
-            f = next((f for f in self.files if f["fid"] == fid), None) or {"n": "", "cid": 0, "pc": "", "s": 0}
-            name, parent, pc, size = f["n"], f["cid"], f["pc"], f["s"]
-        self.events.append({
-            "id": str(1000 + len(self.events)), "type": type_, "file_id": str(fid), "parent_id": str(parent),
-            "file_name": name, "file_category": "0" if is_dir else "1", "pick_code": pc, "file_size": size,
-            "update_time": T0 + 100 + len(self.events),
-        })
-
-    def file(self, fid):
-        return next(f for f in self.files if f["fid"] == fid)
-
-    def ancestors(self, cid):
-        chain = []
-        while cid is not None:
-            name, parent = self.dirs[cid]
-            chain.append({"cid": cid, "name": name})
-            cid = parent
-        return list(reversed(chain))
-
-    def under(self, cid, target):
-        while target is not None:
-            if target == cid:
-                return True
-            target = self.dirs[target][1]
-        return False
-
-    def handler(self, request: httpx.Request) -> httpx.Response:
-        p = request.url.params
-        if request.url.host == "life.115.com":
-            self.life_enabled = True
-            return httpx.Response(200, json={"state": True})
-        if request.url.path == "/behavior/detail":
-            evs = list(reversed(self.events))
-            offset, limit = int(p.get("offset", 0)), int(p.get("limit", 1000))
-            return httpx.Response(200, json={"state": True, "data": {
-                "count": len(evs), "list": evs[offset: offset + limit]}})
-        self.calls.append((request.url.path, dict(p)))
-        if request.url.host == "cdn.115.test" and request.url.path.startswith("/tree"):
-            return httpx.Response(200, content=self.tree(int(request.url.path[5:])))
-        if request.url.path == "/files/export_dir":
-            if not self.export_ok:
-                return httpx.Response(200, json={"state": False, "error": "已有导出任务在进行"})
-            if request.method == "POST":
-                form = dict(httpx.QueryParams(request.content.decode()))
-                eid = str(500 + len(self.exports))
-                self.exports[eid] = [int(form["file_ids"]), 1]
-                return httpx.Response(200, json={"state": True, "data": {"export_id": eid}})
-            job = self.exports[p["export_id"]]
-            if job[1] > 0:  # 還在產生
-                job[1] -= 1
-                return httpx.Response(200, json={"state": True, "data": []})
-            return httpx.Response(200, json={"state": True, "data": {
-                "export_id": p["export_id"], "file_id": "9" + p["export_id"], "file_name": "目录树.txt",
-                "pick_code": f"tree{job[0]}"}})
-        if request.url.path == "/rb/delete":
-            form = dict(httpx.QueryParams(request.content.decode()))
-            ids = [v for k, v in form.items() if k.startswith("fid[")]
-            self.deleted += ids
-            self.files = [f for f in self.files if str(f["fid"]) not in ids]  # 送進回收站就不在清單上了
-            return httpx.Response(200, json={"state": True})
-        if request.url.path == "/files/getid":
-            for cid in self.dirs:
-                if cid and "/" + "/".join(a["name"] for a in self.ancestors(cid)[1:]) == p["path"]:
-                    return httpx.Response(200, json={"state": True, "id": str(cid)})
-            return httpx.Response(200, json={"state": True, "id": "0"})
-        if request.url.path == "/files":
-            cid = int(p["cid"])
-            if cid not in self.dirs:  # 不存在的目錄，115 會回根目錄
-                return httpx.Response(200, json={"state": True, "count": 0, "data": [], "path": self.ancestors(0)})
-            offset, limit = int(p.get("offset", 0)), int(p.get("limit", 1150))
-            if p.get("cur") == "0":
-                items = sorted(
-                    (f for f in self.files if self.under(cid, f["cid"])), key=lambda f: f["te"], reverse=True
-                )
-            else:
-                items = [{"cid": c, "n": n} for c, (n, parent) in self.dirs.items() if parent == cid]
-                items += [f for f in self.files if f["cid"] == cid]
-            page = items[offset: offset + limit]
-            return httpx.Response(
-                200, json={"state": True, "count": len(items), "data": page, "path": self.ancestors(cid)}
-            )
-        return httpx.Response(404)
-
-
-def make(tmp_path: Path, fake: Fake115, **kw) -> StrmSync:
-    svc = P115Service(Database(":memory:"), initial_cookies="UID=1", transport=httpx.MockTransport(fake.handler))
-    svc.download_url = lambda pc, ua="": f"https://cdn.115.test/{pc}"
-    svc.export_poll = 0
-    cfg = P115StrmConfig(tasks=[StrmTask(remote="/影視", local=str(tmp_path / "media"))], request_delay=0, **kw)
-    sync = StrmSync(svc, cfg)
-    sync._http = httpx.Client(transport=httpx.MockTransport(lambda r: httpx.Response(200, content=b"<nfo>")))
-    return sync
+from fakes import T0, Fake115, make
 
 
 def test_incremental_only_touches_new_files(tmp_path: Path):
@@ -244,7 +113,6 @@ def test_delete_stale_keeps_moviepilot_metadata(tmp_path: Path):
         f.unlink()
     r = sync.run()
     assert not list(library.glob("*.strm")) and not any("填錯" in n for n in r.notes)
-
 
 
 def test_account_info():

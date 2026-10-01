@@ -7,28 +7,9 @@ import httpx
 from fastapi.testclient import TestClient
 
 from embyserver.app import create_app
-from embyserver.config import config_from_dict
 from embyserver.moviepilot import MoviePilot
 
-
-def make_config(tmp_path: Path, **mp):
-    return config_from_dict(
-        {
-            "server": {"data_dir": str(tmp_path / "data")},
-            "users": [{"name": "admin", "password": "pw", "admin": True}],
-            "libraries": [
-                {"name": "電影", "type": "movies", "paths": [str(tmp_path / "movies")]},
-                {"name": "劇集", "type": "tvshows", "paths": [str(tmp_path / "tv")]},
-            ],
-            "moviepilot": {"url": "http://mp:3000", "api_token": "tok", **mp},
-        }
-    )
-
-
-def touch(path: Path, text: str = "x") -> str:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(text)
-    return str(path)
+from fakes import make_config, touch
 
 
 def writes(request: httpx.Request, base: Path, mp_root: str = "", image: bool = False) -> None:

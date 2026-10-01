@@ -12,24 +12,7 @@ from embyserver.mediainfo import (
 )
 from embyserver.strm_sync import _sidecars
 
-PROBE = {
-    "format": {"format_name": "matroska,webm", "duration": "3600.5", "size": "9000000000", "bit_rate": "19996000"},
-    "streams": [
-        {"index": 0, "codec_type": "video", "codec_name": "hevc", "profile": "Main 10", "width": 3840, "height": 2160,
-         "pix_fmt": "yuv420p10le", "color_transfer": "smpte2084", "color_primaries": "bt2020", "color_space": "bt2020nc",
-         "avg_frame_rate": "24000/1001", "r_frame_rate": "24000/1001", "display_aspect_ratio": "16:9",
-         "sample_aspect_ratio": "1:1", "field_order": "progressive", "disposition": {"default": 1}},
-        {"index": 1, "codec_type": "audio", "codec_name": "eac3", "channels": 6, "channel_layout": "5.1(side)",
-         "sample_rate": "48000", "bit_rate": "640000", "disposition": {"default": 0}, "tags": {"language": "chi"}},
-        {"index": 2, "codec_type": "audio", "codec_name": "aac", "channels": 2, "channel_layout": "stereo",
-         "sample_rate": "48000", "disposition": {"default": 1}, "tags": {"language": "eng", "TITLE": "Stereo"}},
-        {"index": 3, "codec_type": "subtitle", "codec_name": "hdmv_pgs_subtitle", "width": 1920, "height": 1080,
-         "disposition": {"forced": 1}, "tags": {"language": "chi"}},
-        {"index": 4, "codec_type": "subtitle", "codec_name": "ass", "tags": {"language": "chi", "title": "简中"}},
-        {"index": 5, "codec_type": "video", "codec_name": "mjpeg", "disposition": {"attached_pic": 1}},
-    ],
-    "chapters": [{"start_time": "0.000000", "tags": {"title": "Opening"}}, {"start_time": "95.5005"}],
-}
+from fakes import PROBE
 
 
 def test_map_probe_matches_emby_fields():
