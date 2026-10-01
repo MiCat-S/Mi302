@@ -260,9 +260,14 @@ MoviePilot 說完成之後再看一次有沒有真的寫出 nfo、劇照：認�
 查到的 TMDB 集和播出日期記在資料表 tmdb_seasons（TMDB_FRESH_SECONDS 以內查過的不再問）。清單（library_series）用它和
 媒體庫裡的集號當場算每一季缺哪幾集（season_missing，和補全同一套判斷）；沒有空洞的季也可能缺前面、後面幾集，
 只看集號的空洞看不出來。「檢查缺集」（fill 的 check=True）只查、只記，不建訂閱。
+TMDB 上沒有的季（媒體庫的季號和 TMDB 對不上）：MoviePilot 對不存在的季也回成功和空清單，建訂閱時又查不到總集數而拒絕
+（「未获取到第 N 季的总集数」）。空清單也可能是 TMDB 暫時出錯，所以再查一次這部劇有哪幾季（_season_absent，
+GET /api/v1/tmdb/seasons/{tmdbid}），確定沒有才在 tmdb_seasons 記成空的 {}；tmdb_episodes 回傳 {}，補全、檢查都不建訂閱、
+記一筆 absent。連不上、出錯（tmdb_episodes 回傳 None）時照舊交給 MoviePilot 判斷。
 
 清單把每一部劇分成互不重疊的狀態，網頁照這個分頁（照「接下來要做什麼」）：missing 缺集又還沒交給 MoviePilot（要補）、
-pending 缺集的季 MoviePilot 都在處理（等它下載、入庫）、unchecked 還沒對照、notmdb 沒有 tmdbid、complete 齊全、excluded 標了不補。
+pending 缺集的季 MoviePilot 都在處理（等它下載、入庫）、mismatch 有季在 TMDB 上不存在（要先整理季號）、unchecked 還沒對照、
+notmdb 沒有 tmdbid、complete 齊全、excluded 標了不補。
 MoviePilot 在處理的季有兩種。還訂閱著的：讀它的訂閱清單（known_subscriptions）；新版不回 tmdbid，改成 media_source 加
 media_id（_sub_tmdbid）。已送下載的：它找到資源、交給下載器就把訂閱記成完成、移到訂閱歷史，集還在下載、還沒入庫，
 只看訂閱清單會以為沒人在處理、又訂閱一次；所以另外讀訂閱歷史（sent_seasons，GET /api/v1/subscribe/history/电视剧），

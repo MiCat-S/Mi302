@@ -139,6 +139,7 @@ The card sorts the series in your library into tabs by what there is to do next;
 | --- | --- | --- |
 | 缺集 (missing) | Compared with TMDB, really missing episodes, and not subscribed yet | **Fill** (補全) on a series, or **Fill these N** (補全這 N 部) next to the tabs |
 | 處理中 (in progress) | Every season with missing episodes has been handed to MoviePilot: still subscribed (it is looking for a release), or already sent to the downloader and not in the library yet | Usually nothing; **Fill again** (再補一次) if the download failed |
+| 季號對不上 (season mismatch) | Seasons in the library that TMDB does not have (for example TMDB merges several seasons into one), which MoviePilot cannot subscribe to; the tab is hidden when there are none | **Organise** (去整理): opens **115 → Organise 115** (115 網盤 → 整理 115 網盤) searching for the series, to renumber the seasons as on TMDB |
 | 還沒對照 (not compared) | New series and new seasons not yet compared with TMDB; series without a tmdbid are here too (scrape them first) | **Check** (檢查) on a series, or **Check these N** (檢查這 N 部) |
 | 不補 (skipped) | Series you marked **Skip** | **Fill again** (恢復補全) |
 | 全部 (all) | Every series; complete ones are marked 齊全 | |
@@ -162,7 +163,7 @@ The card sorts the series in your library into tabs by what there is to do next;
 
 Filling works season by season, and only for seasons that already have episodes in the library. A season that exists on TMDB but has no episodes at all in the library is not subscribed automatically.
 
-1. Mi302 asks MoviePilot for the season's episodes and air dates on TMDB (`GET /api/v1/tmdb/{tmdbid}/{season}`).
+1. Mi302 asks MoviePilot for the season's episodes and air dates on TMDB (`GET /api/v1/tmdb/{tmdbid}/{season}`). If TMDB has no such season (MoviePilot returns an empty list, and Mi302 confirms by asking which seasons the series has, so a temporary TMDB error does not count), no subscription is created: MoviePilot cannot get the season's episode count and would always refuse ("未获取到第 N 季的总集数"). The season is counted as "not on TMDB" and the series moves to the 季號對不上 tab.
 2. It decides which episodes have aired:
    - An episode with an air date has aired if that date is not later than today (the date on the Mi302 host).
    - Episodes without a date are often placeholders for episodes not yet aired. One counts as aired if its number is not higher than the last episode of that season in the library (if you have episode 10, episode 3 has aired).
@@ -175,7 +176,7 @@ Filling works season by season, and only for seasons that already have episodes 
 
 **Not all at once**: every new subscription makes MoviePilot search all your sites. It searches one subscription per site at a time, but starts the next one as soon as the last finishes; creating hundreds of subscriptions in one go hits the sites back to back and gets you blocked by Cloudflare. So new subscriptions are spaced out, 60 seconds apart by default (**Seconds between new subscriptions** (兩個新訂閱之間隔幾秒) in the Settings section, 0 = no gap), and the card shows when it is waiting. Only new subscriptions wait; complete seasons and existing subscriptions do not. A first fill of many series takes a while (100 new subscriptions take about 100 minutes); it runs in the background, so you can close the page.
 
-If the TMDB episode list cannot be fetched, Mi302 creates the subscription anyway and leaves the decision to MoviePilot (the number missing is unknown, so the limit above does not apply).
+If the TMDB episode list cannot be fetched (MoviePilot unreachable or an error), Mi302 creates the subscription anyway and leaves the decision to MoviePilot (the number missing is unknown, so the limit above does not apply).
 
 When MoviePilot has downloaded and organised the files, it notifies Mi302 to rescan. If a season with missing episodes is still airing, the subscription keeps following new episodes.
 
@@ -201,6 +202,7 @@ The numbers on the card:
 | Sent to download (已送下載) | seasons MoviePilot already found a release for and sent to the downloader, not in the library yet, and not subscribed again |
 | No tmdbid (沒 tmdbid) | series skipped for lack of a tmdbid |
 | Missing too many (缺太多不補) | seasons missing more than the limit, so no subscription was created |
+| Not on TMDB (TMDB 沒有) | seasons TMDB does not have (season numbers do not match), so no subscription was created |
 | Skipped (標了不補) | series passed over because they are marked **Skip** |
 | Failed (失敗) | seasons MoviePilot refused to subscribe, or that were not processed after the run stopped |
 

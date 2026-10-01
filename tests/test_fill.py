@@ -33,7 +33,7 @@ def test_library_series_lists_gaps(tmp_path: Path):
     a, b = items
     assert (a["tmdbid"], a["year"], a["library"], a["gaps"]) == (4321, 2020, "劇集", 1)
     # 還沒對照過 TMDB：只看得出集號的空洞，缺哪幾集（missing）不知道
-    unknown = {"tmdb": None, "missing": None, "subscribed": None, "sent": None}
+    unknown = {"tmdb": None, "missing": None, "absent": False, "subscribed": None, "sent": None}
     assert a["seasons"] == [
         {"season": 1, "count": 3, "first": 1, "last": 4, "gaps": [3], **unknown},
         {"season": 2, "count": 1, "first": 1, "last": 1, "gaps": [], **unknown},
@@ -58,7 +58,8 @@ def test_library_series_lists_gaps(tmp_path: Path):
     stats = {}
     (a,), total = library_series(db, view="missing", stats=stats)
     assert total == 1 and (a["state"], a["missing"], a["unchecked"], a["to_fill"]) == ("missing", 3, 0, 1)
-    assert stats == {"missing": 1, "pending": 0, "unchecked": 0, "notmdb": 1, "complete": 0, "excluded": 0, "total": 2}
+    assert stats == {"missing": 1, "pending": 0, "mismatch": 0, "unchecked": 0, "notmdb": 1, "complete": 0, "excluded": 0,
+                     "total": 2}
     assert [(s["tmdb"], s["missing"]) for s in a["seasons"]] == [(6, [3, 5, 6]), (1, [])]
     # MoviePilot 已經訂閱了缺集的那一季：不用再補，換到「處理中」；標了「不補」的自成一類
     (a,), _ = library_series(db, view="pending", subscribed={(4321, 1)})
@@ -75,13 +76,20 @@ def test_library_series_lists_gaps(tmp_path: Path):
     db.execute("UPDATE tmdb_seasons SET episodes=? WHERE season=1", (json.dumps({str(e): "2020-01-01" for e in (1, 2, 4)}),))
     assert library_series(db, view="missing") == ([], 0)  # TMDB 上就這幾集：中間的空洞不算缺
     assert library_series(db)[0][1]["state"] == "complete"
+    # TMDB 上沒有第 2 季（記成空的）：季號對不上，自成一類，不算「還沒對照」，要先整理季號
+    db.execute("UPDATE tmdb_seasons SET episodes='{}' WHERE season=2")
+    (a,), _ = library_series(db, view="mismatch")
+    assert (a["state"], a["absent"], a["unchecked"], [s["absent"] for s in a["seasons"]]) == ("mismatch", 1, 0, [False, True])
+    db.execute("UPDATE tmdb_seasons SET episodes='壞掉' WHERE season=2")  # 壞掉的當成沒對照過
+    assert [s["state"] for s in library_series(db)[0] if s["name"] == "Show A"] == ["unchecked"]
 
 
 class FakeMP:
     """MoviePilot V3：TMDB 集數（包在 data 裡）、建訂閱和搜尋都要登入。"""
 
-    def __init__(self, episodes, existing=(), v2=False):
+    def __init__(self, episodes, existing=(), v2=False, absent=()):
         self.episodes, self.existing, self.v2 = episodes, set(existing), v2
+        self.absent = set(absent)  # TMDB 上沒有的季：MoviePilot 照樣回成功和空清單
         self.sent = []
         self.subs = []  # MoviePilot 裡現有的訂閱
         self.history = []  # 訂閱歷史：找到資源、送去下載後記成完成的訂閱
@@ -91,9 +99,13 @@ class FakeMP:
         path = request.url.path
         if path == "/api/v1/login/access-token":
             return httpx.Response(200, json={"access_token": "jwt", "token_type": "bearer"})
+        if path.startswith("/api/v1/tmdb/seasons/"):  # 這部劇有哪幾季
+            tmdbid = int(path.rsplit("/", 1)[1])
+            seasons = [{"season_number": s} for t, s in sorted(self.episodes) if t == tmdbid]
+            return httpx.Response(200, json={"success": True, "data": seasons})
         if path.startswith("/api/v1/tmdb/"):
             _, tmdbid, season = path.rsplit("/", 2)
-            eps = self.episodes.get((int(tmdbid), int(season)))
+            eps = [] if (int(tmdbid), int(season)) in self.absent else self.episodes.get((int(tmdbid), int(season)))
             if eps is None:
                 return httpx.Response(404, json={"detail": "Not Found"})
             items = [{"episode_number": e, "air_date": d} for e, d in eps]
@@ -143,11 +155,13 @@ def test_fill_subscribes_only_missing_seasons_and_searches(tmp_path: Path):
         (4321, 1): [(1, "2020-01-01"), (2, "2020-01-02"), (3, "2020-01-03"), (4, "2020-01-04"), (5, "2020-01-05"),
                     (6, "2999-01-01")],  # 第 6 集還沒播
         (4321, 2): [(1, "2021-01-01")],
-    })
+    }, absent={(4321, 3)})
     cfg = make_config(tmp_path, username="cat", password="pw")
     mp = MoviePilot(cfg.moviepilot, cfg, transport=httpx.MockTransport(fake))
-    r = mp.fill([SHOW_A, SHOW_B], "manual")
-    assert (r.total, r.done, r.created, r.complete, r.skipped, r.failed, r.missing) == (2, 2, 1, 1, 1, 0, 2)
+    # 媒體庫有第 3 季，TMDB 上沒有（季號對不上）：MoviePilot 一定拒絕（未获取到第 3 季的总集数），不送
+    show = {**SHOW_A, "seasons": SHOW_A["seasons"] + [{"season": 3, "count": 2, "first": 1, "last": 2, "gaps": []}]}
+    r = mp.fill([show, SHOW_B], "manual")
+    assert (r.total, r.done, r.created, r.complete, r.absent, r.skipped, r.failed, r.missing) == (3, 3, 1, 1, 1, 1, 0, 2)
     assert not r.errors
     # 只替缺集的第 1 季建訂閱，用 tmdbid 指定是哪一部；第 2 季已經齊全不建
     assert fake.posts("/api/v1/subscribe/") == [{
@@ -159,7 +173,11 @@ def test_fill_subscribes_only_missing_seasons_and_searches(tmp_path: Path):
         "Show B：沒有 tmdbid，略過（先刮削）",
         "Show A S01：缺 2 集（E03、E05）；新增订阅成功；已安排搜索，很快开始",
         "Show A S02：TMDB 已播出的 1 集都有，不建訂閱",
+        "Show A S03：TMDB 沒有第 3 季，媒體庫的季號可能和 TMDB 不同；不建訂閱，先到「115 網盤 → 整理 115 網盤」修正季號",
     ]
+    # 空清單不一定是沒有這一季（TMDB 暫時出錯也是空的）：這部劇的季列表裡有這一季時當成查不到，交給 MoviePilot 判斷
+    flaky = MoviePilot(cfg.moviepilot, cfg, transport=httpx.MockTransport(FakeMP({(4321, 1): []}, absent={(4321, 5)})))
+    assert flaky.tmdb_episodes(4321, 1) is None and flaky.tmdb_episodes(4321, 5) == {}
 
     # 只有 API 令牌、沒有帳號密碼：說清楚要填什麼，不送
     only_token = MoviePilot(make_config(tmp_path).moviepilot, cfg, transport=httpx.MockTransport(fake))
@@ -239,7 +257,8 @@ def test_fill_endpoints(tmp_path: Path):
     assert c.get("/web/api/series", params={"year": 1999}, headers=h).json() | {"years": None, "libraries": None} == {
         "items": [], "total": 0, "offset": 0, "more": False, "years": None, "libraries": None, "excluded": 0,
         "subscriptions": None,
-        "stats": {"missing": 0, "pending": 0, "unchecked": 0, "notmdb": 0, "complete": 0, "excluded": 0, "total": 0}}
+        "stats": {"missing": 0, "pending": 0, "mismatch": 0, "unchecked": 0, "notmdb": 0, "complete": 0, "excluded": 0,
+                  "total": 0}}
     everything = c.get("/web/api/series", headers=h).json()
     assert (everything["stats"]["unchecked"], everything["stats"]["notmdb"], everything["stats"]["total"]) == (1, 1, 2)
     # 媒體庫（國產劇、國漫…）也可以篩

@@ -60,10 +60,11 @@ def list_series(request: Request, ctx: AuthContext = Depends(require_admin)):
     """補全缺集的清單：媒體庫裡的劇、每一季的集數、對照 TMDB 缺哪幾集（還沒對照過的季 missing 是 null）、
     缺集的季 MoviePilot 在處理了沒：subscribed（它裡面還訂閱著；讀不到訂閱時是 null）、sent（它已經找到資源、送去下載、
     把訂閱記成完成的時間，集還沒入庫；沒有是 null）。每一部有 state：missing（缺集、還沒交給 MoviePilot）、
-    pending（缺集的季 MoviePilot 都在處理）、unchecked（還沒對照）、notmdb（沒有 tmdbid）、complete（齊全）、excluded（標了「不補」）。
+    pending（缺集的季 MoviePilot 都在處理）、mismatch（有季在 TMDB 上不存在，季號要先整理）、unchecked（還沒對照）、
+    notmdb（沒有 tmdbid）、complete（齊全）、excluded（標了「不補」）；每一季的 absent 是 TMDB 上沒有這一季。
 
     篩選：q 搜尋劇名，year 只列那一年的，library 只列那個媒體庫（id）的，gaps=1 只列集號有空洞的；view 再只列一種狀態
-    （missing、pending、unchecked（含 notmdb）、excluded，不給是全部）。offset、limit 分頁。
+    （missing、pending、mismatch、unchecked（含 notmdb）、excluded，不給是全部）。offset、limit 分頁。
     stats 是篩選出來的（不看 view）各種狀態幾部，網頁的分頁數字照它；years、libraries 是下拉選單用的（媒體庫裡所有劇的年份、
     劇集媒體庫），subscriptions 是 MoviePilot 現在有幾個訂閱（讀不到是 null）。
     """
