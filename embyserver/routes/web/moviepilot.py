@@ -58,11 +58,12 @@ async def moviepilot_stop(request: Request, ctx: AuthContext = Depends(require_a
 @router.get("/web/api/series")
 def list_series(request: Request, ctx: AuthContext = Depends(require_admin)):
     """補全缺集的清單：媒體庫裡的劇、每一季的集數、對照 TMDB 缺哪幾集（還沒對照過的季 missing 是 null）、
-    缺集的季 MoviePilot 訂閱了沒（subscribed；讀不到訂閱時是 null）。每一部有 state：missing（缺集、還沒訂閱）、
-    subscribed（缺集的季都訂閱了）、unchecked（還沒對照）、notmdb（沒有 tmdbid）、complete（齊全）、excluded（標了「不補」）。
+    缺集的季 MoviePilot 在處理了沒：subscribed（它裡面還訂閱著；讀不到訂閱時是 null）、sent（它已經找到資源、送去下載、
+    把訂閱記成完成的時間，集還沒入庫；沒有是 null）。每一部有 state：missing（缺集、還沒交給 MoviePilot）、
+    pending（缺集的季 MoviePilot 都在處理）、unchecked（還沒對照）、notmdb（沒有 tmdbid）、complete（齊全）、excluded（標了「不補」）。
 
     篩選：q 搜尋劇名，year 只列那一年的，library 只列那個媒體庫（id）的，gaps=1 只列集號有空洞的；view 再只列一種狀態
-    （missing、subscribed、unchecked（含 notmdb）、excluded，不給是全部）。offset、limit 分頁。
+    （missing、pending、unchecked（含 notmdb）、excluded，不給是全部）。offset、limit 分頁。
     stats 是篩選出來的（不看 view）各種狀態幾部，網頁的分頁數字照它；years、libraries 是下拉選單用的（媒體庫裡所有劇的年份、
     劇集媒體庫），subscriptions 是 MoviePilot 現在有幾個訂閱（讀不到是 null）。
     """
@@ -77,7 +78,7 @@ def list_series(request: Request, ctx: AuthContext = Depends(require_admin)):
     items, total = library_series(
         db, q(request, "q") or "", q(request, "gaps") in ("1", "true"), limit=limit, offset=offset,
         year=q_int(request, "year"), view=view, excluded=set(excluded), subscribed=mp.subscribed_seasons(), stats=stats,
-        library=q_int(request, "library"),
+        library=q_int(request, "library"), sent=mp.sent_seasons(),
     )
     for s in items:
         s["excluded"] = s["state"] == "excluded"
@@ -104,8 +105,8 @@ async def moviepilot_fill_exclude(request: Request, ctx: AuthContext = Depends(r
 
 @router.post("/web/api/moviepilot/fill")
 async def moviepilot_fill(request: Request, ctx: AuthContext = Depends(require_admin)):
-    """補全缺集：{"series": [id, ...]} 只送這些劇；不然照清單的篩選送：{"q", "year", "library"} 和清單一樣，
-    {"view": "missing"} 只送缺集又還沒訂閱的。{"check": true}：只對照 TMDB、記下每一季缺哪幾集，不建訂閱
+    """補全缺集：{"series": [id, ...]} 只送這些劇（加 {"force": true}：MoviePilot 已經在處理的季也再訂閱一次）；
+    不然照清單的篩選送：{"q", "year", "library"} 和清單一樣，{"view": "missing"} 只送缺集又還沒交給 MoviePilot 的。{"check": true}：只對照 TMDB、記下每一季缺哪幾集，不建訂閱
     （{"view": "unchecked"} 只對照還沒對照過的；沒給 view 就是篩選出來的全部重新對照）。篩選都沒給就是所有有 tmdbid 的劇。"""
     st = state(request)
     mp = st.moviepilot
@@ -124,7 +125,7 @@ async def moviepilot_fill(request: Request, ctx: AuthContext = Depends(require_a
         raise HTTPException(status_code=400, detail="year、library 要是數字")
 
     def pick() -> list:
-        known = {"excluded": set(mp.fill_excluded()), "subscribed": mp.subscribed_seasons()}
+        known = {"excluded": set(mp.fill_excluded()), "subscribed": mp.subscribed_seasons(), "sent": mp.sent_seasons()}
         if wanted is not None:
             return [s for s in library_series(st.db, **known)[0] if s["id"] in wanted]
         # 和清單同一套篩選：畫面上篩出哪些，就只處理哪些
@@ -138,7 +139,12 @@ async def moviepilot_fill(request: Request, ctx: AuthContext = Depends(require_a
     shows = await run_in_threadpool(pick)
     if not shows:
         raise HTTPException(status_code=400, detail="沒有可以送的劇" + ("" if view else "：要先刮削過、有 tmdbid"))
-    started = mp.fill_in_background(shows, "manual", check) if check else mp.fill_in_background(shows, "manual")
+    if check:
+        started = mp.fill_in_background(shows, "manual", check)
+    elif wanted is not None and body.get("force"):
+        started = mp.fill_in_background(shows, "manual", force=True)
+    else:
+        started = mp.fill_in_background(shows, "manual")
     return {"started": started, "count": len(shows), "result": mp.fill_result.as_dict()}
 
 

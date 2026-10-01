@@ -1,6 +1,7 @@
 """補全缺集：列出媒體庫裡的劇和集號空洞、替每一季向 MoviePilot 建訂閱。"""
 
 import json
+import time
 from pathlib import Path
 
 import httpx
@@ -32,7 +33,7 @@ def test_library_series_lists_gaps(tmp_path: Path):
     a, b = items
     assert (a["tmdbid"], a["year"], a["library"], a["gaps"]) == (4321, 2020, "劇集", 1)
     # 還沒對照過 TMDB：只看得出集號的空洞，缺哪幾集（missing）不知道
-    unknown = {"tmdb": None, "missing": None, "subscribed": None}
+    unknown = {"tmdb": None, "missing": None, "subscribed": None, "sent": None}
     assert a["seasons"] == [
         {"season": 1, "count": 3, "first": 1, "last": 4, "gaps": [3], **unknown},
         {"season": 2, "count": 1, "first": 1, "last": 1, "gaps": [], **unknown},
@@ -57,12 +58,19 @@ def test_library_series_lists_gaps(tmp_path: Path):
     stats = {}
     (a,), total = library_series(db, view="missing", stats=stats)
     assert total == 1 and (a["state"], a["missing"], a["unchecked"], a["to_fill"]) == ("missing", 3, 0, 1)
-    assert stats == {"missing": 1, "subscribed": 0, "unchecked": 0, "notmdb": 1, "complete": 0, "excluded": 0, "total": 2}
+    assert stats == {"missing": 1, "pending": 0, "unchecked": 0, "notmdb": 1, "complete": 0, "excluded": 0, "total": 2}
     assert [(s["tmdb"], s["missing"]) for s in a["seasons"]] == [(6, [3, 5, 6]), (1, [])]
-    # MoviePilot 已經訂閱了缺集的那一季：不用再補，換到「已訂閱」；標了「不補」的自成一類
-    (a,), _ = library_series(db, view="subscribed", subscribed={(4321, 1)})
-    assert (a["state"], a["to_fill"], a["seasons"][0]["subscribed"]) == ("subscribed", 0, True)
+    # MoviePilot 已經訂閱了缺集的那一季：不用再補，換到「處理中」；標了「不補」的自成一類
+    (a,), _ = library_series(db, view="pending", subscribed={(4321, 1)})
+    assert (a["state"], a["to_fill"], a["seasons"][0]["subscribed"]) == ("pending", 0, True)
     assert library_series(db, view="missing", subscribed={(4321, 1)}) == ([], 0)
+    # MoviePilot 找到資源、送去下載就把訂閱記成完成（不在訂閱清單裡了），集還沒入庫：也算處理中，標出什麼時候送的
+    now = time.time()
+    (a,), _ = library_series(db, view="pending", subscribed=set(), sent={(4321, 1): now})
+    assert (a["state"], a["to_fill"], a["seasons"][0]["subscribed"], a["seasons"][0]["sent"]) == ("pending", 0, False, now)
+    # 送下載之後才播出的集，那次下載抓不到：還是要補
+    (a,), _ = library_series(db, view="missing", subscribed=set(), sent={(4321, 1): 0.0})
+    assert (a["to_fill"], a["seasons"][0]["sent"]) == (1, None)
     assert [s["state"] for s in library_series(db, excluded={"4321"})[0]] == ["notmdb", "excluded"]
     db.execute("UPDATE tmdb_seasons SET episodes=? WHERE season=1", (json.dumps({str(e): "2020-01-01" for e in (1, 2, 4)}),))
     assert library_series(db, view="missing") == ([], 0)  # TMDB 上就這幾集：中間的空洞不算缺
@@ -76,6 +84,7 @@ class FakeMP:
         self.episodes, self.existing, self.v2 = episodes, set(existing), v2
         self.sent = []
         self.subs = []  # MoviePilot 裡現有的訂閱
+        self.history = []  # 訂閱歷史：找到資源、送去下載後記成完成的訂閱
 
     def __call__(self, request: httpx.Request) -> httpx.Response:
         self.sent.append(request)
@@ -91,6 +100,8 @@ class FakeMP:
             return httpx.Response(200, json=items if self.v2 else {"success": True, "data": items})
         if request.headers.get("authorization") != "Bearer jwt":
             return httpx.Response(401, json={"detail": "Not authenticated"})  # 建訂閱、搜尋不接受 API 令牌
+        if path == "/api/v1/subscribe/history/电视剧":
+            return httpx.Response(200, json={"success": True, "data": self.history})
         if path == "/api/v1/subscribe/" and request.method == "GET":  # 現有的訂閱，一次只給 2 個（分頁）
             return httpx.Response(200, json=self.subs[:2])
         if request.method == "DELETE" and path.startswith("/api/v1/subscribe/"):
@@ -228,7 +239,7 @@ def test_fill_endpoints(tmp_path: Path):
     assert c.get("/web/api/series", params={"year": 1999}, headers=h).json() | {"years": None, "libraries": None} == {
         "items": [], "total": 0, "offset": 0, "more": False, "years": None, "libraries": None, "excluded": 0,
         "subscriptions": None,
-        "stats": {"missing": 0, "subscribed": 0, "unchecked": 0, "notmdb": 0, "complete": 0, "excluded": 0, "total": 0}}
+        "stats": {"missing": 0, "pending": 0, "unchecked": 0, "notmdb": 0, "complete": 0, "excluded": 0, "total": 0}}
     everything = c.get("/web/api/series", headers=h).json()
     assert (everything["stats"]["unchecked"], everything["stats"]["notmdb"], everything["stats"]["total"]) == (1, 1, 2)
     # 媒體庫（國產劇、國漫…）也可以篩
@@ -259,15 +270,39 @@ def test_fill_endpoints(tmp_path: Path):
     assert [s["name"] for s in listed["items"]] == ["Show A"] and (listed["stats"]["missing"], listed["stats"]["unchecked"]) == (1, 0)
     assert [(s["tmdb"], s["missing"], s["subscribed"]) for s in listed["items"][0]["seasons"]] == [(8, [3, 5, 6, 7, 8], False), (1, [], None)]
     assert listed["subscriptions"] == 0  # MoviePilot 現在有幾個訂閱
-    # MoviePilot 裡已經訂閱了那一季：清單標已訂閱、換到「已訂閱」分頁，「補全缺集的」不再送它
-    fake.subs = [{"id": 9, "name": "Show A", "type": "电视剧", "season": 1, "tmdbid": 4321}]
+    # MoviePilot 裡已經訂閱了那一季：清單標已訂閱、換到「處理中」分頁，「補全缺集的」不再送它。
+    # 新版 MoviePilot 的訂閱不回 tmdbid，改成 media_source 加 media_id
+    fake.subs = [{"id": 9, "name": "Show A", "type": "电视剧", "season": 1, "media_source": "themoviedb", "media_id": "4321"}]
     mp._subs_cache = None
-    listed = c.get("/web/api/series", params={"view": "subscribed"}, headers=h).json()
-    assert [(s["name"], s["state"], s["seasons"][0]["subscribed"]) for s in listed["items"]] == [("Show A", "subscribed", True)]
+    listed = c.get("/web/api/series", params={"view": "pending"}, headers=h).json()
+    assert [(s["name"], s["state"], s["seasons"][0]["subscribed"]) for s in listed["items"]] == [("Show A", "pending", True)]
     assert listed["subscriptions"] == 1 and listed["stats"]["missing"] == 0
     assert c.post("/web/api/moviepilot/fill", json={"view": "missing"}, headers=h).status_code == 400  # 沒有要補的
+    f = mp.fill([SHOW_A], "manual")  # 單獨補那一部也不重複訂閱
+    assert (f.existing, f.created) == (1, 0) and "MoviePilot 裡已經有這一季的訂閱" in f.details[0]
+    assert not fake.posts("/api/v1/subscribe/")
+    # MoviePilot 找到資源、送去下載後把訂閱移到歷史：清單標「已送下載」，還是在「處理中」，補全不重複訂閱；
+    # 「再補一次」（force）才照樣送。超過 3 天還沒入庫的不算，回到缺集
     fake.subs = []
-    mp._subs_cache = None
+    stamp = lambda ago: time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(time.time() - ago))  # noqa: E731
+    fake.history = [{"name": "Show A", "season": 1, "media_source": "themoviedb", "media_id": "4321", "date": stamp(600)},
+                    {"name": "舊的", "season": 2, "tmdbid": 4321, "date": stamp(30 * 86400)}]
+    mp._subs_cache = mp._sent_cache = None
+    listed = c.get("/web/api/series", params={"view": "pending"}, headers=h).json()
+    (season, _), = [s["seasons"] for s in listed["items"]]
+    assert (listed["items"][0]["state"], season["subscribed"]) == ("pending", False) and 500 < time.time() - season["sent"] < 700
+    assert list(mp.sent_seasons()) == [(4321, 1)]
+    f = mp.fill([SHOW_A], "manual")
+    assert (f.sent, f.created) == (1, 0) and "送去下載，等下載完入庫，不重複訂閱" in f.details[0]
+    assert not fake.posts("/api/v1/subscribe/")
+    forced = []
+    real_bg, mp.fill_in_background = mp.fill_in_background, lambda shows, source, check=False, force=False: forced.append(force) or True
+    assert c.post("/web/api/moviepilot/fill", json={"series": [listed["items"][0]["id"]], "force": True}, headers=h).json()["count"] == 1
+    mp.fill_in_background = real_bg
+    assert forced == [True] and mp.fill([SHOW_A], "manual", force=True).created == 1
+    fake.sent[:] = [q for q in fake.sent if "/tmdb/" in q.url.path]  # 再補一次送的訂閱不算進下面的檢查
+    fake.history = []
+    mp._subs_cache = mp._sent_cache = None
     picked = []
     real_bg, mp.fill_in_background = mp.fill_in_background, lambda shows, source, check=False: picked.append([s["name"] for s in shows]) or True
     assert c.post("/web/api/moviepilot/fill", json={"view": "missing"}, headers=h).json()["count"] == 1 and picked == [["Show A"]]

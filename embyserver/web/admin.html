@@ -2458,9 +2458,9 @@ function epRanges(nums) {
   for (const n of nums) { const last = runs[runs.length - 1]; if (last && n === last[1] + 1) last[1] = n; else runs.push([n, n]); }
   return runs.slice(0, 6).map(([a, b]) => a === b ? 'E' + ep2(a) : `E${ep2(a)}–E${ep2(b)}`).join('、') + (runs.length > 6 ? '…' : '');
 }
-// 清單照「接下來要做什麼」分頁：缺集（要補）、已訂閱（等 MoviePilot 下載）、還沒對照（要檢查）、不補、全部。
+// 清單照「接下來要做什麼」分頁：缺集（要補）、處理中（交給 MoviePilot 了：還訂閱著，或已經送去下載、等入庫）、還沒對照（要檢查）、不補、全部。
 // 每一部只會在前四個的其中一個，齊全的只在「全部」裡
-const SERIES_VIEWS = [['missing', '缺集'], ['subscribed', '已訂閱'], ['unchecked', '還沒對照'], ['excluded', '不補'], ['all', '全部']];
+const SERIES_VIEWS = [['missing', '缺集'], ['pending', '處理中'], ['unchecked', '還沒對照'], ['excluded', '不補'], ['all', '全部']];
 let seriesPage = 1, seriesSeq = 0, seriesView = 'missing', seriesInfo = null;
 function seriesLimit() { return parseInt($('seriesLimit').value, 10) || 20; }
 function restoreSeriesLimit() {
@@ -2495,17 +2495,17 @@ function renderSeriesBar() {
   const r = seriesInfo;
   if (!r) return;
   const st = r.stats, busy = fillBusy();
-  const n = {missing: st.missing, subscribed: st.subscribed, unchecked: st.unchecked + st.notmdb, excluded: st.excluded, all: st.total};
-  // 讀不到 MoviePilot 的訂閱（沒填帳號密碼）時分不出訂閱了沒，「已訂閱」那一頁不顯示
-  setHtml($('seriesTabs'), SERIES_VIEWS.filter(([k]) => k !== 'subscribed' || r.subscriptions != null).map(([k, label]) =>
+  const n = {missing: st.missing, pending: st.pending, unchecked: st.unchecked + st.notmdb, excluded: st.excluded, all: st.total};
+  // 讀不到 MoviePilot 的訂閱（沒填帳號密碼）時分不出它在處理了沒，「處理中」那一頁不顯示
+  setHtml($('seriesTabs'), SERIES_VIEWS.filter(([k]) => k !== 'pending' || r.subscriptions != null).map(([k, label]) =>
     `<button data-act="seriesView" data-view="${k}" role="tab" aria-selected="${k === seriesView}"${k === seriesView ? ' class="on"' : ''}>${label} ${n[k]}</button>`).join(''));
   const bulk = $('seriesBulk');
   let label = '', run = null;
   if (seriesView === 'missing' && st.missing) { label = `補全這 ${st.missing} 部`; run = fillMissing; }
   else if (seriesView === 'unchecked' && st.unchecked) { label = `檢查這 ${st.unchecked} 部`; run = () => fillSeries({view: 'unchecked', check: true, ...seriesFilters()}, `${st.unchecked} 部還沒對照的劇`); }
   bulk.classList.toggle('hidden', !label); bulk.textContent = label; bulk.onclick = run; bulk.disabled = busy;
-  const fresh = !(st.missing + st.subscribed + st.complete);  // 一部都還沒對照過：檢查就是現在該按的那一個
-  const scoped = seriesScope(), checkable = st.missing + st.subscribed + st.unchecked + st.complete;
+  const fresh = !(st.missing + st.pending + st.complete);  // 一部都還沒對照過：檢查就是現在該按的那一個
+  const scoped = seriesScope(), checkable = st.missing + st.pending + st.unchecked + st.complete;
   // 有篩選時，檢查也只檢查篩選出來的（按鈕上寫明幾部）
   $('fillCheckBtn').textContent = scoped && checkable ? `${fresh ? '檢查' : '重新檢查'}這 ${checkable} 部` : fresh ? '檢查缺集' : '重新檢查';
   $('fillCheckBtn').classList.toggle('primary', fresh && !!checkable);
@@ -2521,12 +2521,12 @@ function seriesEmpty(st, filtered) {
   if (filtered && !st.total) return emptyState('沒有符合的劇', `${filtered}：媒體庫裡沒有。換個搜尋的字、媒體庫或年份試試。`);
   if (filtered) return emptyState('這一頁沒有符合的劇', `${filtered}：共 ${st.total} 部，在其他分頁。`);
   if (seriesView === 'missing') {
-    if (!st.missing && !st.subscribed && !st.complete) return emptyState('還沒對照過 TMDB', '按右上角的「檢查缺集」：只查每一季缺哪幾集，不建訂閱、不下載。');
-    if (st.subscribed) return emptyState('缺集的劇都訂閱了', `${st.subscribed} 部在「已訂閱」分頁，MoviePilot 會定時搜尋、下載。`);
+    if (!st.missing && !st.pending && !st.complete) return emptyState('還沒對照過 TMDB', '按右上角的「檢查缺集」：只查每一季缺哪幾集，不建訂閱、不下載。');
+    if (st.pending) return emptyState('缺集的劇都交給 MoviePilot 了', `${st.pending} 部在「處理中」分頁，等它下載、整理進媒體庫。`);
     if (st.unchecked) return emptyState('對照過的劇都不缺集', `還有 ${st.unchecked} 部沒對照過，在「還沒對照」分頁。`);
     return emptyState('沒有缺集的劇', 'TMDB 上已經播出的集，媒體庫裡都有。');
   }
-  if (seriesView === 'subscribed') return emptyState('沒有訂閱中的缺集劇', '在「缺集」分頁按「補全」之後，訂閱了的劇會移到這裡，等 MoviePilot 下載。');
+  if (seriesView === 'pending') return emptyState('沒有 MoviePilot 正在處理的劇', '在「缺集」分頁按「補全」之後，劇會移到這裡：MoviePilot 還在找資源的標「已訂閱」，找到資源、送去下載的標「已送下載」。下載完、整理進媒體庫就不缺了。');
   if (seriesView === 'unchecked') return emptyState('每一部都對照過了', '新加的劇、新的季會出現在這裡。');
   if (seriesView === 'excluded') return emptyState('沒有標了「不補」的劇', '在清單上按「不補」，之後檢查和補全都會跳過那一部。');
   return emptyState('媒體庫裡還沒有劇集', '');
@@ -2539,7 +2539,8 @@ function seasonsHtml(s) {
   for (const x of s.seasons) {
     if (x.missing && x.missing.length) {
       lines.push(`<div class="ss"><span class="sn">S${ep2(x.season)}</span><span>有 ${x.count} 集・TMDB 已播出 ${x.tmdb} 集</span><span class="pill warn">缺 ${x.missing.length} 集</span>${eps(x.missing)}` +
-        (x.subscribed ? '<span class="pill ok" title="MoviePilot 裡已經有這一季的訂閱，它會定時搜尋">已訂閱</span>' : '') + '</div>');
+        (x.subscribed ? '<span class="pill ok" title="MoviePilot 裡已經有這一季的訂閱，它會定時搜尋">已訂閱</span>'
+          : x.sent ? `<span class="pill ok" title="MoviePilot 找到資源、交給下載器了（它把訂閱記成完成）。下載完、整理進媒體庫之後就不缺了；3 天還沒入庫會回到「缺集」">已送下載・${ago(x.sent)}</span>` : '') + '</div>');
     } else if (!x.missing && x.gaps.length) {
       lines.push(`<div class="ss"><span class="sn">S${ep2(x.season)}</span><span>${x.count} 集</span><span class="pill warn">集號缺 ${x.gaps.length} 集</span>${eps(x.gaps)}</div>`);
     } else plain.push(`S${ep2(x.season)} ${x.count} 集`);
@@ -2557,7 +2558,7 @@ async function loadSeries(page) {
   catch (e) { if (seq === seriesSeq) box.innerHTML = failHtml(e); return; }
   if (seq !== seriesSeq) return;
   seriesInfo = r;
-  if (seriesView === 'subscribed' && r.subscriptions == null) { seriesView = 'missing'; return loadSeries(1); }  // 這一頁現在看不了
+  if (seriesView === 'pending' && r.subscriptions == null) { seriesView = 'missing'; return loadSeries(1); }  // 這一頁現在看不了
   fillYears(r.years, f.year); fillLibs(r.libraries, f.library);
   try { localStorage.setItem('mi302.seriesLimit', String(limit)); localStorage.setItem('mi302.seriesShow', seriesView); } catch (e) {}
   const pages = Math.max(1, Math.ceil(r.total / limit));
@@ -2567,13 +2568,15 @@ async function loadSeries(page) {
   for (const s of r.items) {
     const row = document.createElement('div'); row.className = 'li top';
     const name = '「' + s.name + '」';
-    // 右邊的按鈕照狀態：缺集又還沒訂閱 → 補全；還沒對照 → 檢查；標了不補 → 恢復；沒有 tmdbid 的什麼都不能做
+    // 右邊的按鈕照狀態：缺集又還沒交給 MoviePilot → 補全；送去下載了但想重來 → 再補一次；還沒對照 → 檢查；標了不補 → 恢復；
+    // 沒有 tmdbid 的什麼都不能做
     const acts = [];
     if (s.state === 'missing') acts.push(['補全', 'btn sm js-run', '向 MoviePilot 訂閱這部劇缺集的季，並請它搜尋', () => fillSeries({series: [s.id]}, name)]);
+    if (s.state === 'pending' && s.seasons.some(x => x.sent)) acts.push(['再補一次', 'btn sm ghost js-run', '下載失敗、種子被刪了的時候用：不等 3 天，現在就再訂閱一次、請 MoviePilot 重新搜尋', () => fillSeries({series: [s.id], force: true}, name)]);
     if (s.state === 'unchecked') acts.push(['檢查', 'btn sm js-run', '對照 TMDB，看這部劇缺哪幾集（不建訂閱）', () => fillSeries({series: [s.id], check: true}, name)]);
     if (s.state === 'excluded') acts.push(['恢復補全', 'btn sm ghost', '之後檢查、補全時照常處理這部劇', () => fillExclude(s, false)]);
     else if (s.state !== 'notmdb') acts.push(['不補', 'btn sm ghost', '之後檢查、補全（手動、全部、全量同步後自動）都跳過這部劇', () => fillExclude(s, true)]);
-    row.innerHTML = `<div class="main"><div class="row wrap"><b>${esc(s.name)}</b>${s.year ? `<span class="hint">${s.year}</span>` : ''}${s.library ? `<span class="pill">${esc(s.library)}</span>` : ''}${SERIES_PILL[s.state] || ''}${(s.state === 'missing' || s.state === 'subscribed') && s.unchecked ? SERIES_PILL.unchecked : ''}</div>
+    row.innerHTML = `<div class="main"><div class="row wrap"><b>${esc(s.name)}</b>${s.year ? `<span class="hint">${s.year}</span>` : ''}${s.library ? `<span class="pill">${esc(s.library)}</span>` : ''}${SERIES_PILL[s.state] || ''}${(s.state === 'missing' || s.state === 'pending') && s.unchecked ? SERIES_PILL.unchecked : ''}</div>
       ${seasonsHtml(s)}</div>
       <div class="row gap6">${acts.map(([label, cls, title]) => `<button class="${cls}" title="${esc(title)}">${label}</button>`).join('')}</div>`;
     row.querySelectorAll('button').forEach((b, i) => { b.onclick = acts[i][3]; });
@@ -2582,7 +2585,7 @@ async function loadSeries(page) {
   pager(box, {page: seriesPage, pages, onPage: loadSeries, total: r.total, unit: '部', always: true});
   renderSeriesBar();
 }
-// body：{series: [id]}（一部）；不然帶著清單的篩選（seriesFilters）：{view: 'missing'} 缺集又還沒訂閱的、
+// body：{series: [id]}（一部）；不然帶著清單的篩選（seriesFilters）：{view: 'missing'} 缺集又還沒交給 MoviePilot 的、
 // {view: 'unchecked', check: true} 還沒對照的、{check: true} 篩選出來的全部重新對照
 async function fillSeries(body, label) {
   let r;
@@ -2591,14 +2594,14 @@ async function fillSeries(body, label) {
   toast(r.started ? (body.check ? '開始對照 TMDB：' : '已送給 MoviePilot：') + label : '已經在檢查、補全或取消訂閱，等它做完'); pollMP();
 }
 async function checkAll() {
-  const scope = seriesScope(), st = seriesInfo?.stats || {}, n = (st.missing || 0) + (st.subscribed || 0) + (st.unchecked || 0) + (st.complete || 0);
+  const scope = seriesScope(), st = seriesInfo?.stats || {}, n = (st.missing || 0) + (st.pending || 0) + (st.unchecked || 0) + (st.complete || 0);
   if (await ask({title: scope ? `對照 TMDB 檢查這 ${n} 部劇缺哪幾集？` : '對照 TMDB 檢查每一部劇缺哪幾集？',
     text: (scope ? `只檢查篩選出來的（${scope}）。` : '') + '每一季向 MoviePilot 查一次 TMDB 已播出的集，只記下缺哪幾集，不建訂閱、不下載。6 小時內查過的季不再問。劇多的話要幾分鐘到十幾分鐘，在背景跑。',
     ok: '檢查缺集'})) fillSeries({check: true, ...seriesFilters()}, scope ? `${n} 部劇（${scope}）` : '全部劇集');
 }
 async function fillMissing() {
   const n = seriesInfo?.stats?.missing || 0, scope = seriesScope();
-  if (await ask({title: `補全 ${n} 部缺集的劇？`, text: (scope ? `只補篩選出來的（${scope}）。` : '') + '替每一個缺集的季向 MoviePilot 建訂閱，並請它搜尋、下載。已經訂閱的季、標了「不補」的劇、缺超過設定集數的季不送；兩個新訂閱之間會隔開（見下面的「設定」），多的話要一陣子，在背景跑。',
+  if (await ask({title: `補全 ${n} 部缺集的劇？`, text: (scope ? `只補篩選出來的（${scope}）。` : '') + '替每一個缺集的季向 MoviePilot 建訂閱，並請它搜尋、下載。MoviePilot 已經在處理的季（訂閱中、已送下載）、標了「不補」的劇、缺超過設定集數的季不送；兩個新訂閱之間會隔開（見下面的「設定」），多的話要一陣子，在背景跑。',
     ok: '補全'})) fillSeries({view: 'missing', ...seriesFilters()}, `${n} 部缺集的劇` + (scope ? `（${scope}）` : ''));
 }
 async function fillExclude(s, on) {
@@ -2647,7 +2650,7 @@ function fillHtml(f) {
   else {
     const parts = (f.check
       ? [[f.lacking, `${f.lacking} 季缺集（共缺 ${f.missing || 0} 集）`], [f.complete, `${f.complete} 季齊全`], [f.failed, `${f.failed} 季查不到`]]
-      : [[f.created, `建了 ${f.created} 個訂閱`], [f.existing, `${f.existing} 季之前就訂閱過`], [f.complete, `${f.complete} 季齊全`],
+      : [[f.created, `建了 ${f.created} 個訂閱`], [f.existing, `${f.existing} 季之前就訂閱過`], [f.sent, `${f.sent} 季已送下載`], [f.complete, `${f.complete} 季齊全`],
          [f.too_many, `${f.too_many} 季缺太多不補`], [f.failed, `${f.failed} 季失敗`]]).filter(([n]) => n).map(([, t]) => t);
     if (f.excluded) parts.push(`${f.excluded} 部標了不補`);
     if (f.skipped) parts.push(`${f.skipped} 部沒有 tmdbid`);

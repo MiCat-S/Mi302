@@ -12,7 +12,7 @@ import re
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
-from datetime import date
+from datetime import date, datetime
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Callable, Dict, Iterable, List, Optional, Set, Tuple
@@ -33,6 +33,7 @@ log = logging.getLogger(__name__)
 SCRAPE_API = "/api/v1/media/scrape/local"
 LOGIN_API = "/api/v1/login/access-token"
 SUBSCRIBE_API = "/api/v1/subscribe/"
+SUBSCRIBE_HISTORY_API = "/api/v1/subscribe/history/"
 SUBSCRIBE_SEARCH_API = "/api/v1/subscribe/search/{sid}"
 TMDB_EPISODES_API = "/api/v1/tmdb/{tmdbid}/{season}"
 # 手動整理（在 115 上改名、搬家、刮削）和推薦集數定位模板；兩個都只接受帳號登入
@@ -133,6 +134,7 @@ class FillResult:
     created: int = 0  # 缺集，建了訂閱並請 MoviePilot 搜尋（兩個之間隔 fill_interval 秒）
     complete: int = 0  # 已播出的集都有，沒有建訂閱
     existing: int = 0  # 之前就訂閱過（不再請它搜，MoviePilot 自己會定時搜）
+    sent: int = 0  # MoviePilot 已經找到資源、送去下載，還沒入庫的季：不重複訂閱
     missing: int = 0  # 缺的集數合計
     skipped: int = 0  # 沒有 tmdbid 的劇，以劇計
     excluded: int = 0  # 標了「不補」的劇，以劇計
@@ -168,6 +170,12 @@ class UnsubscribeResult:
 MAX_UNSUB_ERRORS = 20
 SUBS_CACHE_SECONDS = 60  # 清單上「已訂閱」的標記：MoviePilot 的訂閱清單記這麼久，不必每翻一頁、每打一個字都去問
 TV_TYPE = "电视剧"  # MoviePilot 訂閱的類型
+# MoviePilot 找到資源、交給下載器就把訂閱記成完成、移到歷史，這時集還在下載、還沒入庫。這麼久以內完成的訂閱算「已送下載」，
+# 不重複訂閱；過了還沒入庫（下載失敗、種子被刪）就回到缺集，可以再補
+# （網頁的提示和 wiki 寫的是「3 天」，改這裡要一起改）
+SENT_GRACE_SECONDS = 3 * 86400
+HISTORY_PAGE = 100  # 訂閱歷史一頁讀幾個（新的在前面，讀到超過 SENT_GRACE_SECONDS 的就停）
+HISTORY_MAX_PAGES = 20
 
 
 class MoviePilot:
@@ -189,6 +197,7 @@ class MoviePilot:
         self.fill_result = FillResult()
         self.unsubscribe_result = UnsubscribeResult()
         self._subs_cache: Optional[Tuple[float, Optional[List[dict]]]] = None  # (時間, 訂閱清單；讀不到是 None)
+        self._sent_cache: Optional[Tuple[float, Dict[Tuple[int, int], float]]] = None  # (時間, 已送下載的季)
         self._lock = threading.Lock()
         self._fill_lock = threading.Lock()
         self._fill_excluded_lock = threading.Lock()
@@ -830,9 +839,10 @@ class MoviePilot:
             raise MoviePilotError(str(res.get("message") or "MoviePilot 沒有安排搜尋"))
         return str((res or {}).get("message") or "已安排搜尋") if isinstance(res, dict) else "已安排搜尋"
 
-    def fill(self, series: List[dict], source: str, check: bool = False) -> FillResult:
+    def fill(self, series: List[dict], source: str, check: bool = False, force: bool = False) -> FillResult:
         """替這些劇（library_series 的格式）的每一季建訂閱，一季一季來。
-        check=True：只對照 TMDB、記下每一季缺哪幾集（清單就看得出誰真的缺），不建訂閱。"""
+        check=True：只對照 TMDB、記下每一季缺哪幾集（清單就看得出誰真的缺），不建訂閱。
+        MoviePilot 已經在處理的季（還訂閱著，或剛送去下載、還沒入庫）不重複訂閱；force=True 照樣送（「再補一次」）。"""
         if not self._fill_lock.acquire(blocking=False):
             log.info("補全缺集已在進行，略過")
             return self.fill_result
@@ -858,6 +868,7 @@ class MoviePilot:
                 jobs += [(show, x) for x in show.get("seasons") or []]
             r.total = len(jobs)
             log.info("%s：檢查 %s 季", "檢查缺集" if check else "補全缺集", len(jobs))
+            handed = None if check or force else (self.subscribed_seasons() or set(), self.sent_seasons())
             for show, info in jobs:
                 if self._stop.is_set() or self._cancel["fill"].is_set():
                     r.stopped = not self._stop.is_set()
@@ -867,7 +878,7 @@ class MoviePilot:
                 label = f"{show['name']} S{info['season']:02d}"
                 r.current = label
                 try:
-                    if not self._fill_season(r, show, info, label, check):
+                    if not self._fill_season(r, show, info, label, check, handed):
                         r.stopped = not self._stop.is_set()
                         if r.stopped:
                             r.details.append(f"按了停止，還有 {r.total - r.done} 季沒送")
@@ -881,14 +892,14 @@ class MoviePilot:
                 r.done += 1
             if not r.errors:  # 做完（或停下）寫一行，日誌上看得出結束了
                 log.info("%s%s：%s / %s 季，缺集的 %s 季", "檢查缺集" if check else "補全缺集", "停止" if r.stopped else "完成",
-                         r.done, r.total, r.lacking if check else r.created + r.existing + r.too_many)
+                         r.done, r.total, r.lacking if check else r.created + r.existing + r.sent + r.too_many)
         except MoviePilotError as exc:
             r.errors.append(str(exc))
         finally:
             r.running = False
             r.current = ""
             r.finished = time.time()
-            self._subs_cache = None  # 訂閱變了：清單上的「已訂閱」重新讀
+            self._subs_cache = self._sent_cache = None  # 訂閱變了：清單上的「已訂閱」「已送下載」重新讀
             self._fill_lock.release()
         return r
 
@@ -911,9 +922,11 @@ class MoviePilot:
                 return False
         return False
 
-    def _fill_season(self, r: FillResult, show: dict, info: dict, label: str, check: bool = False) -> bool:
+    def _fill_season(self, r: FillResult, show: dict, info: dict, label: str, check: bool = False,
+                     handed: Optional[Tuple[Set[Tuple[int, int]], Dict[Tuple[int, int], float]]] = None) -> bool:
         """一季：查 TMDB 已播出的集 → 缺集才建訂閱 → 新建的請 MoviePilot 搜尋（之前就訂閱過的不再搜，
-        它自己會定時搜）。check：只記下缺哪幾集，不建訂閱。等的時候程式要結束回傳 False。"""
+        它自己會定時搜）。check：只記下缺哪幾集，不建訂閱。handed：MoviePilot 已經在處理的季（還訂閱著的、
+        已送下載的），不重複訂閱。等的時候程式要結束回傳 False。"""
         tmdbid, season = int(show["tmdbid"]), int(info["season"])
         episodes = self.tmdb_episodes(tmdbid, season, strict=check)
         missing: List[int] = []
@@ -946,6 +959,8 @@ class MoviePilot:
                 return True
             r.missing += len(missing)
         lack = f"缺 {len(missing)} 集（{ep_ranges(missing)}）" if missing else "查不到 TMDB 集數，交給 MoviePilot 判斷"
+        if handed and self._already_handed(r, (tmdbid, season), f"{label}：{lack}", episodes or {}, missing, handed):
+            return True
         if not self._pace(r, label):
             return False
         r.current = label
@@ -973,6 +988,23 @@ class MoviePilot:
         log.info("補全缺集 %s：%s；%s", label, lack, note)
         return True
 
+    @staticmethod
+    def _already_handed(r: FillResult, key: Tuple[int, int], text: str, episodes: Dict[int, str], missing: List[int],
+                        handed: Tuple[Set[Tuple[int, int]], Dict[Tuple[int, int], float]]) -> bool:
+        """這一季 MoviePilot 已經在處理（還訂閱著，或剛送去下載、還沒入庫）就記一筆、回傳 True：不重複訂閱。"""
+        subscribed, sent = handed
+        if key in subscribed:
+            r.existing += 1
+            r.details.append(f"{text}；MoviePilot 裡已經有這一季的訂閱，它會在定時搜尋時處理")
+            return True
+        at = sent.get(key)
+        if at and sent_covers(at, episodes, missing):
+            r.sent += 1
+            r.details.append(f"{text}；MoviePilot 在 {time.strftime('%m-%d %H:%M', time.localtime(at))} 已經找到資源、"
+                             "送去下載，等下載完入庫，不重複訂閱")
+            return True
+        return False
+
     def cancel(self, what: str) -> bool:
         """按了停止（what 是 scrape 或 fill）：刮削送出去的做完、沒送的不送；補全缺集做完手上這一季就停。
         沒在跑回傳 False。"""
@@ -990,7 +1022,7 @@ class MoviePilot:
         res = self._request("GET", SUBSCRIBE_API, timeout=60)
         items = res.get("data") if isinstance(res, dict) else res
         return [{"id": int(s["id"]), "name": str(s.get("name") or ""), "year": s.get("year"), "type": str(s.get("type") or ""),
-                 "season": s.get("season"), "tmdbid": s.get("tmdbid")}
+                 "season": s.get("season"), "tmdbid": _sub_tmdbid(s)}
                 for s in items or [] if isinstance(s, dict) and str(s.get("id") or "").isdecimal()]
 
     def known_subscriptions(self) -> Optional[List[dict]]:
@@ -1016,6 +1048,35 @@ class MoviePilot:
             return None
         return {(int(s["tmdbid"]), int(s["season"])) for s in subs
                 if str(s.get("tmdbid") or "").isdecimal() and str(s.get("season") or "").isdecimal()}
+
+    def sent_seasons(self) -> Dict[Tuple[int, int], float]:
+        """MoviePilot 最近（SENT_GRACE_SECONDS 以內）完成的劇集訂閱：{(tmdbid, 季): 完成的時間}。它找到資源、交給下載器
+        就算完成、移到訂閱歷史，集還在下載、還沒入庫；清單把這些季標「已送下載」，補全不重複訂閱。
+        記 SUBS_CACHE_SECONDS 秒；沒有帳號登入、讀不到（舊版沒有這個 API）是空的。"""
+        if not self.can_subscribe:
+            return {}
+        cached = self._sent_cache
+        if cached and time.time() - cached[0] < SUBS_CACHE_SECONDS:
+            return cached[1]
+        sent: Dict[Tuple[int, int], float] = {}
+        oldest = time.time() - SENT_GRACE_SECONDS
+        try:
+            for page in range(1, HISTORY_MAX_PAGES + 1):
+                res = self._request("GET", SUBSCRIBE_HISTORY_API + TV_TYPE, timeout=60, query={"page": page, "count": HISTORY_PAGE})
+                rows = res.get("data") if isinstance(res, dict) else res
+                rows = [s for s in rows or [] if isinstance(s, dict)]
+                times = [_history_time(s) for s in rows]
+                for s, at in zip(rows, times):
+                    tmdbid, season = str(_sub_tmdbid(s) or ""), str(s.get("season") or "")
+                    if at >= oldest and tmdbid.isdecimal() and season.isdecimal():
+                        key = (int(tmdbid), int(season))
+                        sent[key] = max(at, sent.get(key, 0.0))
+                if len(rows) < HISTORY_PAGE or min(times) < oldest:
+                    break  # 新的在前面：讀到比期限舊的，後面的都更舊
+        except MoviePilotError as exc:
+            log.info("讀不到 MoviePilot 的訂閱歷史，清單先不標已送下載：%s", exc)
+        self._sent_cache = (time.time(), sent)
+        return sent
 
     def subscription_counts(self) -> dict:
         subs = self.subscriptions()
@@ -1065,7 +1126,7 @@ class MoviePilot:
             r.running = False
             r.current = ""
             r.finished = time.time()
-            self._subs_cache = None
+            self._subs_cache = self._sent_cache = None
             self._fill_lock.release()
         return r
 
@@ -1098,11 +1159,32 @@ class MoviePilot:
             self.db.set_meta(FILL_EXCLUDED_KEY, json.dumps(excluded, ensure_ascii=False))
         return excluded
 
-    def fill_in_background(self, series: List[dict], source: str, check: bool = False) -> bool:
+    def fill_in_background(self, series: List[dict], source: str, check: bool = False, force: bool = False) -> bool:
         if self._fill_lock.locked():
             return False
-        self.workers.start(self.fill, series, source, check)
+        self.workers.start(self.fill, series, source, check, force)
         return True
+
+
+def _sub_tmdbid(sub: dict):
+    """訂閱（或訂閱歷史）的 tmdbid。新版 MoviePilot 不回 tmdbid，改成 media_source="themoviedb" 加 media_id。"""
+    if sub.get("tmdbid"):
+        return sub["tmdbid"]
+    return sub.get("media_id") if sub.get("media_source") == "themoviedb" else None
+
+
+def _history_time(row: dict) -> float:
+    """訂閱歷史的 date（"2026-10-02 02:07:08"，MoviePilot 那台機器的本地時間）→ 時間戳；看不懂的當成很久以前。"""
+    try:
+        return datetime.fromisoformat(str(row.get("date") or "")).timestamp()
+    except ValueError:
+        return 0.0
+
+
+def sent_covers(at: float, episodes: Dict[int, str], missing: List[int]) -> bool:
+    """MoviePilot 在 at 完成的訂閱，涵蓋了現在缺的這幾集嗎：那之後才播出的集它當時還抓不到，要另外補。"""
+    day = date.fromtimestamp(at).isoformat()
+    return all((episodes.get(e) or "") <= day for e in missing)
 
 
 def season_missing(episodes: Dict[int, str], have: Set[int], today: Optional[str] = None) -> Tuple[List[int], List[int], int]:
@@ -1138,26 +1220,29 @@ def ep_ranges(nums: List[int], limit: int = 6) -> str:
 
 
 # 一部劇在補全缺集裡的狀態（互不重疊，清單的分頁照這個分）
-MISSING, SUBSCRIBED, UNCHECKED, NO_TMDB, COMPLETE, EXCLUDED = "missing", "subscribed", "unchecked", "notmdb", "complete", "excluded"
-STATE_ORDER = {MISSING: 0, SUBSCRIBED: 1, UNCHECKED: 2, NO_TMDB: 3, COMPLETE: 4, EXCLUDED: 5}
-VIEWS = {"missing": {MISSING}, "subscribed": {SUBSCRIBED}, "unchecked": {UNCHECKED, NO_TMDB}, "excluded": {EXCLUDED}}
+MISSING, PENDING, UNCHECKED, NO_TMDB, COMPLETE, EXCLUDED = "missing", "pending", "unchecked", "notmdb", "complete", "excluded"
+STATE_ORDER = {MISSING: 0, PENDING: 1, UNCHECKED: 2, NO_TMDB: 3, COMPLETE: 4, EXCLUDED: 5}
+VIEWS = {"missing": {MISSING}, "pending": {PENDING}, "unchecked": {UNCHECKED, NO_TMDB}, "excluded": {EXCLUDED}}
 
 
 def library_series(
     db: Database, query: str = "", gaps_only: bool = False, limit: int = 0, offset: int = 0,
     year: Optional[int] = None, view: str = "", excluded: Optional[Set[str]] = None,
     subscribed: Optional[Set[Tuple[int, int]]] = None, stats: Optional[dict] = None, library: Optional[int] = None,
+    sent: Optional[Dict[Tuple[int, int], float]] = None,
 ) -> Tuple[List[dict], int]:
     """媒體庫裡的劇：名稱、年份、tmdbid、每一季有幾集、集號的空洞（有第 2、4 集沒有第 3 集），
     以及對照 TMDB 缺哪幾集（檢查缺集、補全缺集時記下的 tmdb_seasons；還沒對照過的季是 None）。
 
-    每一部有一個 state（互不重疊，照「接下來要做什麼」分）：missing = 對照過、缺集、還有季沒訂閱（要補）；
-    subscribed = 缺集的季 MoviePilot 都訂閱了（等它下載）；unchecked = 還有季沒對照過 TMDB（要檢查）；notmdb = 沒有 tmdbid
+    每一部有一個 state（互不重疊，照「接下來要做什麼」分）：missing = 對照過、缺集、還有季沒交給 MoviePilot（要補）；
+    pending = 缺集的季 MoviePilot 都在處理了（等它下載、入庫）；unchecked = 還有季沒對照過 TMDB（要檢查）；notmdb = 沒有 tmdbid
     （要先刮削）；complete = 對照過、齊全；excluded = 標了「不補」（excluded：這些 tmdbid 字串）。
-    subscribed 參數是 MoviePilot 裡已經訂閱的（tmdbid, 季）；沒給（讀不到）時缺集的都算 missing。to_fill 是還沒訂閱的缺集季數。
+    MoviePilot 在處理的季有兩種：subscribed 參數是它裡面還訂閱著的（tmdbid, 季）；sent 參數是它最近找到資源、送去下載、
+    把訂閱記成完成的（sent_seasons：{(tmdbid, 季): 完成的時間}），集還沒入庫，那之後才播出的集不算在內。
+    都沒給（讀不到）時缺集的都算 missing。to_fill 是還要補的缺集季數。
 
     回傳 (清單, 符合條件的總數)。篩選：query 搜尋劇名、year 只列那一年的、library 只列那個媒體庫（項目 id）的、
-    gaps_only 只列集號有空洞的；view 再從篩選出來的裡面只列一種狀態：missing、subscribed、unchecked（含 notmdb）、excluded，
+    gaps_only 只列集號有空洞的；view 再從篩選出來的裡面只列一種狀態：missing、pending、unchecked（含 notmdb）、excluded，
     空的是全部。limit、offset 分頁。照 state 排，要補的在最前面。特別篇（第 0 季）不算。
     stats 給了就填上篩選出來的（不看 view）各種狀態幾部和 total：網頁的分頁數字、「補全這 N 部」都照篩選算。
     """
@@ -1171,7 +1256,8 @@ def library_series(
         (r["tmdbid"], r["season"]): _load_episodes(r["episodes"]) for r in db.query("SELECT tmdbid, season, episodes FROM tmdb_seasons")}
     today = date.today().isoformat()
     excluded = excluded or set()
-    counts = {MISSING: 0, SUBSCRIBED: 0, UNCHECKED: 0, NO_TMDB: 0, COMPLETE: 0, EXCLUDED: 0, "total": 0}
+    counts = {MISSING: 0, PENDING: 0, UNCHECKED: 0, NO_TMDB: 0, COMPLETE: 0, EXCLUDED: 0, "total": 0}
+    sent = sent or {}
     needle = simplified(query.strip()).lower()
     needle_py = pinyin_full(query) if cjk_count(query) >= 2 else ""
     out: List[dict] = []
@@ -1195,16 +1281,19 @@ def library_series(
             gaps = sorted(set(range(min(eps), max(eps) + 1)) - eps)
             known = tmdb.get((int(tmdbid), season)) if has_id else None
             missing, _, aired = season_missing(known, eps, today) if known else (None, None, None)
+            key = (int(tmdbid), season) if has_id else None
+            sent_at = sent.get(key) if missing and key else None
             seasons.append({
                 "season": season, "count": len(eps), "first": min(eps), "last": max(eps), "gaps": gaps, "tmdb": aired,
                 "missing": missing,
-                "subscribed": (int(tmdbid), season) in subscribed if missing and subscribed is not None else None})
+                "subscribed": key in subscribed if missing and subscribed is not None else None,
+                "sent": sent_at if sent_at and sent_covers(sent_at, known or {}, missing) else None})
         gap_count = sum(len(x["gaps"]) for x in seasons)
         missing_count = sum(len(x["missing"] or []) for x in seasons)
         unchecked = sum(1 for x in seasons if x["missing"] is None) if has_id else 0
-        to_fill = sum(1 for x in seasons if x["missing"] and not x["subscribed"])
+        to_fill = sum(1 for x in seasons if x["missing"] and not x["subscribed"] and not x["sent"])
         state = (NO_TMDB if not has_id else EXCLUDED if tmdbid in excluded else MISSING if to_fill
-                 else SUBSCRIBED if missing_count else UNCHECKED if unchecked else COMPLETE)
+                 else PENDING if missing_count else UNCHECKED if unchecked else COMPLETE)
         counts[state] += 1
         counts["total"] += 1
         if view in VIEWS and state not in VIEWS[view]:

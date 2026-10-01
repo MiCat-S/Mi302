@@ -261,10 +261,14 @@ MoviePilot 說完成之後再看一次有沒有真的寫出 nfo、劇照：認�
 媒體庫裡的集號當場算每一季缺哪幾集（season_missing，和補全同一套判斷）；沒有空洞的季也可能缺前面、後面幾集，
 只看集號的空洞看不出來。「檢查缺集」（fill 的 check=True）只查、只記，不建訂閱。
 
-清單把每一部劇分成互不重疊的狀態，網頁照這個分頁（照「接下來要做什麼」）：missing 缺集又還沒訂閱（要補）、
-subscribed 缺集的季 MoviePilot 都訂閱了（等它下載）、unchecked 還沒對照、notmdb 沒有 tmdbid、complete 齊全、excluded 標了不補。
-訂閱了沒是讀 MoviePilot 的訂閱清單（known_subscriptions，記 SUBS_CACHE_SECONDS 秒，補全、取消訂閱做完時清掉）；
-讀不到時不分 missing 和 subscribed。
+清單把每一部劇分成互不重疊的狀態，網頁照這個分頁（照「接下來要做什麼」）：missing 缺集又還沒交給 MoviePilot（要補）、
+pending 缺集的季 MoviePilot 都在處理（等它下載、入庫）、unchecked 還沒對照、notmdb 沒有 tmdbid、complete 齊全、excluded 標了不補。
+MoviePilot 在處理的季有兩種。還訂閱著的：讀它的訂閱清單（known_subscriptions）；新版不回 tmdbid，改成 media_source 加
+media_id（_sub_tmdbid）。已送下載的：它找到資源、交給下載器就把訂閱記成完成、移到訂閱歷史，集還在下載、還沒入庫，
+只看訂閱清單會以為沒人在處理、又訂閱一次；所以另外讀訂閱歷史（sent_seasons，GET /api/v1/subscribe/history/电视剧），
+SENT_GRACE_SECONDS（3 天）以內完成的算已送下載，超過還沒入庫就回到 missing。那之後才播出的集不算（sent_covers）。
+兩個都記 SUBS_CACHE_SECONDS 秒，補全、取消訂閱做完時清掉；讀不到時缺集的都算 missing。fill 自己也讀這兩個，
+已經在處理的季不重複訂閱（全量同步後自動補全也一樣）；force=True（網頁的「再補一次」）照樣送。
 
 清單的篩選（q 搜尋、year 年份、library 媒體庫）在算狀態之前套用，stats（各狀態幾部）是篩選後、不看分頁的數字；
 POST /web/api/moviepilot/fill 帶同一組篩選加 view 時用同一個 library_series 挑劇，所以畫面上篩出哪些，
