@@ -295,18 +295,20 @@ def test_tree_download_retries_with_another_ua(tmp_path: Path):
     sync = make(tmp_path, fake)
     real = fake.handler
     hits = []
+    sync.p115.download_url = lambda pc, ua="": f"https://cdnfhnfile.115cdn.net/{pc}"  # 真的 115 網域才帶 cookie
 
     def flaky(request):
-        if request.url.host == "cdn.115.test":
+        if request.url.host == "cdnfhnfile.115cdn.net":
             hits.append((request.headers.get("user-agent"), request.headers.get("cookie")))
             if len(hits) == 1:
                 return httpx.Response(403, text="<html><body>403 Forbidden: sign error</body></html>")
+            return httpx.Response(200, content=fake.tree(int(request.url.path[5:])))
         return real(request)
 
     sync.p115._client._transport = httpx.MockTransport(flaky)
     r = sync.run(FULL)
     assert not r.notes and r.strm_created == 2 and listings(fake) == []  # 第二次就成功，沒有改回逐層
-    # 先用一般瀏覽器 UA（115Browser 的會被要求 cookie），失敗再換；cdn 網域有 115 就帶 cookie
+    # 先用一般瀏覽器 UA（115Browser 的會被要求 cookie），失敗再換；https 的 115 網域帶 cookie
     assert [h[0] for h in hits] == [PLAIN_UA, BROWSER_UA] and hits[1][1] == "UID=1"
 
 
@@ -314,6 +316,7 @@ def test_metadata_download_uses_plain_ua(tmp_path: Path):
     fake = Fake115()
     fake.files.append({"fid": 8, "cid": 101, "n": "Old Movie (2001).nfo", "pc": "n" * 17, "s": 5, "te": T0})
     sync = make(tmp_path, fake)
+    sync.p115.download_url = lambda pc, ua="": f"https://cdnfhnfile.115cdn.net/{pc}"  # 真的 115 網域才帶 cookie
     seen = []
 
     def cdn(request):

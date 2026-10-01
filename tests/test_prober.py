@@ -65,7 +65,7 @@ def make(tmp_path: Path, logged_in=True, **mi):
     app = create_app(config_from_dict(raw), scan_on_start=False)
     prober = app.state.prober
     links, cmds = [], []
-    app.state.p115._fetch_download_url = lambda pc, ua: links.append((pc, ua)) or f"https://cdn.115.test/{pc}?t=1"
+    app.state.p115._fetch_download_url = lambda pc, ua: links.append((pc, ua)) or f"https://cdnfhnfile.115cdn.net/{pc}?t=1"
 
     def runner(cmd, capture_output, timeout):
         cmds.append(cmd)
@@ -99,7 +99,7 @@ def test_probe_115_strm_writes_sidecar(tmp_path: Path):
     # 取直鏈和讀檔用同一個 UA；Mi302 自己讀（帶 cookie），ffprobe 讀本機的稀疏檔
     assert links == [("abcdefghijklmnopq", PLAIN_UA)]
     req = prober.cdn.requests[0]
-    assert str(req.url) == "https://cdn.115.test/abcdefghijklmnopq?t=1" and req.headers["range"] == "bytes=0-6291455"
+    assert str(req.url) == "https://cdnfhnfile.115cdn.net/abcdefghijklmnopq?t=1" and req.headers["range"] == "bytes=0-6291455"
     assert req.headers["user-agent"] == PLAIN_UA and req.headers["cookie"] == "UID=1"
     cmd = cmds[0]
     assert "-user_agent" not in cmd and not cmd[-1].startswith("http") and len(prober.seen) == 1_000_000
@@ -501,7 +501,7 @@ def test_server_without_range_falls_back_to_ffprobe_url(tmp_path: Path):
     app, prober, r, cmds = _one(tmp_path, FakeCDN(ranged=False))
     assert r.done == 1
     cmd = cmds[0]
-    assert cmd[-1] == "https://cdn.115.test/abcdefghijklmnopq?t=1" and "-multiple_requests" in cmd
+    assert cmd[-1] == "https://cdnfhnfile.115cdn.net/abcdefghijklmnopq?t=1" and "-multiple_requests" in cmd
     assert cmd[cmd.index("-user_agent") + 1] == PLAIN_UA
 
 

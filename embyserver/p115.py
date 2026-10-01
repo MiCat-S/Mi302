@@ -28,7 +28,8 @@ log = logging.getLogger(__name__)
 
 QRCODE_API = "https://qrcodeapi.115.com"
 LOGIN_DEVICES_API = f"{QRCODE_API}/app/1.0/web/1.0/login_log/login_devices"
-DOWNLOAD_API = "http://proapi.115.com/android/2.0/ufile/download"
+# 帶著 cookie 送：一定要 https，cookie 不能走明文（這個介面 http、https 都收）
+DOWNLOAD_API = "https://proapi.115.com/android/2.0/ufile/download"
 USER_INFO_API = "https://my.115.com/?ct=ajax&ac=nav"
 ACCOUNT_API = "https://my.115.com/?ct=ajax&ac=get_user_aq"
 WEBAPI = "https://webapi.115.com"
@@ -41,6 +42,7 @@ BROWSER_UA = (
 # 請求會要求 cookie（回 403 no cookie value），一般瀏覽器 UA 就不會，所以先用這個，失敗再換
 PLAIN_UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
 DOWNLOAD_UAS = (PLAIN_UA, BROWSER_UA)
+COOKIE_DOMAINS = ("115.com", "115cdn.net", "115cdn.com")  # 自己下載 115 檔案時可以帶 cookie 的網域（只走 https）
 EXPORT_FETCH_ATTEMPTS = 4
 LIST_PAGE_SIZE = 1150
 # 導出目錄樹：檔案先放在 115 根目錄，讀完就刪掉；115 同時只能跑一個導出任務
@@ -726,9 +728,12 @@ class P115Service:
             raise
 
     def file_headers(self, url: str, user_agent: str = PLAIN_UA) -> dict:
-        """自己下載 115 檔案時的標頭：直鏈通常綁定 UA，要用取得時的 UA 下載；cookie 只給主機名稱帶 115 的網域（115.com、115cdn.net）。"""
+        """自己下載 115 檔案時的標頭：直鏈通常綁定 UA，要用取得時的 UA 下載。cookie 只給 https 的 115 網域
+        （115.com、115cdn.net、115cdn.com 和它們的子網域）：明文 http 的直鏈不帶，用一般瀏覽器 UA 下載本來就不需要。"""
         headers = {"User-Agent": user_agent}
-        if self.cookies and "115" in (urlsplit(url).hostname or ""):
+        parts = urlsplit(url)
+        host = (parts.hostname or "").lower()
+        if self.cookies and parts.scheme == "https" and any(host == d or host.endswith("." + d) for d in COOKIE_DOMAINS):
             headers["Cookie"] = self.cookies
         return headers
 

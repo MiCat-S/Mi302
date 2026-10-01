@@ -74,13 +74,23 @@ def test_download_request_is_encrypted_and_cached(monkeypatch):
     assert svc.download_url(PICKCODE, "Infuse/8") == CDN  # 第二次走快取
     assert len(sent) == 1
     req = sent[0]
-    assert req.url.host == "proapi.115.com"
+    assert (req.url.scheme, req.url.host) == ("https", "proapi.115.com")  # 帶 cookie 的請求不能走明文 http
     assert req.headers["user-agent"] == "Infuse/8"
     assert req.headers["cookie"] == "UID=1"
     assert req.content.startswith(b"data=")
     # 不同 UA 的直鏈不能共用
     svc.download_url(PICKCODE, "VidHub/2")
     assert len(sent) == 2
+
+
+
+def test_cookie_only_goes_to_https_115_hosts():
+    svc = P115Service(Database(":memory:"), initial_cookies="UID=1")
+    assert svc.file_headers(CDN)["Cookie"] == "UID=1"
+    assert svc.file_headers("https://webapi.115.com/files")["Cookie"] == "UID=1"
+    for url in ("http://cdnfhnfile.115cdn.net/abc/a.mkv", "https://evil115.com/a", "https://115.com.evil.net/a"):
+        assert "Cookie" not in svc.file_headers(url), url
+    svc.close()
 
 
 @pytest.fixture()
