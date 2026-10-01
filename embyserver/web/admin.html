@@ -1405,7 +1405,13 @@ async function saveLibDlg() {
 }
 async function deleteLibDlg() {
   const l = libs[libEdit.i];
-  if (!await ask({title: '刪除媒體庫「' + l.name + '」？', text: '資料夾裡的檔案不會被刪。', ok: '刪除', danger: true})) return;
+  // 觀看紀錄跟著媒體庫裡的項目：刪掉媒體庫、重新掃描後就沒了，再加回同一個資料夾也接不回來
+  let n = null;
+  try { n = await api('/web/api/libraries/userdata?name=' + encodeURIComponent(l.name)); } catch (e) {}
+  const hist = !n ? '這個媒體庫的觀看紀錄（看過、續播點、收藏）會一起刪除'
+    : n.records ? `這個媒體庫的觀看紀錄（看過、續播點、收藏，${n.users} 個使用者共 ${n.records} 筆）會一起刪除` : '';
+  if (!await ask({title: '刪除媒體庫「' + l.name + '」？', ok: '刪除', danger: true,
+    text: '資料夾裡的檔案不會被刪。' + (hist ? hist + '，之後再加回同一個資料夾也找不回來。' : '')})) return;
   await commitLibs(libs.filter((_, j) => j !== libEdit.i), '已刪除「' + l.name + '」', libDlg, $('ldMsg'));
 }
 

@@ -6,7 +6,7 @@ This page covers how to lay out library folders, how Mi302 scans them, and the C
 
 You create libraries on the **Libraries** tab (媒體庫) of the web admin page. The tab shows one tile per library with its cover, name, type, item count and folders. Click **Add library** (新增媒體庫) in the last tile, give the library a name in the dialog, pick the type **Movies** (電影) or **TV shows** (劇集), click **Add folder** (加入資料夾) to choose a folder on the server, then click **Save and scan** (儲存並掃描). A library can have several folders.
 
-To change the name, type, folders or cover, click the tile's cover, its name or **Edit** (編輯); the same dialog opens. **Delete library** (刪除媒體庫) in the dialog's bottom-left corner deletes the whole library; the files in its folders are not touched. To create several libraries at once, see [Adding libraries in bulk](#adding-libraries-in-bulk).
+To change the name, type, folders or cover, click the tile's cover, its name or **Edit** (編輯); the same dialog opens. **Delete library** (刪除媒體庫) in the dialog's bottom-left corner deletes the whole library; the files in its folders are not touched, but the library's watch history (played, resume points, favourites) is deleted with it and does not come back if you add the same folder again. The confirmation says how many records that is. To create several libraries at once, see [Adding libraries in bulk](#adding-libraries-in-bulk).
 
 Mi302 does not scrape (fetch metadata and artwork) itself. It only reads what is already in the folders:
 

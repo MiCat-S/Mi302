@@ -49,6 +49,12 @@ def test_libraries_from_web_are_scanned_and_persist(tmp_path: Path):
     lib = scan["libraries"][0]
     assert (lib["name"], lib["count"], lib["missing"], lib["custom_cover"]) == ("電影", 1, [], False)
     assert c.get("/System/Info/Public").json()["ServerName"] == "家"
+    # 刪除媒體庫前的確認框：這個媒體庫有幾筆觀看紀錄（刪掉媒體庫後會跟著沒了）
+    uid = next(u["id"] for u in c.get("/web/api/users", headers=h).json() if u["name"] == "admin")
+    (item,) = c.get("/Items", params={"Recursive": "true", "IncludeItemTypes": "Movie"}, headers=h).json()["Items"]
+    assert c.post(f"/Users/{uid}/PlayedItems/{item['Id']}", headers=h).status_code == 200
+    assert c.get("/web/api/libraries/userdata", params={"name": "電影"}, headers=h).json() == {"records": 1, "users": 1}
+    assert c.get("/web/api/libraries/userdata", params={"name": "沒有"}, headers=h).json() == {"records": 0, "users": 0}
 
     # 沒有設定檔時（例如測試直接給設定），設定只在記憶體裡
     assert c.app.state.config.path is None

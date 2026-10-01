@@ -74,6 +74,18 @@ def scan_stop(request: Request, ctx: AuthContext = Depends(require_admin)):
     return {"stopped": state(request).scanner.cancel()}
 
 
+@router.get("/web/api/libraries/userdata")
+def library_user_data(request: Request, ctx: AuthContext = Depends(require_admin)):
+    """這個媒體庫（?name=）裡有幾筆觀看紀錄（看過、續播點、收藏）、是幾個使用者的：刪除媒體庫的確認框用。
+    刪掉媒體庫後重新掃描會把這些紀錄一起刪掉，之後再加回同一個資料夾，項目是新的，也接不回來。"""
+    row = state(request).db.one(
+        "SELECT COUNT(*) AS n, COUNT(DISTINCT u.user_id) AS users FROM user_data u "
+        "JOIN items i ON i.id=u.item_id JOIN items l ON l.id=i.library_id "
+        "WHERE l.type='CollectionFolder' AND l.path=? AND (u.played=1 OR u.position_ticks>0 OR u.is_favorite=1)",
+        (f"library://{q(request, 'name') or ''}",))
+    return {"records": row["n"], "users": row["users"]}
+
+
 @router.get("/web/api/libraries/suggest")
 def suggest_libraries(request: Request, ctx: AuthContext = Depends(require_admin)):
     """批量新增媒體庫：列出某個資料夾底下的子資料夾，猜每個是電影還是劇集。"""
