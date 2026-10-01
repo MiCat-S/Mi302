@@ -740,6 +740,8 @@ class StrmSync:
             if target:
                 produced.add(str(target))
                 rows.append((info["id"], target.relative_to(local).as_posix(), False))
+        # 刪舊 strm、換索引、存進度之前再看一次：最後一項做完才按停止，也照樣不刪、不存（下次同步重做只會是「未變」）
+        self.workers.check()
         index = _TaskIndex(self.p115.db, task_key(task))
         if keep:
             # 目錄樹裡有、115 卻沒列出來的影片：strm 和索引都照舊保留
@@ -879,6 +881,7 @@ class StrmSync:
             mine = [e for e in events if e["id"] > pointer]
             if mine:
                 self._apply_events(ctx, mine)
+                self.workers.check()  # 存讀到哪一筆之前：按了停止就不存，下次重讀（重做只會是「未變」）
                 self._save_state(task, life_id=mine[-1]["id"], life_time=mine[-1]["mtime"])
         elif not pointer and self.p115.cookies:
             # 之前沒讀過事件（例如只用開放平台）：從現在開始記
@@ -991,6 +994,7 @@ class StrmSync:
             rel = _rel(ctx.root, posixpath.join(parent, info["name"])) if parent is not None else None
             if rel:
                 self._place_file(ctx, rel, info)
+        self.workers.check()
         self._save_state(ctx.task, since=newest, incremental_at=int(time.time()))
 
     # ---------------- 本機檔案 ----------------

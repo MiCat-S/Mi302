@@ -497,6 +497,7 @@ class Scanner:
                 self.db.execute("UPDATE items SET seen_scan=0")
                 for lib in self.config.libraries:
                     self._scan_library(lib)
+                self.workers.check()  # 刪除沒看到的之前再看一次：按了停止就不刪（下次掃描再補）
                 removed = self._delete_unseen()
                 count = self.db.one("SELECT COUNT(*) AS c FROM items")["c"]
                 log.info("掃描完成：共 %s 個項目，移除 %s 個", count, removed)
@@ -521,8 +522,10 @@ class Scanner:
                     lib_id = lib_ids[lib.name]
                     self.db.execute("UPDATE items SET seen_scan=0 WHERE library_id=? AND id<>?", (lib_id, lib_id))
                     self._scan_library(lib)
+                    self.workers.check()
                     removed = self._delete_unseen("library_id=?", (lib_id,))
                     log.info("掃描媒體庫「%s」完成：%s 個項目，移除 %s 個", lib.name, self.touched, removed)
+                self.workers.check()
                 self._drop_removed_libraries()
             except Stopped:
                 self._stopped()
@@ -573,6 +576,7 @@ class Scanner:
                         self._scan_movies(lib_id, root, scope)
                     elif kind == "movie" and scope.is_file():
                         self._add_movie(lib_id, scope, single=False)
+                    self.workers.check()
                     removed += self._delete_unseen(where, params)
                 what = str(units[0][2]) if len(units) == 1 else f"{len(units)} 個位置"
                 log.info("掃描 %s 完成：%s 個項目，移除 %s 個", what, self.touched, removed)

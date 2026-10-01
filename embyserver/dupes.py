@@ -367,6 +367,7 @@ class DupeFinder:
             versions = self._find_versions(files)
             job.current = f"記下 {len(big)} 支 1 GB 以上的影片"
             big_rows = self._big_rows(big, folders)
+            self.workers.check()  # 換掉上次的結果之前再看一次：按了停止就保留上次的
             with self.db.lock:
                 self.db.conn.execute("DELETE FROM dup_files")
                 self.db.conn.executemany(
@@ -419,6 +420,7 @@ class DupeFinder:
             "i.index_number, s.name AS series FROM items i LEFT JOIN items s ON s.id=i.series_id "
             "WHERE i.type IN ('Movie','Episode') AND i.is_strm=1"
         ):
+            self.workers.check()  # 按了停止：不比了，上次的結果不換
             hit = local_of.get(it["path"])
             if not hit:
                 continue
