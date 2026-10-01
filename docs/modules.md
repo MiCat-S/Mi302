@@ -255,7 +255,7 @@ MoviePilot 說完成之後再看一次有沒有真的寫出 nfo、劇照：認�
 補全缺集：先向 MoviePilot 查 TMDB 上每一季的集和播出日期（GET /api/v1/tmdb/{tmdbid}/{季}），
 對照媒體庫裡的集號，只替真的缺集的季建訂閱（POST /api/v1/subscribe/），再請它立刻搜尋
 （POST /api/v1/subscribe/search/{訂閱 id}）。MoviePilot V3 建訂閱時不檢查媒體庫、不保證馬上搜尋，
-所以這兩步 Mi302 自己做。建訂閱和搜尋的 API 只接受帳號登入，不接受 API 令牌。
+所以這兩步 Mi302 自己做。V3 的這些 API（和整理用的）都接受 API 令牌；舊版（V2）只接受帳號登入，被拒時錯誤訊息會說要填帳號密碼。
 
 查到的 TMDB 集和播出日期記在資料表 tmdb_seasons（TMDB_FRESH_SECONDS 以內查過的不再問）。清單（library_series）用它和
 媒體庫裡的集號當場算每一季缺哪幾集（season_missing，和補全同一套判斷）；沒有空洞的季也可能缺前面、後面幾集，

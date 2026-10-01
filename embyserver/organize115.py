@@ -512,8 +512,8 @@ class Organizer:
 
     def check_in_background(self, refresh: bool = False) -> bool:
         """在背景問 MoviePilot；refresh=True 時問過的也重問（例如改了 MoviePilot 的重命名格式）。"""
-        if not self.mp.can_subscribe:
-            raise OrganizeError("問 MoviePilot 要用帳號登入：請在「MoviePilot」頁填帳號密碼")
+        if not self.mp.enabled:
+            raise OrganizeError("還沒設定 MoviePilot：到「MoviePilot」頁填網址和 API 令牌")
         with self._starting:
             if self.batch.running:
                 raise OrganizeError("正在全部整理，等它做完再檢查")
@@ -621,7 +621,7 @@ class Organizer:
         unit = Unit(f"d{cid}", "folder", path, cid, parent_cid, posixpath.basename(path), 0, "", None,
                     len(videos) if not dirs else None, len(videos), [posixpath.join(path, v["name"]) for v in videos[:1]],
                     [], in_sync=in_sync, local=local, parts=parts, pinned=True)
-        if self.mp.can_subscribe:
+        if self.mp.enabled:
             try:
                 self._ask(unit)
             except MoviePilotError as exc:
@@ -1222,7 +1222,7 @@ class Organizer:
             raise OrganizeError("這一部分直接放著的影片沒有，推薦不了（有子資料夾的話到子資料夾那一部分推薦）")
         fileitems = [self._file_item(part.remote, part.cid, e) for e in videos[:RECOMMEND_FILES]]
         why = ""
-        if self.mp.can_subscribe:
+        if self.mp.enabled:
             template, why = self.mp.recommend_format(fileitems)
             if template:
                 return {"format": template, "source": "moviepilot", "note": why}
@@ -1230,8 +1230,8 @@ class Organizer:
             template = episode_template(e["name"])
             if template:
                 return {"format": template, "source": "mi302",
-                        "note": f"MoviePilot 推薦不出來（{why or '沒有帳號登入'}），這是 Mi302 從「{e['name']}」看的"}
-        return {"format": "", "source": "", "note": f"MoviePilot 推薦不出來（{why or '沒有帳號登入'}），Mi302 也看不出集號在哪"}
+                        "note": f"MoviePilot 推薦不出來（{why or '還沒設定 MoviePilot'}），這是 Mi302 從「{e['name']}」看的"}
+        return {"format": "", "source": "", "note": f"MoviePilot 推薦不出來（{why or '還沒設定 MoviePilot'}），Mi302 也看不出集號在哪"}
 
     # ---- 刪除（電影、瀏覽 115 加進來的資料夾；劇集用 Reorganizer.delete_episodes／delete_series）----
 

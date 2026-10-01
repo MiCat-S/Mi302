@@ -112,7 +112,7 @@ def render(config: Config) -> str:
         "moviepilot:",
         _kv("  url", mp.url, "MoviePilot 網址，例如 http://192.168.1.10:3000"),
         _kv("  api_token", mp.api_token, "MoviePilot 的「設定 → 系統 → API 令牌」"),
-        _kv("  username", mp.username, "MoviePilot 帳號密碼：補全缺集（建訂閱）需要；舊版刮削 API 不接受令牌時也需要"),
+        _kv("  username", mp.username, "MoviePilot 帳號密碼：V3 用 API 令牌就夠；舊版（V2）的刮削、補全缺集、整理 115 網盤不接受令牌時才要填"),
         _kv("  password", mp.password),
         _kv("  scrape_after_sync", mp.scrape_after_sync, "同步產生新的 strm 後自動送去刮削"),
         _kv("  fill_after_full_sync", mp.fill_after_full_sync, "全量同步後把所有有 tmdbid 的劇送給 MoviePilot 訂閱，補齊缺集"),

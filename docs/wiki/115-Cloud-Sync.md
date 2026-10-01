@@ -305,7 +305,7 @@ Videos organised by MoviePilot are named after its rename format, for example `�
 /TV/Drama/大道朝天 (2024) {tmdbid=…}/Season 1/10.xxx.mp4      ← the folder is fine, only file names are not
 ```
 
-The **Organise 115** (整理 115 網盤) card on the 115 tab finds these, hands each whole folder to MoviePilot, or deletes what you don't want. **Recognition and naming are done by MoviePilot**: Mi302 does not judge names itself and does not guess TMDB IDs, types or seasons. It needs the MoviePilot username and password on the MoviePilot tab (these APIs only accept an account login), and previewing or organising also needs a 115 login.
+The **Organise 115** (整理 115 網盤) card on the 115 tab finds these, hands each whole folder to MoviePilot, or deletes what you don't want. **Recognition and naming are done by MoviePilot**: Mi302 does not judge names itself and does not guess TMDB IDs, types or seasons. It needs the MoviePilot connection set up on the MoviePilot tab (the API token is enough on V3; older versions need an administrator's username and password), and previewing or organising also needs a 115 login.
 
 ### What is listed
 

@@ -91,6 +91,7 @@ class FakeMP:
         self.episodes, self.existing, self.v2 = episodes, set(existing), v2
         self.absent = set(absent)  # TMDB 上沒有的季：MoviePilot 照樣回成功和空清單
         self.sent = []
+        self.accepted = []  # 通過認證的請求（V2 先用 API 令牌被拒、再登入重送的只算一次）
         self.subs = []  # MoviePilot 裡現有的訂閱
         self.history = []  # 訂閱歷史：找到資源、送去下載後記成完成的訂閱
 
@@ -110,8 +111,10 @@ class FakeMP:
                 return httpx.Response(404, json={"detail": "Not Found"})
             items = [{"episode_number": e, "air_date": d} for e, d in eps]
             return httpx.Response(200, json=items if self.v2 else {"success": True, "data": items})
-        if request.headers.get("authorization") != "Bearer jwt":
-            return httpx.Response(401, json={"detail": "Not authenticated"})  # 建訂閱、搜尋不接受 API 令牌
+        # V3 每個 API 都接受 API 令牌（X-API-KEY）；V2 建訂閱、搜尋只接受帳號登入
+        if request.headers.get("authorization") != "Bearer jwt" and (self.v2 or request.headers.get("x-api-key") != "tok"):
+            return httpx.Response(401, json={"detail": "Not authenticated"})
+        self.accepted.append(request)
         if path == "/api/v1/subscribe/history/电视剧":
             return httpx.Response(200, json={"success": True, "data": self.history})
         if path == "/api/v1/subscribe/" and request.method == "GET":  # 現有的訂閱，一次只給 2 個（分頁）
@@ -138,8 +141,8 @@ class FakeMP:
         return httpx.Response(404)
 
     def posts(self, path):
-        return [json.loads(q.content) if q.content else None for q in self.sent
-                if q.url.path == path and q.method != "GET" and q.headers.get("authorization")]
+        return [json.loads(q.content) if q.content else None for q in self.accepted
+                if q.url.path == path and q.method != "GET"]
 
 
 SHOW_A = {"id": 1, "name": "Show A", "year": 2020, "tmdbid": 4321, "seasons": [
@@ -179,10 +182,12 @@ def test_fill_subscribes_only_missing_seasons_and_searches(tmp_path: Path):
     flaky = MoviePilot(cfg.moviepilot, cfg, transport=httpx.MockTransport(FakeMP({(4321, 1): []}, absent={(4321, 5)})))
     assert flaky.tmdb_episodes(4321, 1) is None and flaky.tmdb_episodes(4321, 5) == {}
 
-    # 只有 API 令牌、沒有帳號密碼：說清楚要填什麼，不送
-    only_token = MoviePilot(make_config(tmp_path).moviepilot, cfg, transport=httpx.MockTransport(fake))
+    # 只有 API 令牌、沒有帳號密碼：V3 照樣建訂閱；只認帳號登入的 V2 被拒時說清楚要填帳號密碼，整批停下
+    only_token = MoviePilot(make_config(tmp_path, fill_interval=0).moviepilot, cfg, transport=httpx.MockTransport(fake))
+    assert only_token.fill([SHOW_A], "manual").created == 1
+    fake.v2 = True
     r = only_token.fill([SHOW_A], "manual")
-    assert r.total == 0 and "帳號密碼" in r.errors[0]
+    assert (r.created, r.failed) == (0, 2) and "帳號密碼" in r.errors[0]
 
 
 def test_fill_does_not_search_existing_subscriptions_again(tmp_path: Path):
@@ -274,7 +279,7 @@ def test_fill_endpoints(tmp_path: Path):
     assert c.post("/web/api/moviepilot/fill", json={}, headers=h).json()["started"]  # 全部：只送有 tmdbid 的
     assert calls == [(["Show A"], "manual"), (["Show A"], "manual")]
     status = c.get("/web/api/moviepilot/status", headers=h).json()
-    assert status["can_subscribe"] is True and status["fill"]["running"] is False
+    assert status["enabled"] is True and status["fill"]["running"] is False
 
     # 一季缺的集數超過「缺超過幾集的季不補」不建訂閱；標了「不補」的劇整部跳過（照 tmdbid 記在資料庫）
     fake = FakeMP({(4321, 1): [(e, "2020-01-01") for e in range(1, 9)], (4321, 2): [(1, "2021-01-01")]})
@@ -320,6 +325,7 @@ def test_fill_endpoints(tmp_path: Path):
     mp.fill_in_background = real_bg
     assert forced == [True] and mp.fill([SHOW_A], "manual", force=True).created == 1
     fake.sent[:] = [q for q in fake.sent if "/tmdb/" in q.url.path]  # 再補一次送的訂閱不算進下面的檢查
+    fake.accepted.clear()
     fake.history = []
     mp._subs_cache = mp._sent_cache = None
     picked = []
@@ -352,18 +358,15 @@ def test_fill_endpoints(tmp_path: Path):
     assert c.post("/web/api/moviepilot/fill/exclude", json={"name": "Show B"}, headers=h).status_code == 400
     assert mp.fill([SHOW_A], "manual").total == 2
 
-    # 沒填帳號密碼：不送，說清楚原因
+    # 沒填帳號密碼、只有 API 令牌：檢查、補全都照送（V3 都接受令牌）
     app2 = build(tmp_path / "nologin")
     c2 = TestClient(app2)
     token2 = c2.post("/Users/AuthenticateByName", json={"Username": "admin", "Pw": "pw"}).json()["AccessToken"]
-    resp = c2.post("/web/api/moviepilot/fill", json={}, headers={"X-Emby-Token": token2})
-    assert resp.status_code == 400 and "帳號" in resp.text
-    # 只檢查不建訂閱，所以不用帳號密碼
     checks = []
     app2.state.moviepilot.fill_in_background = lambda shows, source, check=False: checks.append(check) or True
+    assert c2.post("/web/api/moviepilot/fill", json={}, headers={"X-Emby-Token": token2}).json()["started"]
     assert c2.post("/web/api/moviepilot/fill", json={"check": True}, headers={"X-Emby-Token": token2}).json()["started"]
-    assert checks == [True]
-    assert c2.get("/web/api/moviepilot/status", headers={"X-Emby-Token": token2}).json()["can_subscribe"] is False
+    assert checks == [False, True]
 
 
 def test_full_sync_can_trigger_fill(tmp_path: Path):
@@ -420,8 +423,12 @@ def test_unsubscribe_all(tmp_path: Path):
     mp.unsubscribe_all_in_background = lambda: started.append(1) or True
     assert c.post("/web/api/moviepilot/subscriptions/clear", json={"confirm": "取消訂閱"}, headers=h).json()["started"]
     assert started == [1]
-    # 只有 API 令牌：訂閱的 API 要帳號登入
-    c2 = TestClient(build(tmp_path / "nologin"))
+    # 只有 API 令牌：V3 的訂閱 API 也接受；只認帳號登入的舊版被拒時說清楚要填帳號密碼
+    app2 = build(tmp_path / "nologin")
+    app2.state.moviepilot._transport = httpx.MockTransport(fake)
+    c2 = TestClient(app2)
     h2 = {"X-Emby-Token": c2.post("/Users/AuthenticateByName", json={"Username": "admin", "Pw": "pw"}).json()["AccessToken"]}
-    assert c2.get("/web/api/moviepilot/subscriptions", headers=h2).status_code == 400
-    assert c2.post("/web/api/moviepilot/subscriptions/clear", json={"confirm": "取消訂閱"}, headers=h2).status_code == 400
+    assert c2.get("/web/api/moviepilot/subscriptions", headers=h2).json() == {"total": 1, "tv": 1, "other": 0}
+    fake.v2 = True
+    r = c2.get("/web/api/moviepilot/subscriptions", headers=h2)
+    assert r.status_code == 502 and "帳號密碼" in r.text

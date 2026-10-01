@@ -57,6 +57,7 @@ class OrganizeMP:
         self.plugin = False  # 裝了 Mi302 整理助手外掛
         self.names = True  # 外掛會算名字（1.1.0）；False 是舊版 1.0.0，"broken" 是算名字出錯
         self.renamed = []  # 外掛改過的：(type, 舊名, 新名)
+        self.token_ok = True  # V3 每個 API 都接受 API 令牌；False 是只認帳號登入的舊版
 
     # ---- 辨識 ----
     def media_of(self, path):
@@ -182,7 +183,8 @@ class OrganizeMP:
         path = request.url.path
         if path == "/api/v1/login/access-token":
             return httpx.Response(200, json={"access_token": "jwt"})
-        if request.headers.get("Authorization") != "Bearer jwt":
+        token = self.token_ok and request.headers.get("X-API-KEY") == "t"
+        if request.headers.get("Authorization") != "Bearer jwt" and not token:
             return httpx.Response(403, json={"detail": "需要登入"})
         body = json.loads(request.content or b"{}")
         self.calls.append((path, body or dict(request.url.params)))
@@ -499,13 +501,18 @@ def test_cleanup_skips_folder_moviepilot_already_removed(tmp_path: Path):
     assert kept and "已經不在原本的位置" in kept[0]["message"] and "111" not in fake.deleted
 
 
-def test_needs_moviepilot_login(tmp_path: Path):
+def test_api_token_is_enough_for_moviepilot_v3(tmp_path: Path):
+    """MoviePilot V3 的整理 API 都接受 API 令牌，不用帳號密碼；只認帳號登入的舊版被拒時說清楚要填帳號密碼。"""
     app, fake, mp, media, c, h = setup(tmp_path, login=False)
-    r = c.post("/web/api/115/organize/check", json={}, headers=h)
-    assert r.status_code == 400 and "帳號密碼" in r.text
-    r = listing(c, h)
-    assert not r["ready"]["login"] and all(not u["checked"] and u["ep_guessed"] + u["ep_unknown"] for u in r["items"])
-    assert preview(c, h, r["items"][0]).status_code == 400  # 手動整理也要帳號登入
+    assert listing(c, h)["ready"] == {"moviepilot": True, "p115": True}
+    assert c.post("/web/api/115/organize/check", json={}, headers=h).json()["started"]
+    wait(lambda: not app.state.organizer.job.running)
+    assert not app.state.organizer.job.error and name_calls(mp)
+    assert preview(c, h, listing(c, h)["items"][0]).status_code == 200
+    mp.token_ok = False
+    assert c.post("/web/api/115/organize/check", json={"refresh": True}, headers=h).json()["started"]
+    wait(lambda: not app.state.organizer.job.running)
+    assert "帳號密碼" in app.state.organizer.job.error
 
 
 def test_recommend_episode_format(tmp_path: Path):

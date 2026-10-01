@@ -141,8 +141,8 @@ class Reorganizer:
         self._stop.set()
 
     def ready(self) -> dict:
-        """缺什麼就不能整理：MoviePilot 的帳號密碼（手動整理只接受帳號登入）、115 登入。"""
-        return {"moviepilot": self.mp.enabled, "login": self.mp.can_subscribe, "p115": self.p115.logged_in}
+        """缺什麼就不能整理：MoviePilot 的連線設定（V3 用 API 令牌就夠）、115 登入。"""
+        return {"moviepilot": self.mp.enabled, "p115": self.p115.logged_in}
 
     def _locate(self, local: str) -> Tuple[Optional[StrmTask], str]:
         """本機路徑在哪個同步任務的資料夾裡，以及相對於那個資料夾的路徑；不在任何任務裡回傳 (None, "")。"""

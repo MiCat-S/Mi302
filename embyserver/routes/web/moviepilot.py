@@ -26,7 +26,7 @@ def moviepilot_test(request: Request, ctx: AuthContext = Depends(require_admin))
 def moviepilot_status(request: Request, ctx: AuthContext = Depends(require_admin)):
     mp = state(request).moviepilot
     return {
-        "enabled": mp.enabled, "can_subscribe": mp.can_subscribe,
+        "enabled": mp.enabled,
         "result": mp.result.as_dict(), "fill": mp.fill_result.as_dict(), "unsubscribe": mp.unsubscribe_result.as_dict(),
     }
 
@@ -115,8 +115,6 @@ async def moviepilot_fill(request: Request, ctx: AuthContext = Depends(require_a
     check = bool(body.get("check"))
     if not mp.enabled:
         raise HTTPException(status_code=400, detail="請先填好 MoviePilot 網址與 API 令牌並儲存")
-    if not check and not mp.can_subscribe:
-        raise HTTPException(status_code=400, detail="建訂閱的 API 只接受帳號登入，請在「MoviePilot 帳號密碼」填好再儲存")
     ids = body.get("series")
     wanted = {int(i) for i in ids if str(i).isdecimal()} if isinstance(ids, list) and ids else None
     view = str(body.get("view") or "")
@@ -154,18 +152,16 @@ async def moviepilot_fill(request: Request, ctx: AuthContext = Depends(require_a
 UNSUBSCRIBE_WORD = "取消訂閱"
 
 
-def _need_login(mp) -> None:
+def _need_mp(mp) -> None:
     if not mp.enabled:
         raise HTTPException(status_code=400, detail="請先填好 MoviePilot 網址與 API 令牌並儲存")
-    if not mp.can_subscribe:
-        raise HTTPException(status_code=400, detail="訂閱的 API 只接受帳號登入，請在「MoviePilot 帳號密碼」填好再儲存")
 
 
 @router.get("/web/api/moviepilot/subscriptions")
 def moviepilot_subscriptions(request: Request, ctx: AuthContext = Depends(require_admin)):
     """MoviePilot 裡現在有幾個訂閱：{total, tv, other}（給「取消所有訂閱」的確認框）。"""
     mp = state(request).moviepilot
-    _need_login(mp)
+    _need_mp(mp)
     try:
         return mp.subscription_counts()
     except MoviePilotError as exc:
@@ -180,6 +176,6 @@ async def moviepilot_subscriptions_clear(request: Request, ctx: AuthContext = De
     if body.get("confirm") != UNSUBSCRIBE_WORD:
         raise HTTPException(status_code=400, detail=f"要在 confirm 帶上「{UNSUBSCRIBE_WORD}」才會取消訂閱")
     mp = state(request).moviepilot
-    _need_login(mp)
+    _need_mp(mp)
     started = mp.unsubscribe_all_in_background()
     return {"started": started, "unsubscribe": mp.unsubscribe_result.as_dict()}

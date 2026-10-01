@@ -74,7 +74,7 @@ def _after_sync(app: FastAPI, result) -> None:
     mp = st.moviepilot
     if result.new_files and mp.enabled and config.moviepilot.scrape_after_sync:
         mp.scrape(result.new_files, "sync")
-    if result.mode == FULL and config.moviepilot.fill_after_full_sync and mp.can_subscribe:
+    if result.mode == FULL and config.moviepilot.fill_after_full_sync and mp.enabled:
         # 刮削完才有 tmdbid；每一季先向 TMDB 查已播出的集，缺集的季才建訂閱，齊全的不建
         shows = [s for s in library_series(st.db)[0] if s["tmdbid"]]
         if shows:

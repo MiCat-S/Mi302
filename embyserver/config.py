@@ -94,7 +94,7 @@ class MoviePilotConfig:
 
     url: str = ""  # MoviePilot 網址，例如 http://192.168.1.10:3000
     api_token: str = ""  # MoviePilot 設定 → 系統 → API 令牌
-    # 舊版 MoviePilot 的刮削 API 只接受登入後的 token，這時改用帳號密碼
+    # 舊版（V2）MoviePilot 有些 API 只接受登入後的 token，這時改用帳號密碼；V3 用 API 令牌就夠
     username: str = ""
     password: str = ""
     # Mi302 看到的路徑 → MoviePilot 看到的路徑（兩邊容器掛載點不同時才需要）

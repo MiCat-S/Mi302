@@ -43,11 +43,10 @@ The connection test only checks the URL and the API token. It sends an empty pat
 
 ### When you need the username and password
 
-The account fields are in a collapsed section of the **Connection** card, "MoviePilot account (needed to fill missing episodes and for Organise 115; also by the scrape API of older versions)" (MoviePilot 帳號密碼（補全缺集、整理 115 網盤需要；舊版刮削 API 也需要）). Click it to expand.
+The account fields are in a collapsed section of the **Connection** card, "MoviePilot account (not needed on V3; only for older versions)" (MoviePilot 帳號密碼（V3 不用填；舊版才需要）). Click it to expand.
 
-- **Filling missing episodes**: MoviePilot's subscription API only accepts a logged-in account, not the API token. You must fill these in.
-- **Organise 115**: the organised-name query, manual transfer, episode-format recommendation and version APIs only accept a logged-in account, and it must be an admin.
-- **Older MoviePilot versions**: the scrape API only accepts a logged-in account. Fill these in if the connection test reports "access denied" (拒絕存取).
+- **MoviePilot V3**: every API used for scraping, filling missing episodes and Organise 115 accepts the API token (which acts as MoviePilot's administrator), so you do not need the account.
+- **Older MoviePilot versions (V2)**: some APIs only accept a logged-in account. Fill these in if the connection test, a fill or an organise reports "access denied" (拒絕存取); Organise 115 needs an administrator account.
 
 With an account filled in, when MoviePilot answers 401 or 403, Mi302 logs in with it (`POST /api/v1/login/access-token`) and retries, then keeps using the token from that login. When the token expires, it logs in again. You can also leave the API token empty and use only the URL and the account.
 
@@ -128,7 +127,7 @@ When series in your library are missing episodes, MoviePilot can download them. 
 ### Before you start
 
 1. Add Mi302 to MoviePilot as a media server (see "Add Mi302 to MoviePilot as Emby" below), so MoviePilot knows which episodes you already have.
-2. Enter MoviePilot's username and password in the **Connection** card and save.
+2. Enter MoviePilot's URL and API token in the **Connection** card and save (add the username and password only if an older MoviePilot rejects the token).
 3. The series must have been scraped, with a tmdbid in its `tvshow.nfo`. Series without a tmdbid are not sent.
 
 ### The series list
@@ -149,7 +148,7 @@ The card sorts the series in your library into tabs by what there is to do next;
 - **Fill these N** sends only the series on the 缺集 tab: series MoviePilot is already handling, skipped and complete series are not sent. It asks for confirmation first.
 - **已訂閱 and 已送下載**: once MoviePilot finds a release and hands it to the downloader, it marks the subscription as completed and moves it from the subscription list to the subscription history, while the episodes are still downloading and not yet organised into the library. Mi302 marks such a season 已送下載 and keeps it on the 處理中 tab together with the seasons that are still subscribed; no fill (manual, bulk, or automatic after a full sync) subscribes to it again. After the download is organised into the library and synced, nothing is missing and the series leaves the tab.
 - A season sent to download more than 3 days ago that still has not arrived (failed download, deleted torrent) goes back to 缺集 and can be filled again. To retry sooner, press **Fill again** (再補一次) on that series: it subscribes once more and asks MoviePilot to search again. Episodes that aired after the download was sent are not covered by it and still show up under 缺集.
-- The 處理中 tab needs MoviePilot's subscription list and subscription history, which require the account login on the **Connection** card; without it the tab is not shown and every series with missing episodes stays on 缺集.
+- The 處理中 tab needs MoviePilot's subscription list and subscription history; when they cannot be read (MoviePilot unreachable or refusing access) the tab is not shown and every series with missing episodes stays on 缺集.
 - Type into **Search series** (搜尋劇名) to search by title, original title, year, pinyin or pinyin initials. Next to it, the **All libraries** drop-down (全部媒體庫) shows only the series of one library (for example Chinese dramas or Chinese animation; it is hidden when there is only one series library), and **All years** (全部年份) shows only series from one year. The three can be combined.
 - **The buttons act on what the filters show**: after a search or with a library or year selected, the number on each tab counts only the filtered series; **Fill these N** and **Check these N** (檢查這 N 部) handle only those, and the button at the top right turns into **Check these N** (重新檢查這 N 部 once something has been compared). The confirmation names the scope. For example, select the year 2026 and press **Fill these N** to fill only the 2026 series with missing episodes; select a library and press **Check these N** to check only that library.
 - When the list does not fit on one page, paging and the page size (20, 50, 100 or 200) appear below it; the browser remembers the size. Searching or changing the library, year or tab goes back to page 1.
@@ -187,7 +186,7 @@ If a fill created more subscriptions than you wanted and you would rather start 
 - It first shows how many subscriptions MoviePilot has (series, and movies or others) and only starts after you type 取消訂閱. Series and movie subscriptions are all cancelled, not just the ones Mi302 created.
 - They are cancelled one by one in the background (`DELETE /api/v1/subscribe/{id}`). The card shows the progress, and **Stop** (停止) keeps whatever has not been cancelled yet; what is already cancelled does not come back.
 - Only the subscriptions are removed. Files already downloaded and organised are untouched; MoviePilot just stops searching for and following those titles.
-- It does not run at the same time as a check or a fill. It needs the MoviePilot account login; with an administrator account it sees and cancels everyone's subscriptions.
+- It does not run at the same time as a check or a fill. With the API token or an administrator account it sees and cancels everyone's subscriptions.
 
 ### Results
 
@@ -210,14 +209,14 @@ Expand "Results per season (N)" (每一季的結果（N）) to see which episode
 
 ### Fill after full sync
 
-With **Fill missing episodes after full sync** (全量同步後自動補全) ticked (off by default; saved as soon as you toggle it), every full sync ends by sending all series with a tmdbid, after scraping has finished. Nothing is sent if no MoviePilot account is filled in. It waits for scraping because newly scraped series only have a tmdbid at that point. Series marked **Skip** and seasons missing too many are passed over here too.
+With **Fill missing episodes after full sync** (全量同步後自動補全) ticked (off by default; saved as soon as you toggle it), every full sync ends by sending all series with a tmdbid, after scraping has finished. Nothing is sent if MoviePilot is not set up. It waits for scraping because newly scraped series only have a tmdbid at that point. Series marked **Skip** and seasons missing too many are passed over here too.
 
 ## Organising 115
 
 Series with wrong episode numbers and folders not named to MoviePilot's format are organised or deleted on the **Organise 115** (整理 115 網盤) card on the 115 tab; see [115 cloud sync](115-Cloud-Sync#organising-115). What concerns MoviePilot:
 
 - MoviePilot must be v2.11.1-1 or newer. Older versions do not support preview and would really organise when asked to preview, so Mi302 checks the version first (`GET /api/v1/system/env`) and sends nothing if it is too old or unknown.
-- Fill in the MoviePilot username and password on the **Connection** card; the account must be an admin. The organised-name query, manual transfer, episode-format recommendation and version APIs only accept an account login.
+- Set up MoviePilot on the **Connection** card. On V3 the API token is enough; on older versions the organised-name query, manual transfer, episode-format recommendation and version APIs only accept an account login, so fill in an administrator's username and password.
 - MoviePilot's 115 storage must be logged in to the same 115 account as Mi302. Mi302 sends the 115 folder and file IDs, which MoviePilot needs to move files.
 - APIs used: `GET /api/v1/transfer/name` (what something would be called), `POST /api/v1/transfer/manual` (preview and run; a folder is sent as one `fileitem`, as in MoviePilot's own **File manager → Organise**), `POST /api/v1/transfer/episode-format/recommend` (episode format recommendation), `GET /api/v1/storage/directories` (directory settings; `/api/v1/system/setting/Directories` on V2), `POST /api/v1/transfer/manual/target-path` (where MoviePilot itself would organise to), `POST /api/v1/transfer/manual/history` (whether it has organise records).
 - Mi302 turns off the **by type**, **by category**, **scrape metadata** and **reuse recognition from history** switches of MoviePilot's organise dialog and moves files, so MoviePilot only renames folders and files with its own format. With **MoviePilot's directory settings**, a folder already inside one of its library folders also stays in its current category folder (see [115 Cloud and sync](115-Cloud-Sync#what-to-check-for-each-entry)). When organising into a given folder that matches no directory setting, existing files are not overwritten.
@@ -244,7 +243,7 @@ Details:
 - What counts as rename-only: for every file to be sent, the old and new locations have the same folder depth, each old folder maps to exactly one new name, and no new name collides with an existing sibling folder or a file staying behind. Movies without their own folder, and episodes sitting directly in the show folder (which need a season folder), do not qualify.
 - Order: files first (videos, subtitles, audio), then inner folders, then the outer folder. If it fails or is stopped halfway, what is done stays done; previewing again treats those as already named and continues with the rest.
 - Renames done through the plugin are not added to MoviePilot's organise history. Afterwards Mi302's incremental sync follows 115's activity log and moves the local strm files.
-- The plugin's API is under `/api/v1/plugin/Mi302Organizer/` (`status`, `rename`, `job`, `cancel`), using a MoviePilot login or API token. It only renames what Mi302 sends and never changes anything on its own.
+- The plugin's API is under `/api/v1/plugin/Mi302Organizer/` (`status`, `names`, `rename`, `job`, `cancel`), using a MoviePilot login or API token. It only renames what Mi302 sends and never changes anything on its own.
 - When 115 rate-limits (429), MoviePilot pauses all 115 operations for an hour, and the plugin's renames wait as well.
 
 ## Add Mi302 to MoviePilot as Emby
@@ -277,7 +276,7 @@ The plugin's library monitoring (入库监控) is triggered only when MoviePilot
 
 Mi302 was built against MoviePilot V3. On older versions (for example V2):
 
-- The scrape API may not accept the API token. Fill in the username and password.
+- The scrape, subscription and manual-transfer APIs may not accept the API token. Fill in the username and password if you see "access denied" (拒絕存取).
 - The tmdbid parameters sent with each scrape are ignored, so MoviePilot identifies by file name as usual. This is slower and can pick the wrong show.
 - Subscriptions: older versions read the `tmdbid` field, V3 reads `media_source` / `media_id`; Mi302 sends both. Older versions reject titles already in the library ("媒体库中已存在"), which Mi302 counts as "already complete".
 - Subscription search: V3 uses POST, older versions GET. On HTTP 405 Mi302 retries with GET.

@@ -182,7 +182,7 @@ Scraping is delegated to MoviePilot. See [MoviePilot](MoviePilot).
 | --- | --- | --- | --- |
 | `url` | empty | MoviePilot address, for example `http://192.168.1.10:3000`; must start with `http://` or `https://` | MoviePilot tab → Connection (連線) → **MoviePilot URL** (MoviePilot 網址) |
 | `api_token` | empty | MoviePilot's API token (Settings → System → API token) | MoviePilot → Connection → **API token** (API 令牌) |
-| `username` | empty | MoviePilot account. Needed to fill missing episodes (creating subscriptions), and for older MoviePilot versions whose scrape API does not accept the token | MoviePilot → Connection → **MoviePilot account** (MoviePilot 帳號) |
+| `username` | empty | MoviePilot account. Not needed on V3, where the API token is enough; only for older versions (V2) whose scrape, subscription or organise APIs reject the token | MoviePilot → Connection → **MoviePilot account** (MoviePilot 帳號) |
 | `password` | empty | MoviePilot password, in plaintext | MoviePilot → Connection → **MoviePilot password** (MoviePilot 密碼) |
 | `scrape_after_sync` | `true` | Send new strm files to MoviePilot for scraping after a sync | MoviePilot → Connection → **Scrape new strm files after sync** (同步產生新的 strm 後自動送去刮削) |
 | `fill_after_full_sync` | `false` | After each full sync, send every series with a tmdbid to MoviePilot as a subscription to fill missing episodes | MoviePilot → Fill missing episodes (補全缺集) → Settings (設定) → **Fill after full sync** (全量同步後自動補全) |

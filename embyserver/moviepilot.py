@@ -37,10 +37,10 @@ SUBSCRIBE_HISTORY_API = "/api/v1/subscribe/history/"
 SUBSCRIBE_SEARCH_API = "/api/v1/subscribe/search/{sid}"
 TMDB_EPISODES_API = "/api/v1/tmdb/{tmdbid}/{season}"
 TMDB_SEASONS_API = "/api/v1/tmdb/seasons/{tmdbid}"  # 這部劇有哪幾季（確認媒體庫的季在 TMDB 上存不存在）
-# 手動整理（在 115 上改名、搬家、刮削）和推薦集數定位模板；兩個都只接受帳號登入
+# 手動整理（在 115 上改名、搬家、刮削）和推薦集數定位模板
 TRANSFER_API = "/api/v1/transfer/manual"
 EPISODE_FORMAT_API = "/api/v1/transfer/episode-format/recommend"
-TRANSFER_NAME_API = "/api/v1/transfer/name"  # 整理後會叫什麼（要帳號登入）
+TRANSFER_NAME_API = "/api/v1/transfer/name"  # 整理後會叫什麼
 TRANSFER_TARGET_API = "/api/v1/transfer/manual/target-path"  # 它自己照目錄設定會整理到哪裡
 TRANSFER_HISTORY_API = "/api/v1/transfer/manual/history"  # 有沒有成功整理過的紀錄
 DIRECTORIES_API = "/api/v1/storage/directories"  # 目錄設定（V3）
@@ -287,7 +287,8 @@ class MoviePilot:
         if resp.status_code in (401, 403):
             hint = "API 令牌不正確" if self.cfg.api_token else "請填 API 令牌"
             if self.cfg.api_token and not self.cfg.username:
-                hint += "；若 MoviePilot 版本較舊，請改填 MoviePilot 的帳號密碼"
+                # V3 每個 API 都接受 API 令牌；舊版（V2）有些只接受帳號登入
+                hint += "，或這個 MoviePilot 版本較舊、不接受 API 令牌：請改填 MoviePilot 的帳號密碼"
             raise MoviePilotError(f"MoviePilot 拒絕存取（HTTP {resp.status_code}）：{hint}", resp.status_code)
         if resp.status_code == 404:
             raise MoviePilotError(f"MoviePilot 沒有這個 API（{path}），請確認網址或升級 MoviePilot", 404)
@@ -630,11 +631,6 @@ class MoviePilot:
 
     # ---------------- 補全缺集 ----------------
 
-    @property
-    def can_subscribe(self) -> bool:
-        """建訂閱的 API 只接受帳號登入。"""
-        return self.enabled and bool(self.cfg.username and self.cfg.password)
-
     def tmdb_episodes(self, tmdbid: int, season: int, strict: bool = False) -> Optional[Dict[int, str]]:
         """TMDB 上這一季的集號 → 播出日期（沒填是空字串），透過 MoviePilot 查；查不到時回傳 None。
         TMDB 上根本沒有這一季（媒體庫的季號和 TMDB 對不上）時回傳空的 {}。
@@ -870,10 +866,8 @@ class MoviePilot:
         self._cancel["fill"].clear()
         self._created_at = None
         try:
-            if check and not self.enabled:
-                raise MoviePilotError("還沒設定 MoviePilot：對照 TMDB 是透過它查的")
-            if not check and not self.can_subscribe:
-                raise MoviePilotError("建訂閱的 API 只接受帳號登入，請在 MoviePilot 連線設定填帳號密碼")
+            if not self.enabled:
+                raise MoviePilotError("還沒設定 MoviePilot：對照 TMDB、建訂閱都是透過它")
             jobs: List[Tuple[dict, dict]] = []
             excluded = self.fill_excluded()
             for show in series:
@@ -1056,9 +1050,9 @@ class MoviePilot:
                 for s in items or [] if isinstance(s, dict) and str(s.get("id") or "").isdecimal()]
 
     def known_subscriptions(self) -> Optional[List[dict]]:
-        """給清單標「已訂閱」用的訂閱清單，記 SUBS_CACHE_SECONDS 秒；沒有帳號登入、MoviePilot 連不上回傳 None
+        """給清單標「已訂閱」用的訂閱清單，記 SUBS_CACHE_SECONDS 秒；沒設定 MoviePilot、連不上、被拒絕時回傳 None
         （清單照常顯示，只是不標）。補全、取消訂閱做完時會清掉，下次重新讀。"""
-        if not self.can_subscribe:
+        if not self.enabled:
             return None
         cached = self._subs_cache
         if cached and time.time() - cached[0] < SUBS_CACHE_SECONDS:
@@ -1082,8 +1076,8 @@ class MoviePilot:
     def sent_seasons(self) -> Dict[Tuple[int, int], float]:
         """MoviePilot 最近（SENT_GRACE_SECONDS 以內）完成的劇集訂閱：{(tmdbid, 季): 完成的時間}。它找到資源、交給下載器
         就算完成、移到訂閱歷史，集還在下載、還沒入庫；清單把這些季標「已送下載」，補全不重複訂閱。
-        記 SUBS_CACHE_SECONDS 秒；沒有帳號登入、讀不到（舊版沒有這個 API）是空的。"""
-        if not self.can_subscribe:
+        記 SUBS_CACHE_SECONDS 秒；沒設定 MoviePilot、讀不到（舊版沒有這個 API）是空的。"""
+        if not self.enabled:
             return {}
         cached = self._sent_cache
         if cached and time.time() - cached[0] < SUBS_CACHE_SECONDS:
@@ -1122,8 +1116,8 @@ class MoviePilot:
         self._cancel["unsubscribe"].clear()
         tried: Set[int] = set()
         try:
-            if not self.can_subscribe:
-                raise MoviePilotError("訂閱的 API 只接受帳號登入，請在 MoviePilot 連線設定填帳號密碼")
+            if not self.enabled:
+                raise MoviePilotError("還沒設定 MoviePilot")
             while True:
                 todo = [s for s in self.subscriptions() if s["id"] not in tried]
                 r.total = len(tried) + len(todo)

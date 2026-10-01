@@ -703,8 +703,8 @@ dialog .card-b{max-height:70vh;overflow:auto}
           <label class="field"><span>路徑對應</span><textarea id="mpMap" rows="2" placeholder="/media => /mnt/media"></textarea>
             <small>一行一條：Mi302 的路徑 =&gt; MoviePilot 的路徑。兩邊看到的路徑一樣（例如裝在同一台機器）就不用填。 <a class="doc" href="https://github.com/MiCat-S/Mi302/wiki/MoviePilot-整合#路徑對應" target="_blank" rel="noopener">說明</a></small></label>
           <label class="switch"><input type="checkbox" data-key="moviepilot.scrape_after_sync"><span class="track"></span><span class="lbl">同步產生新的 strm 後自動送去刮削</span></label>
-          <details class="more"><summary>MoviePilot 帳號密碼（補全缺集、整理 115 網盤需要；舊版刮削 API 也需要）</summary><div class="in stack">
-            <p class="hint">「補全缺集」建訂閱的 API 只接受帳號登入。舊版的刮削 API 不接受 API 令牌，測試連線出現「拒絕存取」時也要填。</p>
+          <details class="more"><summary>MoviePilot 帳號密碼（V3 不用填；舊版才需要）</summary><div class="in stack">
+            <p class="hint">MoviePilot V3 的刮削、補全缺集、整理 115 網盤都接受 API 令牌，不用填。舊版（V2）有些 API 不接受 API 令牌：測試連線、補全或整理時出現「拒絕存取」再填。</p>
             <div class="fields">
               <label class="field"><span>MoviePilot 帳號</span><input type="text" data-key="moviepilot.username" autocomplete="off"></label>
               <label class="field"><span>MoviePilot 密碼</span><input type="password" data-key="moviepilot.password" autocomplete="new-password"></label>
@@ -2502,7 +2502,7 @@ function renderSeriesBar() {
   if (!r) return;
   const st = r.stats, busy = fillBusy();
   const n = {missing: st.missing, pending: st.pending, mismatch: st.mismatch, unchecked: st.unchecked + st.notmdb, excluded: st.excluded, all: st.total};
-  // 讀不到 MoviePilot 的訂閱時分不出它在處理了沒，「處理中」那一頁不顯示；沒有季號對不上的劇時那一頁也不顯示
+  // 讀不到 MoviePilot 的訂閱（沒設定、連不上、被拒絕）時分不出它在處理了沒，「處理中」那一頁不顯示；沒有季號對不上的劇時那一頁也不顯示
   setHtml($('seriesTabs'), SERIES_VIEWS.filter(([k]) => (k !== 'pending' || r.subscriptions != null) && (k !== 'mismatch' || st.mismatch || seriesView === k)).map(([k, label]) =>
     `<button data-act="seriesView" data-view="${k}" role="tab" aria-selected="${k === seriesView}"${k === seriesView ? ' class="on"' : ''}>${label} ${n[k]}</button>`).join(''));
   const bulk = $('seriesBulk');
@@ -2623,10 +2623,9 @@ async function fillExclude(s, on) {
   toast(on ? `「${s.name}」標了不補，檢查和補全都會跳過` : `「${s.name}」恢復補全`);
   loadSeries(seriesPage);
 }
-// 缺什麼設定：沒設定 MoviePilot 什麼都不能做；只有 API 令牌可以檢查、不能補全
+// 缺什麼設定：沒設定 MoviePilot 什麼都不能做
 function fillNeedHtml(s) {
   if (!s.enabled) return '<p class="notice warn">還沒設定 MoviePilot：對照 TMDB、建訂閱都要透過它。<a href="#moviepilot/conn">去「連線」設定</a></p>';
-  if (!s.can_subscribe) return '<p class="notice">現在可以「檢查缺集」。要「補全」（建訂閱）、看哪些已經訂閱，還要在「連線」填 MoviePilot 的帳號密碼。<a href="#moviepilot/conn">去填</a></p>';
   return '';
 }
 // ---- 取消 MoviePilot 裡所有的訂閱 ----
@@ -2855,8 +2854,7 @@ async function organizeTargetPick() {
 }
 function organizeLack() {
   const r = og.ready || {};
-  return !r.moviepilot ? '還沒設定 MoviePilot：到「MoviePilot」頁填網址和 API 令牌' : !r.login ? '問 MoviePilot、交給它整理都要帳號登入：到「MoviePilot」頁填帳號密碼'
-    : !r.p115 ? '要先登入 115' : '';
+  return !r.moviepilot ? '還沒設定 MoviePilot：到「MoviePilot」頁填網址和 API 令牌' : !r.p115 ? '要先登入 115' : '';
 }
 async function organizeCheck(refresh) {
   if (refresh && !await ask({title: '全部重新問 MoviePilot？', text: '問過的也重問一次（例如改過 MoviePilot 的重命名格式）。資料夾多的要一陣子，在背景跑，可以先做別的。', ok: '重新檢查'})) return;

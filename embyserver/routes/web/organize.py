@@ -13,14 +13,14 @@ from .common import json_body
 
 router = APIRouter()
 
-LOGIN_NEEDED = "MoviePilot 的手動整理只接受帳號登入，請在「MoviePilot 帳號密碼」填好再儲存"
+MP_NEEDED = "還沒設定 MoviePilot：到「MoviePilot」頁填網址和 API 令牌再儲存"
 
 
 def _can_organize(st) -> None:
-    """預覽、執行、全部整理都要 MoviePilot 帳號登入和 115 登入；在拿鎖、開執行緒之前就擋下來。"""
+    """預覽、執行、全部整理都要設定好 MoviePilot、登入 115；在拿鎖、開執行緒之前就擋下來。"""
     ready = st.reorganizer.ready()
-    if not ready["login"]:
-        raise HTTPException(status_code=400, detail=LOGIN_NEEDED)
+    if not ready["moviepilot"]:
+        raise HTTPException(status_code=400, detail=MP_NEEDED)
     if not ready["p115"]:
         raise HTTPException(status_code=400, detail=P115_NEEDED)
 
