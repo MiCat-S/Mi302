@@ -133,7 +133,7 @@ When series in your library are missing episodes, MoviePilot can download them. 
 
 ### The series list
 
-The card lists every series in the library and how many episodes each season has:
+By default the card lists only series that are really missing episodes compared with TMDB; complete series are not listed:
 
 - Seasons with gaps in the episode numbers (for example episodes 2 and 4 but not 3) get their own line with how many and which episodes are missing. Series with gaps are listed first.
 - Type into **Search series** (搜尋劇名) to search by title, original title, year, pinyin or pinyin initials. Tick **Only series with gaps** (只看集號有空洞的) to list only those. Tick **Only series marked skip** (只看標了不補的) to list only series marked **Skip**.

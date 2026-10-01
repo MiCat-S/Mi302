@@ -53,6 +53,8 @@ MAX_CONCURRENCY = 8  # 同時送幾項刮削的上限
 # 送過卻沒有劇照的集（TMDB 沒有這集的圖），這段時間內手動刮削不再重送；過了這段時間的紀錄順手清掉
 NO_IMAGE_RETRY_SECONDS = 30 * 86400
 FILL_EXCLUDED_KEY = "fill_excluded"  # 補全缺集時跳過的劇（資料庫 meta，JSON：tmdbid → 劇名）
+# 這麼久以內查過 TMDB 的季直接用記下的，不再問一次：檢查完接著補全、同一天重跑，不必再問上千次
+TMDB_FRESH_SECONDS = 6 * 3600
 
 
 def parse_version(text: str) -> Optional[Tuple[int, int, int, int]]:
@@ -124,8 +126,10 @@ class FillResult:
     started: float = 0.0
     finished: float = 0.0
     running: bool = False
+    check: bool = False  # 只檢查（對照 TMDB 記下每一季缺哪幾集），不建訂閱
     total: int = 0  # 檢查的季數
     done: int = 0
+    lacking: int = 0  # 只檢查時：缺集的季數
     created: int = 0  # 缺集，建了訂閱並請 MoviePilot 搜尋（兩個之間隔 fill_interval 秒）
     complete: int = 0  # 已播出的集都有，沒有建訂閱
     existing: int = 0  # 之前就訂閱過（不再請它搜，MoviePilot 自己會定時搜）
@@ -595,11 +599,18 @@ class MoviePilot:
         """建訂閱的 API 只接受帳號登入。"""
         return self.enabled and bool(self.cfg.username and self.cfg.password)
 
-    def tmdb_episodes(self, tmdbid: int, season: int) -> Optional[Dict[int, str]]:
-        """TMDB 上這一季的集號 → 播出日期（沒填是空字串），透過 MoviePilot 查；查不到時回傳 None。"""
+    def tmdb_episodes(self, tmdbid: int, season: int, strict: bool = False) -> Optional[Dict[int, str]]:
+        """TMDB 上這一季的集號 → 播出日期（沒填是空字串），透過 MoviePilot 查；查不到時回傳 None。
+        TMDB_FRESH_SECONDS 以內查過的直接用記下的；查到的記進 tmdb_seasons，補全缺集的清單用它算缺哪幾集。
+        strict：MoviePilot 連不上、拒絕存取時丟 MoviePilotError（只檢查時用：後面的也查不到，整批停下）。"""
+        saved = self._saved_episodes(tmdbid, season)
+        if saved is not None:
+            return saved
         try:
             body = self._request("GET", TMDB_EPISODES_API.format(tmdbid=tmdbid, season=season), timeout=30)
         except MoviePilotError as exc:
+            if strict and (exc.kind or exc.status in (401, 403)):
+                raise
             log.warning("向 MoviePilot 查 TMDB %s 第 %s 季的集數失敗：%s", tmdbid, season, exc)
             return None
         items = body.get("data") if isinstance(body, dict) else body  # V3 包在 data 裡，V2 直接是清單
@@ -607,7 +618,21 @@ class MoviePilot:
             int(e["episode_number"]): str(e.get("air_date") or "")[:10]
             for e in items or [] if isinstance(e, dict) and str(e.get("episode_number") or "").isdecimal()
         }
+        if episodes and self.db is not None:
+            self.db.execute(
+                "INSERT INTO tmdb_seasons(tmdbid, season, episodes, at) VALUES(?,?,?,?) "
+                "ON CONFLICT(tmdbid, season) DO UPDATE SET episodes=excluded.episodes, at=excluded.at",
+                (int(tmdbid), int(season), json.dumps(episodes), int(time.time())))
         return episodes or None
+
+    def _saved_episodes(self, tmdbid: int, season: int) -> Optional[Dict[int, str]]:
+        """剛查過（TMDB_FRESH_SECONDS 以內）記下的這一季；沒有、太舊、沒有資料庫回傳 None。"""
+        if self.db is None:
+            return None
+        row = self.db.one("SELECT episodes, at FROM tmdb_seasons WHERE tmdbid=? AND season=?", (int(tmdbid), int(season)))
+        if not row or time.time() - row["at"] > TMDB_FRESH_SECONDS:
+            return None
+        return _load_episodes(row["episodes"]) or None
 
     def subscribe(self, name: str, year: Optional[int], tmdbid: int, season: int) -> Tuple[str, str, Optional[int]]:
         """替一季劇向 MoviePilot 建訂閱。
@@ -780,16 +805,19 @@ class MoviePilot:
             raise MoviePilotError(str(res.get("message") or "MoviePilot 沒有安排搜尋"))
         return str((res or {}).get("message") or "已安排搜尋") if isinstance(res, dict) else "已安排搜尋"
 
-    def fill(self, series: List[dict], source: str) -> FillResult:
-        """替這些劇（library_series 的格式）的每一季建訂閱，一季一季來。"""
+    def fill(self, series: List[dict], source: str, check: bool = False) -> FillResult:
+        """替這些劇（library_series 的格式）的每一季建訂閱，一季一季來。
+        check=True：只對照 TMDB、記下每一季缺哪幾集（清單就看得出誰真的缺），不建訂閱。"""
         if not self._fill_lock.acquire(blocking=False):
             log.info("補全缺集已在進行，略過")
             return self.fill_result
-        self.fill_result = r = FillResult(source=source, started=time.time(), running=True)
+        self.fill_result = r = FillResult(source=source, started=time.time(), running=True, check=check)
         self._cancel["fill"].clear()
         self._created_at = None
         try:
-            if not self.can_subscribe:
+            if check and not self.enabled:
+                raise MoviePilotError("還沒設定 MoviePilot：對照 TMDB 是透過它查的")
+            if not check and not self.can_subscribe:
                 raise MoviePilotError("建訂閱的 API 只接受帳號登入，請在 MoviePilot 連線設定填帳號密碼")
             jobs: List[Tuple[dict, dict]] = []
             excluded = self.fill_excluded()
@@ -804,7 +832,7 @@ class MoviePilot:
                     continue
                 jobs += [(show, x) for x in show.get("seasons") or []]
             r.total = len(jobs)
-            log.info("補全缺集：檢查 %s 季", len(jobs))
+            log.info("%s：檢查 %s 季", "檢查缺集" if check else "補全缺集", len(jobs))
             for show, info in jobs:
                 if self._stop.is_set() or self._cancel["fill"].is_set():
                     r.stopped = not self._stop.is_set()
@@ -814,7 +842,7 @@ class MoviePilot:
                 label = f"{show['name']} S{info['season']:02d}"
                 r.current = label
                 try:
-                    if not self._fill_season(r, show, info, label):
+                    if not self._fill_season(r, show, info, label, check):
                         r.stopped = not self._stop.is_set()
                         if r.stopped:
                             r.details.append(f"按了停止，還有 {r.total - r.done} 季沒送")
@@ -826,6 +854,9 @@ class MoviePilot:
                     log.error("補全缺集中止：%s", exc)
                     break
                 r.done += 1
+            if not r.errors:  # 做完（或停下）寫一行，日誌上看得出結束了
+                log.info("%s%s：%s / %s 季，缺集的 %s 季", "檢查缺集" if check else "補全缺集", "停止" if r.stopped else "完成",
+                         r.done, r.total, r.lacking if check else r.created + r.existing + r.too_many)
         except MoviePilotError as exc:
             r.errors.append(str(exc))
         finally:
@@ -854,28 +885,33 @@ class MoviePilot:
                 return False
         return False
 
-    def _fill_season(self, r: FillResult, show: dict, info: dict, label: str) -> bool:
+    def _fill_season(self, r: FillResult, show: dict, info: dict, label: str, check: bool = False) -> bool:
         """一季：查 TMDB 已播出的集 → 缺集才建訂閱 → 新建的請 MoviePilot 搜尋（之前就訂閱過的不再搜，
-        它自己會定時搜）。等的時候程式要結束回傳 False。"""
+        它自己會定時搜）。check：只記下缺哪幾集，不建訂閱。等的時候程式要結束回傳 False。"""
         tmdbid, season = int(show["tmdbid"]), int(info["season"])
-        episodes = self.tmdb_episodes(tmdbid, season)
+        episodes = self.tmdb_episodes(tmdbid, season, strict=check)
         missing: List[int] = []
         unsure = ""
         if episodes is not None:
-            last = info["last"] if info.get("count") else 0
-            have = set(range(info["first"], last + 1)) - set(info.get("gaps") or []) if info.get("count") else set()
-            today = date.today().isoformat()
-            # 有播出日期的看日期。沒有日期的常是還沒播的佔位集，只有集號不超過媒體庫裡最後一集的才確定播過
-            # （都有第 10 集了，第 3 集一定播過）；比最後一集後面又沒有日期的不確定，不算缺，只在結果裡說明
-            aired = {e for e, d in episodes.items() if (d <= today if d else e <= last)}
-            undated = sorted(e for e, d in episodes.items() if not d and e > last)
+            have = set(range(info["first"], info["last"] + 1)) - set(info.get("gaps") or []) if info.get("count") else set()
+            missing, undated, aired = season_missing(episodes, have)
             if undated:
                 unsure = f"另有 {len(undated)} 集（{ep_ranges(undated)}）TMDB 沒有播出日期，不確定播了沒，沒算進去"
-            missing = sorted(aired - have)
             if not missing:
                 r.complete += 1
-                r.details.append(f"{label}：TMDB 已播出的 {len(aired)} 集都有，不建訂閱" + (f"；{unsure}" if unsure else ""))
+                r.details.append(f"{label}：TMDB 已播出的 {aired} 集都有" + ("" if check else "，不建訂閱")
+                                 + (f"；{unsure}" if unsure else ""))
                 return True
+        if check:
+            if episodes is None:
+                r.failed += 1
+                r.details.append(f"{label}：查不到 TMDB 的集數")
+            else:
+                r.lacking += 1
+                r.missing += len(missing)
+                r.details.append(f"{label}：缺 {len(missing)} 集（{ep_ranges(missing)}）" + (f"；{unsure}" if unsure else ""))
+            return True
+        if episodes is not None:
             limit = int(self.cfg.fill_max_missing or 0)
             if limit and len(missing) > limit:
                 r.too_many += 1
@@ -943,11 +979,31 @@ class MoviePilot:
             self.db.set_meta(FILL_EXCLUDED_KEY, json.dumps(excluded, ensure_ascii=False))
         return excluded
 
-    def fill_in_background(self, series: List[dict], source: str) -> bool:
+    def fill_in_background(self, series: List[dict], source: str, check: bool = False) -> bool:
         if self._fill_lock.locked():
             return False
-        self.workers.start(self.fill, series, source)
+        self.workers.start(self.fill, series, source, check)
         return True
+
+
+def season_missing(episodes: Dict[int, str], have: Set[int], today: Optional[str] = None) -> Tuple[List[int], List[int], int]:
+    """對照 TMDB 這一季的集（集號 → 播出日期）和媒體庫裡有的集號：(缺的集, 不確定播了沒的集, 已播出幾集)。
+
+    有播出日期的看日期。沒有日期的常是還沒播的佔位集，只有集號不超過媒體庫裡最後一集的才確定播過
+    （都有第 10 集了，第 3 集一定播過）；比最後一集後面又沒有日期的不確定，不算缺。"""
+    today = today or date.today().isoformat()
+    last = max(have) if have else 0
+    aired = {e for e, d in episodes.items() if (d <= today if d else e <= last)}
+    undated = sorted(e for e, d in episodes.items() if not d and e > last)
+    return sorted(aired - have), undated, len(aired)
+
+
+def _load_episodes(raw: str) -> Dict[int, str]:
+    """tmdb_seasons.episodes（JSON）→ {集號: 播出日期}；壞掉的當成沒有。"""
+    try:
+        return {int(k): str(v or "") for k, v in json.loads(raw or "{}").items()}
+    except (ValueError, AttributeError, TypeError):
+        return {}
 
 
 def ep_ranges(nums: List[int], limit: int = 6) -> str:
@@ -964,13 +1020,16 @@ def ep_ranges(nums: List[int], limit: int = 6) -> str:
 
 def library_series(
     db: Database, query: str = "", gaps_only: bool = False, limit: int = 0, offset: int = 0,
-    year: Optional[int] = None, tmdbids: Optional[Set[str]] = None,
+    year: Optional[int] = None, tmdbids: Optional[Set[str]] = None, missing_only: bool = False,
+    stats: Optional[dict] = None,
 ) -> Tuple[List[dict], int]:
-    """媒體庫裡的劇：名稱、年份、tmdbid、每一季有幾集、集號的空洞（有第 2、4 集沒有第 3 集）。
+    """媒體庫裡的劇：名稱、年份、tmdbid、每一季有幾集、集號的空洞（有第 2、4 集沒有第 3 集），
+    以及對照 TMDB 缺哪幾集（檢查缺集、補全缺集時記下的 tmdb_seasons；還沒對照過的季是 None）。
 
-    回傳 (清單, 符合條件的總數)；集號有空洞的排前面，year 只列那一年的，tmdbids 只列這些（tmdbid 字串），
-    limit、offset 分頁。特別篇（第 0 季）不算。
-    空洞只是提示：最後幾集沒下到、整季都沒有的情況這裡看不出來，交給 MoviePilot 對照 TMDB。
+    回傳 (清單, 符合條件的總數)；缺集的排前面，再來是集號有空洞的。gaps_only 只列集號有空洞的，missing_only 只列
+    對照 TMDB 真的缺集的（還沒對照過的，集號有空洞也列），year 只列那一年的，tmdbids 只列這些（tmdbid 字串），limit、offset 分頁。特別篇（第 0 季）不算。
+    stats 給了就填上整個媒體庫的數字（不受篩選影響）：missing = 缺集的劇、unchecked = 有季還沒對照過 TMDB 的劇、
+    checked = 每一季都對照過的劇。
     """
     episodes: Dict[int, Dict[int, Set[int]]] = {}
     for r in db.query(
@@ -978,6 +1037,10 @@ def library_series(
         "WHERE type='Episode' AND series_id IS NOT NULL AND parent_index_number IS NOT NULL AND index_number IS NOT NULL"
     ):
         episodes.setdefault(r["series_id"], {}).setdefault(int(r["s"]), set()).add(int(r["e"]))
+    tmdb: Dict[Tuple[int, int], Dict[int, str]] = {
+        (r["tmdbid"], r["season"]): _load_episodes(r["episodes"]) for r in db.query("SELECT tmdbid, season, episodes FROM tmdb_seasons")}
+    today = date.today().isoformat()
+    counts = {"missing": 0, "unchecked": 0, "checked": 0}
     needle = simplified(query.strip()).lower()
     needle_py = pinyin_full(query) if cjk_count(query) >= 2 else ""
     out: List[dict] = []
@@ -986,29 +1049,42 @@ def library_series(
         "LEFT JOIN items l ON l.id=i.library_id WHERE i.type='Series' ORDER BY i.sort_name"
     ):
         name = r["name"] or ""
-        hay = f"{name} {r['original_title'] or ''} {r['year'] or ''} {r['search_text'] or ''}".lower()
-        if needle and needle not in hay and not (needle_py and needle_py in hay):
-            continue  # 片名、原名、年份、拼音、首字母都認
-        if year and r["year"] != year:
-            continue
         providers = json.loads(r["provider_ids"]) if r["provider_ids"] else {}
         tmdbid = str(providers.get("Tmdb") or "")
-        if tmdbids is not None and tmdbid not in tmdbids:
-            continue
         seasons = []
         for season, eps in sorted(episodes.get(r["id"], {}).items()):
             if season == 0:
                 continue
             gaps = sorted(set(range(min(eps), max(eps) + 1)) - eps)
-            seasons.append({"season": season, "count": len(eps), "first": min(eps), "last": max(eps), "gaps": gaps})
+            known = tmdb.get((int(tmdbid), season)) if tmdbid.isdecimal() else None
+            missing, _, aired = season_missing(known, eps, today) if known else (None, None, None)
+            seasons.append({"season": season, "count": len(eps), "first": min(eps), "last": max(eps), "gaps": gaps,
+                            "tmdb": aired, "missing": missing})
         gap_count = sum(len(x["gaps"]) for x in seasons)
+        missing_count = sum(len(x["missing"] or []) for x in seasons)
+        unchecked = sum(1 for x in seasons if x["missing"] is None) if tmdbid.isdecimal() else 0
+        if tmdbid.isdecimal() and seasons:
+            counts["missing"] += 1 if missing_count else 0
+            counts["unchecked" if unchecked else "checked"] += 1
+        hay = f"{name} {r['original_title'] or ''} {r['year'] or ''} {r['search_text'] or ''}".lower()
+        if needle and needle not in hay and not (needle_py and needle_py in hay):
+            continue  # 片名、原名、年份、拼音、首字母都認
+        if year and r["year"] != year:
+            continue
+        if tmdbids is not None and tmdbid not in tmdbids:
+            continue
         if gaps_only and not gap_count:
             continue
+        if missing_only and not (missing_count or (unchecked and gap_count)):
+            continue  # 還沒對照過 TMDB 的，集號有空洞就先列出來
         out.append({
             "id": r["id"], "name": name, "year": r["year"], "library": r["library"],
             "tmdbid": int(tmdbid) if tmdbid.isdecimal() else None, "seasons": seasons, "gaps": gap_count,
+            "missing": missing_count, "unchecked": unchecked,
         })
-    out.sort(key=lambda x: (-x["gaps"], x["name"].lower()))
+    out.sort(key=lambda x: (-x["missing"], -x["gaps"], x["name"].lower()))
+    if stats is not None:
+        stats.update(counts)
     total = len(out)
     out = out[offset:offset + limit] if limit else out[offset:]
     return out, total

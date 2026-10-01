@@ -257,6 +257,10 @@ MoviePilot 說完成之後再看一次有沒有真的寫出 nfo、劇照：認�
 （POST /api/v1/subscribe/search/{訂閱 id}）。MoviePilot V3 建訂閱時不檢查媒體庫、不保證馬上搜尋，
 所以這兩步 Mi302 自己做。建訂閱和搜尋的 API 只接受帳號登入，不接受 API 令牌。
 
+查到的 TMDB 集和播出日期記在資料表 tmdb_seasons（TMDB_FRESH_SECONDS 以內查過的不再問）。清單（library_series）用它和
+媒體庫裡的集號當場算每一季缺哪幾集（season_missing，和補全同一套判斷），網頁預設只列真的缺集的劇；沒有空洞的季也可能
+缺前面、後面幾集，只看集號的空洞看不出來。「檢查缺集」（fill 的 check=True）只查、只記，不建訂閱。
+
 ## embyserver/intro.py
 
 片頭片尾：從播放行為學出來，給播放器「跳過片頭」「跳過片尾」用。

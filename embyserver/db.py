@@ -234,6 +234,16 @@ CREATE TABLE IF NOT EXISTS mp_no_image (
 );
 CREATE INDEX IF NOT EXISTS idx_mp_no_image_at ON mp_no_image(at);  -- 找最近送過的、清掉過期的
 
+-- TMDB 上每一季的集和播出日期（檢查缺集、補全缺集時向 MoviePilot 查到的）。補全缺集的清單用它算每一季缺哪幾集，
+-- 不必每次開網頁都去查；媒體庫多了、少了集，清單當場重算
+CREATE TABLE IF NOT EXISTS tmdb_seasons (
+    tmdbid INTEGER NOT NULL,
+    season INTEGER NOT NULL,
+    episodes TEXT NOT NULL,  -- JSON：{"集號": "播出日期（沒填是空字串）"}
+    at INTEGER NOT NULL,     -- 什麼時候查的
+    PRIMARY KEY (tmdbid, season)
+);
+
 -- 整理 115 網盤：問過 MoviePilot「這個資料夾（和幾支影片）整理後叫什麼」的結果；裡面的影片沒變就不再問
 CREATE TABLE IF NOT EXISTS organize_checks (
     path TEXT PRIMARY KEY,  -- 115 上的資料夾（沒有自己資料夾的電影是那支影片）

@@ -31,11 +31,15 @@ def test_library_series_lists_gaps(tmp_path: Path):
     assert total == 2 and items[0]["name"] == "Show A"  # 有空洞的排前面
     a, b = items
     assert (a["tmdbid"], a["year"], a["library"], a["gaps"]) == (4321, 2020, "劇集", 1)
+    # 還沒對照過 TMDB：只看得出集號的空洞，缺哪幾集（missing）不知道
     assert a["seasons"] == [
-        {"season": 1, "count": 3, "first": 1, "last": 4, "gaps": [3]},
-        {"season": 2, "count": 1, "first": 1, "last": 1, "gaps": []},
+        {"season": 1, "count": 3, "first": 1, "last": 4, "gaps": [3], "tmdb": None, "missing": None},
+        {"season": 2, "count": 1, "first": 1, "last": 1, "gaps": [], "tmdb": None, "missing": None},
     ]
-    assert b["tmdbid"] is None and b["seasons"] == [{"season": 1, "count": 1, "first": 1, "last": 1, "gaps": []}]
+    assert b["tmdbid"] is None and b["seasons"] == [
+        {"season": 1, "count": 1, "first": 1, "last": 1, "gaps": [], "tmdb": None, "missing": None}]
+    assert (a["missing"], a["unchecked"], b["unchecked"]) == (0, 2, 0)
+    assert library_series(db, missing_only=True) == ([a], 1)  # 還沒對照過的，集號有空洞就先列出來
     assert [s["name"] for s in library_series(db, query="b")[0]] == ["Show B"]
     assert [s["name"] for s in library_series(db, query="2020")[0]] == ["Show A"]  # 年份也搜得到
     assert [s["name"] for s in library_series(db, gaps_only=True)[0]] == ["Show A"]
@@ -43,6 +47,18 @@ def test_library_series_lists_gaps(tmp_path: Path):
     assert library_series(db, year=2021) == ([], 0)
     assert library_series(db, limit=1) == ([a], 2)
     assert library_series(db, limit=1, offset=1) == ([b], 2)
+
+    # 對照過 TMDB（檢查缺集、補全時記下的）：第 1 季播了 6 集、第 7 集還沒播，缺 3、5、6；第 2 季齊全。
+    # 沒有空洞的季也可能缺後面幾集，只有對照過才知道；齊全的劇不列在「只看缺集的」裡
+    eps = {str(e): "2020-01-01" for e in range(1, 7)} | {"7": "2999-01-01"}
+    db.execute("INSERT INTO tmdb_seasons(tmdbid, season, episodes, at) VALUES(4321, 1, ?, 0)", (json.dumps(eps),))
+    db.execute("INSERT INTO tmdb_seasons(tmdbid, season, episodes, at) VALUES(4321, 2, ?, 0)", (json.dumps({"1": "2021-01-01"}),))
+    stats = {}
+    (a,), total = library_series(db, missing_only=True, stats=stats)
+    assert total == 1 and (a["missing"], a["unchecked"]) == (3, 0) and stats == {"missing": 1, "unchecked": 0, "checked": 1}
+    assert [(s["tmdb"], s["missing"]) for s in a["seasons"]] == [(6, [3, 5, 6]), (1, [])]
+    db.execute("UPDATE tmdb_seasons SET episodes=? WHERE season=1", (json.dumps({str(e): "2020-01-01" for e in (1, 2, 4)}),))
+    assert library_series(db, missing_only=True) == ([], 0)  # TMDB 上就這幾集：中間的空洞不算缺
 
 
 class FakeMP:
@@ -190,7 +206,9 @@ def test_fill_endpoints(tmp_path: Path):
     r = c.get("/web/api/series", params={"year": 2020}, headers=h).json()
     assert r["total"] == 1 and r["years"] == [2020]  # years 給下拉選單，不受篩選影響
     assert c.get("/web/api/series", params={"year": 1999}, headers=h).json() | {"years": None} == {
-        "items": [], "total": 0, "offset": 0, "more": False, "years": None, "excluded": 0}
+        "items": [], "total": 0, "offset": 0, "more": False, "years": None, "excluded": 0,
+        "stats": {"missing": 0, "unchecked": 1, "checked": 0}}
+    assert c.get("/web/api/series", params={"missing": 1}, headers=h).json()["total"] == 1  # 還沒對照過 TMDB：只列有空洞的
 
     calls = []
     app.state.moviepilot.fill_in_background = lambda shows, source: calls.append(([s["name"] for s in shows], source)) or True
@@ -204,8 +222,18 @@ def test_fill_endpoints(tmp_path: Path):
     fake = FakeMP({(4321, 1): [(e, "2020-01-01") for e in range(1, 9)], (4321, 2): [(1, "2021-01-01")]})
     mp = app.state.moviepilot
     mp._transport = httpx.MockTransport(fake)
+    # 檢查缺集：只對照 TMDB、記下每一季缺哪幾集，不建訂閱；清單「只看缺集的」就列得出來
+    f = mp.fill([SHOW_A], "manual", check=True)
+    assert (f.check, f.total, f.lacking, f.missing, f.complete, f.created) == (True, 2, 1, 5, 1, 0)
+    assert f.details == ["Show A S01：缺 5 集（E03、E05–E08）", "Show A S02：TMDB 已播出的 1 集都有"]
+    assert not fake.posts("/api/v1/subscribe/")
+    listed = c.get("/web/api/series", params={"missing": 1}, headers=h).json()
+    assert [s["name"] for s in listed["items"]] == ["Show A"] and listed["stats"] == {"missing": 1, "unchecked": 0, "checked": 1}
+    assert [(s["tmdb"], s["missing"]) for s in listed["items"][0]["seasons"]] == [(8, [3, 5, 6, 7, 8]), (1, [])]
+    asked = len([q for q in fake.sent if "/tmdb/" in q.url.path])
     mp.cfg.fill_max_missing = 3
     f = mp.fill([SHOW_A], "manual")
+    assert len([q for q in fake.sent if "/tmdb/" in q.url.path]) == asked == 2  # 剛查過的季用記下的，不再問 TMDB
     assert (f.total, f.done, f.created, f.too_many, f.complete, f.missing) == (2, 2, 0, 1, 1, 0)
     assert f.details[0] == "Show A S01：缺 5 集（E03、E05–E08），超過「缺超過幾集的季不補」的 3 集，不建訂閱"
     assert not fake.posts("/api/v1/subscribe/")
@@ -226,6 +254,11 @@ def test_fill_endpoints(tmp_path: Path):
     token2 = c2.post("/Users/AuthenticateByName", json={"Username": "admin", "Pw": "pw"}).json()["AccessToken"]
     resp = c2.post("/web/api/moviepilot/fill", json={}, headers={"X-Emby-Token": token2})
     assert resp.status_code == 400 and "帳號" in resp.text
+    # 只檢查不建訂閱，所以不用帳號密碼
+    checks = []
+    app2.state.moviepilot.fill_in_background = lambda shows, source, check=False: checks.append(check) or True
+    assert c2.post("/web/api/moviepilot/fill", json={"check": True}, headers={"X-Emby-Token": token2}).json()["started"]
+    assert checks == [True]
     assert c2.get("/web/api/moviepilot/status", headers={"X-Emby-Token": token2}).json()["can_subscribe"] is False
 
 
