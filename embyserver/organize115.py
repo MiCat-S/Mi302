@@ -49,6 +49,7 @@ from .moviepilot import FRONTEND_HINT, MoviePilot, MoviePilotError
 from .p115 import P115Error
 from .reorganize import ReorgJob, episode_template
 from .strm_sync import remote_root, task_key
+from .textutil import simplified
 from .workers import Workers
 
 log = logging.getLogger(__name__)
@@ -773,7 +774,8 @@ class Organizer:
 
     def _preview(self, unit: Unit, overrides: Dict[str, dict], target: str, target_path: str, scrape: bool) -> dict:
         """preview 的本體（全部整理直接拿 Unit 呼叫，中途清單更新也不影響）。回傳的 review 是要人看一下的原因：
-        有檔案 MoviePilot 不會整理、有要看一下的、認成的季和媒體庫不一樣、查不到整理紀錄或目標資料夾；全部整理時跳過這些。"""
+        認成別部片（資料夾名裡的 TMDB 編號錯了）、有檔案 MoviePilot 不會整理、有要看一下的、認成的季和媒體庫不一樣、
+        查不到整理紀錄或目標資料夾；全部整理時跳過這些。"""
         try:
             self.mp.check_transfer_preview()  # 舊版 MoviePilot 會把預覽當成真的整理
         except MoviePilotError as exc:
@@ -788,6 +790,7 @@ class Organizer:
         review: List[str] = []
         parts: List[dict] = []
         listings: Dict[str, List[dict]] = {}
+        identity: List[str] = []  # 認成別部片：最根本的原因，放在 review 最前面
         for part in unit.parts:
             o = _override(overrides.get(part.key) or {})
             try:
@@ -806,12 +809,7 @@ class Organizer:
             _mark_duplicates(views)
             self._mark_existing(views, part, tgt.overwrite, listings, notes, review)
             recognized = _recognized(views)
-            if part.lib_season is not None and o["season"] is None:
-                for r in recognized:
-                    if r["season"] is not None and r["season"] != part.lib_season and r["type"] != "电影":
-                        notes.append(f"「{part.label}」MoviePilot 認成第 {r['season']} 季，媒體庫裡是第 {part.lib_season} 季；"
-                                     "不對的話在這一部分指定季，再預覽一次")
-                        review.append(f"「{part.label}」MoviePilot 認成第 {r['season']} 季，媒體庫裡是第 {part.lib_season} 季")
+            _check_recognized(unit, part, o, views, recognized, notes, review, identity)
             skipped = Counter(v["skip"] for v in views if v["skip"])
             if skipped:
                 notes.append(f"「{part.label}」" + "、".join(f"{n} 個{SKIP_LABELS[k]}" for k, n in skipped.items()) + "，這些不送")
@@ -845,8 +843,10 @@ class Organizer:
         batches = self._rename_batches(unit, items, listings, notes, batches)
         folders = sorted({posixpath.dirname(v["target"]) for v in items if v["ok"] and v["target"]})
         token = self._remember(unit, batches, tgt, scrape) if batches else None
+        summary = _summary(items, review)
+        review[:0] = identity
         return {"token": token, "items": items, "notes": notes, "folders": folders, "parts": parts, "target": target,
-                "summary": _summary(items, review), "review": review}
+                "summary": summary, "review": review}
 
     def _rename_batches(self, unit: Unit, items: List[dict], listings: Dict[str, List[dict]], notes: List[str],
                         batches: List[dict]) -> List[dict]:
@@ -1284,6 +1284,63 @@ def _recognized(views: List[dict]) -> List[dict]:
     """MoviePilot 把這一部分認成什麼：片名、類型、季，各幾個檔案。"""
     counts = Counter((v["title"], v["type"], v["season"]) for v in views if v["ok"])
     return [{"title": t, "type": ty, "season": s, "count": n} for (t, ty, s), n in counts.most_common()]
+
+
+def _check_recognized(unit: Unit, part: Part, o: dict, views: List[dict], recognized: List[dict], notes: List[str],
+                      review: List[str], identity: List[str]) -> None:
+    """MoviePilot 認成的對不對（這一部分沒指定的才看）：認成別部片的記進 identity（見 _identity_problems），
+    認成的季和媒體庫不一樣的記進 review；都寫進 notes。"""
+    if not o["tmdbid"]:
+        for problem in _identity_problems(unit, part, views):
+            notes.append(problem)
+            identity.append(problem)
+    if part.lib_season is not None and o["season"] is None:
+        for r in recognized:
+            if r["season"] is not None and r["season"] != part.lib_season and r["type"] != "电影":
+                notes.append(f"「{part.label}」MoviePilot 認成第 {r['season']} 季，媒體庫裡是第 {part.lib_season} 季；"
+                             "不對的話在這一部分指定季，再預覽一次")
+                review.append(f"「{part.label}」MoviePilot 認成第 {r['season']} 季，媒體庫裡是第 {part.lib_season} 季")
+
+
+TMDB_IN_NAME = re.compile(r"tmdb(?:id)?\s*[=\-]\s*(\d+)", re.I)
+YEAR_IN_NAME = re.compile(r"(?<!\d)(19\d\d|20\d\d)(?!\d)")
+TITLE_YEAR = re.compile(r"^(.*?)\s*\((\d{4})\)$")  # MoviePilot 預覽回傳的片名是「片名 (年份)」
+
+
+def _loose(text: str) -> str:
+    """比片名用：轉簡體、不分大小寫、去掉空白和標點。"""
+    return re.sub(r"[\W_]+", "", simplified(text).casefold())
+
+
+def _identity_problems(unit: Unit, part: Part, views: List[dict]) -> List[str]:
+    """MoviePilot 認成了別部片：多半是資料夾名裡的 TMDB 編號錯了（CMS 這類工具寫的），它照編號查到另一部劇或電影，
+    整理下去整部劇就搬進別部片的資料夾。兩種情況：
+    - 檔名有集號，卻被認成電影（那個編號不是劇集，它改查同一個編號的電影）；
+    - 認出來的片名不在資料夾名、檔名、媒體庫的名稱裡，年份也差超過一年（例如 2018 年的劇被認成 2023 年的續集）。
+    只看片名或只看年份都不算：英文資料夾認成中文片名、首播年份和資料夾差一年都很常見。"""
+    ok = [v for v in views if v["ok"] and v["title"]]
+    ids = TMDB_IN_NAME.findall(part.remote)
+    hint = f"資料夾名裡的 TMDB 編號 {ids[-1]} 多半不對，" if ids else ""
+    problems = []
+    movies = Counter(v["title"] for v in ok if v["type"] == "电影" and v["episode"] is not None)
+    for title, n in movies.most_common(1):
+        problems.append(f"「{part.label}」有 {n} 個有集號的檔案被 MoviePilot 認成電影「{title}」：{hint}"
+                        "請在這一部分指定類型和正確的 TMDB 編號")
+    found = YEAR_IN_NAME.search(unit.name)
+    year = unit.year or (int(found.group(1)) if found else None)
+    if not year:
+        return problems
+    names = [_loose(n) for n in (unit.name, unit.title, part.label, posixpath.basename(part.remote.rstrip("/")))]
+    for title in sorted({v["title"] for v in ok} - set(movies)):
+        m = TITLE_YEAR.match(title)
+        short = _loose(m.group(1)) if m else ""
+        if not short or abs(int(m.group(2)) - year) <= 1:
+            continue
+        if any(short in n for n in names) or any(short in _loose(v["name"]) for v in ok if v["title"] == title):
+            continue
+        problems.append(f"「{part.label}」MoviePilot 認成「{title}」，片名和年份（{year}）都和資料夾對不上：{hint}"
+                        "請確認，或在這一部分指定正確的 TMDB 編號")
+    return problems
 
 
 def _mark_duplicates(views: List[dict]) -> None:

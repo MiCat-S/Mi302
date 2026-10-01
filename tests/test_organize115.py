@@ -215,9 +215,11 @@ class OrganizeMP:
             target = f"{folder}/Season {season}/{name}" if kind == "tv" else f"{folder}/{name}"
             base = posixpath.basename(src)
             target = src if base in self.same else f"/别处/{base}" if base in self.outside else target
-            item = {"source": src, "target": target, "success": True, "title": title,
+            # 和真的一樣：片名帶年份；集號照檔名解析，認成電影也一樣（檔名有 SxxEyy 就有集號）
+            ep = re.search(r"E(\d+)", name) if kind == "tv" else re.search(r"(?i)S\d+E(\d+)", base)
+            item = {"source": src, "target": target, "success": True, "title": f"{title} ({year})",
                     "type": "电视剧" if kind == "tv" else "电影", "season": season if kind == "tv" else None,
-                    "episode": int(re.search(r"E(\d+)", name).group(1)) if kind == "tv" else None}
+                    "episode": int(ep.group(1)) if ep else None}
             if not body["preview"] and src in self.history and not body.get("reorganize"):
                 item.update(success=False, state="skipped", message=f"{base} 已整理过")
             elif not body["preview"] and self.queue:
@@ -371,8 +373,8 @@ def test_preview_lets_moviepilot_recognize(tmp_path: Path):
                                    "basename": XUTIAN, "fileid": "119", "parent_fileid": "110"}
     assert [fi["name"] for fi in sent[1]["fileitems"]] == ["1.mp4", "2.mp4", "3.mp4"] and sent[1]["target_path"] == "/影視/劇集"
     parts = {p["key"]: p for p in pv["parts"]}
-    assert parts["d119"]["recognized"] == [{"title": "虚天战纪", "type": "电影", "season": None, "count": 2}]
-    assert parts["loose"]["recognized"] == [{"title": "凡人修仙传", "type": "电视剧", "season": 2, "count": 3}]
+    assert parts["d119"]["recognized"] == [{"title": "虚天战纪 (2025)", "type": "电影", "season": None, "count": 2}]
+    assert parts["loose"]["recognized"] == [{"title": "凡人修仙传 (2020)", "type": "电视剧", "season": 2, "count": 3}]
     assert any("MoviePilot 認成第 2 季，媒體庫裡是第 1 季" in n for n in pv["notes"])
     assert pv["folders"] == ["/影視/劇集/凡人修仙传 (2020) {tmdbid=106449}/Season 2", "/影視/劇集/虚天战纪 (2025) {tmdbid=282348}"]
     assert all("只會留一個" in i["warnings"][0] for i in pv["items"] if i["part"] == XUTIAN)  # 上、下兩支認成同一部電影
@@ -948,3 +950,31 @@ def test_rename_only_folders_go_to_the_plugin(tmp_path: Path):
     unit = c.post(folder, json={"cid": 140, "path": "/影視/劇集/H-流浪-2019-[tmdb=9]"}, headers=h).json()
     pv = preview(c, h, unit).json()
     assert pv["token"] and not any(n.startswith("只需要改名") for n in pv["notes"])
+
+
+def test_wrong_tmdbid_in_folder_name_needs_a_look(tmp_path: Path):
+    """資料夾名裡的 TMDB 編號錯了，MoviePilot 照編號認成別部片（有集號的檔案認成電影，或片名、年份都對不上）：
+    要人看一下，全部整理時跳過，不會把整部劇搬進別部片的資料夾。片名或年份有一樣對得上的照常整理。"""
+    app, fake, mp, media, c, h = setup(tmp_path)
+    base = dict(mp.MEDIA)
+
+    def review(media_9):
+        mp.MEDIA = {**base, "9": media_9}  # 「流浪 (2019) {tmdbid=9}」的 9 查到的是這部
+        check(app, c, h, refresh=True)
+        unit = next(u for u in listing(c, h)["items"] if u["id"] == "d117")
+        return preview(c, h, unit).json()["review"]
+
+    assert review(("Wandering", 2019, "tv")) == []  # 英文片名，年份一樣
+    assert review(("流浪", 2023, "tv")) == []  # 片名一樣，年份不同
+    r = review(("斗罗大陆Ⅱ绝世唐门", 2023, "tv"))
+    assert "認成「斗罗大陆Ⅱ绝世唐门 (2023)」，片名和年份（2019）都和資料夾對不上：資料夾名裡的 TMDB 編號 9 多半不對" in r[0]
+    r = review(("The Ragamuffin", 1916, "movie"))
+    assert "有 1 個有集號的檔案被 MoviePilot 認成電影「The Ragamuffin (1916)」：資料夾名裡的 TMDB 編號 9 多半不對" in r[0]
+    mp.calls.clear()
+    why = {x["id"]: x["why"] for x in run_all(app, c, h)["results"]}
+    assert "認成電影「The Ragamuffin (1916)」" in why["d117"].split("；")[0]
+    assert not [b for b in sent_bodies(mp) if not b["preview"] and "流浪" in json.dumps(b, ensure_ascii=False)]
+    # 指定了 TMDB 編號：照指定的整理，不再提醒
+    unit = next(u for u in listing(c, h)["items"] if u["id"] == "d117")
+    parts = {p["key"]: {"tmdbid": "9"} for p in unit["parts"]}
+    assert not any("TMDB 編號" in x for x in preview(c, h, unit, parts=parts).json()["review"])
