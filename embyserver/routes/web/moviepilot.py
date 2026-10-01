@@ -57,29 +57,33 @@ async def moviepilot_stop(request: Request, ctx: AuthContext = Depends(require_a
 
 @router.get("/web/api/series")
 def list_series(request: Request, ctx: AuthContext = Depends(require_admin)):
-    """媒體庫裡的劇和每一季的集數、集號空洞、對照 TMDB 缺哪幾集（還沒對照過的季 missing 是 null）；q 搜尋劇名，
-    year 只列那一年的，missing=1 只列對照 TMDB 真的缺集的，gaps=1 只列集號有空洞的，excluded=1 只列標了「不補」的，
-    offset、limit 分頁。每一部附上 excluded（標了「不補」）。
+    """補全缺集的清單：媒體庫裡的劇、每一季的集數、對照 TMDB 缺哪幾集（還沒對照過的季 missing 是 null）、
+    缺集的季 MoviePilot 訂閱了沒（subscribed；讀不到訂閱時是 null）。每一部有 state：missing（缺集、還沒訂閱）、
+    subscribed（缺集的季都訂閱了）、unchecked（還沒對照）、notmdb（沒有 tmdbid）、complete（齊全）、excluded（標了「不補」）。
 
-    years 是媒體庫裡所有劇的年份、stats 是整個媒體庫缺集的、還沒對照的、對照過的各幾部（都不受篩選影響）。
+    view 只列那一種（missing、subscribed、unchecked（含 notmdb）、excluded，不給是全部）；q 搜尋劇名，year 只列那一年的，
+    gaps=1 只列集號有空洞的，offset、limit 分頁。
+    years 是媒體庫裡所有劇的年份、stats 是整個媒體庫各種狀態幾部（都不受篩選影響）、subscriptions 是 MoviePilot
+    現在有幾個訂閱（讀不到是 null）。
     """
     st = state(request)
-    db = st.db
+    db, mp = st.db, st.moviepilot
     offset = max(q_int(request, "offset", 0) or 0, 0)
     limit = min(max(q_int(request, "limit", 20) or 20, 1), 500)
-    excluded = st.moviepilot.fill_excluded()
+    excluded = mp.fill_excluded()
+    view = q(request, "view") or ("excluded" if q(request, "excluded") in ("1", "true") else "")
+    subs = mp.known_subscriptions()
     stats: dict = {}
     items, total = library_series(
         db, q(request, "q") or "", q(request, "gaps") in ("1", "true"), limit=limit, offset=offset,
-        year=q_int(request, "year"), tmdbids=set(excluded) if q(request, "excluded") in ("1", "true") else None,
-        missing_only=q(request, "missing") in ("1", "true"), stats=stats,
+        year=q_int(request, "year"), view=view, excluded=set(excluded), subscribed=mp.subscribed_seasons(), stats=stats,
     )
     for s in items:
-        s["excluded"] = str(s["tmdbid"]) in excluded if s["tmdbid"] else False
+        s["excluded"] = s["state"] == "excluded"
     years = [r["year"] for r in db.query(
         "SELECT DISTINCT year FROM items WHERE type='Series' AND year IS NOT NULL ORDER BY year DESC")]
     return {"items": items, "total": total, "offset": offset, "more": offset + len(items) < total, "years": years,
-            "excluded": len(excluded), "stats": stats}
+            "excluded": len(excluded), "stats": stats, "subscriptions": len(subs) if subs is not None else None}
 
 
 @router.post("/web/api/moviepilot/fill/exclude")
@@ -96,8 +100,8 @@ async def moviepilot_fill_exclude(request: Request, ctx: AuthContext = Depends(r
 
 @router.post("/web/api/moviepilot/fill")
 async def moviepilot_fill(request: Request, ctx: AuthContext = Depends(require_admin)):
-    """補全缺集：{"series": [id, ...]} 只送這些劇；空的就送所有有 tmdbid 的劇。
-    {"check": true}：只對照 TMDB、記下每一季缺哪幾集（清單就看得出誰真的缺），不建訂閱。"""
+    """補全缺集：{"series": [id, ...]} 只送這些劇；{"view": "missing"} 送清單上缺集、又還沒訂閱的；都沒給就送所有有
+    tmdbid 的劇。{"check": true}：只對照 TMDB、記下每一季缺哪幾集，不建訂閱（{"view": "unchecked"} 只對照還沒對照過的）。"""
     st = state(request)
     mp = st.moviepilot
     body = await json_body(request)
@@ -108,12 +112,23 @@ async def moviepilot_fill(request: Request, ctx: AuthContext = Depends(require_a
         raise HTTPException(status_code=400, detail="建訂閱的 API 只接受帳號登入，請在「MoviePilot 帳號密碼」填好再儲存")
     ids = body.get("series")
     wanted = {int(i) for i in ids if str(i).isdecimal()} if isinstance(ids, list) and ids else None
-    all_shows = (await run_in_threadpool(library_series, st.db))[0]
-    shows = [s for s in all_shows if (s["id"] in wanted if wanted is not None else bool(s["tmdbid"]))]
+    view = str(body.get("view") or "")
+
+    def pick() -> list:
+        shows = library_series(st.db, excluded=set(mp.fill_excluded()), subscribed=mp.subscribed_seasons())[0]
+        if wanted is not None:
+            return [s for s in shows if s["id"] in wanted]
+        if view == "missing":
+            return [s for s in shows if s["state"] == "missing"]
+        if view == "unchecked":
+            return [s for s in shows if s["state"] == "unchecked"]
+        return [s for s in shows if s["tmdbid"]]
+
+    shows = await run_in_threadpool(pick)
     if not shows:
-        raise HTTPException(status_code=400, detail="沒有可以送的劇：要先刮削過、有 tmdbid")
+        raise HTTPException(status_code=400, detail="沒有可以送的劇" + ("" if view else "：要先刮削過、有 tmdbid"))
     started = mp.fill_in_background(shows, "manual", check) if check else mp.fill_in_background(shows, "manual")
-    return {"started": started, "result": mp.fill_result.as_dict()}
+    return {"started": started, "count": len(shows), "result": mp.fill_result.as_dict()}
 
 
 # ---------------- 取消訂閱 ----------------

@@ -166,6 +166,7 @@ class UnsubscribeResult:
 
 
 MAX_UNSUB_ERRORS = 20
+SUBS_CACHE_SECONDS = 60  # 清單上「已訂閱」的標記：MoviePilot 的訂閱清單記這麼久，不必每翻一頁、每打一個字都去問
 TV_TYPE = "电视剧"  # MoviePilot 訂閱的類型
 
 
@@ -187,6 +188,7 @@ class MoviePilot:
         self.result = ScrapeResult()
         self.fill_result = FillResult()
         self.unsubscribe_result = UnsubscribeResult()
+        self._subs_cache: Optional[Tuple[float, Optional[List[dict]]]] = None  # (時間, 訂閱清單；讀不到是 None)
         self._lock = threading.Lock()
         self._fill_lock = threading.Lock()
         self._fill_excluded_lock = threading.Lock()
@@ -886,6 +888,7 @@ class MoviePilot:
             r.running = False
             r.current = ""
             r.finished = time.time()
+            self._subs_cache = None  # 訂閱變了：清單上的「已訂閱」重新讀
             self._fill_lock.release()
         return r
 
@@ -987,7 +990,32 @@ class MoviePilot:
         res = self._request("GET", SUBSCRIBE_API, timeout=60)
         items = res.get("data") if isinstance(res, dict) else res
         return [{"id": int(s["id"]), "name": str(s.get("name") or ""), "year": s.get("year"), "type": str(s.get("type") or ""),
-                 "season": s.get("season")} for s in items or [] if isinstance(s, dict) and str(s.get("id") or "").isdecimal()]
+                 "season": s.get("season"), "tmdbid": s.get("tmdbid")}
+                for s in items or [] if isinstance(s, dict) and str(s.get("id") or "").isdecimal()]
+
+    def known_subscriptions(self) -> Optional[List[dict]]:
+        """給清單標「已訂閱」用的訂閱清單，記 SUBS_CACHE_SECONDS 秒；沒有帳號登入、MoviePilot 連不上回傳 None
+        （清單照常顯示，只是不標）。補全、取消訂閱做完時會清掉，下次重新讀。"""
+        if not self.can_subscribe:
+            return None
+        cached = self._subs_cache
+        if cached and time.time() - cached[0] < SUBS_CACHE_SECONDS:
+            return cached[1]
+        try:
+            subs: Optional[List[dict]] = self.subscriptions()
+        except MoviePilotError as exc:
+            log.info("讀不到 MoviePilot 的訂閱，清單先不標已訂閱：%s", exc)
+            subs = None
+        self._subs_cache = (time.time(), subs)
+        return subs
+
+    def subscribed_seasons(self) -> Optional[Set[Tuple[int, int]]]:
+        """MoviePilot 裡已經訂閱的（tmdbid, 季）；讀不到是 None。"""
+        subs = self.known_subscriptions()
+        if subs is None:
+            return None
+        return {(int(s["tmdbid"]), int(s["season"])) for s in subs
+                if str(s.get("tmdbid") or "").isdecimal() and str(s.get("season") or "").isdecimal()}
 
     def subscription_counts(self) -> dict:
         subs = self.subscriptions()
@@ -1037,6 +1065,7 @@ class MoviePilot:
             r.running = False
             r.current = ""
             r.finished = time.time()
+            self._subs_cache = None
             self._fill_lock.release()
         return r
 
@@ -1108,18 +1137,28 @@ def ep_ranges(nums: List[int], limit: int = 6) -> str:
     return text + ("…" if len(runs) > limit else "")
 
 
+# 一部劇在補全缺集裡的狀態（互不重疊，清單的分頁照這個分）
+MISSING, SUBSCRIBED, UNCHECKED, NO_TMDB, COMPLETE, EXCLUDED = "missing", "subscribed", "unchecked", "notmdb", "complete", "excluded"
+STATE_ORDER = {MISSING: 0, SUBSCRIBED: 1, UNCHECKED: 2, NO_TMDB: 3, COMPLETE: 4, EXCLUDED: 5}
+VIEWS = {"missing": {MISSING}, "subscribed": {SUBSCRIBED}, "unchecked": {UNCHECKED, NO_TMDB}, "excluded": {EXCLUDED}}
+
+
 def library_series(
     db: Database, query: str = "", gaps_only: bool = False, limit: int = 0, offset: int = 0,
-    year: Optional[int] = None, tmdbids: Optional[Set[str]] = None, missing_only: bool = False,
-    stats: Optional[dict] = None,
+    year: Optional[int] = None, view: str = "", excluded: Optional[Set[str]] = None,
+    subscribed: Optional[Set[Tuple[int, int]]] = None, stats: Optional[dict] = None,
 ) -> Tuple[List[dict], int]:
     """媒體庫裡的劇：名稱、年份、tmdbid、每一季有幾集、集號的空洞（有第 2、4 集沒有第 3 集），
     以及對照 TMDB 缺哪幾集（檢查缺集、補全缺集時記下的 tmdb_seasons；還沒對照過的季是 None）。
 
-    回傳 (清單, 符合條件的總數)；缺集的排前面，再來是集號有空洞的。gaps_only 只列集號有空洞的，missing_only 只列
-    對照 TMDB 真的缺集的（還沒對照過的，集號有空洞也列），year 只列那一年的，tmdbids 只列這些（tmdbid 字串），limit、offset 分頁。特別篇（第 0 季）不算。
-    stats 給了就填上整個媒體庫的數字（不受篩選影響）：missing = 缺集的劇、unchecked = 有季還沒對照過 TMDB 的劇、
-    checked = 每一季都對照過的劇。
+    每一部有一個 state（互不重疊，照「接下來要做什麼」分）：missing = 對照過、缺集、還有季沒訂閱（要補）；
+    subscribed = 缺集的季 MoviePilot 都訂閱了（等它下載）；unchecked = 還有季沒對照過 TMDB（要檢查）；notmdb = 沒有 tmdbid
+    （要先刮削）；complete = 對照過、齊全；excluded = 標了「不補」（excluded：這些 tmdbid 字串）。
+    subscribed 參數是 MoviePilot 裡已經訂閱的（tmdbid, 季）；沒給（讀不到）時缺集的都算 missing。to_fill 是還沒訂閱的缺集季數。
+
+    回傳 (清單, 符合條件的總數)。view 只列那一種：missing、subscribed、unchecked（含 notmdb）、excluded，空的是全部；
+    gaps_only 只列集號有空洞的，year 只列那一年的，limit、offset 分頁。照 state 排，要補的在最前面。特別篇（第 0 季）不算。
+    stats 給了就填上整個媒體庫各種狀態幾部（不受篩選影響）和 total。
     """
     episodes: Dict[int, Dict[int, Set[int]]] = {}
     for r in db.query(
@@ -1130,7 +1169,8 @@ def library_series(
     tmdb: Dict[Tuple[int, int], Dict[int, str]] = {
         (r["tmdbid"], r["season"]): _load_episodes(r["episodes"]) for r in db.query("SELECT tmdbid, season, episodes FROM tmdb_seasons")}
     today = date.today().isoformat()
-    counts = {"missing": 0, "unchecked": 0, "checked": 0}
+    excluded = excluded or set()
+    counts = {MISSING: 0, SUBSCRIBED: 0, UNCHECKED: 0, NO_TMDB: 0, COMPLETE: 0, EXCLUDED: 0, "total": 0}
     needle = simplified(query.strip()).lower()
     needle_py = pinyin_full(query) if cjk_count(query) >= 2 else ""
     out: List[dict] = []
@@ -1141,38 +1181,41 @@ def library_series(
         name = r["name"] or ""
         providers = json.loads(r["provider_ids"]) if r["provider_ids"] else {}
         tmdbid = str(providers.get("Tmdb") or "")
+        has_id = tmdbid.isdecimal()
         seasons = []
         for season, eps in sorted(episodes.get(r["id"], {}).items()):
             if season == 0:
                 continue
             gaps = sorted(set(range(min(eps), max(eps) + 1)) - eps)
-            known = tmdb.get((int(tmdbid), season)) if tmdbid.isdecimal() else None
+            known = tmdb.get((int(tmdbid), season)) if has_id else None
             missing, _, aired = season_missing(known, eps, today) if known else (None, None, None)
-            seasons.append({"season": season, "count": len(eps), "first": min(eps), "last": max(eps), "gaps": gaps,
-                            "tmdb": aired, "missing": missing})
+            seasons.append({
+                "season": season, "count": len(eps), "first": min(eps), "last": max(eps), "gaps": gaps, "tmdb": aired,
+                "missing": missing,
+                "subscribed": (int(tmdbid), season) in subscribed if missing and subscribed is not None else None})
         gap_count = sum(len(x["gaps"]) for x in seasons)
         missing_count = sum(len(x["missing"] or []) for x in seasons)
-        unchecked = sum(1 for x in seasons if x["missing"] is None) if tmdbid.isdecimal() else 0
-        if tmdbid.isdecimal() and seasons:
-            counts["missing"] += 1 if missing_count else 0
-            counts["unchecked" if unchecked else "checked"] += 1
+        unchecked = sum(1 for x in seasons if x["missing"] is None) if has_id else 0
+        to_fill = sum(1 for x in seasons if x["missing"] and not x["subscribed"])
+        state = (NO_TMDB if not has_id else EXCLUDED if tmdbid in excluded else MISSING if to_fill
+                 else SUBSCRIBED if missing_count else UNCHECKED if unchecked else COMPLETE)
+        counts[state] += 1
+        counts["total"] += 1
         hay = f"{name} {r['original_title'] or ''} {r['year'] or ''} {r['search_text'] or ''}".lower()
         if needle and needle not in hay and not (needle_py and needle_py in hay):
             continue  # 片名、原名、年份、拼音、首字母都認
         if year and r["year"] != year:
             continue
-        if tmdbids is not None and tmdbid not in tmdbids:
+        if view in VIEWS and state not in VIEWS[view]:
             continue
         if gaps_only and not gap_count:
             continue
-        if missing_only and not (missing_count or (unchecked and gap_count)):
-            continue  # 還沒對照過 TMDB 的，集號有空洞就先列出來
         out.append({
             "id": r["id"], "name": name, "year": r["year"], "library": r["library"],
-            "tmdbid": int(tmdbid) if tmdbid.isdecimal() else None, "seasons": seasons, "gaps": gap_count,
-            "missing": missing_count, "unchecked": unchecked,
+            "tmdbid": int(tmdbid) if has_id else None, "seasons": seasons, "gaps": gap_count,
+            "missing": missing_count, "unchecked": unchecked, "state": state, "to_fill": to_fill,
         })
-    out.sort(key=lambda x: (-x["missing"], -x["gaps"], x["name"].lower()))
+    out.sort(key=lambda x: (STATE_ORDER[x["state"]], -x["missing"], -x["gaps"], x["name"].lower()))
     if stats is not None:
         stats.update(counts)
     total = len(out)

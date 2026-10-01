@@ -258,8 +258,13 @@ MoviePilot 說完成之後再看一次有沒有真的寫出 nfo、劇照：認�
 所以這兩步 Mi302 自己做。建訂閱和搜尋的 API 只接受帳號登入，不接受 API 令牌。
 
 查到的 TMDB 集和播出日期記在資料表 tmdb_seasons（TMDB_FRESH_SECONDS 以內查過的不再問）。清單（library_series）用它和
-媒體庫裡的集號當場算每一季缺哪幾集（season_missing，和補全同一套判斷），網頁預設只列真的缺集的劇；沒有空洞的季也可能
-缺前面、後面幾集，只看集號的空洞看不出來。「檢查缺集」（fill 的 check=True）只查、只記，不建訂閱。
+媒體庫裡的集號當場算每一季缺哪幾集（season_missing，和補全同一套判斷）；沒有空洞的季也可能缺前面、後面幾集，
+只看集號的空洞看不出來。「檢查缺集」（fill 的 check=True）只查、只記，不建訂閱。
+
+清單把每一部劇分成互不重疊的狀態，網頁照這個分頁（照「接下來要做什麼」）：missing 缺集又還沒訂閱（要補）、
+subscribed 缺集的季 MoviePilot 都訂閱了（等它下載）、unchecked 還沒對照、notmdb 沒有 tmdbid、complete 齊全、excluded 標了不補。
+訂閱了沒是讀 MoviePilot 的訂閱清單（known_subscriptions，記 SUBS_CACHE_SECONDS 秒，補全、取消訂閱做完時清掉）；
+讀不到時不分 missing 和 subscribed。
 
 取消所有訂閱（unsubscribe_all）：列出 MoviePilot 的訂閱（GET /api/v1/subscribe/）一個一個刪（DELETE /api/v1/subscribe/{id}），
 和補全共用一把鎖。清單可能分頁，所以刪完一輪再列一次，直到沒有還沒試過的；刪不掉的記下來、不重試。
