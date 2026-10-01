@@ -43,7 +43,7 @@ def apply_path_rules(value: str, rules) -> str:
         path = value if value.startswith("/") else "/" + value
     for rule in rules:
         src = rule.source.rstrip("/") or "/"
-        if path == src or path.startswith(src + "/"):
+        if src == "/" or path == src or path.startswith(src + "/"):  # 來源是 / 時所有路徑都套用
             suffix = path[len(src):].lstrip("/")
             new = rule.target.rstrip("/") + ("/" + suffix if suffix else "")
             return new + ("?" + query if query else "")

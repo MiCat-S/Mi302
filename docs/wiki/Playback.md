@@ -73,6 +73,7 @@ The settings in the **Other tools' strm** card (其他工具產生的 strm), und
 **Path rules** (路徑替換, `redirect.path_rules`): one rule per line, written as `old prefix => new prefix`. The strm content is rewritten before anything else happens.
 
 - Local paths: the path prefix is compared by whole path segments, so `/mnt/115` matches `/mnt/115/…` but not `/mnt/1150`.
+- An old prefix of `/` applies to every path: `/ => /mnt/nas` turns `/a/b.mkv` into `/mnt/nas/a/b.mkv`.
 - A rule whose old prefix is a full URL (with `http://`) is compared against the whole URL, which lets you change hosts.
 - A rule whose old prefix is a path is also compared against the path part of a URL. On a match the whole URL becomes the new prefix plus the rest of the path (the query string is kept), so the new prefix must be a full URL in that case.
 - For URLs, full-URL rules are checked before path rules; within each kind, the first matching rule from the top wins.

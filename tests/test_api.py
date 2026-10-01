@@ -7,7 +7,8 @@ import pytest
 from fastapi.testclient import TestClient
 
 from embyserver.app import create_app
-from embyserver.config import config_from_dict
+from embyserver.config import PathRule, config_from_dict
+from embyserver.redirect import apply_path_rules
 
 AUTH_HEADER = (
     'MediaBrowser Client="Infuse", Device="iPhone", DeviceId="dev-1", Version="8.0"'
@@ -453,3 +454,13 @@ def test_operating_system_follows_the_host(client):
     info = client.get("/System/Info/Public").json()
     assert info["OperatingSystem"] == OS_NAMES.get(platform.system(), platform.system() or "Linux")
     assert info["OperatingSystem"] != "Darwin"  # macOS 用 Emby 的寫法 OSX
+
+
+def test_path_rule_from_root_covers_every_path():
+    """來源是 / 的規則套用到所有路徑；其他來源照路徑段比對（/media 不會對到 /media2）。"""
+    root = [PathRule("/", "http://alist:5244/d")]
+    assert apply_path_rules("/movie/a.mkv", root) == "http://alist:5244/d/movie/a.mkv"
+    assert apply_path_rules("/", root) == "http://alist:5244/d"
+    media = [PathRule("/media", "/mnt")]
+    assert apply_path_rules("/media/a.mkv", media) == "/mnt/a.mkv"
+    assert apply_path_rules("/media2/a.mkv", media) == "/media2/a.mkv"
