@@ -116,6 +116,7 @@ def render(config: Config) -> str:
         _kv("  scrape_after_sync", mp.scrape_after_sync, "同步產生新的 strm 後自動送去刮削"),
         _kv("  fill_after_full_sync", mp.fill_after_full_sync, "全量同步後把所有有 tmdbid 的劇送給 MoviePilot 訂閱，補齊缺集"),
         _kv("  fill_interval", mp.fill_interval, "補全缺集時兩個新訂閱之間隔幾秒（每個新訂閱都會搜一遍所有站點），0 = 不隔"),
+        _kv("  rename_plugin", mp.rename_plugin, "只需要改名的資料夾交給 MoviePilot 的「Mi302 整理助手」外掛直接改名（要先裝好、啟用）"),
         _kv("  timeout", mp.timeout, "每一項刮削最多等幾秒"),
         _kv("  concurrency", mp.concurrency, "同時送幾項給 MoviePilot 刮削（1–8），太多可能被 TMDB 限速"),
         "  # 兩邊看到的路徑不同時：Mi302 的路徑（from）→ MoviePilot 的路徑（to）",

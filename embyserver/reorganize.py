@@ -411,6 +411,9 @@ class Reorganizer:
         """一批：一個資料夾或幾個檔案交給 MoviePilot，照預覽時的指定（沒指定的是 None，讓它自己認）；結果照它回的每個檔案記。"""
         if self._stop.is_set():
             return  # 程式要結束：還沒送的不送了
+        if batch.get("mode") == "rename":
+            self._run_renames(batch, job)
+            return
         job.current = f"MoviePilot 整理中：{batch['label']}（{batch['count']} 個檔案）"
         try:
             results = self.mp.transfer(batch["fileitems"], batch.get("tmdbid") or None, batch.get("season"),
@@ -443,6 +446,43 @@ class Reorganizer:
         if done and batch.get("local"):  # 本機跟著搬的 strm 旁邊，寫著 -1 的舊 nfo 刪掉，免得蓋過 MoviePilot 新刮的
             for strm in Path(batch["local"]).rglob("*.strm"):
                 self._drop_stale_nfo(strm, strict=True)
+
+    def _run_renames(self, batch: dict, job: ReorgJob) -> None:
+        """只需要改名的一批：交給 MoviePilot 的 Mi302 整理助手外掛照順序改（先檔案，再裡面的資料夾，最後外面的），
+        每兩秒看一次進度。程式要結束時請它做完手上這一項就停。"""
+        renames = batch["renames"]
+        job.current = f"MoviePilot 改名中：{batch['label']}（{len(renames)} 項）"
+        try:
+            job_id = self.mp.plugin_rename(renames)
+            cancelled = False
+            while True:
+                st = self.mp.plugin_job(job_id)
+                if st.get("state") != "running":
+                    break
+                job.current = f"MoviePilot 改名中：{batch['label']}（{st.get('done', 0)} / {len(renames)}）"
+                if cancelled:
+                    time.sleep(1)  # 已經請它停了，等它做完手上這一項
+                elif self._stop.wait(2):
+                    self.mp.plugin_cancel(job_id)
+                    cancelled = True
+        except MoviePilotError as exc:
+            job.errors.append(f"{batch['label']}：{exc}")
+            job.failed += batch["count"]
+            job.down = job.down or exc.kind
+            log.warning("MoviePilot 改名 %s 失敗：%s", batch["label"], exc)
+            return
+        results = st.get("results") or []
+        for r in results:
+            job.items.append({"name": str(r.get("old") or ""), "state": "completed" if r.get("ok") else "failed",
+                              "target": str(r.get("name") or ""), "message": str(r.get("message") or "")})
+        files = [r for r in results if r.get("type") == "file"]
+        job.done += sum(1 for r in files if r.get("ok"))
+        job.failed += sum(1 for r in results if not r.get("ok"))
+        left = len(renames) - len(results)
+        if left:
+            job.errors.append(f"{batch['label']}：還有 {left} 項沒改（{st.get('state')}），下次預覽會從還沒改的接著做")
+        log.info("MoviePilot 改名 %s：%s 項成功，%s 項失敗，%s 項沒改", batch["label"],
+                 sum(1 for r in results if r.get("ok")), sum(1 for r in results if not r.get("ok")), left)
 
     def _remove_empty_folders(self, folders: List[dict], job: ReorgJob) -> None:
         """整理完的來源資料夾沒有影片留下就移到 115 回收站（可以還原）；還有影片（整理失敗、目標已有同一集）就留著。"""

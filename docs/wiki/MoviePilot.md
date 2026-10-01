@@ -194,6 +194,29 @@ Series with wrong episode numbers and folders not named to MoviePilot's format a
 - APIs used: `GET /api/v1/transfer/name` (what something would be called), `POST /api/v1/transfer/manual` (preview and run; a folder is sent as one `fileitem`, as in MoviePilot's own **File manager → Organise**), `POST /api/v1/transfer/episode-format/recommend` (episode format recommendation), `GET /api/v1/storage/directories` (directory settings; `/api/v1/system/setting/Directories` on V2), `POST /api/v1/transfer/manual/target-path` (where MoviePilot itself would organise to), `POST /api/v1/transfer/manual/history` (whether it has organise records).
 - Mi302 turns off the **by type**, **by category**, **scrape metadata** and **reuse recognition from history** switches of MoviePilot's organise dialog and moves files, so MoviePilot only renames folders and files with its own format. With **MoviePilot's directory settings**, a folder already inside one of its library folders also stays in its current category folder (see [115 Cloud and sync](115-Cloud-Sync#what-to-check-for-each-entry)). When organising into a given folder that matches no directory setting, existing files are not overwritten.
 
+## Mi302 Organizer plugin
+
+Many folders in **Organise 115** (整理 115 網盤) already have the right structure and only the names are off, for example `H-画江湖之天罡-2023-[tmdb=1221210]` should become `画江湖之天罡 (2023) {tmdbid=1221210}`, `Season 1` should become `Season 01`, and the file names should follow MoviePilot's format. Those only need one rename per file and folder. MoviePilot's organise flow looks up the source, looks up the target, moves, looks up again and renames, roughly 7 to 8 requests to 115 per file at most 3 per second, so a 265-episode show takes over ten minutes.
+
+`moviepilot-plugin/` in the Mi302 repository is a MoviePilot V3 plugin, **Mi302 整理助手** (Mi302 Organizer). Once it is installed and enabled, Mi302 hands it the rename list for folders whose preview shows they only need renaming; it renames them with MoviePilot's own 115 authorisation, one request per file, sharing MoviePilot's rate limit and its cool-down when 115 rate-limits. Anything that has to move elsewhere, gain a season folder or merge into an existing folder still goes through MoviePilot's organise flow.
+
+Installing (MoviePilot V3):
+
+1. Make the `moviepilot-plugin` folder visible to MoviePilot. On the same machine as Mi302 it is `moviepilot-plugin` inside the Mi302 install directory, for example `/root/Mi302/moviepilot-plugin`; otherwise copy the folder over.
+2. Add `PLUGIN_LOCAL_REPO_PATHS=/root/Mi302/moviepilot-plugin` (your path) to `app.env` in MoviePilot's config directory and restart MoviePilot. The path must exist, or MoviePilot fails to load any plugin at start-up.
+3. **Mi302 整理助手** appears in MoviePilot's plugin market. Install it, turn on **Enable** (啟用) and save.
+4. Keep **Hand rename-only folders to MoviePilot's Mi302 Organizer plugin** (只需要改名的，交給 MoviePilot 的「Mi302 整理助手」外掛) on the **Organise 115** card (on by default). Previews of rename-only folders then say so (只需要改名…).
+
+When an update of Mi302 brings a new plugin version, update or reinstall it from MoviePilot's plugin market.
+
+Details:
+
+- What counts as rename-only: for every file to be sent, the old and new locations have the same folder depth, each old folder maps to exactly one new name, and no new name collides with an existing sibling folder or a file staying behind. Movies without their own folder, and episodes sitting directly in the show folder (which need a season folder), do not qualify.
+- Order: files first (videos, subtitles, audio), then inner folders, then the outer folder. If it fails or is stopped halfway, what is done stays done; previewing again treats those as already named and continues with the rest.
+- Renames done through the plugin are not added to MoviePilot's organise history. Afterwards Mi302's incremental sync follows 115's activity log and moves the local strm files.
+- The plugin's API is under `/api/v1/plugin/Mi302Organizer/` (`status`, `rename`, `job`, `cancel`), using a MoviePilot login or API token. It only renames what Mi302 sends and never changes anything on its own.
+- When 115 rate-limits (429), MoviePilot pauses all 115 operations for an hour, and the plugin's renames wait as well.
+
 ## Add Mi302 to MoviePilot as Emby
 
 MoviePilot can add Mi302 as a media server. It uses it to check what you already have, and to notify Mi302 to rescan after organising files.

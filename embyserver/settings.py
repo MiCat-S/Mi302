@@ -45,7 +45,7 @@ STRM_FIELDS = (
 )
 MOVIEPILOT_FIELDS = (
     "url", "api_token", "username", "password", "scrape_after_sync", "fill_after_full_sync", "fill_interval", "timeout",
-    "concurrency",
+    "concurrency", "rename_plugin",
 )
 MEDIAINFO_FIELDS = (
     "enabled", "after_sync", "on_demand", "concurrency", "interval", "hourly_limit", "timeout", "ffprobe",

@@ -842,10 +842,92 @@ class Organizer:
                 batches.append({"fileitems": fileitems, "single": single and len(fileitems) == 1, "season": o["season"],
                                 "tmdbid": o["tmdbid"], "type_name": o["type_name"], "episode_format": o["format"],
                                 "count": ok, "label": part.label, "local": part.local, "reorganize": bool(history)})
+        batches = self._rename_batches(unit, items, listings, notes, batches)
         folders = sorted({posixpath.dirname(v["target"]) for v in items if v["ok"] and v["target"]})
         token = self._remember(unit, batches, tgt, scrape) if batches else None
         return {"token": token, "items": items, "notes": notes, "folders": folders, "parts": parts, "target": target,
                 "summary": _summary(items, review), "review": review}
+
+    def _rename_batches(self, unit: Unit, items: List[dict], listings: Dict[str, List[dict]], notes: List[str],
+                        batches: List[dict]) -> List[dict]:
+        """結構已經對、只是名字不對：換成一批交給 Mi302 整理助手直接改名（用 MoviePilot 的 115 授權，一個檔案一個請求）；
+        不是的話（或沒裝外掛）照舊回傳 batches，交給 MoviePilot 整理。"""
+        if not batches or not self.mp.rename_plugin_ready():
+            return batches
+        try:
+            renames = self._rename_plan(unit, items, listings)
+        except P115Error as exc:
+            notes.append(f"查 115 上的檔名時失敗（{exc}），照舊交給 MoviePilot 整理")
+            return batches
+        if not renames:
+            return batches
+        files = sum(1 for r in renames if r["type"] == "file")
+        notes.insert(0, f"只需要改名：交給 MoviePilot 的「Mi302 整理助手」直接改 {files} 個檔案、"
+                        f"{len(renames) - files} 個資料夾的名字，不走整理流程，快很多")
+        return [{"mode": "rename", "renames": renames, "count": sum(1 for v in items if v["ok"]), "label": unit.name,
+                 "local": None}]
+
+    @staticmethod
+    def _folder_map(unit: Unit, ok: List[dict]) -> Optional[Dict[str, str]]:
+        """每支檔案的舊資料夾 → 新資料夾（每一層都對）；層數不一樣、同一個資料夾要分到不同地方、兩個要併成一個時回傳 None。"""
+        base = unit.parent
+        folders: Dict[str, str] = {}
+        for v in ok:
+            src, dst = posixpath.dirname(v["source"].rstrip("/")), posixpath.dirname(v["target"].rstrip("/"))
+            if not (_inside(src, unit.path) and _inside(dst, base)) or dst == base:
+                return None
+            rs, rd = src[len(base):].strip("/").split("/"), dst[len(base):].strip("/").split("/")
+            if len(rs) != len(rd):
+                return None  # 要加或拿掉一層資料夾（例如影片直接放在劇的資料夾裡、要放進季資料夾）
+            for k in range(1, len(rs) + 1):
+                old, new = base.rstrip("/") + "/" + "/".join(rs[:k]), base.rstrip("/") + "/" + "/".join(rd[:k])
+                if folders.setdefault(old, new) != new:
+                    return None  # 同一個資料夾裡的檔案要分到不同的地方
+        return folders if len(set(folders.values())) == len(folders) else None  # 兩個變成同一個：要合併，得用整理
+
+    def _rename_plan(self, unit: Unit, views: List[dict], listings: Dict[str, List[dict]]) -> Optional[List[dict]]:
+        """這個資料夾是不是只需要原地改名：每支要送的檔案，新位置和舊位置的資料夾層數一樣，每個舊資料夾對到唯一一個
+        新名字，新名字也沒有和旁邊已經有的資料夾、檔案撞名。是的話回傳要改的清單（先檔案，再裡面的資料夾，最後外面的），
+        給 Mi302 整理助手照順序改；要搬位置、加一層季資料夾、併進別的資料夾的，回傳 None，照舊交給 MoviePilot 整理。"""
+        ok = [v for v in views if v["ok"]]
+        base = unit.parent
+        if unit.kind == "movie_file" or not ok or unit.path == base:
+            return None
+        folders = self._folder_map(unit, ok)
+        if folders is None:
+            return None
+        ids: Dict[str, int] = {unit.path: unit.cid}
+
+        def entries(folder: str) -> List[dict]:
+            if folder not in ids:
+                parent = posixpath.dirname(folder)
+                hit = next((e for e in entries(parent) if e["is_dir"] and e["name"] == posixpath.basename(folder)), None)
+                if hit is None:
+                    raise P115Error(f"115 上找不到 {folder}")
+                ids[folder] = hit["id"]
+            return self._listing(folder, ids[folder], listings)
+
+        ids[base] = unit.parent_cid
+        renames: List[dict] = []
+        for folder in sorted({posixpath.dirname(v["source"].rstrip("/")) for v in ok}):
+            here = {e["name"]: e for e in entries(folder) if not e["is_dir"]}
+            moving = {posixpath.basename(v["source"]): posixpath.basename(v["target"]) for v in ok
+                      if posixpath.dirname(v["source"].rstrip("/")) == folder}
+            final = [n for n in here if n not in moving] + list(moving.values())
+            if len(final) != len(set(final)) or any(n not in here for n in moving):
+                return None  # 改名後會和留在這裡的檔案撞名，或 115 上已經沒有這個檔案
+            renames += [{"fileid": str(here[old]["id"]), "name": new, "old": old, "path": posixpath.join(folder, old),
+                         "type": "file"} for old, new in sorted(moving.items()) if old != new]
+        for old, new in sorted(folders.items(), key=lambda kv: -kv[0].count("/")):
+            if posixpath.basename(old) == posixpath.basename(new):
+                continue
+            siblings = {e["name"] for e in entries(posixpath.dirname(old)) if e["name"] != posixpath.basename(old)}
+            if posixpath.basename(new) in siblings:
+                return None  # 旁邊已經有同名的：要併進去，得用整理
+            entries(old)  # 順便確定它的 id
+            renames.append({"fileid": str(ids[old]), "name": posixpath.basename(new), "old": posixpath.basename(old),
+                            "path": old.rstrip("/") + "/", "type": "dir"})
+        return renames or None
 
     def _mark_existing(self, views: List[dict], part: Part, overwrite: str, listings: Dict[str, List[dict]],
                        notes: List[str], review: List[str]) -> None:

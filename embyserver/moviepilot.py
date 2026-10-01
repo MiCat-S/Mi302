@@ -61,6 +61,7 @@ TRANSFER_HISTORY_API = "/api/v1/transfer/manual/history"  # 有沒有成功整�
 DIRECTORIES_API = "/api/v1/storage/directories"  # 目錄設定（V3）
 DIRECTORIES_V2_API = "/api/v1/system/setting/Directories"  # 目錄設定（V2）
 SYSTEM_ENV_API = "/api/v1/system/env"  # 系統設定，裡面有版本號（要管理員帳號）
+PLUGIN_API = "/api/v1/plugin/Mi302Organizer"  # Mi302 整理助手外掛（倉庫的 moviepilot-plugin/）
 # MoviePilot 3000 埠是前端，API 轉給 3001 的後端；後端忙到沒回應健康檢查時，前端會自己停掉，之後一直連不上
 FRONTEND_HINT = "。3000 是 MoviePilot 的前端，後端忙的時候它會自己停掉；可以把網址改成後端的 3001 埠（例如 http://127.0.0.1:3001），不經過前端"
 # 手動整理的預覽模式從 v2.11.1-1 開始；更舊的版本不認 preview，「預覽」會變成真的整理
@@ -176,6 +177,7 @@ class MoviePilot:
         self._lock = threading.Lock()
         self._fill_lock = threading.Lock()
         self._clock = time.monotonic  # 測試換成假的時鐘
+        self._plugin_checked = (0.0, False)  # 上次問外掛的時間、有沒有裝好啟用
         self._created_at: Optional[float] = None  # 補全缺集：上一個新訂閱建立的時間
         self._stop = threading.Event()
         self.workers = Workers(self._stop)  # 刮削、補全缺集；程式結束時停在兩項之間
@@ -284,6 +286,42 @@ class MoviePilot:
             if path == src or path.startswith(src + "/"):
                 return rule.target.rstrip("/") + path[len(src):]
         return path
+
+    # ---------------- Mi302 整理助手外掛 ----------------
+
+    def rename_plugin_ready(self) -> bool:
+        """MoviePilot 裝好、啟用了 Mi302 整理助手外掛，而且設定裡沒關掉；5 分鐘內問過就不再問。"""
+        if not self.cfg.rename_plugin:
+            return False
+        now = time.time()
+        if now - self._plugin_checked[0] < 300:
+            return self._plugin_checked[1]
+        try:
+            res = self._request("GET", PLUGIN_API + "/status", timeout=10)
+            ready = isinstance(res, dict) and bool(res.get("enabled"))
+        except MoviePilotError:
+            ready = False  # 沒裝（404）、連不上：照舊走整理
+        self._plugin_checked = (now, ready)
+        return ready
+
+    def plugin_rename(self, items: List[dict]) -> str:
+        """請外掛在背景照順序改名，回傳工作 id。"""
+        res = self._request("POST", PLUGIN_API + "/rename", {"items": items}, timeout=30)
+        if not (isinstance(res, dict) and res.get("success") and res.get("job")):
+            raise MoviePilotError(str((res or {}).get("message") or "Mi302 整理助手沒有接下改名"))
+        return str(res["job"])
+
+    def plugin_job(self, job_id: str) -> dict:
+        res = self._request("GET", PLUGIN_API + "/job", timeout=30, query={"id": job_id})
+        if not (isinstance(res, dict) and res.get("success")):
+            raise MoviePilotError(str((res or {}).get("message") or "查不到改名工作"))
+        return res
+
+    def plugin_cancel(self, job_id: str) -> None:
+        try:
+            self._request("POST", PLUGIN_API + "/cancel", timeout=15, query={"id": job_id})
+        except MoviePilotError as exc:
+            log.warning("請 Mi302 整理助手停止失敗：%s", exc)
 
     def reachable(self) -> bool:
         """MoviePilot 有沒有在回應（回什麼都算，連不上、等太久才不算）。"""

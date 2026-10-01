@@ -103,6 +103,8 @@ class MoviePilotConfig:
     fill_after_full_sync: bool = False  # 全量同步後把所有有 tmdbid 的劇送給 MoviePilot 訂閱，補齊缺集
     # 補全缺集：兩個新訂閱之間隔幾秒。每個新訂閱都會讓 MoviePilot 把所有站點搜一遍，一次建太多站點會被 Cloudflare 擋
     fill_interval: float = 60
+    # 整理 115 網盤：資料夾結構已經對、只是名字不對的，交給 MoviePilot 的「Mi302 整理助手」外掛直接改名（要先在 MoviePilot 裝好、啟用）
+    rename_plugin: bool = True
     timeout: float = 300  # MoviePilot 刮削是同步完成才回應，一部片可能要幾十秒
     concurrency: int = 3  # 同時送幾項給 MoviePilot 刮削（1–8）；太多可能被 TMDB 限速
 

@@ -194,6 +194,29 @@ MoviePilot 下载、整理完会通知 Mi302 重新扫描。缺集的季如果�
 - 用到的 API：`GET /api/v1/transfer/name`（整理后叫什么）、`POST /api/v1/transfer/manual`（预览和执行；一个文件夹发送一个 `fileitem`，和 MoviePilot 网页“文件管理 → 整理”一样）、`POST /api/v1/transfer/episode-format/recommend`（推荐集数定位）、`GET /api/v1/storage/directories`（目录设置；V2 是 `/api/v1/system/setting/Directories`）、`POST /api/v1/transfer/manual/target-path`（它自己会整理到哪个目录）、`POST /api/v1/transfer/manual/history`（有没有整理记录）。
 - 发送时它整理对话框的“按类型分类”“按类别分类”“刮削元数据”“复用历史识别信息”都关掉，整理方式是移动：MoviePilot 只用自己的重命名格式改文件夹和文件名。已经在它媒体库目录里的，“照 MoviePilot 的目录设定”也留在原来的分类文件夹（见 [115 网盘与同步](115-网盘与同步#每一个要确认的)）。整理到指定的文件夹、对不上目录设置时，已有的文件不覆盖。
 
+## Mi302 整理助手插件
+
+“整理 115 网盘”里很多文件夹结构已经对、只是名字不按格式，例如 `H-画江湖之天罡-2023-[tmdb=1221210]` 要改成 `画江湖之天罡 (2023) {tmdbid=1221210}`、`Season 1` 改成 `Season 01`、文件名改成 MoviePilot 的格式。这种其实每个文件、文件夹改一次名就好。MoviePilot 的整理流程一个文件要查来源、查目标、移动、再查、改名，大约 7～8 个 115 请求，它每秒最多 3 个，一部 265 集的剧要十几分钟。
+
+Mi302 仓库里的 `moviepilot-plugin/` 是一个 MoviePilot V3 插件“Mi302 整理助手”。装好、启用后，Mi302 预览时看出只需要改名的文件夹，会把改名清单交给它；它用 MoviePilot 自己的 115 授权直接改名，一个文件一个请求，限速和被 115 限流时的冷却都和 MoviePilot 共用。要搬位置、加一层季文件夹、并进旁边已经有的文件夹的，照常走 MoviePilot 的整理。
+
+安装（MoviePilot V3）：
+
+1. 让 MoviePilot 看得到 `moviepilot-plugin` 这个文件夹。和 Mi302 装在同一台机器时，就是 Mi302 安装目录下的 `moviepilot-plugin`，例如 `/root/Mi302/moviepilot-plugin`；不在同一台的话把这个文件夹复制过去。
+2. 在 MoviePilot 配置目录里的 `app.env` 加一行 `PLUGIN_LOCAL_REPO_PATHS=/root/Mi302/moviepilot-plugin`（换成你的路径），重启 MoviePilot。路径一定要存在，不然 MoviePilot 启动时所有插件都加载不了。
+3. MoviePilot 的插件市场会出现“Mi302 整理助手”。安装后打开“启用”并保存。
+4. Mi302“整理 115 网盘”卡片的“只需要改名的，交给 MoviePilot 的「Mi302 整理助手」外挂”保持打开（默认开）。之后预览只需要改名的文件夹时，会写“只需要改名：交给 MoviePilot 的「Mi302 整理助手」直接改 N 个档案、M 个资料夹的名字”。
+
+Mi302 更新后插件有新版本时，到 MoviePilot 的插件市场更新或重新安装。
+
+细节：
+
+- 什么时候算“只需要改名”：每个要发送的文件，新位置和旧位置的文件夹层数一样，每个旧文件夹对应唯一一个新名字，新名字也不会和旁边已经有的文件夹、留在原处的文件重名。没有自己文件夹的电影、视频直接放在剧的文件夹里（要加一层季文件夹）的都不算。
+- 改名的顺序：先文件（视频、字幕、音轨），再里面的文件夹，最后外面的。中途失败或停止时，已经改好的保留；再预览一次，改好的会算“已经按格式命名”，从还没改的接着做。
+- 用插件改名不会写进 MoviePilot 的整理记录。改名后 Mi302 的增量同步按 115 的生活事件，把本地的 strm 跟着搬。
+- 插件的接口在 `/api/v1/plugin/Mi302Organizer/`（`status`、`rename`、`job`、`cancel`），用 MoviePilot 的账号登录或 API 令牌。它只按 Mi302 发来的清单改，不会自己去改任何东西。
+- 遇到 115 限流（429）时，MoviePilot 会把所有 115 操作停一小时，插件的改名也跟着等。
+
 ## 让 MoviePilot 把 Mi302 当作 Emby
 
 MoviePilot 可以把 Mi302 加为媒体服务器，用来判断片子是否已经有了，整理完自动通知 Mi302 重新扫描。

@@ -199,6 +199,7 @@ Each module under `embyserver/`:
 | `mediainfo.py` | Media info: ffprobe output and `X-mediainfo.json` to Emby format |
 | `prober.py` | Probes the videos behind strm files with ffprobe |
 | `moviepilot.py` | Scraping and filling missing episodes through MoviePilot |
+| `moviepilot-plugin/` | MoviePilot V3 plugin **Mi302 Organizer** (`package.v3.json`, `plugins.v3/mi302organizer/`): renames in bulk from Mi302's list with MoviePilot's 115 authorisation; see [MoviePilot](MoviePilot#mi302-organizer-plugin) |
 | `p115.py` | 115: QR-code login, direct links, directory listing, life events (115's activity log), circuit breaker |
 | `p115_open.py` | 115 open platform channel |
 | `probe_select.py` | Media info: picking titles to probe (filters, order) |

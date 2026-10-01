@@ -55,6 +55,8 @@ class OrganizeMP:
         self.match = True  # /transfer/manual/target-path 挑得出目錄
         self.history = set()  # 有成功整理紀錄的檔案（115 路徑）
         self.queue = False
+        self.plugin = False  # 裝了 Mi302 整理助手外掛
+        self.renamed = []  # 外掛改過的：(type, 舊名, 新名)
 
     # ---- 辨識 ----
     def media_of(self, path):
@@ -92,6 +94,30 @@ class OrganizeMP:
             return None
         ep = int(m.group(1))
         return f"{title} - S{season:02d}E{ep:02d} - 第 {ep} 集{ext}"
+
+    # ---- Mi302 整理助手外掛：照清單的順序在假 115 上改名 ----
+    def plugin_api(self, sub, body):
+        if not self.plugin:
+            return httpx.Response(404, json={"detail": "Not Found"})
+        if sub == "status":
+            return httpx.Response(200, json={"enabled": True, "version": "1.0.0", "busy": False})
+        if sub == "rename":
+            results = []
+            for it in body["items"]:
+                fid = int(it["fileid"])
+                if it["type"] == "dir":
+                    self.f.dirs[fid] = (it["name"], self.f.dirs[fid][1])
+                else:
+                    self.f.file(fid)["n"] = it["name"]
+                self.renamed.append((it["type"], it["old"], it["name"]))
+                results.append({"fileid": it["fileid"], "old": it["old"], "name": it["name"], "type": it["type"],
+                                "ok": True, "message": ""})
+            self.plugin_job = {"success": True, "state": "done", "total": len(results), "done": len(results),
+                               "results": results}
+            return httpx.Response(200, json={"success": True, "job": "j1"})
+        if sub == "job":
+            return httpx.Response(200, json=self.plugin_job)
+        return httpx.Response(200, json={"success": True})
 
     # ---- 假 115 ----
     def path_of(self, cid):
@@ -155,6 +181,8 @@ class OrganizeMP:
             name = self.file_name(tid, self.season_of(p), stem, ext)
             return httpx.Response(200, json={"success": True, "data": {"name": name}} if name else
                                   {"success": False, "message": "未识别到文件集数"})
+        if path.startswith("/api/v1/plugin/Mi302Organizer/"):
+            return self.plugin_api(path.rsplit("/", 1)[-1], body)
         if path != "/api/v1/transfer/manual":
             return httpx.Response(404)
         items = [body["fileitem"]] if "fileitem" in body else body["fileitems"]
@@ -887,3 +915,36 @@ def test_organize_all_does_not_resend_after_moviepilot_drops(tmp_path: Path, mon
     assert len(runs) == 3  # 斷線的那一個沒有再送
     failed = [x for x in b["results"] if x["kind"] == "failed"]
     assert "斷線" in failed[0]["why"] and "不送" in failed[0]["why"]
+
+
+def test_rename_only_folders_go_to_the_plugin(tmp_path: Path):
+    """結構已經對、只是名字不對的資料夾：交給 Mi302 整理助手直接改名（先檔案、字幕，最後資料夾），不送 MoviePilot 整理。
+    要併進旁邊已經有的資料夾、沒裝外掛的，照舊走整理。"""
+    app, fake, mp, media, c, h = setup(tmp_path)
+    mp.MEDIA = {**mp.MEDIA, "777": ("测试剧", 2020, "tv")}
+    fake.dirs.update({130: ("C-测试剧-2020-[tmdb=777]", 102), 131: ("Season 1", 130),
+                      140: ("H-流浪-2019-[tmdb=9]", 102), 141: ("Season 1", 140)})
+    for fid, cid, n in [(90, 131, "测试剧.E01.mp4"), (91, 131, "测试剧.E01.ass"), (92, 131, "测试剧.E02.mp4"),
+                        (93, 141, "流浪.E02.mp4")]:
+        fake.files.append({"fid": fid, "cid": cid, "n": n, "pc": f"rn{fid}".ljust(17, "x"), "s": 900_000_000, "te": T0})
+    folder = "/web/api/115/organize/folder"
+    unit = c.post(folder, json={"cid": 130, "path": "/影視/劇集/C-测试剧-2020-[tmdb=777]"}, headers=h).json()
+    assert not any(n.startswith("只需要改名") for n in preview(c, h, unit).json()["notes"])  # 沒裝外掛：照舊走整理
+    mp.plugin = True
+    app.state.moviepilot._plugin_checked = (0.0, False)  # 剛裝好：不等 5 分鐘的快取
+    pv = preview(c, h, unit).json()
+    assert pv["notes"][0].startswith("只需要改名") and pv["summary"]["ok"] == 3
+    mp.calls.clear()
+    assert c.post(EXECUTE, json={"tokens": [pv["token"]]}, headers=h).status_code == 200
+    wait(lambda: not app.state.reorganizer.job.running)
+    job = app.state.reorganizer.job
+    assert (job.done, job.failed, job.errors) == (3, 0, [])
+    assert not [b for b in sent_bodies(mp) if not b["preview"]]  # 沒有送 MoviePilot 整理
+    assert mp.renamed == [("file", "测试剧.E01.ass", "测试剧 - S01E01 - 第 1 集.ass"),
+                          ("file", "测试剧.E01.mp4", "测试剧 - S01E01 - 第 1 集.mp4"),
+                          ("file", "测试剧.E02.mp4", "测试剧 - S01E02 - 第 2 集.mp4"),
+                          ("dir", "C-测试剧-2020-[tmdb=777]", "测试剧 (2020) {tmdbid=777}")]  # Season 1 本來就對
+    # 旁邊已經有「流浪 (2019) {tmdbid=9}」：要併進去，原地改名會撞名，照舊走整理
+    unit = c.post(folder, json={"cid": 140, "path": "/影視/劇集/H-流浪-2019-[tmdb=9]"}, headers=h).json()
+    pv = preview(c, h, unit).json()
+    assert pv["token"] and not any(n.startswith("只需要改名") for n in pv["notes"])
