@@ -1,4 +1,4 @@
-"""115：瀏覽、回收站、選同步目錄、雲下載（離線下載）；115 上的重複檔案；媒體資訊（從 115 探測）。"""
+"""115：瀏覽、回收站、選同步目錄、雲下載（離線下載）；115 上的重複檔案、空資料夾；媒體資訊（從 115 探測）。"""
 
 from __future__ import annotations
 
@@ -10,6 +10,7 @@ from starlette.concurrency import run_in_threadpool
 
 from ...auth import AuthContext, require_admin
 from ...browse115 import list_folder
+from ...emptydirs import EmptyDirsError
 from ...offline115 import OfflineError
 from ...p115 import P115Error
 from ...p115_open import P115OpenError
@@ -375,3 +376,68 @@ def dupes_stop(request: Request, ctx: AuthContext = Depends(require_admin)):
 def dupes_log(request: Request, ctx: AuthContext = Depends(require_admin)):
     """最近刪掉的重複檔案、大檔案（到 115 回收站找回用）。"""
     return state(request).dupes.recent_deletions(min(max(q_int(request, "limit", 50) or 50, 1), 500))
+
+
+# ---------------- 115 上的空資料夾 ----------------
+
+
+@router.get("/web/api/empty-dirs")
+def empty_dirs_status(request: Request, ctx: AuthContext = Depends(require_admin)):
+    """掃描或刪除的進度、上次掃描的範圍和結果（幾個空資料夾、裡面的檔案共多大、沒列的有幾個）。"""
+    return state(request).empty_dirs.summary()
+
+
+@router.post("/web/api/empty-dirs/scan")
+async def empty_dirs_scan(request: Request, ctx: AuthContext = Depends(require_admin)):
+    """開始找空資料夾：{"paths": ["/影視"]}，不給就用同步任務的 115 目錄。在背景跑。"""
+    body = await json_body(request)
+    paths = body.get("paths")
+    if paths is not None and (not isinstance(paths, list) or not all(isinstance(p, str) for p in paths)):
+        raise HTTPException(status_code=400, detail="paths 要是 115 路徑的清單")
+    st = state(request)
+    if not st.p115.logged_in:
+        raise HTTPException(status_code=400, detail="尚未登入 115")
+    try:
+        return {"started": st.empty_dirs.scan_in_background(paths)}
+    except EmptyDirsError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+
+
+@router.get("/web/api/empty-dirs/list")
+def empty_dirs_list(request: Request, ctx: AuthContext = Depends(require_admin)):
+    """空資料夾照路徑排：q 比對路徑，offset、limit 分頁。"""
+    offset = max(q_int(request, "offset", 0) or 0, 0)
+    limit = min(max(q_int(request, "limit", 50) or 50, 1), 200)
+    return state(request).empty_dirs.items(q(request, "q") or "", offset, limit)
+
+
+@router.post("/web/api/empty-dirs/delete")
+async def empty_dirs_delete(request: Request, ctx: AuthContext = Depends(require_admin)):
+    """刪空資料夾：{"overrides": {"資料夾 id": true/false}} 逐個勾的；{"all": true} 再加上符合搜尋 q 的全部
+    （overrides 取消勾的除外）。刪之前再到 115 上確認一次，送進 115 回收站，本機對應的資料夾跟著拿掉。在背景跑。
+    {"dry_run": true} 只算會刪幾個、裡面的檔案多大，不刪（網頁上的數量和確認框用）。"""
+    body = await json_body(request)
+    raw = body.get("overrides") or {}
+    if not isinstance(raw, dict):
+        raise HTTPException(status_code=400, detail="overrides 格式錯誤")
+    try:
+        overrides = {int(k): bool(v) for k, v in raw.items()}
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="overrides 格式錯誤")
+    st = state(request)
+    plan = await run_in_threadpool(st.empty_dirs.plan, overrides, bool(body.get("all")), str(body.get("q") or ""))
+    result = {"started": False, "count": len(plan), "size": sum(r["size"] for r in plan)}
+    if body.get("dry_run"):
+        return result
+    try:
+        st.empty_dirs.delete_in_background(plan)
+    except EmptyDirsError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    return {**result, "started": True}
+
+
+@router.post("/web/api/empty-dirs/stop")
+def empty_dirs_stop(request: Request, ctx: AuthContext = Depends(require_admin)):
+    """停止掃描（上次的結果不換）或刪除（做完手上這一個就停）。"""
+    st = state(request)
+    return {"stopped": st.empty_dirs.cancel(), "job": st.empty_dirs.job.as_dict()}

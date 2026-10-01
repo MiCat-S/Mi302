@@ -139,6 +139,15 @@ def remote_root(task: StrmTask) -> str:
     return "/" + task.remote.strip("/")
 
 
+def outer_roots(tasks: Iterable[StrmTask]) -> List[str]:
+    """同步任務的 115 目錄；互相包含的只留外層，免得同一個檔案、資料夾看兩次。"""
+    out: List[str] = []
+    for root in sorted({remote_root(t) for t in tasks}, key=len):
+        if not any(root == o or root.startswith(o.rstrip("/") + "/") for o in out):
+            out.append(root)
+    return out
+
+
 def _rel(root: str, path: str) -> Optional[str]:
     """115 路徑相對於任務目錄的路徑；任務目錄本身是 ""，不在任務目錄底下是 None。"""
     if root == "/":
@@ -521,6 +530,12 @@ class StrmSync:
                     except OSError:
                         pass
         return removed
+
+    def clear_local_dir(self, path: str) -> List[str]:
+        """115 上已經刪掉的資料夾在本機對應的位置（同步紀錄裡不一定有）：裡面 Mi302 產生的 strm 和中繼資料刪掉，
+        其他檔案不動，空了就連資料夾一起刪。回傳刪掉的 strm 路徑。正在同步時等同步做完。"""
+        with self._lock:
+            return _clear_tree(Path(path))[1]
 
     def remember_base_url(self, url: str) -> None:
         url = url.rstrip("/")

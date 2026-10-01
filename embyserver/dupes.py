@@ -37,7 +37,7 @@ from .filetypes import VIDEO_EXTS
 from .mediainfo import MediaInfoStore
 from .p115 import P115Error, P115Service
 from .scanner import STANDARD_EPISODE, episode_match, parse_episode
-from .strm_sync import remote_root, task_key
+from .strm_sync import outer_roots, remote_root, task_key
 from .textutil import simplified
 from .workers import Stopped, Workers
 
@@ -237,12 +237,7 @@ class DupeFinder:
 
     def default_roots(self) -> List[str]:
         """同步任務的 115 目錄；互相包含的只留外層，免得同一個檔案列兩次。"""
-        roots = sorted({remote_root(t) for t in self.strm_sync.tasks}, key=len)
-        out: List[str] = []
-        for root in roots:
-            if not any(root == o or root.startswith(o.rstrip("/") + "/") for o in out):
-                out.append(root)
-        return out
+        return outer_roots(self.strm_sync.tasks)
 
     def summary(self) -> dict:
         meta = json.loads(self.db.get_meta(SCAN_META_KEY) or "{}")

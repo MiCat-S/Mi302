@@ -154,7 +154,7 @@ Options for syncing into strm files. On the **Sync options** card (同步選項)
 | `delete_stale` | `false` | When a video is deleted on 115 or moved out of the synced folder, delete its local strm file and scraped metadata too | 115 Cloud → Sync options → **Follow deletions** (跟著刪) |
 | `base_url` | empty | Server address written into strm files; empty = the address you used to open the web page. Changing it rewrites the existing strm files in the background (local files only) | 115 Cloud → Sync options → **Server URL in strm files** (strm 裡的伺服器網址) |
 | `include_name` | `false` | Append `?/original-file-name` to strm URLs, for humans; changing it rewrites the existing strm files | 115 Cloud → Sync options → **Append the original file name to strm URLs** (strm 網址後附上原檔名) |
-| `request_delay` | `0.2` | Seconds to wait before each request when listing 115 folders one by one or looking up a folder path | 115 Cloud → Sync options → **Seconds to wait before listing each 115 folder** (每列一個 115 目錄前等待的秒數) |
+| `request_delay` | `0.2` | Seconds to wait before each request when listing 115 folders one by one, looking up a folder path or checking empty folders | 115 Cloud → Sync options → **Seconds to wait before listing each 115 folder** (每列一個 115 目錄前等待的秒數) |
 | `scan_after_sync` | `true` | Rescan the changed places after a sync | 115 Cloud → Sync options → **Rescan libraries after sync** (同步完自動重新掃描媒體庫) |
 | `tasks` | `[]` | Sync tasks, see below | 115 Cloud → **Sync tasks** (同步任務) |
 

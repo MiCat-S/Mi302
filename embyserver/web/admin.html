@@ -596,9 +596,9 @@ dialog .card-b{max-height:70vh;overflow:auto}
     <!-- 整理 -->
     <section id="tab-tools" class="page hidden" role="tabpanel" aria-labelledby="nav-tools">
       <div class="page-h">
-        <div><h1>整理</h1><p class="sub">補齊媒體資訊、校正片頭片尾、刪掉 115 上重複的影片。</p></div>
+        <div><h1>整理</h1><p class="sub">補齊媒體資訊、校正片頭片尾、刪掉 115 上重複的影片和空資料夾。</p></div>
       </div>
-      <div class="seg mb16 subtabs" role="tablist" aria-label="整理的項目"><button data-act="sub" data-sub="mi" role="tab" aria-selected="false">媒體資訊</button><button data-act="sub" data-sub="intro" role="tab" aria-selected="false">片頭片尾</button><button data-act="sub" data-sub="dup" role="tab" aria-selected="false">重複和大檔案</button></div>
+      <div class="seg mb16 subtabs" role="tablist" aria-label="整理的項目"><button data-act="sub" data-sub="mi" role="tab" aria-selected="false">媒體資訊</button><button data-act="sub" data-sub="intro" role="tab" aria-selected="false">片頭片尾</button><button data-act="sub" data-sub="dup" role="tab" aria-selected="false">重複和大檔案</button><button data-act="sub" data-sub="empty" role="tab" aria-selected="false">空資料夾</button></div>
       <div class="card" id="miCard" data-sub="mi" role="tabpanel">
         <div class="card-h"><div class="t"><svg class="i"><use href="#i-film"/></svg><h2>媒體資訊</h2></div></div>
         <div class="card-b stack">
@@ -667,6 +667,20 @@ dialog .card-b{max-height:70vh;overflow:auto}
           <div id="dupList" class="list"></div>
           <div class="row wrap"><span class="grow"></span><button class="btn danger js-dupdel" onclick="deleteDupes()"><svg class="i"><use href="#i-trash"/></svg><span class="js-dupdel-label">刪除勾選的</span></button></div>
           <details class="more"><summary>最近刪掉的</summary><div class="in" id="dupLog"></div></details>
+        </div>
+      </div>
+
+      <div class="card" id="edCard" data-sub="empty" role="tabpanel">
+        <div class="card-h"><div class="t"><svg class="i"><use href="#i-folder"/></svg><h2>空資料夾</h2></div>
+          <div class="row"><button class="btn" onclick="pickEmptyRoot()">改選 115 目錄…</button><button class="btn primary" id="edScan" onclick="scanEmpty()">掃描</button></div></div>
+        <div class="card-b stack">
+          <p class="hint">找出 115 上底下沒有影音檔的資料夾：完全是空的，或只剩 nfo、海報、字幕這類東西（常是整理後留下的舊資料夾）。一部劇整個是空的只列劇的資料夾。勾選後移到 115 回收站；刪之前會再到 115 上確認一次，裡面有影音檔了、或一小時內剛有變動的不刪。 <a class="doc" href="https://github.com/MiCat-S/Mi302/wiki/115-網盤與同步#空資料夾" target="_blank" rel="noopener">說明</a></p>
+          <div id="edStat"><p class="hint">讀取中…</p></div>
+          <div class="logbar"><input id="edQ" type="search" placeholder="搜尋路徑" aria-label="搜尋空資料夾" oninput="soon('edQ', () => { edAll = false; loadEmptyList(1); })"></div>
+          <div class="row wrap dupbar"><button class="btn sm" onclick="emptySelectAll(true)" title="符合搜尋的全部，包含還沒翻到的頁面">全選</button><button class="btn sm" onclick="emptySelectAll(false)">全部取消勾選</button>
+            <span class="hint grow" id="edSelInfo"></span>
+            <button class="btn danger js-eddel" onclick="deleteEmpty()" disabled><svg class="i"><use href="#i-trash"/></svg><span class="js-eddel-label">刪除勾選的</span></button></div>
+          <div id="edList" class="list"></div>
         </div>
       </div>
     </section>
@@ -1105,7 +1119,7 @@ const PAGES = {overview: () => loadOverview(), libraries: () => loadLibs(), '115
 const SUBS = {
   '115': {acct: null, sync: null, offline: () => { if (!$('olFolder').value) $('olFolder').value = localGet('mi302-ol-folder'); loadOffline(1); },
     organize: () => organizeLoad(1), recycle: () => loadRecycle(0)},
-  tools: {mi: () => { restoreMiPrefs(); pollMI(); }, intro: () => pollIntro(), dup: () => loadDupes()},
+  tools: {mi: () => { restoreMiPrefs(); pollMI(); }, intro: () => pollIntro(), dup: () => loadDupes(), empty: () => loadEmpty()},
   moviepilot: {conn: null, scrape: null, fill: () => { restoreSeriesLimit(); loadSeries(1); }, emby: () => loadKeys()},
   settings: {general: null, webdav: () => davShow(), strm: null, zh: () => pollPeople(), backup: () => loadBackups(), about: null},
 };
@@ -2238,6 +2252,126 @@ async function loadDupLog() {
     : '<p class="hint">還沒有刪過。</p>');
 }
 
+// ---- 115 上的空資料夾 ----
+let edPage = 1, edSeq = 0, edSelSeq = 0, edRoot = null;
+// edAll：全選（符合搜尋的全部，包含還沒翻到的頁面）；逐個改過的記在 edOverrides（資料夾 id → 要不要刪）
+let edAll = false, edOverrides = {};
+const ED_PAGE = 50;
+const ED_SKIPPED = {recent: '一小時內剛有變動', protected: '是同步目錄、MoviePilot 的目錄或 115 最上層', media: '確認時發現有影音檔'};
+function loadEmpty() { pollEmpty(); loadEmptyList(1); }
+async function pollEmpty() {
+  cancel('empty');
+  let s;
+  try { s = await api('/web/api/empty-dirs'); } catch (e) { setHtml($('edStat'), failHtml(e)); return; }
+  const wasRunning = S.empty?.job.running, j = s.job;
+  S.empty = s;
+  setHtml($('edStat'), emptyStatHtml(s));
+  $('edScan').disabled = j.running;
+  if (j.running) { for (const b of document.querySelectorAll('.js-eddel')) b.disabled = true; later('empty', pollEmpty); }
+  else if (wasRunning) { edAll = false; edOverrides = {}; loadEmptyList(1); toast(j.kind === 'scan' ? '掃描完成' : '刪除完成', j.errors.length ? 'bad' : ''); }
+}
+function emptyStatHtml(s) {
+  // 範圍、進度（掃描中／刪除中）或上次的結果，加上沒列的有幾個、上次刪除沒刪的原因
+  const j = s.job, roots = edRoot ? [edRoot] : s.default_roots;
+  let h = `<p class="hint">範圍：${roots.length ? roots.map(r => `<code>${esc(r)}</code>`).join('、') : '還沒有同步任務，請按「改選 115 目錄…」'}` +
+    (edRoot ? '（自己選的，<button class="link" data-act="edRootReset">改回同步任務的目錄</button>）' : roots.length ? '（同步任務的目錄）' : '') + '</p>';
+  if (j.running && j.kind === 'scan') {
+    h += `<div class="row mt8"><span class="pill accent"><span class="spin"></span>掃描中</span><span class="hint sp grow"><span>已看 ${j.listed} 個項目</span>${j.found ? `<span>確認了 ${j.checked} / ${j.found} 個</span>` : ''}${j.current ? `<span>${esc(j.current)}</span>` : ''}</span><button class="btn sm ghost danger" data-act="stopJob" data-job="empty">停止</button></div>`;
+  } else if (j.running) {
+    const n = j.done + j.kept, pct = j.total ? n / j.total * 100 : 0;
+    h += `<div class="row my8"><span class="pill accent"><span class="spin"></span>刪除中</span><span class="hint sp grow"><span>${n} / ${j.total}</span>${j.current ? `<span>${esc(j.current)}</span>` : ''}</span><button class="btn sm ghost danger" data-act="stopJob" data-job="empty">停止</button></div><div class="meter"><div style="width:${pct.toFixed(1)}%"></div></div>`;
+  } else if (s.scanned_at) {
+    const skipped = Object.entries(s.skipped || {}).filter(([, n]) => n).map(([k, n]) => `${n} 個${ED_SKIPPED[k] || k}`);
+    h += `<div class="chips mt8">${chip(s.count, '個空資料夾', true)}${chip(fmtSize(s.size), '裡面的檔案共')}</div>
+      <p class="hint mt6">上次在 ${ago(s.scanned_at)} 掃描過（${s.roots.map(esc).join('、')}）。${skipped.length ? `另外 ${skipped.join('、')}，沒有列出來。` : ''}115 上有變動的話，先重新掃描一次。</p>`;
+  } else {
+    h += '<p class="hint mt8">還沒掃描過。按「掃描」開始：先用 115 的「導出目錄樹」一次拿到所有資料夾，再到 115 上一個一個確認。</p>';
+  }
+  if (!j.running) h += j.notes.map(n => `<p class="notice warn mt8">${esc(n)}</p>`).join('');
+  if (!j.running && j.kind === 'delete' && j.finished) {
+    h += `<p class="notice ${j.errors.length ? 'bad' : ''} mt8">上次刪除（${ago(j.finished)}）：${j.done} 個送進 115 回收站${j.kept ? `，${j.kept} 個再確認時沒刪` : ''}${j.errors.length ? '。' + esc(j.errors[0]) : ''}</p>`;
+    if (j.results.length) h += `<details class="more"><summary>沒刪的 ${j.kept} 個</summary><div class="in list">${j.results.map(x =>
+      `<div class="li"><div class="main"><span class="p">${esc(x.path)}</span><div class="sub">${esc(x.why)}</div></div></div>`).join('')}</div></details>`;
+  } else if (!j.running && j.errors.length) {
+    h += `<p class="notice bad mt8">${esc(j.errors[0])}</p>`;
+  }
+  return h;
+}
+function edWanted(d) { return d.cid in edOverrides ? edOverrides[d.cid] : edAll; }
+async function loadEmptyList(page) {
+  edPage = Math.max(1, page || edPage);
+  const box = $('edList'), seq = ++edSeq, q = $('edQ').value.trim();
+  let r;
+  try { r = await api(`/web/api/empty-dirs/list?q=${encodeURIComponent(q)}&offset=${(edPage - 1) * ED_PAGE}&limit=${ED_PAGE}`); }
+  catch (e) { if (seq === edSeq) box.innerHTML = failHtml(e); return; }
+  if (seq !== edSeq) return;
+  const pages = Math.max(1, Math.ceil(r.total / ED_PAGE));
+  if (edPage > pages) return loadEmptyList(pages);
+  box.innerHTML = r.items.length ? '' : `<p class="hint">${q ? '沒有符合的' : S.empty?.scanned_at ? '沒有空資料夾' : ''}</p>`;
+  for (const d of r.items) box.appendChild(emptyRow(d));
+  pager(box, {page: edPage, pages, onPage: loadEmptyList, total: r.total, unit: '個'});
+  refreshEmptySelection();
+}
+function emptyRow(d) {
+  // 一個空資料夾：勾選框、115 上的路徑、裡面有什麼、修改時間，和「打開」（在瀏覽 115 裡看）
+  const row = document.createElement('div'); row.className = 'li top';
+  const inside = [d.files ? `${d.files} 個檔案` : '', d.dirs ? `${d.dirs} 個資料夾` : ''].filter(Boolean).join('、');
+  const pills = (inside ? `<span class="pill">${inside}</span>` : '<span class="pill ok">完全是空的</span>')
+    + (d.size ? `<span class="pill${d.big ? ' warn' : ''}"${d.big ? ' title="不只是 nfo、圖片，看一下裡面是什麼"' : ''}>${fmtSize(d.size)}</span>` : '');
+  const sample = d.sample.length ? `<span class="hint">裡面有 ${d.sample.map(esc).join('、')}${d.files > d.sample.length ? '…' : ''}</span>` : '';
+  row.innerHTML = `<div class="main"><label class="dupm"><input type="checkbox" data-cid="${esc(d.cid)}"${edWanted(d) ? ' checked' : ''}>` +
+    `<span class="grow"><span class="p">${esc(d.path)}</span><span class="row wrap mt4">${pills}<span class="hint">${d.mtime ? '修改於 ' + fmtTime(d.mtime) : ''}</span></span>${sample}</span></label></div>` +
+    `<button class="btn sm ghost" data-act="olOpen" data-cid="${esc(d.cid)}" title="在瀏覽 115 裡打開">打開</button>`;
+  const cb = row.querySelector('input');
+  cb.onchange = () => { if (cb.checked === edAll) delete edOverrides[d.cid]; else edOverrides[d.cid] = cb.checked; refreshEmptySelection(); };
+  return row;
+}
+function emptyBody() { return {all: edAll, overrides: edOverrides, q: $('edQ').value.trim()}; }
+function refreshEmptySelection() {
+  // 試算現在勾了幾個（含沒翻到的頁面），顯示在按鈕上
+  soon('edSel', async () => {
+    const seq = ++edSelSeq, running = !!S.empty?.job.running;
+    let r;
+    try { r = await api('/web/api/empty-dirs/delete', {method: 'POST', body: JSON.stringify({...emptyBody(), dry_run: true})}); }
+    catch (e) { if (seq === edSelSeq) $('edSelInfo').textContent = e.message; return; }
+    if (seq !== edSelSeq) return;
+    $('edSelInfo').textContent = r.count ? `勾選了 ${r.count} 個${r.size ? `，裡面的檔案共 ${fmtSize(r.size)}` : ''}${edAll ? '（包含還沒翻到的頁面）' : ''}` : '還沒有勾選要刪的資料夾';
+    for (const el of document.querySelectorAll('.js-eddel-label')) el.textContent = r.count ? `刪除勾選的 ${r.count} 個` : '刪除勾選的';
+    for (const b of document.querySelectorAll('.js-eddel')) b.disabled = running || !r.count;
+  }, 250);
+}
+function emptySelectAll(on) {
+  edAll = on; edOverrides = {};
+  toast(on ? '勾選了符合搜尋的全部（包含還沒翻到的頁面）' : '全部取消勾選了');
+  loadEmptyList(edPage);
+}
+async function deleteEmpty() {
+  // 先算會刪幾個（含沒翻到的頁面），確認後才在背景刪
+  const body = emptyBody();
+  let plan;
+  try { plan = await api('/web/api/empty-dirs/delete', {method: 'POST', body: JSON.stringify({...body, dry_run: true})}); }
+  catch (e) { toast(e.message, 'bad'); return; }
+  if (!plan.count) { toast('沒有勾選要刪的資料夾'); return; }
+  const text = '資料夾連同裡面的 nfo、圖片這些移到 115 回收站，需要時可以在 115 還原。刪之前會再到 115 上確認一次：裡面有影音檔了、搬走或改名了、一小時內剛有變動的都不刪。'
+    + (edAll ? `勾選的是${body.q ? `符合搜尋「${body.q}」的` : '清單上的'}全部${Object.values(edOverrides).some(on => !on) ? '（取消勾的除外）' : ''}，包含還沒翻到的頁面。` : '');
+  if (!await ask({title: `刪除 ${plan.count} 個空資料夾${plan.size ? `（裡面的檔案共 ${fmtSize(plan.size)}）` : ''}？`, text, ok: '刪除', danger: true})) return;
+  if (plan.count > 50 && !await ask({title: `真的要刪 ${plan.count} 個資料夾嗎？`, text: '數量比較多，再確認一次。', ok: '確定刪除', danger: true})) return;
+  let r;
+  try { r = await api('/web/api/empty-dirs/delete', {method: 'POST', body: JSON.stringify(body)}); } catch (e) { toast(e.message, 'bad'); return; }
+  toast(`開始刪除 ${r.count} 個空資料夾`);
+  edAll = false; edOverrides = {};
+  pollEmpty();
+}
+async function scanEmpty() {
+  let r;
+  try { r = await api('/web/api/empty-dirs/scan', {method: 'POST', body: JSON.stringify(edRoot ? {paths: [edRoot]} : {})}); }
+  catch (e) { toast(e.message, 'bad'); return; }
+  toast(r.started ? '開始掃描' : '正在掃描或刪除，等它做完');
+  pollEmpty();
+}
+ACTS.edRootReset = () => { edRoot = null; pollEmpty(); };
+async function pickEmptyRoot() { const p = await pickDir('115', edRoot || '/'); if (p) { edRoot = p; pollEmpty(); } }
+
 // ---- MoviePilot ----
 function mpRulesText() { return (cfg.moviepilot.path_mappings || []).map(r => r.from + ' => ' + r.to).join('\n'); }
 function loadMP() {
@@ -2843,6 +2977,7 @@ const STOPS = {
   scan: ['/web/api/scan/stop', {}, '停止這一次掃描？', '在兩個項目之間停下。沒掃到的不會從媒體庫刪掉，下次掃描再補。', () => refreshScan()],
   sync: ['/p115/strm/stop', {}, '停止這一次同步？', '在兩個檔案之間停下。這次的進度不存、不刪任何 strm，下次同步會重做沒做完的部分；定時同步照舊。', () => pollSync()],
   dupes: ['/web/api/dupes/stop', {}, '停止？', '找重複：停下後保留上次的結果。刪除：做完手上這一批（最多 100 個）就停，已經送進 115 回收站的留在回收站。', () => pollDupes()],
+  empty: ['/web/api/empty-dirs/stop', {}, '停止？', '掃描：停下後保留上次的結果。刪除：做完手上這一個就停，已經送進 115 回收站的留在回收站。', () => pollEmpty()],
   scrape: ['/web/api/moviepilot/stop', {what: 'scrape'}, '停止刮削？', '已經送給 MoviePilot 的會做完，還沒送的不送，下次刮削再送。', () => pollMP()],
   fill: ['/web/api/moviepilot/stop', {what: 'fill'}, '停止補全缺集？', '做完手上這一季就停，已經建好的訂閱留著。', () => pollMP()],
 };

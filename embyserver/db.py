@@ -224,6 +224,18 @@ CREATE TABLE IF NOT EXISTS organize_checks (
     error TEXT,             -- MoviePilot 認不出來時的說明
     at INTEGER NOT NULL
 );
+
+-- 115 上的空資料夾（底下沒有影音檔，只留最外層）：「掃描」時整批重建，刪掉的拿掉
+CREATE TABLE IF NOT EXISTS empty_dirs (
+    cid INTEGER PRIMARY KEY,
+    parent_cid INTEGER NOT NULL,  -- 上一層的 id（刪之前確認它還在那裡）
+    path TEXT NOT NULL,           -- 115 上的完整路徑
+    files INTEGER NOT NULL DEFAULT 0,  -- 裡面（含子資料夾）有幾個檔案、幾個資料夾、檔案共多大
+    dirs INTEGER NOT NULL DEFAULT 0,
+    size INTEGER NOT NULL DEFAULT 0,
+    sample TEXT,                  -- JSON：裡面前幾個檔名（相對路徑）
+    mtime INTEGER                 -- 115 上資料夾的修改時間
+);
 """
 
 

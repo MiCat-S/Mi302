@@ -442,6 +442,37 @@ The **Duplicates and big files** card (重複和大檔案) on the **Tools** tab 
 - Deleting needs QR-code (cookie) login; it is not available with only the open platform.
 - Results reflect the moment you clicked **Scan**. If files were moved, renamed or deleted on 115 since, scan again before deleting.
 
+## Empty folders
+
+The **Empty folders** card (空資料夾) on the **Tools** tab (整理) finds folders on 115 that hold no media files and, once you tick them, moves them to the 115 recycle bin. Typical ones are old folders left behind after organising: the videos were moved away and only nfo files, posters and subtitles are left, or nothing at all.
+
+### What counts as empty
+
+- Nothing in the folder or any of its subfolders is a video, music or an external audio track: it is completely empty, or holds only things like nfo files, images, subtitles and text files. Media is recognised by extension; common video formats (including strm, DVD vob and VCD dat) and music formats all count, erring on the side of listing fewer folders.
+- Only the outermost folder is listed: if a whole series folder has no videos, the series folder is listed (its seasons go with it when deleted) rather than each season; an empty season inside a series that does have videos is listed on its own.
+- These are never listed:
+  - The scope itself and folders at the top level of 115 (for example `/影視`).
+  - The sync tasks' 115 folders, and the download and library folders on 115 in MoviePilot's directory settings, plus the folders above them. MoviePilot's directory settings can only be read while MoviePilot is reachable; the card shows a notice when they cannot be read.
+  - Parts of a Blu-ray or DVD disc: folders with `BDMV`, `VIDEO_TS`, `CERTIFICATE` and the like in their path, or that sit next to `BDMV` or `VIDEO_TS`.
+  - Folders changed within the last hour: MoviePilot may have just created them and not moved the videos in yet, or a download may still be running.
+
+### Scanning for empty folders
+
+1. **Scope**: the sync tasks' 115 folders by default. **Pick a 115 folder…** (改選 115 目錄…) lets you choose any folder, for example an inbox folder or the whole drive `/`.
+2. **Scan** (掃描): Mi302 first uses 115's directory tree export to get the names of every folder and file in the scope at once, then lists all files once more (the tree cannot tell whether a bottom-level entry is a file or an empty folder); a library of forty thousand videos takes one or two hundred requests. If the export fails (for example with only the open platform signed in), Mi302 lists folder by folder instead, which is much slower. Scanning is not possible while 115 is syncing (syncing exports the tree too, and 115 runs one export at a time); wait until the sync finishes.
+3. **Checking**: every folder found from the names is checked on 115: its parent is listed once to get its id and modification time, then the folder is listed completely to record how many files and folders it holds and their total size. If a media file turns up (added after the export), the folder is dropped. Mi302 waits **Seconds to wait before listing each 115 folder** (每列一個 115 目錄前等待的秒數) before each listing, and rate limiting trips the circuit breaker as usual.
+4. **Results**: the top shows how many empty folders were found, the total size of the files in them, and how many were left out for the reasons above. The list is sorted by path, 50 per page, and can be searched by path. Each folder shows **Completely empty** (完全是空的) or how many files and folders it holds, plus its size, modification time and the first few file names; when the files add up to more than 100 MB the size is shown in yellow, so check whether there is more than nfo files and images (an archive, for example). **Open** (打開) shows the folder in **Browse 115** (瀏覽 115).
+
+### Deleting empty folders
+
+- Tick folders one by one, or press **Select all** (全選) to tick everything that matches the search, including pages you have not opened; changing the search clears **Select all** so nothing unseen gets ticked. The bar shows how many folders are ticked and the total size of their files.
+- **Delete ticked** (刪除勾選的) asks for confirmation with the count, and asks a second time for more than 50. The folders are handled in the background, grouped by parent folder; **Stop** (停止) stops after the current folder.
+- Right before deleting, each folder is checked on 115 again: it must still be in the same parent folder with the same name, unchanged for the last hour, and still without media files. Only then does it go to the 115 recycle bin together with the nfo files and images in it, where it can be restored. Folders that fail the check are kept and listed under **Not deleted** (沒刪的) with the reason; folders that were moved, renamed or now contain media are removed from the list.
+- For folders inside a sync folder, the nfo files and images Mi302 downloaded into the matching local folder are deleted too (other files are left alone), the local folder is removed once empty, and those places are rescanned.
+- Deleting is not possible while MoviePilot is organising (**Run** or **Organise all** in [Organising 115](#organising-115)) or while 115 is syncing; wait until it finishes. Organising cannot start while folders are being deleted either.
+- Deleting needs QR-code (cookie) login; it is not available with only the open platform.
+- Results reflect the moment you clicked **Scan**. If things changed on 115 since, scan again before deleting.
+
 ## Circuit breaker
 
 115's firewall is sensitive: sending more requests after being rate-limited only extends the block. So when 115 rate-limits Mi302 or the login becomes invalid, Mi302 pauses background work: sync and media-info probing.
@@ -464,7 +495,7 @@ For one hour after recovering from rate limiting, media-info probing runs slower
 
 ## Other settings
 
-- **Seconds to wait before listing each 115 folder** (`p115.strm.request_delay`, default 0.2): the pause before each request when listing folder by folder or looking up a folder path. Too fast may get you rate-limited. On the 115 Cloud tab → Sync options.
+- **Seconds to wait before listing each 115 folder** (`p115.strm.request_delay`, default 0.2): the pause before each request when listing folder by folder, looking up a folder path or checking empty folders. Too fast may get you rate-limited. On the 115 Cloud tab → Sync options.
 - `p115.timeout` (default 15 seconds): timeout for requests to 115. Config file only; needs a restart.
 
 Every key is described in the [Configuration Reference](Configuration-Reference).

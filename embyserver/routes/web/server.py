@@ -19,7 +19,7 @@ def _busy(request: Request) -> list:
         ("115 同步", st.strm_sync.result.running), ("媒體庫掃描", st.scanner.scanning),
         ("MoviePilot 刮削", st.moviepilot.result.running), ("補全缺集", st.moviepilot.fill_result.running),
         ("MoviePilot 整理", st.reorganizer.job.running), ("媒體資訊提取", st.prober.result.running),
-        ("重複檔案", st.dupes.job.running),
+        ("重複檔案", st.dupes.job.running), ("空資料夾", st.empty_dirs.job.running),
     ]
     return [name for name, running in jobs if running]
 
