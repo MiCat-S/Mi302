@@ -44,6 +44,10 @@ MIN_LISTED_RATIO = 0.9
 # 跟著刪：115 上沒有、同步紀錄裡也沒有的 strm 超過這麼多個、又超過本機的這個比例時不刪（多半是 115 目錄填錯了）
 STALE_GUARD = 100
 STALE_GUARD_RATIO = 0.5
+# 中繼資料（nfo、圖片、字幕）超過這麼大的不下載：正常的不會這麼大，多半是取錯副檔名的檔案
+METADATA_MAX_BYTES = 64 << 20
+# 下載中繼資料時，兩次向 115 取直鏈至少間隔幾秒（request_delay 比較大就照它；設成 0 是使用者明說不要間隔）
+METADATA_PACE = 0.5
 
 FULL = "full"
 INCREMENTAL = "incremental"
@@ -59,6 +63,7 @@ class SyncResult:
     strm_created: int = 0
     strm_unchanged: int = 0
     metadata_downloaded: int = 0
+    metadata_skipped: int = 0  # 115 限流時先不下載的中繼資料（strm 照常產生），下次全量同步再補
     removed: int = 0
     # 增量同步讀到的生活事件數、依事件搬移（移動、改名）的本機檔案或資料夾數
     events: int = 0
@@ -136,15 +141,25 @@ def outer_roots(tasks: Iterable[StrmTask]) -> List[str]:
     return out
 
 
+def safe_rel(rel: str) -> bool:
+    """115 上的名稱組出來的相對路徑能不能直接接在本機的任務資料夾後面：每一層都不能是空的、「.」、「..」
+    （local / "../x.nfo" 會寫到、刪到任務資料夾外面），不能有 NUL；Windows 上反斜線也是分隔符號。"""
+    parts = rel.split("/")
+    return bool(rel) and not any(p in ("", ".", "..") or "\x00" in p or (os.sep == "\\" and "\\" in p) for p in parts)
+
+
 def _rel(root: str, path: str) -> Optional[str]:
-    """115 路徑相對於任務目錄的路徑；任務目錄本身是 ""，不在任務目錄底下是 None。"""
+    """115 路徑相對於任務目錄的路徑；任務目錄本身是 ""，不在任務目錄底下是 None。
+    會跑出本機任務資料夾的（某一層叫「..」）也當成不在任務目錄裡。"""
     if root == "/":
-        return path.strip("/")
-    if path == root:
-        return ""
-    if path.startswith(root + "/"):
-        return path[len(root) + 1:]
-    return None
+        rel: Optional[str] = path.strip("/")
+    elif path == root:
+        rel = ""
+    elif path.startswith(root + "/"):
+        rel = path[len(root) + 1:]
+    else:
+        return None
+    return rel if not rel or safe_rel(rel) else None
 
 
 def _belongs(name: str, stem: str) -> bool:
@@ -393,6 +408,8 @@ class StrmSync:
         self._dirs: Dict[int, Optional[str]] = {}  # 這次同步查過的 115 目錄路徑；None = 已不存在
         self._latest: Optional[Tuple[int, int]] = None
         self._life_enabled = False
+        self.metadata_pace = METADATA_PACE
+        self._last_fetch = 0.0  # 上次為了下載中繼資料向 115 取直鏈的時間（單調時鐘）
 
     # ---------------- 設定 ----------------
 
@@ -671,15 +688,20 @@ class StrmSync:
         def loop():
             last_inc = time.time()
             while not self._stop.wait(60):
-                if not (self.p115.logged_in and self.tasks) or self.p115.breaker.tripped:
-                    continue  # 115 熔斷中就等冷卻期過了再排
-                now = time.time()
-                if self._full_due(now):
-                    last_inc = now
-                    self.run(FULL)
-                elif self.cfg.interval > 0 and now - last_inc >= self.cfg.interval * 60:
-                    last_inc = now
-                    self.run(INCREMENTAL)
+                try:
+                    if not (self.p115.logged_in and self.tasks) or self.p115.breaker.tripped:
+                        continue  # 115 熔斷中就等冷卻期過了再排
+                    now = time.time()
+                    if self._full_due(now):
+                        last_inc = now
+                        self.run(FULL)
+                    elif self.cfg.interval > 0 and now - last_inc >= self.cfg.interval * 60:
+                        last_inc = now
+                        self.run(INCREMENTAL)
+                except Exception:
+                    # 任務裡的錯誤 _guard 會接住；這裡接的是任務以外的（資料庫暫時寫不進去、115 回了看不懂的事件…）。
+                    # 不接的話這條執行緒就結束了，之後都不會再自動同步，網頁上也看不出來
+                    log.exception("定時同步這一輪出錯，下一輪照常")
 
         self.workers.start(loop)
 
@@ -733,16 +755,30 @@ class StrmSync:
         rows: List[Tuple[int, str, bool]] = []
         newest = 0
         entries, complete, keep = self._full_entries(task, cid)
-        for rel, info in entries:
-            self.workers.check()  # 停下要直接丟出去：照常做完的話，沒列到的檔案會被當成已經刪掉
-            if info["is_dir"]:
-                rows.append((info["id"], rel, True))
-                continue
-            newest = max(newest, info.get("mtime") or 0)
+        metadata: List[Tuple[str, dict]] = []
+
+        def place(rel: str, info: dict) -> None:
             target = self._handle_file(local, rel, info)
             if target:
                 produced.add(str(target))
                 rows.append((info["id"], target.relative_to(local).as_posix(), False))
+
+        for rel, info in entries:
+            self.workers.check()  # 停下要直接丟出去：照常做完的話，沒列到的檔案會被當成已經刪掉
+            if info["is_dir"]:
+                if safe_rel(rel):
+                    rows.append((info["id"], rel, True))
+                continue
+            newest = max(newest, info.get("mtime") or 0)
+            if Path(rel).suffix.lower() in VIDEO_EXTS:
+                place(rel, info)
+            else:
+                metadata.append((rel, info))
+        # strm 先全部產生（不用問 115），中繼資料最後再一個一個下載（每個要取一次直鏈、要隔開）：
+        # 新片不必等前面幾千個 nfo、海報下載完才出現
+        for rel, info in metadata:
+            self.workers.check()
+            place(rel, info)
         # 刪舊 strm、換索引、存進度之前再看一次：最後一項做完才按停止，也照樣不刪、不存（下次同步重做只會是「未變」）
         self.workers.check()
         index = _TaskIndex(self.p115.db, task_key(task))
@@ -1005,6 +1041,10 @@ class StrmSync:
 
     def _target(self, rel: str, info: dict) -> Optional[Path]:
         """115 上的檔案在本機對應的相對路徑；不需要的檔案回傳 None。"""
+        if not safe_rel(rel):
+            log.warning("115 上的路徑會跑出本機的同步資料夾，略過：%r", rel)
+            self.result.errors.append(f"{rel}: 路徑裡有「..」這類名稱，會寫到同步資料夾外面，略過")
+            return None
         suffix = Path(rel).suffix.lower()
         if suffix in VIDEO_EXTS:
             if info["size"] < self.cfg.min_size_mb * 1024 * 1024:
@@ -1189,21 +1229,67 @@ class StrmSync:
     def _download(self, target: Path, info: dict) -> None:
         if target.is_file() and target.stat().st_size == info["size"]:
             return
+        if (info.get("size") or 0) > METADATA_MAX_BYTES:
+            self.result.errors.append(f"{target.name}: 有 {info['size'] >> 20} MB，超過 {METADATA_MAX_BYTES >> 20} MB，不下載")
+            return
+        if not self._download_turn():
+            return
+        tmp = target.with_name(target.name + ".part")
         try:
             # 115 的 CDN 對 115Browser 的 UA 要 cookie，用一般瀏覽器的 UA
             url = self.p115.download_url(info["pickcode"], PLAIN_UA)
-            resp = self._http.get(url, headers=self.p115.file_headers(url, PLAIN_UA))
-            resp.raise_for_status()
+            target.parent.mkdir(parents=True, exist_ok=True)
+            self._fetch_to(url, tmp)
+        except P115Throttled as exc:
+            tmp.unlink(missing_ok=True)
+            self._skip_metadata(str(exc))  # 熔斷已經設了，後面的不會再去問 115
+            return
         except (P115Error, httpx.HTTPError) as exc:
+            tmp.unlink(missing_ok=True)
             self.result.errors.append(f"{target.name}: {exc}")
             log.warning("下載 %s 失敗：%s", target.name, exc)
             return
-        target.parent.mkdir(parents=True, exist_ok=True)
-        tmp = target.with_name(target.name + ".part")
-        tmp.write_bytes(resp.content)
+        except BaseException:
+            tmp.unlink(missing_ok=True)  # 磁碟滿、按了停止：不留寫一半的檔
+            raise
         os.replace(tmp, target)
         self.result.metadata_downloaded += 1
         self.result.changed.append(str(target))
+
+    def _download_turn(self) -> bool:
+        """下載一個中繼資料之前：115 熔斷中就不下載（回傳 False，strm 照常產生）；兩次取直鏈之間至少隔
+        metadata_pace 秒（request_delay 比較大就照它，熔斷剛恢復時再放慢）。上千個 nfo、海報一口氣取直鏈會被 115 限流。"""
+        if self.p115.breaker.tripped:
+            self._skip_metadata(self.p115.breaker.message())
+            return False
+        delay = self.cfg.request_delay or 0
+        delay = max(delay, self.metadata_pace) * self.p115.breaker.slowdown() if delay else 0
+        left = delay - (time.monotonic() - self._last_fetch)
+        if left > 0 and self.workers.wait(left):
+            raise Stopped()
+        self._last_fetch = time.monotonic()
+        return True
+
+    def _skip_metadata(self, why: str) -> None:
+        if not self.result.metadata_skipped:
+            log.warning("115 限流，這次同步剩下的中繼資料先不下載：%s", why)
+            self.result.notes.append(f"115 限流（{why}）：nfo、圖片、字幕這次先不下載，strm 照常產生；下次全量同步再補")
+        self.result.metadata_skipped += 1
+
+    def _fetch_to(self, url: str, tmp: Path) -> None:
+        """把直鏈的內容一段一段寫進暫存檔（不整個讀進記憶體），超過 METADATA_MAX_BYTES 就放棄；CDN 回 405／429 算限流。"""
+        with self._http.stream("GET", url, headers=self.p115.file_headers(url, PLAIN_UA)) as resp:
+            if resp.status_code in (405, 429):
+                self.p115.breaker.inspect(status=resp.status_code)
+                raise P115Throttled(self.p115.breaker.message())
+            resp.raise_for_status()
+            size = 0
+            with open(tmp, "wb") as f:
+                for chunk in resp.iter_bytes():
+                    size += len(chunk)
+                    if size > METADATA_MAX_BYTES:
+                        raise P115Error(f"內容超過 {METADATA_MAX_BYTES >> 20} MB，不像中繼資料，不下載")
+                    f.write(chunk)
 
     def _unknown_stale(self, remote: str, local: Path, kept: Set[str], index: "_TaskIndex") -> Set[str]:
         """這次要刪的 strm 裡，同步紀錄沒記過的（不是從這個 115 目錄同步來的）一大批時，這些先不刪，回傳它們。

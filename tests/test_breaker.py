@@ -24,9 +24,13 @@ def test_http_405_trips_and_cools_down():
     assert svc.breaker.tripped and svc.breaker.status()["until"]
     with pytest.raises(P115Throttled, match="約 \\d+ 分鐘後再試"):
         svc.breaker.check()
+    # 重新啟動（同一個資料庫）：冷卻期還沒過就繼續停著，不會一啟動又去打 115
+    again = P115Service(svc.db, transport=httpx.MockTransport(lambda r: httpx.Response(405)))
+    assert again.breaker.tripped and again.breaker.reason == "HTTP 405"
     svc.breaker.tripped_at = time.time() - svc.breaker.cooldown - 1  # 冷卻期滿自動恢復
     assert not svc.breaker.tripped
     svc.breaker.check()
+    assert not P115Service(svc.db, transport=httpx.MockTransport(lambda r: httpx.Response(405))).breaker.tripped
 
 
 def test_errno_and_messages_trip():
@@ -171,6 +175,18 @@ def test_throttled_tree_download_stops_retrying(tmp_path: Path):
     assert len(cdn) == 1 and r.errors and "限流" in r.errors[0]
     assert not [c for c in fake.calls if c[0] == "/files" and c[1].get("cur") == "1"]
 
+    # 下載中繼資料時被限流：剩下的 nfo 不再一個一個去撞 115，strm 照常產生，下次全量再補
+    fake = Fake115()
+    fake.files += [{"fid": 500 + i, "cid": 101, "n": f"m{i}.nfo", "pc": f"{i:017d}", "s": 5, "te": 1} for i in range(30)]
+    sync = make(tmp_path / "meta", fake)
+    asked = []
+    sync._http = httpx.Client(transport=httpx.MockTransport(lambda req: (asked.append(1), httpx.Response(405))[1]))
+    r = sync.run(FULL)
+    assert len(asked) == 1 and sync.p115.breaker.tripped  # 以前是 30 次
+    assert (r.strm_created, r.metadata_downloaded, r.metadata_skipped) == (2, 0, 30)
+    assert not r.errors and any("先不下載" in n for n in r.notes)
+    assert not list((tmp_path / "meta").rglob("*.part"))
+
 
 def test_non_ascii_cookie_is_rejected():
     svc = service(lambda r: httpx.Response(200, json={"state": True}))
@@ -186,6 +202,20 @@ def test_failed_link_fetch_releases_its_lock():
     with pytest.raises(P115Error):
         svc.download_url("a" * 17, "UA")
     assert svc._key_locks == {}
+    # 115 明說取不到的 pickcode，一分鐘內不再問（/d/ 不用登入，壞掉的 pickcode 被反覆打時不能每次都問 115）；
+    # 限流、連不上是暫時的，不記
+    asked = []
+    replies = [httpx.Response(200, json={"state": False, "msg": "文件不存在"}), httpx.Response(405)]
+    svc = service(lambda r: (asked.append(1), replies[0])[1])
+    for ua in ("UA", "UA", "另一個".encode().decode("latin-1")):
+        with pytest.raises(P115Error, match="文件不存在"):
+            svc.download_url("a" * 17, ua)
+    assert len(asked) == 1
+    replies[0] = replies[1]
+    for _ in range(2):
+        with pytest.raises(P115Throttled):
+            svc.download_url("b" * 17, "UA")
+    assert len(asked) == 3
 
 
 def test_self_pointing_strm_fails_fast_when_115_fails(tmp_path: Path):

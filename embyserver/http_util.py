@@ -27,6 +27,18 @@ def describe(exc: httpx.HTTPError) -> str:
     return f"連不到 {host or '外部服務'}：{reason}（{detail}）"
 
 
+def header_value(value: str) -> bytes:
+    """播放器送來的標頭值（例如 User-Agent）原樣轉回位元組，再交給 httpx 送出去。
+
+    Starlette 把收到的標頭位元組用 latin-1 解成 str；httpx 送 str 時只收 ASCII，UA 裡有中文（位元組 > 127）
+    會在送出前丟 UnicodeEncodeError。115 的直鏈綁 UA，所以要送和播放器一模一樣的位元組，不能把中文拿掉。
+    """
+    try:
+        return value.encode("latin-1")
+    except UnicodeEncodeError:  # 不是從標頭來的（程式自己組的字串）
+        return value.encode("utf-8")
+
+
 class GuardedClient(httpx.Client):
     """get/post 等都會經過 request；網路錯誤一律轉成 error_cls。"""
 

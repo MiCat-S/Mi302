@@ -121,6 +121,17 @@ def test_full_sync_falls_back_to_walk(tmp_path: Path):
     assert any("改成逐層列目錄" in n for n in r.notes)
     assert listings(fake)
 
+    # 115 上有名叫「..」的資料夾：裡面的檔案不能寫到本機的任務資料夾外面（逐層列目錄和目錄樹兩條路都一樣）
+    for export_ok in (False, True):
+        fake = Fake115()
+        fake.export_ok = export_ok
+        fake.dirs[150] = ("..", 100)
+        fake.files.append({"fid": 30, "cid": 150, "n": "evil.nfo", "pc": "e" * 17, "s": 5, "te": T0})
+        root = tmp_path / f"escape{export_ok}"
+        r = make(root, fake).run(FULL)
+        assert r.strm_created == 2 and not list(root.rglob("evil.nfo"))
+        assert any("同步資料夾外面" in e for e in r.errors)
+
 
 def test_incomplete_listing_falls_back_and_never_deletes(tmp_path: Path):
     fake = Fake115()

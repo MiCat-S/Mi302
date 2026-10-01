@@ -81,6 +81,9 @@ def test_download_request_is_encrypted_and_cached(monkeypatch):
     # 不同 UA 的直鏈不能共用
     svc.download_url(PICKCODE, "VidHub/2")
     assert len(sent) == 2
+    # UA 裡有中文（Starlette 用 latin-1 解成 str）：照播放器送來的位元組原樣送給 115，以前在送出前就丟 UnicodeEncodeError
+    svc.download_url(PICKCODE, "播放器/1.0".encode().decode("latin-1"))
+    assert dict(sent[2].headers.raw)[b"User-Agent"] == "播放器/1.0".encode()
     # 自己下載 115 檔案時，cookie 只給 https 的 115 網域
     assert svc.file_headers(CDN)["Cookie"] == "UID=1"
     for url in ("http://cdnfhnfile.115cdn.net/abc/a.mkv", "https://evil115.com/a", "https://115.com.evil.net/a"):

@@ -21,8 +21,8 @@ from urllib.parse import parse_qs, parse_qsl, unquote, urlsplit
 import httpx
 
 from .db import Database
-from .http_util import GuardedClient
-from .p115_open import P115OpenClient, P115OpenError
+from .http_util import GuardedClient, header_value
+from .p115_open import AUTH_EXPIRED_CODES, REFRESH_DEAD_CODE, P115OpenClient, P115OpenError
 
 log = logging.getLogger(__name__)
 
@@ -56,6 +56,12 @@ SHORT_LINK_RE = re.compile(r"/d/([a-zA-Z0-9]{17})(?:\.[A-Za-z0-9]{1,5})?(?:/[^/]
 COOKIE_META_KEY = "p115_cookies"
 LOGIN_META_KEY = "p115_login"  # 怎麼登入的：{"method": "qrcode"/"cookie"/"config", "app": ..., "at": 時間}
 ACCOUNT_CACHE_SECONDS = 60
+BREAKER_META_KEY = "p115_breaker"  # 熔斷狀態存資料庫：重新啟動（更新、當掉後自動重啟）不會把冷卻期歸零
+# 115 說取不到直鏈的 pickcode（不存在、已刪除），這段時間內不再問 115：/d/{pickcode} 不用登入，
+# 同一個壞掉的 pickcode 被反覆打（播放器重試、有人亂打）時，每次都問 115 會把帳號打到限流
+BAD_PICKCODE_SECONDS = 60
+BAD_PICKCODE_MAX = 5000
+OPEN_AUTH_CODES = AUTH_EXPIRED_CODES | {REFRESH_DEAD_CODE}  # 開放平台 token 的問題，和 pickcode 無關
 LIFE_OPTION_API = "https://life.115.com/api/1.0/web/1.0/calendar/setoption"
 # 生活事件類型：會改變檔案位置或內容的才處理，瀏覽、星標、標籤等略過
 LIFE_UPLOAD_IMAGE, LIFE_UPLOAD, LIFE_MOVE_IMAGE, LIFE_MOVE = 1, 2, 5, 6
@@ -93,17 +99,46 @@ LOGIN_WORDS = ("请重新登录", "请重新登陆", "登录失效", "登陆失�
 
 class Breaker:
     """115 被限流時停下背景工作 45 分鐘，期滿自動再試；登入失效要等換 cookie 才恢復。
+    狀態存在資料庫（給了 db 的話），重新啟動後冷卻期照算。
 
     只擋同步、探測這類背景工作；播放時取直鏈照常，不因為背景工作被限流就讓人看不了片。
     """
 
-    def __init__(self, cooldown: float = BREAKER_COOLDOWN):
+    def __init__(self, cooldown: float = BREAKER_COOLDOWN, db: Optional[Database] = None):
         self.cooldown = cooldown
         self.tripped_at: Optional[float] = None
         self.recovered_at: Optional[float] = None  # 冷卻期滿的時間；之後一小時背景工作先放慢
         self.reason = ""
         self.login_bad = False
         self._lock = threading.Lock()
+        self._db = db
+        self._load()
+
+    def _load(self) -> None:
+        """啟動時接上上次的狀態：冷卻期還沒過就繼續停著，不然一重新啟動背景工作馬上又去打 115。"""
+        if self._db is None:
+            return
+        try:
+            saved = json.loads(self._db.get_meta(BREAKER_META_KEY) or "{}")
+        except ValueError:
+            return
+        if not isinstance(saved, dict):
+            return
+        self.tripped_at = saved.get("tripped_at") or None
+        self.recovered_at = saved.get("recovered_at") or None
+        self.reason = str(saved.get("reason") or "")
+        self.login_bad = bool(saved.get("login_bad"))
+
+    def _save(self) -> None:
+        """狀態變了就存（呼叫的人拿著 _lock）。存不進去只記警告：熔斷本身照常作用，只是重新啟動後記不得。"""
+        if self._db is None:
+            return
+        try:
+            self._db.set_meta(BREAKER_META_KEY, json.dumps({
+                "tripped_at": self.tripped_at, "recovered_at": self.recovered_at, "reason": self.reason,
+                "login_bad": self.login_bad}, ensure_ascii=False))
+        except Exception:
+            log.warning("115 熔斷狀態存不進資料庫", exc_info=True)
 
     def trip(self, reason: str, login: bool = False) -> None:
         with self._lock:
@@ -112,10 +147,12 @@ class Breaker:
             self.tripped_at = time.time()
             self.reason = reason[:200]
             self.login_bad = self.login_bad or login
+            self._save()
 
     def reset(self) -> None:
         with self._lock:
             self.tripped_at, self.reason, self.login_bad = None, "", False
+            self._save()
 
     @property
     def tripped(self) -> bool:
@@ -126,8 +163,10 @@ class Breaker:
                 return True
             if time.time() - self.tripped_at > self.cooldown:
                 log.warning("115 熔斷冷卻期滿，恢復背景工作（先放慢）：%s", self.reason)
+                # 記冷卻期滿的那一刻，不是現在：停機好幾天之後才啟動的，不必再放慢一小時
+                self.recovered_at = self.tripped_at + self.cooldown
                 self.tripped_at, self.reason = None, ""
-                self.recovered_at = time.time()
+                self._save()
                 return False
             return True
 
@@ -213,13 +252,14 @@ class P115Service:
         open_app_id: str = "",
     ):
         self.db = db
-        self.breaker = Breaker()
+        self.breaker = Breaker(db=db)
         self.open = P115OpenClient(db, open_app_id, timeout, transport=transport)
         self.app = app
         self._client = GuardedClient(P115Error, timeout=timeout, follow_redirects=False, transport=transport)
         self._cache: Dict[Tuple[str, str], Tuple[str, float]] = {}
         self._cache_lock = threading.Lock()
         self._key_locks: Dict[Tuple[str, str], threading.Lock] = {}
+        self._bad: Dict[str, Tuple[str, float]] = {}  # 取不到直鏈的 pickcode → (115 的說明, 記到什麼時候)
         self._account_cache: Optional[Tuple[dict, float]] = None
         self.export_poll = EXPORT_POLL_SECONDS
         if initial_cookies and not self.cookies:
@@ -258,6 +298,7 @@ class P115Service:
         self.breaker.reset()  # 換了 cookie，登入失效的熔斷也跟著解除
         with self._cache_lock:
             self._cache.clear()
+            self._bad.clear()  # 換了帳號，之前取不到的現在可能取得到
 
     def logout(self) -> None:
         self.set_cookies("")
@@ -830,6 +871,7 @@ class P115Service:
         cached = self._cached(key)
         if cached:
             return cached
+        self._check_bad(pickcode)
         with self._cache_lock:
             lock = self._key_locks.setdefault(key, threading.Lock())
         # 同一檔案同一 UA 的並發請求只向 115 取一次
@@ -838,17 +880,38 @@ class P115Service:
             if cached:
                 return cached
             try:
+                self._check_bad(pickcode)  # 等鎖的時候，前一個請求已經問過、確定取不到
                 url = self._fetch_download_url(pickcode, user_agent)
                 expires = _expire_ts(url)
                 with self._cache_lock:
                     now = time.time()
                     self._cache = {k: v for k, v in self._cache.items() if v[1] > now}
                     self._cache[key] = (url, expires)
+            except P115Error as exc:
+                self._remember_bad(pickcode, exc)
+                raise
             finally:
                 with self._cache_lock:
                     self._key_locks.pop(key, None)
             log.info("從 115 取得直鏈：%s %s", pickcode, unquote(urlsplit(url).path.rpartition("/")[-1]))
             return url
+
+    def _check_bad(self, pickcode: str) -> None:
+        with self._cache_lock:
+            hit = self._bad.get(pickcode)
+            if hit and hit[1] > time.time():
+                raise P115Error(hit[0])
+
+    def _remember_bad(self, pickcode: str, exc: P115Error) -> None:
+        """115 明確說取不到的才記；限流、連不上、開放平台授權的問題是暫時的，不記（不然網路斷一下就一分鐘播不了）。"""
+        if not _definitive(exc):
+            return
+        now = time.time()
+        with self._cache_lock:
+            if len(self._bad) >= BAD_PICKCODE_MAX:
+                self._bad = {k: v for k, v in self._bad.items() if v[1] > now}
+            if len(self._bad) < BAD_PICKCODE_MAX:
+                self._bad[pickcode] = (str(exc), now + BAD_PICKCODE_SECONDS)
 
     def cached_download_url(self, pickcode: str, user_agent: str = "") -> Optional[str]:
         """快取裡還沒過期的直鏈（剛播過的）；沒有就回傳 None，不向 115 要。"""
@@ -868,7 +931,7 @@ class P115Service:
         resp = self._client.post(
             DOWNLOAD_API,
             data={"data": rsa_encrypt(payload).decode()},
-            headers={"User-Agent": user_agent, "Cookie": self.cookies},
+            headers={"User-Agent": header_value(user_agent), "Cookie": self.cookies},
         )
         data = self._api_json(resp)  # 播放不被熔斷擋住，但取直鏈被限流時一樣要讓背景工作停下
         if not data.get("state"):
@@ -883,6 +946,19 @@ class P115Service:
         if not url:
             raise P115Error(f"115 回傳內容沒有網址：{detail}")
         return url
+
+
+def _definitive(exc: P115Error) -> bool:
+    """115 明確回答「這個 pickcode 取不到」。限流、連不上（GuardedClient 把 httpx 的錯誤掛在 __cause__）、
+    回應看不懂、開放平台的 token 過期或授權失效都不算。"""
+    if isinstance(exc, P115Throttled):
+        return False
+    cause = exc.__cause__
+    if cause is None:
+        return True
+    if isinstance(cause, P115OpenError):
+        return cause.__cause__ is None and cause.code not in OPEN_AUTH_CODES
+    return False
 
 
 def _p115cipher_on_py310() -> None:

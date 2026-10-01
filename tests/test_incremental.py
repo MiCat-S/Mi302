@@ -263,6 +263,19 @@ def test_full_schedule_uses_last_full_time(tmp_path: Path):
     assert not sync._full_due(now + 167 * 3600)
     assert sync._full_due(now + 169 * 3600)
 
+    # 定時同步的執行緒：某一輪出了任務以外的錯（例如資料庫暫時讀不到），下一輪照常，不會從此不再同步
+    rounds = []
+
+    def due(now):
+        rounds.append(1)
+        raise RuntimeError("database is locked")
+
+    sync._full_due = due
+    sync._stop.wait = lambda seconds: len(rounds) >= 3  # 不真的等一分鐘；跑三輪就停
+    sync.start_schedule()
+    sync.workers.join(5)
+    assert len(rounds) == 3
+
 
 def test_background_sync_reports_running_immediately(tmp_path: Path):
     fake = Fake115()

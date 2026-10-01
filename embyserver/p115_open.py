@@ -17,7 +17,7 @@ from typing import Dict, Iterator, List, Optional, Tuple
 import httpx
 
 from .db import Database
-from .http_util import GuardedClient
+from .http_util import GuardedClient, header_value
 
 log = logging.getLogger(__name__)
 
@@ -178,7 +178,7 @@ class P115OpenClient:
                 OPEN_BASE + path,
                 params=params,
                 data=form,
-                headers={"Authorization": f"Bearer {token}", "User-Agent": user_agent or OPEN_UA},
+                headers={"Authorization": f"Bearer {token}", "User-Agent": header_value(user_agent or OPEN_UA)},
             )
             return self._envelope(resp)
 
