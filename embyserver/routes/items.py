@@ -598,6 +598,12 @@ def empty_list():
     return []
 
 
+@router.get("/items/{item_id}/remoteimages")
+def remote_images():
+    """遠端（TMDB 等）圖片清單：Mi302 不向外查圖，回空的。MoviePilot 收到空的會改用 /Items/{id}/Images/{類型}。"""
+    return {"Images": [], "TotalRecordCount": 0, "Providers": []}
+
+
 @router.get("/items/{item_id}/thememedia")
 def theme_media():
     empty = {"OwnerId": "0", "Items": [], "TotalRecordCount": 0}

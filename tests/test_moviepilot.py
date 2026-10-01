@@ -180,6 +180,8 @@ def test_emby_endpoints_for_moviepilot(tmp_path: Path):
     q = {"api_key": key}
     users = c.get("/Users", params=q).json()
     assert users[0]["Policy"]["IsAdministrator"] is True
+    # 儀表板算使用者數用 /Users/Query；通知找 TMDB 圖用 RemoteImages（空的就改用本機圖片）
+    assert c.get("/emby/Users/Query", params=q).json() == {"Items": users, "TotalRecordCount": 1, "StartIndex": 0}
     folders = c.get("/emby/Library/SelectableMediaFolders", params=q).json()
     assert [f["Name"] for f in folders] == ["電影", "劇集"]
     assert folders[0]["SubFolders"][0]["Path"] == str(tmp_path / "movies")
@@ -191,6 +193,7 @@ def test_emby_endpoints_for_moviepilot(tmp_path: Path):
                                           "SearchTerm": "A", "Fields": "ProviderIds,Path"}).json()["Items"]
     assert movies[0]["Name"] == "A" and movies[0]["Path"].endswith("A (2020).strm")
     assert c.post(f"/emby/Items/{movies[0]['Id']}/Refresh", params=q).status_code == 204
+    assert c.get(f"/emby/Items/{movies[0]['Id']}/RemoteImages", params=q).json()["Images"] == []
     assert c.post("/emby/Library/Media/Updated", params=q).status_code == 204
 
     c.delete(f"/web/api/apikeys/{key}", headers={"X-Emby-Token": token})

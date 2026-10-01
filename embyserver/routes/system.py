@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response, WebSoc
 from starlette.concurrency import run_in_threadpool
 
 from ..auth import AuthContext, client_info, require_admin, require_user
-from ..dto import user_dto
+from ..dto import query_result, user_dto
 from ..ratelimit import TooManyAttempts
 from .common import as_user, q, state
 
@@ -175,6 +175,13 @@ def _session_info(request: Request, user: dict, info: dict) -> dict:
 def users_list(request: Request, ctx: AuthContext = Depends(require_admin)):
     st = state(request)
     return [user_dto(u, st.server_id, st.config.server.allow_download) for u in st.auth.list_users()]
+
+
+@router.get("/users/query")
+def users_query(request: Request, ctx: AuthContext = Depends(require_admin)):
+    """和 /Users 一樣，包成 {Items, TotalRecordCount}（MoviePilot 用它算有幾個使用者）。要放在 /users/{user_id} 前面。"""
+    users = users_list(request, ctx)
+    return query_result(users, len(users))
 
 
 @router.get("/users/{user_id}")

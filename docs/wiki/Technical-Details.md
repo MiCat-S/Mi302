@@ -59,12 +59,14 @@ Paths are written in Emby's usual casing but matched case-insensitively. Everyth
 | `GET /Users/Public` | Users for the login screen (empty when `server.public_users` is off); no login |
 | `POST /Users/AuthenticateByName` | Log in with JSON or a form; the password field is `Pw` or `Password`; no login |
 | `GET /Users` | All users; admin only |
+| `GET /Users/Query` | The same list as `{Items, TotalRecordCount}` (MoviePilot counts users with it); admin only |
 | `GET /Users/{id}` | A user; only yourself unless you are an admin |
 | `POST /Sessions/Logout` | Log out and revoke the token |
 | `POST /Sessions/Capabilities`, `/Sessions/Capabilities/Full` | Accepted and ignored |
 | `GET /Sessions` | Empty list |
 | `GET, POST /DisplayPreferences/{id}` | Fixed defaults, nothing is stored; no login |
 | `GET /Users/{id}/GroupingOptions`, `/Plugins`, `/Localization/{kind}` | Empty lists; no login |
+| `GET /Items/{id}/RemoteImages` | Always empty (Mi302 does not look up remote images; MoviePilot then uses `/Items/{id}/Images/{type}`); no login |
 | WebSocket `/embywebsocket` | Only answers KeepAlive |
 
 ### Libraries and items
