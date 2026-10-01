@@ -3,10 +3,18 @@
 from __future__ import annotations
 
 import os
+import queue
 import sqlite3
 import threading
+from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Iterable, List, Optional
+from typing import Any, Iterable, Iterator, List, Optional
+
+READERS = 4  # 同時最多幾條唯讀連線（查詢多於這個數就排隊）
+# 同時最多幾個「拿整批結果」的查詢（query）。Python 把每一列轉成物件時要搶同一把 GIL，四個大查詢同時跑反而比排隊慢五倍
+# （實測 44,000 列：排隊 0.37 秒、四個同時 2 秒）；兩個同時每個只慢一些，又不會被一個慢查詢全部卡住。
+# 只拿一列的查詢（one、scalar、get_item：驗 token、查項目）不算在內，永遠有連線可用。
+BULK_READS = 2
 
 
 def make_private(path: Path | str) -> None:
@@ -263,6 +271,13 @@ class Database:
         self.conn = sqlite3.connect(self.path, check_same_thread=False)
         self.conn.row_factory = sqlite3.Row
         self.lock = threading.RLock()
+        # 讀寫分開：寫（和交易）照舊走 self.conn、拿 self.lock；查詢走另外幾條唯讀連線。WAL 模式下讀不必等寫、
+        # 也不必等別的讀，一個慢查詢不會再把所有請求卡在同一把鎖後面。記憶體資料庫（測試）只有一條連線，照舊。
+        self._readers: "queue.LifoQueue[sqlite3.Connection]" = queue.LifoQueue()
+        self._reader_conns: List[sqlite3.Connection] = []
+        self._readers_lock = threading.Lock()
+        self._closed = False
+        self._bulk = threading.BoundedSemaphore(BULK_READS)
         with self.lock:
             self.conn.execute("PRAGMA journal_mode=WAL")
             # WAL 加 NORMAL：資料庫不會壞，只是斷電可能少最後幾筆；每次 commit 不必 fsync，
@@ -290,8 +305,44 @@ class Database:
 
     def close(self) -> None:
         """程式結束時關閉連線，WAL 裡的內容併回資料庫檔。之後再查會丟 sqlite3.ProgrammingError。"""
+        with self._readers_lock:
+            self._closed = True
+            readers, self._reader_conns = self._reader_conns, []
+        for conn in readers:  # 唯讀的先關，最後一條連線（寫的）關的時候才會把 WAL 併回去
+            conn.close()
         with self.lock:
             self.conn.close()
+
+    def _open_reader(self) -> sqlite3.Connection:
+        # 路徑跳脫成 URI（資料夾名稱可能有 # 或 ?）；query_only：這幾條連線保證不會寫
+        conn = sqlite3.connect(Path(self.path).resolve().as_uri() + "?mode=ro", uri=True, check_same_thread=False)
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA busy_timeout=5000")
+        conn.execute("PRAGMA query_only=1")
+        return conn
+
+    @contextmanager
+    def _reading(self) -> Iterator[sqlite3.Connection]:
+        """借一條連線查詢。看到的是已經 commit 的資料：self.lock 裡還沒 commit 的寫入，別的查詢看不到（看到的是舊的）。"""
+        if self.path == ":memory:":
+            with self.lock:
+                yield self.conn
+            return
+        try:
+            conn = self._readers.get_nowait()
+        except queue.Empty:
+            with self._readers_lock:
+                if self._closed:
+                    raise sqlite3.ProgrammingError("Cannot operate on a closed database.")
+                conn = self._open_reader() if len(self._reader_conns) < READERS else None
+                if conn is not None:
+                    self._reader_conns.append(conn)
+            if conn is None:
+                conn = self._readers.get()  # 都借出去了：等一條還回來
+        try:
+            yield conn
+        finally:
+            self._readers.put(conn)
 
     def execute(self, sql: str, params: Iterable[Any] = ()) -> sqlite3.Cursor:
         with self.lock:
@@ -305,12 +356,15 @@ class Database:
             self.conn.commit()
 
     def query(self, sql: str, params: Iterable[Any] = ()) -> List[sqlite3.Row]:
-        with self.lock:
-            return self.conn.execute(sql, tuple(params)).fetchall()
+        with self._bulk, self._reading() as conn:
+            return conn.execute(sql, tuple(params)).fetchall()
 
     def one(self, sql: str, params: Iterable[Any] = ()) -> Optional[sqlite3.Row]:
-        with self.lock:
-            return self.conn.execute(sql, tuple(params)).fetchone()
+        with self._reading() as conn:
+            cur = conn.execute(sql, tuple(params))
+            row = cur.fetchone()
+            cur.close()  # 沒讀完的查詢會一直佔著讀取快照，WAL 就併不回去
+            return row
 
     def scalar(self, sql: str, params: Iterable[Any] = ()) -> Any:
         """只要第一列的第一個欄位（例如 COUNT(*)）；查不到任何列時回傳 None。"""

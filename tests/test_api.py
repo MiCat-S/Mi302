@@ -1,5 +1,6 @@
 """以模擬 Emby 客戶端的請求順序測試：登入 → 媒體庫 → 項目 → PlaybackInfo → 302。"""
 
+import threading
 import time
 from pathlib import Path
 from urllib.parse import unquote
@@ -383,7 +384,16 @@ def test_shutdown_closes_database_and_connections(media: Path, tmp_path: Path):
 
     app = create_app(config_from_dict({"server": {"data_dir": str(tmp_path / "data")}}), scan_on_start=False)
     with TestClient(app):
-        pass
+        # 查詢走另外的唯讀連線：寫入的交易還拿著鎖（例如找重複換整張表）時，別的執行緒照樣查得到，
+        # 看到的是還沒 commit 之前的資料。以前所有查詢都卡在這把鎖後面
+        db, got = app.state.db, []
+        with db.lock:
+            db.conn.execute("INSERT INTO meta(key, value) VALUES('k', 'v')")
+            t = threading.Thread(target=lambda: got.extend([db.get_meta("server_id"), db.get_meta("k")]))
+            t.start()
+            t.join(5)
+            db.conn.commit()
+        assert got == [app.state.server_id, None] and db.get_meta("k") == "v"
     st = app.state
     with pytest.raises(sqlite3.ProgrammingError):
         st.db.query("SELECT 1")
