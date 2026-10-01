@@ -178,6 +178,7 @@ class MoviePilot:
         self._fill_lock = threading.Lock()
         self._clock = time.monotonic  # 測試換成假的時鐘
         self._plugin_checked = (0.0, False)  # 上次問外掛的時間、有沒有裝好啟用
+        self._plugin_features: frozenset = frozenset()  # 外掛會哪些功能（1.1.0 起多了算名字 names）
         self._created_at: Optional[float] = None  # 補全缺集：上一個新訂閱建立的時間
         self._stop = threading.Event()
         self.workers = Workers(self._stop)  # 刮削、補全缺集；程式結束時停在兩項之間
@@ -299,10 +300,30 @@ class MoviePilot:
         try:
             res = self._request("GET", PLUGIN_API + "/status", timeout=10)
             ready = isinstance(res, dict) and bool(res.get("enabled"))
+            features = res.get("features") if ready and isinstance(res.get("features"), list) else []
         except MoviePilotError:
-            ready = False  # 沒裝（404）、連不上：照舊走整理
+            ready, features = False, []  # 沒裝（404）、連不上：照舊走整理
         self._plugin_checked = (now, ready)
+        self._plugin_features = frozenset(str(f) for f in features)
         return ready
+
+    def naming_plugin_ready(self) -> bool:
+        """外掛會照 MoviePilot 的規則算名字（1.1.0 起）：預覽不必跑它的整理預覽。"""
+        return self.rename_plugin_ready() and "names" in self._plugin_features
+
+    def plugin_names(self, items: List[dict], tmdbid: Optional[str], season: Optional[int], episode_format: Optional[str],
+                     mtype: Optional[str], timeout: float) -> List[dict]:
+        """請外掛照 MoviePilot 的規則算這些檔案整理後的名字（相對於媒體庫目錄），只算不改。items：[{path, fileid, size}]。
+        回傳每個要整理的檔案一筆，格式和它的整理預覽一樣（source、target、success、message、title、type、season、episode），
+        target 是相對路徑；nfo、圖片這些它整理時不管的不回。"""
+        body = {"items": items, "tmdbid": tmdbid or "", "season": season, "episode_format": episode_format or "",
+                "type": mtype or ""}
+        res = self._request("POST", PLUGIN_API + "/names", body, timeout=timeout)
+        if not (isinstance(res, dict) and res.get("success") and isinstance(res.get("items"), list)):
+            raise MoviePilotError(str((res or {}).get("message") or "Mi302 整理助手沒有算出名字"))
+        return [{"source": r.get("path"), **{k: r.get(k) for k in ("target", "success", "message", "title", "type",
+                                                                  "season", "episode")}}
+                for r in res["items"] if isinstance(r, dict) and r.get("path")]
 
     def plugin_rename(self, items: List[dict]) -> str:
         """請外掛在背景照順序改名，回傳工作 id。"""

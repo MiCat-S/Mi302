@@ -56,6 +56,7 @@ class OrganizeMP:
         self.history = set()  # 有成功整理紀錄的檔案（115 路徑）
         self.queue = False
         self.plugin = False  # 裝了 Mi302 整理助手外掛
+        self.names = True  # 外掛會算名字（1.1.0）；False 是舊版 1.0.0，"broken" 是算名字出錯
         self.renamed = []  # 外掛改過的：(type, 舊名, 新名)
 
     # ---- 辨識 ----
@@ -95,12 +96,44 @@ class OrganizeMP:
         ep = int(m.group(1))
         return f"{title} - S{season:02d}E{ep:02d} - 第 {ep} 集{ext}"
 
-    # ---- Mi302 整理助手外掛：照清單的順序在假 115 上改名 ----
+    def named(self, src, body):
+        """認片、算名字（相對於媒體庫目錄），整理預覽和外掛算名字共用。body：tmdbid／media_id、類型、季、集數定位。"""
+        tid = str(body.get("media_id") or body.get("tmdbid") or self.media_of(src) or "")
+        if not tid:
+            return {"source": src, "success": False, "target": None, "message": "未识别到媒体信息"}
+        title, year, kind = self.MEDIA[tid]
+        if "电影" in (body.get("type_name"), body.get("type")):
+            kind = "movie"
+        season = body.get("season") or self.season_of(src)
+        base = posixpath.basename(src)
+        stem, ext = posixpath.splitext(base)
+        if kind == "tv" and body.get("episode_format"):  # 照集數定位取集號
+            ep = template_episode(body["episode_format"], base)
+            stem = str(ep) if ep else "沒有"
+        name = self.file_name(tid, season, stem, ext) if kind == "tv" else f"{title} ({year}){ext}"
+        if not name:
+            return {"source": src, "success": False, "target": None, "message": "未识别到文件集数"}
+        folder = self.folder_name(tid)
+        # 和真的一樣：片名帶年份；集號照檔名解析，認成電影也一樣（檔名有 SxxEyy 就有集號）
+        ep = re.search(r"E(\d+)", name) if kind == "tv" else re.search(r"(?i)S\d+E(\d+)", base)
+        return {"source": src, "success": True, "message": "", "title": f"{title} ({year})",
+                "target": f"{folder}/Season {season}/{name}" if kind == "tv" else f"{folder}/{name}",
+                "type": "电视剧" if kind == "tv" else "电影", "season": season if kind == "tv" else None,
+                "episode": int(ep.group(1)) if ep else None}
+
+    # ---- Mi302 整理助手外掛：照清單的順序在假 115 上改名；1.1.0 起也照上面的規則算名字 ----
     def plugin_api(self, sub, body):
         if not self.plugin:
             return httpx.Response(404, json={"detail": "Not Found"})
         if sub == "status":
-            return httpx.Response(200, json={"enabled": True, "version": "1.0.0", "busy": False})
+            return httpx.Response(200, json={"enabled": True, "version": "1.1.0" if self.names else "1.0.0", "busy": False,
+                                             "features": ["rename", "names"] if self.names else ["rename"]})
+        if sub == "names":
+            if self.names == "broken":
+                return httpx.Response(200, json={"success": False, "message": "AttributeError: 改版了"})
+            items = [dict(self.named(it["path"], body), path=it["path"]) for it in body["items"]
+                     if posixpath.splitext(it["path"])[1] in (".mp4", ".mkv", ".ass")]
+            return httpx.Response(200, json={"success": True, "items": items})
         if sub == "rename":
             results = []
             for it in body["items"]:
@@ -191,35 +224,17 @@ class OrganizeMP:
             files += self.expand(int(it["fileid"])) if it["type"] == "dir" else [(int(it["fileid"]), it["path"])]
         out = []
         for fid, src in files:
-            tid = str(body.get("media_id") or self.media_of(src) or "")
-            if not tid:
-                out.append({"source": src, "success": False, "message": "未识别到媒体信息", "state": "failed"})
-                continue
-            title, year, kind = self.MEDIA[tid]
-            if body.get("type_name") == "电影":
-                kind = "movie"
-            season = body.get("season") or self.season_of(src)
-            stem, ext = posixpath.splitext(posixpath.basename(src))
-            if kind == "tv" and body.get("episode_format"):  # 照集數定位取集號
-                ep = template_episode(body["episode_format"], posixpath.basename(src))
-                stem = str(ep) if ep else "沒有"
-            name = self.file_name(tid, season, stem, ext) if kind == "tv" else f"{title} ({year}){ext}"
-            if not name:
-                out.append({"source": src, "success": False, "message": "未识别到文件集数", "state": "failed"})
+            item = self.named(src, body)
+            if not item["success"]:
+                out.append(dict(item, state="failed"))
                 continue
             # 沒給整理到哪：照它的目錄設定放進媒體庫（這裡是同步目錄外的 /媒體庫，加類型資料夾）
             dest = body.get("target_path") or "/媒體庫"
             if body.get("library_type_folder", not body.get("target_path")):
-                dest += "/電影" if kind == "movie" else "/劇集"
-            folder = f"{dest}/{self.folder_name(tid)}"
-            target = f"{folder}/Season {season}/{name}" if kind == "tv" else f"{folder}/{name}"
+                dest += "/電影" if item["type"] == "电影" else "/劇集"
             base = posixpath.basename(src)
-            target = src if base in self.same else f"/别处/{base}" if base in self.outside else target
-            # 和真的一樣：片名帶年份；集號照檔名解析，認成電影也一樣（檔名有 SxxEyy 就有集號）
-            ep = re.search(r"E(\d+)", name) if kind == "tv" else re.search(r"(?i)S\d+E(\d+)", base)
-            item = {"source": src, "target": target, "success": True, "title": f"{title} ({year})",
-                    "type": "电视剧" if kind == "tv" else "电影", "season": season if kind == "tv" else None,
-                    "episode": int(ep.group(1)) if ep else None}
+            target = src if base in self.same else f"/别处/{base}" if base in self.outside else f"{dest}/{item['target']}"
+            item["target"] = target
             if not body["preview"] and src in self.history and not body.get("reorganize"):
                 item.update(success=False, state="skipped", message=f"{base} 已整理过")
             elif not body["preview"] and self.queue:
@@ -978,3 +993,32 @@ def test_wrong_tmdbid_in_folder_name_needs_a_look(tmp_path: Path):
     unit = next(u for u in listing(c, h)["items"] if u["id"] == "d117")
     parts = {p["key"]: {"tmdbid": "9"} for p in unit["parts"]}
     assert not any("TMDB 編號" in x for x in preview(c, h, unit, parts=parts).json()["review"])
+
+
+def test_plugin_names_match_moviepilot_preview(tmp_path: Path):
+    """外掛會算名字（1.1.0）時，預覽不跑 MoviePilot 的整理預覽，改請外掛照它的規則算：結果要和它的預覽一模一樣
+    （改名、整理都照這份結果做，不一樣就會改錯）。舊版外掛、外掛算不出來時改用它的預覽。"""
+    app, fake, mp, media, c, h = setup(tmp_path)
+    check(app, c, h)
+    mp.plugin = True
+    units = {u["id"]: u for u in listing(c, h)["items"]}
+
+    def run(unit, names):
+        mp.names = names
+        app.state.moviepilot._plugin_checked = (0.0, False)
+        mp.calls.clear()
+        pv = preview(c, h, unit).json()
+        return pv, [b for p_, b in mp.calls if p_ == "/api/v1/transfer/manual"]
+
+    def key(pv):
+        return sorted((i["source"], i["target"], i["ok"], i["skip"], i["title"], i["episode"]) for i in pv["items"])
+
+    # 凡人修仙传：子資料夾（整個送）加上直接放著的影片；斗破苍穹：有一支認不出集號
+    for uid in ("d110", "d114"):
+        old, sent_old = run(units[uid], False)
+        new, sent_new = run(units[uid], True)
+        assert sent_old and not sent_new
+        assert key(new) == key(old) and new["review"] == old["review"] and bool(new["token"]) == bool(old["token"])
+        assert any(n.startswith("新名字由 MoviePilot 的「Mi302 整理助手」") for n in new["notes"])
+        broken, sent = run(units[uid], "broken")
+        assert sent and key(broken) == key(old) and any("算名字失敗" in n for n in broken["notes"])

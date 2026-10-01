@@ -527,7 +527,7 @@ dialog .card-b{max-height:70vh;overflow:auto}
             <label class="field maxw320"><span>全部整理時，一次要送超過幾支影片的先不整理</span><input id="ogMaxV" type="number" min="0" step="50" onchange="organizeMaxV()">
               <small>整季或整個資料夾一次送給 MoviePilot，幾千支會吃光它的記憶體；0 = 不限。標了「先不整理」的也跳過</small></label>
             <label class="switch"><input type="checkbox" id="ogClean" checked><span class="track"></span><span class="lbl">整理完後，沒有影片留下的舊資料夾移到 115 回收站<small>裡面剩下的 nfo、圖片一起移走；整理失敗或目標已有同一集的影片會留在原處，那個資料夾就保留</small></span></label>
-            <label class="switch"><input type="checkbox" data-key="moviepilot.rename_plugin" onchange="saveToggle(this)"><span class="track"></span><span class="lbl">只需要改名的，交給 MoviePilot 的「Mi302 整理助手」外掛<small>資料夾結構已經對、只是名字不照格式時，用 MoviePilot 的 115 授權直接改名，一個檔案一個請求，比整理流程快很多。要先在 MoviePilot 裝好、啟用外掛；沒裝時照舊走整理。 <a class="doc" href="https://github.com/MiCat-S/Mi302/wiki/MoviePilot-整合#mi302-整理助手外掛" target="_blank" rel="noopener">怎麼裝</a></small></span></label>
+            <label class="switch"><input type="checkbox" data-key="moviepilot.rename_plugin" onchange="saveToggle(this)"><span class="track"></span><span class="lbl">用 MoviePilot 的「Mi302 整理助手」外掛算名字、改名<small>預覽時請它照 MoviePilot 的規則算新名字（幾百集幾秒，不必跑它的整理預覽）；資料夾結構已經對、只是名字不照格式的，再用 MoviePilot 的 115 授權直接改名，比整理流程快很多。要先在 MoviePilot 裝好、啟用外掛；沒裝時照舊走它的整理預覽和整理。 <a class="doc" href="https://github.com/MiCat-S/Mi302/wiki/MoviePilot-整合#mi302-整理助手外掛" target="_blank" rel="noopener">怎麼裝</a></small></span></label>
           </div>
           <div id="ogPinned" class="list"></div>
           <div id="ogList" class="list"></div>

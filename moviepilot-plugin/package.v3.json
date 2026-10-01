@@ -1,8 +1,8 @@
 {
   "Mi302Organizer": {
     "name": "Mi302 整理助手",
-    "description": "讓 Mi302 用 MoviePilot 的 115 授權直接批次改名：資料夾結構已經對、只是名字不照格式時，一個檔案只要一個請求，比整理流程快很多。",
-    "version": "1.0.0",
+    "description": "讓 Mi302 照 MoviePilot 自己的規則算新名字（幾百集幾秒），資料夾結構已經對、只是名字不照格式時，再用它的 115 授權直接批次改名，比整理流程快很多。",
+    "version": "1.1.0",
     "icon": "https://raw.githubusercontent.com/MiCat-S/Mi302/main/embyserver/web/icon-192.png",
     "author": "MiCat-S",
     "level": 1,

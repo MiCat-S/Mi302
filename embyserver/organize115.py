@@ -800,11 +800,7 @@ class Organizer:
             if not fileitems:
                 notes.append(f"「{part.label}」在 115 上找不到影片，這次不送（先同步一次）")
                 continue
-            try:
-                results = self.mp.transfer(fileitems, o["tmdbid"] or None, o["season"], o["format"] or None, scrape, dest,
-                                           preview=True, mtype=o["type_name"], timeout=PREVIEW_TIMEOUT, single=single)
-            except MoviePilotError as exc:
-                raise OrganizeError(f"MoviePilot 預覽失敗：{exc}")
+            results = self._preview_results(unit, part, o, fileitems, single, dest, scrape, listings, notes)
             views = [_view(r, part, roots, tgt.overwrite) for r in results]
             _mark_duplicates(views)
             self._mark_existing(views, part, tgt.overwrite, listings, notes, review)
@@ -847,6 +843,51 @@ class Organizer:
         review[:0] = identity
         return {"token": token, "items": items, "notes": notes, "folders": folders, "parts": parts, "target": target,
                 "summary": summary, "review": review}
+
+    def _preview_results(self, unit: Unit, part: Part, o: dict, fileitems: List[dict], single: bool, dest: Optional[str],
+                         scrape: bool, listings: Dict[str, List[dict]], notes: List[str]) -> List[dict]:
+        """這一部分每個檔案整理後叫什麼、放哪裡（格式和 MoviePilot 的整理預覽一樣）。整理到哪裡已經定了、外掛會算名字時，
+        請 Mi302 整理助手照 MoviePilot 的規則算（同一批函式，名字和它整理的一樣；幾百集幾秒，不必跑它整套整理預覽）；
+        不然、或外掛出錯，跑它的整理預覽。"""
+        if dest and self.mp.naming_plugin_ready():
+            try:
+                files = self._part_files(part, listings)
+                results = self.mp.plugin_names(files, o["tmdbid"] or None, o["season"], o["format"] or None,
+                                               o["type_name"], timeout=PREVIEW_TIMEOUT)
+                if NAMED_NOTE not in notes:
+                    notes.append(NAMED_NOTE)
+                base = dest.rstrip("/")
+                return [dict(r, target=f"{base}/{r['target']}" if r.get("target") else None) for r in results]
+            except (MoviePilotError, P115Error) as exc:
+                notes.append(f"「{part.label}」Mi302 整理助手算名字失敗（{exc}），改用 MoviePilot 的整理預覽")
+        try:
+            return self.mp.transfer(fileitems, o["tmdbid"] or None, o["season"], o["format"] or None, scrape, dest,
+                                    preview=True, mtype=o["type_name"], timeout=PREVIEW_TIMEOUT, single=single)
+        except MoviePilotError as exc:
+            raise OrganizeError(f"MoviePilot 預覽失敗：{exc}")
+
+    def _part_files(self, part: Part, listings: Dict[str, List[dict]]) -> List[dict]:
+        """這一部分要算名字的檔案，和送給 MoviePilot 整理的一樣：整個資料夾的話連子資料夾裡的都算；直接放著的影片
+        只算這幾支，和旁邊以它的檔名開頭的字幕、音軌（它整理一支影片時會一起帶走）。不是影片、字幕、音軌的外掛會略過。"""
+        if part.loose:
+            stems = set(part.stems)
+            return [self._name_item(part.remote, e) for e in self._listing(part.remote, part.cid, listings)
+                    if not e["is_dir"] and (_stem(e["name"]) in stems and _is_video(e["name"])
+                                            or any(e["name"].startswith(s + ".") for s in stems))]
+        out: List[dict] = []
+        todo = [(part.remote.rstrip("/"), part.cid)]
+        while todo:
+            folder, cid = todo.pop()
+            for e in self._listing(folder, cid, listings):
+                if e["is_dir"]:
+                    todo.append((f"{folder}/{e['name']}", int(e["id"])))
+                else:
+                    out.append(self._name_item(folder, e))
+        return out
+
+    @staticmethod
+    def _name_item(folder: str, e: dict) -> dict:
+        return {"path": f"{folder.rstrip('/')}/{e['name']}", "fileid": str(e["id"]), "size": int(e.get("size") or 0)}
 
     def _rename_batches(self, unit: Unit, items: List[dict], listings: Dict[str, List[dict]], notes: List[str],
                         batches: List[dict]) -> List[dict]:
@@ -1232,6 +1273,7 @@ def _override(o: dict) -> dict:
 
 SKIP_LABELS = {"same": "已經照格式命名", "outside": "會搬出同步目錄", "latest": "在同一個資料夾裡改名、覆蓋模式是「保留最新」",
                "exists": "目標已經有同名檔案（多半是重複的）"}
+NAMED_NOTE = "新名字由 MoviePilot 的「Mi302 整理助手」照它的整理規則算（和它整理的名字一樣，不必跑它的整理預覽）"
 VAGUE_FAILURE = "整理任务处理失败"  # MoviePilot 預覽時對不上目錄設定、算不出計畫都只說這句，原因只寫在它的日誌
 
 

@@ -1,12 +1,17 @@
-"""Mi302 整理助手：讓 Mi302 用 MoviePilot 自己的 115 授權直接批次改名。
+"""Mi302 整理助手：讓 Mi302 照 MoviePilot 自己的規則算新名字，再用它的 115 授權直接批次改名。
 
 MoviePilot 的手動整理一個檔案要查來源、查目標、移動、再查、改名，大約 7～8 個開放平台請求；資料夾結構已經對、
 只是名字不照格式時，其實每個檔案、資料夾改一次名就好（POST /open/ufile/update，一個請求）。Mi302 照
 MoviePilot 預覽算好的新名字，把要改的清單送過來，這裡在背景照順序一個一個改，用的是 MoviePilot 的 115 存儲，
 限速（每秒 3 個請求）和 429 冷卻都和它共用。
 
+MoviePilot 的整理預覽一個檔案要一兩秒（認片、抓圖、比對目錄設定都跑一遍），幾百集的資料夾要好幾分鐘、還吃記憶體；
+/names 只呼叫它算名字的那幾個函式（見 naming.py），同一部片只認一次，幾百集幾秒就好，名字和它整理的一模一樣。
+
 介面（掛在 /api/v1/plugin/Mi302Organizer 底下，用 MoviePilot 的登入 token 或 API 令牌）：
-- GET  /status：有沒有開、是否正在改
+- GET  /status：有沒有開、是否正在改、會哪些功能（features）
+- POST /names：{"items": [{"path", "fileid"?, "size"?}], "tmdbid"?, "type"?（电视剧／电影）, "season"?,
+  "episode_format"?}，照它的規則算每個檔案整理後的名字（相對於媒體庫目錄）；只算，不改
 - POST /rename：{"items": [{"fileid", "name", "old"?, "path"?, "type"?}]}，回傳工作 id；照清單的順序改
 - GET  /job?id=：進度和每一項的結果
 - POST /cancel?id=：做完手上這一項就停
@@ -32,7 +37,7 @@ class Mi302Organizer(_PluginBase):
     plugin_name = "Mi302 整理助手"
     plugin_desc = "讓 Mi302 用 MoviePilot 的 115 授權直接批次改名，比整理流程快很多。"
     plugin_icon = "https://raw.githubusercontent.com/MiCat-S/Mi302/main/embyserver/web/icon-192.png"
-    plugin_version = "1.0.0"
+    plugin_version = "1.1.0"
     plugin_author = "MiCat-S"
     author_url = "https://github.com/MiCat-S/Mi302"
     plugin_order = 99
@@ -64,6 +69,8 @@ class Mi302Organizer(_PluginBase):
         return [
             {"path": "/status", "endpoint": self.api_status, "auth": "bear", "methods": ["GET"],
              "summary": "Mi302 整理助手的狀態"},
+            {"path": "/names", "endpoint": self.api_names, "auth": "bear", "methods": ["POST"],
+             "summary": "照 MoviePilot 的整理規則算新名字（只算，不改）"},
             {"path": "/rename", "endpoint": self.api_rename, "auth": "bear", "methods": ["POST"],
              "summary": "在背景照順序批次改名 115 上的檔案、資料夾"},
             {"path": "/job", "endpoint": self.api_job, "auth": "bear", "methods": ["GET"],
@@ -84,8 +91,9 @@ class Mi302Organizer(_PluginBase):
                     {"component": "VCol", "props": {"cols": 12}, "content": [
                         {"component": "VAlert", "props": {
                             "type": "info", "variant": "tonal",
-                            "text": "給 Mi302 用：Mi302「整理 115 網盤」時，只需要改名的資料夾會交給這裡用 MoviePilot 的 115 授權"
-                                    "直接改名，不走整理流程。這裡不會自己去改任何東西。"}},
+                            "text": "給 Mi302 用：Mi302「整理 115 網盤」預覽時請這裡照 MoviePilot 的規則算新名字，"
+                                    "只需要改名的資料夾再交給這裡用 MoviePilot 的 115 授權直接改名，不走整理流程。"
+                                    "這裡不會自己去改任何東西。"}},
                     ]},
                 ]},
             ]},
@@ -100,7 +108,29 @@ class Mi302Organizer(_PluginBase):
     # ---------------- HTTP 介面 ----------------
 
     def api_status(self) -> Dict[str, Any]:
-        return {"enabled": self._enabled, "version": self.plugin_version, "busy": self._lock.locked()}
+        return {"enabled": self._enabled, "version": self.plugin_version, "busy": self._lock.locked(),
+                "features": ["rename", "names"]}
+
+    def api_names(self, payload: dict = Body(...)) -> Dict[str, Any]:
+        if not self._enabled:
+            return {"success": False, "message": "Mi302 整理助手沒有啟用"}
+        items = payload.get("items") if isinstance(payload, dict) else None
+        if not isinstance(items, list) or not items:
+            return {"success": False, "message": "沒有要算名字的檔案"}
+        if len(items) > MAX_ITEMS:
+            return {"success": False, "message": f"一次最多 {MAX_ITEMS} 個檔案"}
+        if any("/BDMV/" in str((it or {}).get("path") or "") for it in items):
+            return {"success": False, "message": "藍光原碟要整個資料夾交給 MoviePilot 整理"}
+        started = time.time()
+        try:
+            from .naming import Namer
+
+            results = Namer(payload).run(items)
+        except Exception as exc:  # MoviePilot 改版、函式換了：Mi302 會改用它的整理預覽
+            logger.error(f"Mi302 整理助手：算名字出錯：{exc}")
+            return {"success": False, "message": f"{type(exc).__name__}: {exc}"}
+        logger.info(f"Mi302 整理助手：算了 {len(results)} 個檔案的名字，用了 {time.time() - started:.1f} 秒")
+        return {"success": True, "items": results}
 
     def api_rename(self, payload: dict = Body(...)) -> Dict[str, Any]:
         if not self._enabled:

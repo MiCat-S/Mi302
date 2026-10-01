@@ -200,14 +200,16 @@ Many folders in **Organise 115** (整理 115 網盤) already have the right stru
 
 `moviepilot-plugin/` in the Mi302 repository is a MoviePilot V3 plugin, **Mi302 整理助手** (Mi302 Organizer). Once it is installed and enabled, Mi302 hands it the rename list for folders whose preview shows they only need renaming; it renames them with MoviePilot's own 115 authorisation, one request per file, sharing MoviePilot's rate limit and its cool-down when 115 rate-limits. Anything that has to move elsewhere, gain a season folder or merge into an existing folder still goes through MoviePilot's organise flow.
 
+From 1.1.0 the plugin also **works out names**. When the destination is already settled (the folder is already in a library folder, or **Same level** or a chosen folder is used), Mi302 sends it the file list of each part, and it calls the same MoviePilot functions MoviePilot uses to name files (parse the file name, recognise by TMDB id, keep the title from the organise history, fetch the season's episodes, apply the rename format, add the language tag to subtitles). The names are identical to what MoviePilot would produce, without running its whole organise preview (no artwork, no directory matching), and each title is recognised once. A folder with hundreds of episodes takes seconds instead of minutes, and MoviePilot no longer uses gigabytes of memory for previews. Files it cannot organise get clearer reasons (such as 未识别到文件集数, "no episode number", instead of only 整理任务处理失败). With an older plugin, or if naming fails, that part falls back to MoviePilot's organise preview and the preview says so; when MoviePilot picks the directory itself its preview is used as before. Anything that has to move is still organised by MoviePilot, which produces the same names as the preview.
+
 Installing (MoviePilot V3):
 
 1. Make the `moviepilot-plugin` folder visible to MoviePilot. On the same machine as Mi302 it is `moviepilot-plugin` inside the Mi302 install directory, for example `/root/Mi302/moviepilot-plugin`; otherwise copy the folder over.
 2. Add `PLUGIN_LOCAL_REPO_PATHS=/root/Mi302/moviepilot-plugin` (your path) to `app.env` in MoviePilot's config directory and restart MoviePilot. The path must exist, or MoviePilot fails to load any plugin at start-up.
 3. **Mi302 整理助手** appears in MoviePilot's plugin market. Install it, turn on **Enable** (啟用) and save.
-4. Keep **Hand rename-only folders to MoviePilot's Mi302 Organizer plugin** (只需要改名的，交給 MoviePilot 的「Mi302 整理助手」外掛) on the **Organise 115** card (on by default). Previews of rename-only folders then say so (只需要改名…).
+4. Keep **Use MoviePilot's Mi302 Organizer plugin for names and renames** (用 MoviePilot 的「Mi302 整理助手」外掛算名字、改名) on the **Organise 115** card (on by default). Previews of rename-only folders then say so (只需要改名…).
 
-When an update of Mi302 brings a new plugin version, update or reinstall it from MoviePilot's plugin market.
+When an update of Mi302 brings a new plugin version, update or reinstall it from MoviePilot's plugin market (for example only 1.1.0 works out names; until it is updated Mi302 keeps using MoviePilot's organise preview).
 
 Details:
 
