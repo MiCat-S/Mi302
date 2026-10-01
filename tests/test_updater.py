@@ -180,6 +180,13 @@ def test_server_api(tmp_path: Path, monkeypatch):
     assert c.post("/web/api/server/restart", headers=h).status_code == 200 and done.wait(5)
     app.state.scanner.scanning = True
     assert c.get("/web/api/server", headers=h).json()["busy"] == ["媒體庫掃描"]
+    # 全部整理、檢查、取消訂閱、strm 改寫、查中文名重新啟動也會中斷，確認框要列出來
+    app.state.scanner.scanning = False
+    app.state.organizer.batch.running = app.state.organizer.job.running = True
+    app.state.moviepilot.unsubscribe_result.running = app.state.strm_sync.rewrite_result.running = True
+    app.state.person_names.running = True
+    assert c.get("/web/api/server", headers=h).json()["busy"] == [
+        "strm 改寫", "取消訂閱", "全部整理", "問 MoviePilot 檢查", "查中文名"]
 
 
 def test_last_check_survives_restart(repos):
