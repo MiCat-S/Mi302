@@ -337,7 +337,8 @@ class Scanner:
         self._custom_lock = threading.RLock()
         self.workers = Workers()  # 背景掃描（開機、網頁、設定改了）；程式結束或按了停止時停在兩項之間，不刪沒掃到的
         self.stopped = False  # 上一次掃描是按了停止才停下的
-        self._cancelled_at = float("-inf")  # 上次按停止的時間（monotonic）：那之前就在排隊的掃描也不做
+        self._cancelled_at = float("-inf")  # 上次按停止的時間（monotonic）：那之前就在排隊的整庫掃描也不做
+        self._full_asked_at = float("-inf")  # 最近一次要求全部重新掃描的時間（排隊時被併掉的也算）
         self.last: dict = {}  # 上一次掃描：what、finished、touched、stopped（網頁顯示用）
 
     def in_background(self, job, *args) -> None:
@@ -443,7 +444,8 @@ class Scanner:
         return True
 
     def _queued_and_stopped(self, queued_at: float) -> bool:
-        """這次掃描排隊等鎖的時候按了停止：停止是停這一串（開機、同步後、設定改了排在後面的），不做了。"""
+        """這次整庫掃描排隊等鎖的時候按了停止：停止是停這一串（開機、設定改了排在後面的），不做了。
+        只掃變動地方的（scan_paths：同步後、刪除後）不在這裡擋：那些路徑之後不會再有人掃，丟掉就一直不對。"""
         if self._cancelled_at < queued_at:
             return False
         self.stopped = True
@@ -497,13 +499,14 @@ class Scanner:
     def scan_all(self) -> None:
         """掃描全部媒體庫。已經有一次在排隊時不重複排。"""
         if self._full_waiting:
+            self._full_asked_at = time.monotonic()  # 併進排隊的那一次：按停止之後才要求的，它就不能被停止丟掉
             log.info("已經有一次完整掃描在排隊，略過")
             return
         self._full_waiting = True
         queued_at = time.monotonic()
         with self._lock:
             self._full_waiting = False
-            if self._queued_and_stopped(queued_at):
+            if self._queued_and_stopped(max(queued_at, self._full_asked_at)):
                 return
             self._begin("全部媒體庫")
             try:
@@ -521,12 +524,13 @@ class Scanner:
             finally:
                 self._end()
 
-    def scan_libraries(self, names: Iterable[str]) -> None:
-        """只掃描指定的媒體庫，並移除設定裡已經沒有的媒體庫。"""
+    def scan_libraries(self, names: Iterable[str], skip_if_stopped: bool = True) -> None:
+        """只掃描指定的媒體庫，並移除設定裡已經沒有的媒體庫。skip_if_stopped=False：排隊時按了停止也照做
+        （scan_paths 變動太多改成整庫掃時）。"""
         wanted = set(names)
         queued_at = time.monotonic()
         with self._lock:
-            if self._queued_and_stopped(queued_at):
+            if skip_if_stopped and self._queued_and_stopped(queued_at):
                 return
             self._begin("、".join(sorted(wanted)) or "媒體庫")
             try:
@@ -574,12 +578,9 @@ class Scanner:
             return
         if len(units) > MAX_PARTIAL_UNITS:
             # 變動太多（例如第一次全量同步），逐一處理不如整庫掃
-            self.scan_libraries({lib.name for lib, *_ in units})
+            self.scan_libraries({lib.name for lib, *_ in units}, skip_if_stopped=False)
             return
-        queued_at = time.monotonic()
         with self._lock:
-            if self._queued_and_stopped(queued_at):
-                return
             self._begin(units[0][2].name if len(units) == 1 else f"{len(units)} 個位置")
             try:
                 self.workers.check()

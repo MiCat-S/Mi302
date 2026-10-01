@@ -145,7 +145,7 @@ On the **Libraries** tab you can:
 
 While a scan runs, the top of the page shows "掃描中" (scanning), a percentage and the title being processed. The first scan does not know the total yet and shows a sliding progress bar instead. Only one scan runs at a time; others wait in line.
 
-**Stop** (停止) ends a running scan between two items. Items not reached are not removed from the library; the next scan picks them up. Scans already waiting behind it (for example after a sync or a settings change) are cancelled too; scans started afterwards run as usual. When no scan is running, the progress bar's place shows what the last scan covered, how many items it processed and whether it was stopped.
+**Stop** (停止) ends a running scan between two items. Items not reached are not removed from the library; the next scan picks them up. Whole-library scans already waiting behind it (for example at startup or after a settings change) are cancelled too, and scans you start after stopping run as usual. Scans of just the changed places after a sync or a delete still run, because nothing else would rescan those places later. When no scan is running, the progress bar's place shows what the last scan covered, how many items it processed and whether it was stopped.
 
 ### Automatic scans
 

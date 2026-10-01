@@ -85,6 +85,30 @@ def test_stopped_scan_keeps_items(tmp_path: Path):
     first.join(5)
     queued.join(5)
     assert sc.stopped and (sc.last["what"], sc.last["stopped"]) == ("全部媒體庫", True)  # 排隊的那次沒掃
+
+    def stop_while_queued(queue):  # 掃描進行中、另一個在排隊時按停止
+        gate.clear(), started.clear(), sc._lock.waiting.clear()
+        first = threading.Thread(target=sc.scan_all)
+        first.start()
+        assert started.wait(5)
+        queued = threading.Thread(target=queue)
+        queued.start()
+        assert sc._lock.waiting.wait(5) and sc.cancel()
+        return first, queued
+
+    # 只掃變動地方的（同步後、刪除後）照做：那些路徑之後不會再有人掃，丟掉就一直不在媒體庫裡
+    new = tmp_path / "movies" / "C (2003)" / "C (2003).strm"
+    touch(new, "http://x/c.mkv")
+    first, queued = stop_while_queued(lambda: sc.scan_paths([str(new)]))
+    gate.set()
+    first.join(5), queued.join(5)
+    assert db.one("SELECT COUNT(*) AS c FROM items WHERE type='Movie' AND name='C'")["c"] == 1
+    # 排隊中的全部重新掃描被停止丟掉，但停止之後又按的那一次（排隊時併進去了）照樣做
+    first, queued = stop_while_queued(sc.scan_all)
+    sc.scan_all()  # 已經有一次在排隊：併進去，馬上回來
+    gate.set()
+    first.join(5), queued.join(5)
+    assert not sc.stopped and (sc.last["what"], sc.last["stopped"]) == ("全部媒體庫", False)
     sc._scan_library = real
     sc.scan_all()  # 停止之後新開始的照常掃
     assert not sc.stopped
