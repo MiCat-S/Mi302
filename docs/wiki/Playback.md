@@ -181,7 +181,7 @@ In the player, add a WebDAV source with the server `http://<host>:8096/dav/` (or
 - **VidHub**: add a cloud drive → WebDAV.
 - **Kodi**: add video source → Browse → Add network location → protocol WebDAV server (HTTP).
 
-Folder listings come from 115 live; the same folder is not asked again within 2 minutes. A player indexing a whole folder for the first time (Infuse's library, for example) asks many times, so the smaller the exposed folder, the less likely 115 rate-limits you. If it does, Mi302's circuit breaker trips and listings fail for a while; playback keeps working. WebDAV has none of Mi302's watch history, intro skipping or media info; those need the Emby sign-in.
+Folder listings come from 115 live; the same folder is not asked again within 2 minutes. A player indexing a whole folder for the first time (Infuse's library, for example) asks many times, so the smaller the exposed folder, the less likely 115 rate-limits you. If it does, Mi302's circuit breaker trips and listings fail for a while; playback keeps working. WebDAV has none of Mi302's watch history, intro skipping or media info; those need the Emby sign-in. After a folder is moved out of the exposed scope on 115, its old path (and the files under it) stops working within 2 minutes.
 
 From outside your network, go through an HTTPS reverse proxy: HTTP Basic only encodes the password, it does not encrypt it.
 

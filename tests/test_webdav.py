@@ -32,6 +32,7 @@ def make(tmp_path: Path, **webdav):
     svc = P115Service(Database(":memory:"), initial_cookies="UID=1", transport=httpx.MockTransport(fake.handler))
     svc.download_url = lambda pc, ua="": f"https://cdn.115.test/{pc}?ua={ua}"
     app.state.webdav.p115 = svc
+    app.state.fake115 = fake
     return app, TestClient(app)
 
 
@@ -69,6 +70,21 @@ def test_only_sync_folders_are_visible(tmp_path):
     for path in ("/dav/影視/劇集/", "/dav/影視/劇集/Dark/Dark.S01E01.mkv", "/dav/影視/電影/%2e%2e/劇集/"):
         assert c.request("PROPFIND", path, headers=ADMIN).status_code == 404, path
         assert c.get(path, headers=ADMIN, follow_redirects=False).status_code == 404, path
+
+
+def test_folder_moved_out_is_not_reachable_by_cached_id(tmp_path, monkeypatch):
+    """在 115 上把資料夾移出露出範圍：清單快取過期後，舊路徑和它底下的檔案都找不到，不靠記住的 id 繼續列。"""
+    import embyserver.webdav as dav
+
+    app, c = make(tmp_path, root="/影視/劇集")
+    fake = app.state.fake115
+    assert c.get("/dav/影視/劇集/Dark/Dark.S01E01.mkv", headers=ADMIN, follow_redirects=False).status_code == 302
+    fake.dirs[103] = ("Dark", 100)  # 移到 /影視（露出範圍外）
+    now = [dav.time.time() + dav.LIST_TTL + 1]
+    monkeypatch.setattr(dav.time, "time", lambda: now[0])
+    assert c.get("/dav/影視/劇集/Dark/Dark.S01E01.mkv", headers=ADMIN, follow_redirects=False).status_code == 404
+    assert c.request("PROPFIND", "/dav/影視/劇集/Dark/", headers=ADMIN).status_code == 404
+    assert c.request("PROPFIND", "/dav/影視/劇集/", headers=ADMIN).status_code == 207
 
 
 def test_play_redirects_and_writes_are_refused(tmp_path):

@@ -3,6 +3,8 @@
 - 路徑就是 115 上的完整路徑：/dav/影視/電影/xxx.mkv 是 115 的 /影視/電影/xxx.mkv。
 - 只露出 webdav.root（空的 = 同步任務的 115 目錄）底下；它們的上層資料夾只列出通往它們的那一層（虛擬的）。
 - 列目錄向 115 請求，每個資料夾的內容快取 2 分鐘；子資料夾的 id 從上一層的清單拿，不必每層都查路徑。
+  記住的 id 也只算 2 分鐘，上一層重新列時不見了的子資料夾連同底下的 id 一起忘掉：在 115 上被移出露出範圍的資料夾，
+  舊路徑最多 2 分鐘就找不到，不會靠記住的 id 繼續列它裡面的東西。
   同步索引沒有檔案大小和 pickcode，所以不能只查本機。
 - 播放和 strm 一樣：用播放器自己的 User-Agent 向 115 取直鏈，302 過去（115 的直鏈綁 UA）。
 - 登入用 HTTP Basic（Mi302 的帳號密碼）。密碼雜湊算一次要約 0.1 秒，播放器每個請求都帶，驗過的記 5 分鐘。
@@ -26,7 +28,8 @@ from .p115 import P115Error, P115NotFound
 from .strm_sync import remote_root
 
 LIST_TTL = 120  # 資料夾內容快取幾秒
-ID_TTL = 600  # 路徑 → 資料夾 id 記幾秒（115 上改名、刪掉後重建的，最多這麼久會對上）
+# 路徑 → 資料夾 id 記幾秒：不能比上一層的清單久，否則移出露出範圍的資料夾，舊路徑還能靠記住的 id 列下去
+ID_TTL = LIST_TTL
 ID_LIMIT = 20000
 AUTH_TTL = 300  # 驗過的帳號密碼記幾秒
 PREFIX = "/dav"
@@ -123,6 +126,11 @@ class WebDAV:
             self._lists[cid] = (now, entries)
             if len(self._ids) > ID_LIMIT:
                 self._ids = {k: v for k, v in self._ids.items() if now - v[0] < ID_TTL}
+            here = {posixpath.join(path, e["name"]) for e in entries if e["is_dir"]}
+            prefix = path.rstrip("/") + "/"
+            gone = [k for k in self._ids if k.startswith(prefix) and "/" not in k[len(prefix):] and k not in here]
+            if gone:  # 不在這一層了（改名、搬走、刪掉）：它和底下記住的 id 都不算數
+                self._ids = {k: v for k, v in self._ids.items() if not any(_inside(k, g) for g in gone)}
             for e in entries:  # 子資料夾的 id 記下來，往下走不必每層再列一次
                 if e["is_dir"]:
                     self._ids[posixpath.join(path, e["name"])] = (now, e["id"])
