@@ -101,7 +101,7 @@ The **Users** page (使用者) lists all accounts, whether each one is an **admi
 
 - Every account can sign in from players and has its own watch history and favorites. Only administrators can sign in to the web admin page.
 - To add an account, fill in the account name and password under **Add user** (新增使用者), turn on **Administrator** (管理員) if the person should manage Mi302 too, and click **Add** (新增). The password cannot be empty.
-- Each account has **Change password** (改密碼), **Make administrator** (設為管理員) or **Remove administrator** (取消管理員), and a delete button. Deleting an account also deletes its watch history.
+- Each account has **Change password** (改密碼), **Make administrator** (設為管理員) or **Remove administrator** (取消管理員), and a delete button. Changing a password signs that account out of every player and browser, so it has to sign in again with the new password (changing your own password does not sign out the page you are using). Deleting an account also deletes its watch history.
 - At least one administrator must remain: the last administrator cannot be deleted or demoted.
 - Whether players list the account names on their login screen is set under **Settings** with **List user names on the player login screen** (播放器登入畫面列出使用者名稱). It is on by default.
 

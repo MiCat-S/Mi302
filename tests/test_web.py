@@ -89,7 +89,10 @@ def test_user_management(tmp_path: Path):
     assert c.post("/web/api/users", json={"name": "KID", "password": "k"}, headers=h).status_code == 400
     # 一般使用者不能進管理 API
     assert c.get("/web/api/users", headers=admin_headers(c, "kid", "k")).status_code == 403
+    kid = admin_headers(c, "kid", "k")
+    assert c.get(f"/Users/{uid}", headers=kid).status_code == 200
     c.put(f"/web/api/users/{uid}", json={"password": "new"}, headers=h)
+    assert c.get(f"/Users/{uid}", headers=kid).status_code == 401  # 改了密碼：舊的登入失效，要用新密碼重新登入
     assert c.post("/Users/AuthenticateByName", json={"Username": "kid", "Pw": "new"}).status_code == 200
     admin_id = next(u["id"] for u in c.get("/web/api/users", headers=h).json() if u["name"] == "admin")
     assert c.delete(f"/web/api/users/{admin_id}", headers=h).status_code == 400
@@ -98,6 +101,7 @@ def test_user_management(tmp_path: Path):
 
     # 網頁改過的密碼，重新啟動時不會被設定檔蓋回去
     c.put(f"/web/api/users/{admin_id}", json={"password": "changed"}, headers=h)
+    assert c.get("/web/api/users", headers=h).status_code == 200  # 改自己的密碼不會把自己登出
     c2 = make_client(tmp_path, {"users": [{"name": "admin", "password": "pw", "admin": True}]})
     assert c2.post("/Users/AuthenticateByName", json={"Username": "admin", "Pw": "changed"}).status_code == 200
 

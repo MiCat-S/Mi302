@@ -182,6 +182,7 @@ async def edit_user(user_id: str, request: Request, ctx: AuthContext = Depends(r
             user_id,
             password=str(body["password"]) if "password" in body else None,
             admin=bool(body["admin"]) if "admin" in body else None,
+            keep_token=ctx.token or "",
         )
     except KeyError:
         raise HTTPException(status_code=404, detail="找不到使用者")

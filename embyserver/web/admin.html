@@ -1122,7 +1122,10 @@ async function login() {
     body: JSON.stringify({Username: u.value, Pw: p.value})});
   if (!r.ok) return note($('lMsg'), '帳號或密碼錯誤', 'bad');
   const j = await r.json();
-  if (!j.User.Policy.IsAdministrator) return note($('lMsg'), '這個帳號不是管理員', 'bad');
+  if (!j.User.Policy.IsAdministrator) {  // 網頁不用一般帳號的登入，剛發的 token 收回
+    fetch('/Sessions/Logout', {method: 'POST', headers: {'X-Emby-Token': j.AccessToken}}).catch(() => {});
+    return note($('lMsg'), '這個帳號不是管理員', 'bad');
+  }
   token = j.AccessToken; localStorage.setItem('mi302', token); note($('lMsg'), ''); boot();
 }
 async function logoutWeb() { try { await api('/Sessions/Logout', {method: 'POST'}); } catch (e) {} token = ''; localStorage.removeItem('mi302'); show('login'); }

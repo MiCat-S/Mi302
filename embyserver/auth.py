@@ -168,7 +168,10 @@ class AuthService:
         )
         return self.get_user(user_id)
 
-    def update_user(self, user_id: str, password: Optional[str] = None, admin: Optional[bool] = None) -> dict:
+    def update_user(self, user_id: str, password: Optional[str] = None, admin: Optional[bool] = None,
+                    keep_token: str = "") -> dict:
+        """改密碼時這個人其他的登入（播放器、網頁）一起失效，要用新密碼重新登入；keep_token 是現在這個請求的
+        （管理員改自己的密碼時不會把自己登出）。"""
         user = self.get_user(user_id)
         if not user:
             raise KeyError(user_id)
@@ -179,6 +182,7 @@ class AuthService:
                 "UPDATE users SET password_hash=? WHERE id=?",
                 (hash_password(password) if password else "", user["id"]),
             )
+            self.db.execute("DELETE FROM tokens WHERE user_id=? AND token<>?", (user["id"], keep_token))
         if admin is not None:
             self.db.execute("UPDATE users SET is_admin=? WHERE id=?", (int(admin), user["id"]))
         return self.get_user(user["id"])
