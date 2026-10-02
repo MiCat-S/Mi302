@@ -34,7 +34,7 @@ The connection test only checks the URL and the API token. It sends an empty pat
 | API token (API 令牌) | `moviepilot.api_token` | empty | sent in the `X-API-KEY` header, not in the URL, so it stays out of proxy and MoviePilot access logs; only if it is rejected is it retried once as the `token` query parameter, for older versions that only read that |
 | Concurrent scrapes (同時刮削幾項) | `moviepilot.concurrency` | 3 | 1–8 |
 | Path mappings (路徑對應) | `moviepilot.path_mappings` | none | see the next section |
-| Send new strm files for scraping after sync (同步產生新的 strm 後自動送去刮削) | `moviepilot.scrape_after_sync` | on | when off, sync only scans |
+| Send new strm files for scraping after sync (同步產生新的 strm 後自動送去刮削) | `moviepilot.scrape_after_sync` | on | on the **Scrape** card, saved as soon as it is switched; when off, sync only scans |
 | MoviePilot username, password (MoviePilot 帳號, MoviePilot 密碼) | `moviepilot.username`, `moviepilot.password` | empty | needed to fill missing episodes and for Organise 115, and by the scrape API of older versions |
 | Fill missing episodes after full sync (全量同步後自動補全) | `moviepilot.fill_after_full_sync` | off | in the collapsed Settings section (設定) of the fill card; saved as soon as you toggle it |
 | Seconds between new subscriptions (兩個新訂閱之間隔幾秒) | `moviepilot.fill_interval` | `60` | in the collapsed Settings section (設定) of the fill card; click **Save settings** (儲存設定); 0 = no gap |

@@ -634,9 +634,9 @@ dialog .card-b{max-height:70vh;overflow:auto}
             <label class="field"><span>取直鏈間隔（秒）</span><input type="number" step="0.1" min="0.5" data-key="mediainfo.interval"><small>至少 0.5，太快會被 115 限流</small></label>
             <label class="field"><span>每小時最多幾次</span><input type="number" min="0" data-key="mediainfo.hourly_limit"><small>向 115 取直鏈的上限，0 = 不限；一次提取很多支時保護帳號</small></label>
           </div>
-          <label class="switch"><input type="checkbox" data-key="mediainfo.on_demand"><span class="track"></span><span class="lbl">打開影片時自動探測<small>播放器打開某部片或某一集時在背景探測它，不等；下次打開就有</small></span></label>
-          <label class="switch"><input type="checkbox" data-key="mediainfo.enabled"><span class="track"></span><span class="lbl">批次探測<small>開了才能在上面「挑選要提取的影片」；關閉時仍會讀現成的 X-mediainfo.json</small></span></label>
-          <label class="switch"><input type="checkbox" data-key="mediainfo.after_sync"><span class="track"></span><span class="lbl">同步產生新的 strm 後自動探測<small>要開批次探測</small></span></label>
+          <label class="switch"><input type="checkbox" data-key="mediainfo.on_demand" onchange="saveToggle(this, pollMI)"><span class="track"></span><span class="lbl">打開影片時自動探測<small>播放器打開某部片或某一集時在背景探測它，不等；下次打開就有</small></span></label>
+          <label class="switch"><input type="checkbox" data-key="mediainfo.enabled" onchange="saveToggle(this, pollMI)"><span class="track"></span><span class="lbl">批次探測<small>開了才能在上面「挑選要提取的影片」；關閉時仍會讀現成的 X-mediainfo.json</small></span></label>
+          <label class="switch"><input type="checkbox" data-key="mediainfo.after_sync" onchange="saveToggle(this, pollMI)"><span class="track"></span><span class="lbl">同步產生新的 strm 後自動探測<small>要開批次探測</small></span></label>
           <div><button class="btn" onclick="saveFields($('miSettings')).then(pollMI)">儲存設定</button></div>
           </div></details>
         </div>
@@ -676,7 +676,7 @@ dialog .card-b{max-height:70vh;overflow:auto}
             <button class="btn danger js-dupdel" onclick="deleteDupes()"><svg class="i"><use href="#i-trash"/></svg><span class="js-dupdel-label">刪除勾選的</span></button></div>
           <div id="dupList" class="list"></div>
           <div class="row wrap"><span class="grow"></span><button class="btn danger js-dupdel" onclick="deleteDupes()"><svg class="i"><use href="#i-trash"/></svg><span class="js-dupdel-label">刪除勾選的</span></button></div>
-          <details class="more"><summary>最近刪掉的</summary><div class="in" id="dupLog"></div></details>
+          <p class="hint">刪掉的記在「115 網盤 → 回收站 → Mi302 刪掉的」。<a href="#115/recycle" data-act="deletedOf" data-source="dupes">看刪除紀錄</a></p>
         </div>
       </div>
 
@@ -711,7 +711,6 @@ dialog .card-b{max-height:70vh;overflow:auto}
           </div>
           <label class="field"><span>路徑對應</span><textarea id="mpMap" rows="2" placeholder="/media => /mnt/media"></textarea>
             <small>一行一條：Mi302 的路徑 =&gt; MoviePilot 的路徑。兩邊看到的路徑一樣（例如裝在同一台機器）就不用填。 <a class="doc" href="https://github.com/MiCat-S/Mi302/wiki/MoviePilot-整合#路徑對應" target="_blank" rel="noopener">說明</a></small></label>
-          <label class="switch"><input type="checkbox" data-key="moviepilot.scrape_after_sync"><span class="track"></span><span class="lbl">同步產生新的 strm 後自動送去刮削</span></label>
           <details class="more"><summary>MoviePilot 帳號密碼（V3 不用填；舊版才需要）</summary><div class="in stack">
             <p class="hint">MoviePilot V3 的刮削、補全缺集、整理 115 網盤都接受 API 令牌，不用填。舊版（V2）有些 API 不接受 API 令牌：測試連線、補全或整理時出現「拒絕存取」再填。</p>
             <div class="fields">
@@ -726,6 +725,7 @@ dialog .card-b{max-height:70vh;overflow:auto}
         <div class="card-h"><div class="t"><svg class="i"><use href="#i-film"/></svg><h2>刮削</h2></div><button class="btn" onclick="scrapeMP()">刮削缺少資料的項目</button></div>
         <div class="card-b stack">
           <div class="js-mp"></div>
+          <label class="switch"><input type="checkbox" data-key="moviepilot.scrape_after_sync" onchange="saveToggle(this)"><span class="track"></span><span class="lbl">同步產生新的 strm 後自動送去刮削<small>關掉時同步完只掃描，要刮削就按上面的按鈕</small></span></label>
           <p class="hint">把媒體庫裡還沒有 nfo 的影片、以及有 nfo 卻沒有劇照的集送去 MoviePilot 刮削。 <a class="doc" href="https://github.com/MiCat-S/Mi302/wiki/MoviePilot-整合#送出規則" target="_blank" rel="noopener">說明</a></p>
         </div>
       </div>
@@ -2133,7 +2133,7 @@ function refreshDupSelection() {
     for (const b of document.querySelectorAll('.js-dupdel')) b.disabled = running || !r.count;
   }, 250);
 }
-function loadDupes() { $('dupKindHint').textContent = DUP_HINT[dupKind]; $('dupPreferRow').classList.toggle('hidden', dupKind !== 'versions'); dupBigUi(); pollDupes(); loadDupGroups(1); loadDupLog(); }
+function loadDupes() { $('dupKindHint').textContent = DUP_HINT[dupKind]; $('dupPreferRow').classList.toggle('hidden', dupKind !== 'versions'); dupBigUi(); pollDupes(); loadDupGroups(1); }
 async function pollDupes() {
   cancel('dupes');
   let s;
@@ -2147,7 +2147,7 @@ async function pollDupes() {
   for (const b of document.querySelectorAll('.js-dupdel')) if (j.running) b.disabled = true;
   document.querySelectorAll('#dupList .js-delgroup').forEach(b => { b.disabled = j.running; });
   if (j.running) later('dupes', pollDupes);
-  else if (wasRunning) { loadDupGroups(1); loadDupLog(); toast(j.kind === 'scan' ? '掃描完成' : '刪除完成', j.errors.length ? 'bad' : ''); }
+  else if (wasRunning) { loadDupGroups(1); toast(j.kind === 'scan' ? '掃描完成' : '刪除完成', j.errors.length ? 'bad' : ''); }
 }
 function dupStatHtml(s) {
   // 範圍、進度（找重複中／刪除中）或上次的結果，加上規則改過、上次刪除的提示
@@ -2290,15 +2290,6 @@ async function scanDupes() {
 }
 ACTS.dupRootReset = () => { dupRoot = null; pollDupes(); };
 async function pickDupRoot() { const p = await pickDir('115', dupRoot || '/'); if (p) { dupRoot = p; pollDupes(); } }
-async function loadDupLog() {
-  let r;
-  try { r = await api('/web/api/dupes/log?limit=50'); } catch (e) { return; }
-  setHtml($('dupLog'), r.length
-    ? '<div class="list">' + r.map(e => `<div class="li"><div class="main"><span class="p">${esc(e.path)}</span><div class="sub">${fmtSize(e.size)}・${ago(e.at)}</div></div></div>`).join('') +
-      '</div><p class="hint mt8">要找回的話，到 115 的回收站還原。</p>'
-    : '<p class="hint">還沒有刪過。</p>');
-}
-
 // ---- 115 上的空資料夾 ----
 let edPage = 1, edSeq = 0, edSelSeq = 0, edRoot = null;
 // edAll：全選（符合搜尋的全部，包含還沒翻到的頁面）；逐個改過的記在 edOverrides（資料夾 id → 要不要刪）
@@ -3416,13 +3407,16 @@ async function loadRecycle(offset) {
   pager(box, {page, pages, onPage: p => loadRecycle((p - 1) * RB_PAGE)});
 }
 const DL_PAGE = 50;
+let dlPreset = '';  // 從別的卡片跳過來時先篩的來源（重複檔案的「看刪除紀錄」）；來源選單第一次讀完才有選項，所以先記著
+ACTS.deletedOf = el => { dlPreset = el.dataset.source; location.hash = '#115/recycle'; };
 async function loadDeleted(offset) {
   // Mi302 自己記的刪除紀錄（不用連 115）：新的在前面，可以只看一種來源
-  const box = $('dlList'), sel = $('dlSource'), src = sel.value;
+  const box = $('dlList'), sel = $('dlSource'), src = dlPreset || sel.value;
   let r;
   try { r = await api(`/web/api/deleted?source=${encodeURIComponent(src)}&offset=${offset}&limit=${DL_PAGE}`); }
   catch (e) { box.innerHTML = failHtml(e); return; }
   if (sel.options.length === 1) for (const [k, v] of Object.entries(r.sources)) sel.add(new Option(v, k));
+  if (dlPreset) { sel.value = dlPreset; dlPreset = ''; }
   box.innerHTML = r.items.length ? r.items.map(i => `<div class="li"><div class="main"><b>${esc(i.name)}</b>${i.is_dir ? ' <span class="pill">資料夾</span>' : ''}
     <div class="sub">${[i.source_name, fmtTime(i.at), i.size ? fmtSize(i.size) : '', i.path].filter(Boolean).map(esc).join('・')}</div></div></div>`).join('')
     : emptyState(src ? '這一類沒有刪除紀錄' : '還沒有刪除紀錄', 'Mi302 送進 115 回收站的會記在這裡。');

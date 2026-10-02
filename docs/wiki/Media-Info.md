@@ -49,7 +49,7 @@ If you do not want to probe a large batch at once, this mode is enough: the vide
 
 ### Picking what to probe
 
-To probe a batch, use **Pick videos to probe** (挑選要提取的影片) in the card. First turn on **Batch probing** (批次探測) in the **Settings** section at the bottom of the card and click **Save settings** (儲存設定); it is off by default. Until then, **Start** (開始提取) and the per-title **Probe** buttons (提取) are disabled.
+To probe a batch, use **Pick videos to probe** (挑選要提取的影片) in the card. First turn on **Batch probing** (批次探測) in the **Settings** section at the bottom of the card; it is off by default and is saved as soon as it is switched. Until then, **Start** (開始提取) and the per-title **Probe** buttons (提取) are disabled.
 
 Filters; anything left empty is not limited:
 

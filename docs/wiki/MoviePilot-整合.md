@@ -34,7 +34,7 @@ Mi302 只讀資料夾裡已經有的 nfo 和圖片。這些資料可以在 115 �
 | API 令牌 | `moviepilot.api_token` | 空 | 放在 `X-API-KEY` 標頭送出（不放網址，免得留在代理、MoviePilot 的存取日誌）；被拒時才帶 `token` 查詢參數再試一次，給只認它的舊版 |
 | 同時刮削幾項 | `moviepilot.concurrency` | 3 | 1–8 |
 | 路徑對應 | `moviepilot.path_mappings` | 無 | 見下一節 |
-| 同步產生新的 strm 後自動送去刮削 | `moviepilot.scrape_after_sync` | 開 | 關掉時同步完只掃描 |
+| 同步產生新的 strm 後自動送去刮削 | `moviepilot.scrape_after_sync` | 開 | 在「刮削」卡片，切換後馬上儲存；關掉時同步完只掃描 |
 | MoviePilot 帳號、MoviePilot 密碼 | `moviepilot.username`、`moviepilot.password` | 空 | 補全缺集、整理 115 網盤需要；舊版刮削 API 也需要 |
 | 全量同步後自動補全 | `moviepilot.fill_after_full_sync` | 關 | 在「補全缺集」卡片的「設定」裡，切換後馬上儲存 |
 | 兩個新訂閱之間隔幾秒 | `moviepilot.fill_interval` | `60` | 在「補全缺集」卡片的「設定」裡，按「儲存設定」；0 = 不隔 |
