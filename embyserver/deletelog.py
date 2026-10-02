@@ -18,7 +18,7 @@ log = logging.getLogger(__name__)
 KEEP = 5000  # 最多留幾筆，舊的刪掉
 # 從哪裡刪的（網頁上的名稱）
 SOURCES = {"dupes": "重複檔案", "empty": "空資料夾", "browse": "瀏覽 115", "organize": "整理 115 網盤",
-           "cleanup": "整理後清舊資料夾"}
+           "cleanup": "整理後清舊資料夾", "rapid": "秒傳沒成功的空資料夾"}
 
 
 def record(db: Database, source: str, rows: Iterable[dict]) -> None:

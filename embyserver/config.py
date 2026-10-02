@@ -121,6 +121,19 @@ class WebDAVConfig:
     admin_only: bool = False  # 只讓管理員登入（root 設成整個 115 時建議打開）
 
 
+ALIYUN_ONLINE_API = "https://api.oplist.org/alicloud/renewapi"
+
+
+@dataclass
+class AliyunConfig:
+    """阿里雲盤開放平台（從阿里雲盤秒傳到 115 用）。refresh token 存在資料庫，不在這裡。"""
+
+    client_id: str = ""  # 自己申請的開放平台應用；和 client_secret 都填了就自己換 access token
+    client_secret: str = ""
+    # 沒填自己的 client id 時，用這個線上 API 換 access token（會把 refresh token 送給它）；空的 = 不用
+    online_api: str = ALIYUN_ONLINE_API
+
+
 @dataclass
 class MediaInfoConfig:
     """用 ffprobe 探測 strm 指向的影片，產生 X-mediainfo.json（解析度、HDR、音軌、字幕軌、章節）。"""
@@ -164,6 +177,7 @@ class Config:
     moviepilot: MoviePilotConfig = field(default_factory=MoviePilotConfig)
     mediainfo: MediaInfoConfig = field(default_factory=MediaInfoConfig)
     webdav: WebDAVConfig = field(default_factory=WebDAVConfig)
+    aliyun: AliyunConfig = field(default_factory=AliyunConfig)
     # 設定檔的位置與讀取時的修改時間；網頁儲存時寫回這個檔案，檔案被手動改過時重新讀取
     path: Optional[str] = field(default=None, repr=False, compare=False)
     file_mtime: float = field(default=0.0, repr=False, compare=False)
@@ -209,6 +223,7 @@ def _build(raw: dict) -> Config:
         moviepilot=_build_moviepilot(raw.get("moviepilot") or {}),
         mediainfo=_make(MediaInfoConfig, raw.get("mediainfo"), "mediainfo"),
         webdav=_make(WebDAVConfig, raw.get("webdav"), "webdav"),
+        aliyun=_make(AliyunConfig, raw.get("aliyun"), "aliyun"),
     )
 
 

@@ -347,23 +347,12 @@ class ShareTransfer:
         for n in names:
             path = posixpath.join(folder, n)
             try:
-                return self._add_folder(parent, n, path), path
+                return self.p115.make_dir(parent, n, path), path
             except P115Throttled as exc:
                 raise ShareError(f"建暫存資料夾時，{exc}")
             except P115Error as exc:
                 errors.append(f"「{n}」{exc}")
         raise ShareError("建不了暫存資料夾：" + "；".join(errors))
-
-    def _add_folder(self, parent: int, name: str, path: str) -> int:
-        """POST /files/add（沒實測）：新資料夾的 id 在回應的 cid 或 file_id（也看 data 裡）；都沒有就照路徑查一次。"""
-        self.p115.breaker.check()
-        body = self.p115._webapi_post("/files/add", {"pid": str(parent), "cname": name})
-        data = body.get("data") if isinstance(body.get("data"), dict) else {}
-        for value in (body.get("cid"), body.get("file_id"), data.get("cid"), data.get("file_id")):
-            if str(value if value is not None else "").strip().isdecimal() and _int(value):
-                return _int(value)
-        log.info("115 建資料夾的回應裡沒有新資料夾的 id，改用路徑查：%s", path)
-        return self.p115.dir_id(path)
 
     def _receive(self, share: dict, cid: int, path: str) -> None:
         """POST /share/receive（沒實測）：勾的項目轉存到暫存子資料夾。115 回錯誤就照原文顯示。"""

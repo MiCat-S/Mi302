@@ -23,8 +23,8 @@ MAX_BYTES = 5 * 1024 * 1024
 BACKUPS = 5
 # 第三方套件在 debug 等級會非常囉嗦，一律只記警告以上
 NOISY = ("httpx", "httpcore", "hpack", "asyncio", "multipart", "python_multipart", "urllib3", "uvicorn.access")
-# 網址裡的登入憑證不寫進日誌
-SECRET_RE = re.compile(r"(?i)((?:api_?key|x-emby-token|x-mediabrowser-token|token|pw|password)=)[^&\s]*")
+# 網址裡的登入憑證不寫進日誌（refresh_ui 是阿里雲盤線上換 token 時帶的 refresh token）
+SECRET_RE = re.compile(r"(?i)((?:api_?key|x-emby-token|x-mediabrowser-token|token|pw|password|refresh_ui)=)[^&\s]*")
 
 
 def redact(text: str) -> str:

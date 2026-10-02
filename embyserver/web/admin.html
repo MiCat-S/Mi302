@@ -427,7 +427,7 @@ dialog .card-b{max-height:70vh;overflow:auto}
       <div class="page-h">
         <div><h1>115 網盤</h1><p class="sub">登入 115、選擇要產生 strm 的目錄，播放時 302 到 115 直鏈。</p></div>
       </div>
-      <div class="seg mb16 subtabs" role="tablist" aria-label="115 網盤的項目"><button data-act="sub" data-sub="acct" role="tab" aria-selected="false">帳號</button><button data-act="sub" data-sub="sync" role="tab" aria-selected="false">同步</button><button data-act="sub" data-sub="offline" role="tab" aria-selected="false">離線下載</button><button data-act="sub" data-sub="share" role="tab" aria-selected="false">轉存分享</button><button data-act="sub" data-sub="organize" role="tab" aria-selected="false">整理 115 網盤</button><button data-act="sub" data-sub="recycle" role="tab" aria-selected="false">回收站</button></div>
+      <div class="seg mb16 subtabs" role="tablist" aria-label="115 網盤的項目"><button data-act="sub" data-sub="acct" role="tab" aria-selected="false">帳號</button><button data-act="sub" data-sub="sync" role="tab" aria-selected="false">同步</button><button data-act="sub" data-sub="offline" role="tab" aria-selected="false">離線下載</button><button data-act="sub" data-sub="share" role="tab" aria-selected="false">轉存分享</button><button data-act="sub" data-sub="rapid" role="tab" aria-selected="false">阿里雲盤秒傳</button><button data-act="sub" data-sub="organize" role="tab" aria-selected="false">整理 115 網盤</button><button data-act="sub" data-sub="recycle" role="tab" aria-selected="false">回收站</button></div>
       <div class="card" data-sub="acct" role="tabpanel">
         <div class="card-h"><div class="t"><svg class="i"><use href="#i-cloud"/></svg><h2>帳號</h2></div>
           <div class="row"><button class="btn sm ghost" onclick="load115(true)"><svg class="i"><use href="#i-refresh"/></svg>重新整理</button></div></div>
@@ -569,16 +569,57 @@ dialog .card-b{max-height:70vh;overflow:auto}
           <label class="field"><span>連結</span><textarea id="shText" rows="4" placeholder="一行一個：https://115.com/s/sw…?password=abcd，或連結後面寫「訪問碼：abcd」"></textarea></label>
           <div><button class="btn" id="shRead" onclick="shRead()">讀取分享</button></div>
           <div id="shList" class="list" onchange="shCheck(event)"></div>
-          <div class="row wrap gap6"><span class="hint">存到</span><input id="shFolder" type="text" class="grow" placeholder="例如 /待整理（要已經有這個資料夾）" aria-label="存到的 115 資料夾" oninput="shFolderCheck()">
-            <button class="btn sm" onclick="shPick()">選擇…</button></div>
+          <div class="row wrap gap6"><span class="hint">存到</span><input id="shFolder" type="text" class="grow" placeholder="例如 /待整理（要已經有這個資料夾）" aria-label="存到的 115 資料夾" oninput="folderCheck('sh')">
+            <button class="btn sm" onclick="folderPick('sh')">選擇…</button></div>
           <p id="shFolderWarn" class="notice warn hidden">這個資料夾在同步目錄裡，整理之前增量同步會先替原始檔名產生 strm；建議用同步目錄外的資料夾，例如 /待整理</p>
-          <div class="row wrap gap6"><span class="hint">整理到</span><select id="shTarget" class="w-auto" aria-label="整理到" onchange="shTargetChange()"><option value="none">先不整理（只加進「整理 115 網盤」）</option></select>
-            <input id="shTargetPath" type="text" class="grow hidden" placeholder="/影視/電視劇" aria-label="整理到的 115 資料夾" onchange="shTargetChange()"><button class="btn sm hidden" id="shTargetPick" onclick="shTargetPick()">選擇…</button></div>
+          <div class="row wrap gap6"><span class="hint">整理到</span><select id="shTarget" class="w-auto" aria-label="整理到" onchange="targetChange('sh')"><option value="none">先不整理（只加進「整理 115 網盤」）</option></select>
+            <input id="shTargetPath" type="text" class="grow hidden" placeholder="/影視/電視劇" aria-label="整理到的 115 資料夾" onchange="targetChange('sh')"><button class="btn sm hidden" id="shTargetPick" onclick="targetPick('sh')">選擇…</button></div>
           <p id="shDirsNote" class="hint hidden"></p>
           <p class="hint">選了「整理到」的，轉存完在背景請 MoviePilot 預覽，沒問題的直接整理（改成它的命名格式、搬過去），整理完搬空的暫存子資料夾移到 115 回收站；有問題的留在「整理 115 網盤」給你看。「存到」「整理到」記在這個瀏覽器。</p>
           <div class="row wrap gap6"><button class="btn primary" id="shStart" onclick="shStart()" disabled>轉存</button><span class="hint grow" id="shSel" aria-live="polite"></span></div>
           <p id="shMsg" class="notice hidden" aria-live="polite"></p>
           <div id="shJob" aria-live="polite"></div>
+        </div>
+      </div>
+
+      <div class="card" id="alCard" data-sub="rapid" role="tabpanel">
+        <div class="card-h"><div class="t"><svg class="i"><use href="#i-cloud"/></svg><h2>阿里雲盤帳號</h2></div>
+          <div class="row"><button class="btn sm ghost" onclick="loadAliyun()"><svg class="i"><use href="#i-refresh"/></svg>重新整理</button></div></div>
+        <div class="card-b stack">
+          <div id="alAcct"><p class="hint">讀取中…</p></div>
+          <p class="hint">秒傳時 Mi302 要列出阿里雲盤上的檔案（阿里雲盤直接給 SHA1），115 要二次驗證時還要讀檔案中間一小段，所以要登入阿里雲盤。refresh token 用 <a href="https://api.oplist.org/" target="_blank" rel="noopener">OpenList 的取得工具</a>拿（選阿里雲盤掃碼）。<b>沒填自己的 client id 時，refresh token 會送給 OpenList 的服務換 access token。</b> <a class="doc" href="https://github.com/MiCat-S/Mi302/wiki/115-網盤與同步#登入阿里雲盤" target="_blank" rel="noopener">說明</a></p>
+          <div class="inline"><input id="alToken" type="text" placeholder="貼上阿里雲盤的 refresh token" aria-label="阿里雲盤的 refresh token" autocomplete="off" spellcheck="false"><button class="btn primary" id="alLogin" onclick="aliyunLogin()">登入</button></div>
+          <details class="more" id="alAdv"><summary>進階：自己的 client id、線上換 token 的網址</summary><div class="in stack">
+            <p class="hint">填了自己在阿里雲盤開放平台申請的 Client ID 和 Client Secret，Mi302 就直接向阿里雲盤換 access token，refresh token 不經過別人（refresh token 也要用那個應用拿）。改完按「儲存」，下一次換 token 就用新的。</p>
+            <div class="fields">
+              <label class="field"><span>Client ID</span><input type="text" data-key="aliyun.client_id" autocomplete="off" spellcheck="false"></label>
+              <label class="field"><span>Client Secret</span><input type="password" data-key="aliyun.client_secret" autocomplete="new-password"></label>
+            </div>
+            <label class="field"><span>線上換 token 的網址</span><input type="text" data-key="aliyun.online_api" placeholder="https://api.oplist.org/alicloud/renewapi" spellcheck="false"><small>沒填 client id 時用它換 token（會把 refresh token 送給它）；要 https://，留空 = 不用</small></label>
+            <div><button class="btn" onclick="saveFields($('alAdv'))">儲存</button></div>
+          </div></details>
+          <div><button class="btn danger hidden" id="alLogout" onclick="aliyunLogout()">登出阿里雲盤</button></div>
+        </div>
+      </div>
+      <div class="card" id="rpCard" data-sub="rapid" role="tabpanel">
+        <div class="card-h"><div class="t"><svg class="i"><use href="#i-download"/></svg><h2>秒傳到 115</h2></div></div>
+        <div class="card-b stack">
+          <p class="hint">阿里雲盤上的檔案，115 上已經有的（有人傳過）直接秒傳到 115，不經過這台機器；115 沒有的不會上傳，只列出來。秒傳完的資料夾加進「整理 115 網盤」，選了「整理到」就交給 MoviePilot 整理。要用掃碼登入 115。 <a class="doc" href="https://github.com/MiCat-S/Mi302/wiki/115-網盤與同步#從阿里雲盤秒傳" target="_blank" rel="noopener">說明</a></p>
+          <div class="row wrap gap6"><span class="hint">來源</span><input id="rpSource" type="text" class="grow" placeholder="阿里雲盤路徑，例如 /資源庫/電視劇/凡人修仙传" aria-label="阿里雲盤上的來源" oninput="rpButtons()">
+            <button class="btn sm" onclick="rpPickSource()">選擇…</button></div>
+          <label class="switch"><input type="checkbox" id="rpMedia" checked onchange="rpMediaChange()"><span class="track"></span><span class="lbl">只要影片和字幕<small>nfo、圖片這些不傳；記在這個瀏覽器</small></span></label>
+          <div><button class="btn" id="rpRead" onclick="rpRead()">讀取</button></div>
+          <div id="rpInfo"></div>
+          <div class="row wrap gap6"><span class="hint">存到</span><input id="rpFolder" type="text" class="grow" placeholder="例如 /待整理（要已經有這個資料夾）" aria-label="秒傳存到的 115 資料夾" oninput="folderCheck('rp')">
+            <button class="btn sm" onclick="folderPick('rp')">選擇…</button></div>
+          <p id="rpFolderWarn" class="notice warn hidden">這個資料夾在同步目錄裡，整理之前增量同步會先替原始檔名產生 strm；建議用同步目錄外的資料夾，例如 /待整理</p>
+          <div class="row wrap gap6"><span class="hint">整理到</span><select id="rpTarget" class="w-auto" aria-label="秒傳完整理到" onchange="targetChange('rp')"><option value="none">先不整理（只加進「整理 115 網盤」）</option></select>
+            <input id="rpTargetPath" type="text" class="grow hidden" placeholder="/影視/電視劇" aria-label="秒傳完整理到的 115 資料夾" onchange="targetChange('rp')"><button class="btn sm hidden" id="rpTargetPick" onclick="targetPick('rp')">選擇…</button></div>
+          <p id="rpDirsNote" class="hint hidden"></p>
+          <p class="hint">在「存到」底下建一個資料夾（名稱是來源的名稱），子資料夾照原本的結構。「只要影片和字幕」「存到」「整理到」記在這個瀏覽器。</p>
+          <div class="row wrap gap6"><button class="btn primary" id="rpStart" onclick="rpStart()" disabled>開始秒傳</button><span class="hint grow" id="rpSel" aria-live="polite"></span></div>
+          <p id="rpMsg" class="notice hidden" aria-live="polite"></p>
+          <div id="rpJob" aria-live="polite"></div>
         </div>
       </div>
 
@@ -1165,7 +1206,7 @@ const PAGES = {overview: () => loadOverview(), libraries: () => loadLibs(), '115
 // 值是切到那個分頁時要讀的資料（null = 頁面本身讀過了）
 const SUBS = {
   '115': {acct: null, sync: null, offline: () => { if (!$('olFolder').value) $('olFolder').value = localGet('mi302-ol-folder'); loadOffline(1); },
-    share: () => loadShare(), organize: () => organizeLoad(1), recycle: () => { loadRecycle(0); loadDeleted(0); }},
+    share: () => loadShare(), rapid: () => loadRapid(), organize: () => organizeLoad(1), recycle: () => { loadRecycle(0); loadDeleted(0); }},
   tools: {mi: () => { restoreMiPrefs(); pollMI(); }, intro: () => pollIntro(), dup: () => loadDupes(), empty: () => loadEmpty()},
   moviepilot: {conn: null, scrape: null, fill: () => { restoreSeriesLimit(); loadSeries(1); }, emby: () => loadKeys()},
   settings: {general: null, webdav: () => davShow(), strm: null, zh: () => pollPeople(), backup: () => loadBackups(), about: null},
@@ -3239,6 +3280,7 @@ const STOPS = {
   reo: ['/web/api/115/organize/execute/stop', {}, '停止整理？', '已經送給 MoviePilot 的這一批會做完，還沒送的不送，也不清舊資料夾。整理好的留著，重新預覽會接著做剩下的。', () => pollReorgJob()],
   ogdel: ['/web/api/115/organize/delete/stop', {}, '停止刪除？', '做完手上這一個就停，已經移到 115 回收站的留在回收站。', () => pollOgDelete()],
   share: ['/web/api/115/share/stop', {}, '停止轉存？', '做完手上這一個分享就停；已經轉存的留在 115，沒做的不做，也不交給 MoviePilot 整理。', () => pollShare()],
+  rapid: ['/web/api/115/rapid/stop', {}, '停止秒傳？', '做完手上這一支就停；秒傳好的加進「整理 115 網盤」，不交給 MoviePilot 整理，沒做的不做。', () => pollRapid()],
 };
 ACTS.stopJob = async el => {
   const [url, body, title, text, after] = STOPS[el.dataset.job];
@@ -3423,49 +3465,58 @@ const SH_STATE = {waiting: ['', '等待中'], receiving: ['accent', '轉存中']
 const shPath = v => '/' + String(v || '').trim().replace(/^\/+|\/+$/g, '');
 function loadShare() {
   if (!sh.restored) {  // 記在這個瀏覽器的「存到」「整理到」
-    $('shFolder').value = localGet('mi302-share-folder'); $('shTargetPath').value = localGet('mi302-share-target-path');
+    $('shFolder').value = localGet('mi302-share-folder'); targetRestore('sh');
     sh.restored = true;
   }
-  shFolderCheck(); shDirs(); pollShare();
+  folderCheck('sh'); targetMenu('sh'); pollShare();
 }
-async function shDirs() {
+// 「存到」「整理到」：轉存分享（前綴 sh）和阿里雲盤秒傳（rp）共用。元素 id 照前綴（shFolder、shFolderWarn、shTarget、
+// shTargetPath、shTargetPick、shDirsNote…），「整理到」各記各的（localStorage 鍵見 TARGET_KEYS）
+const TARGET_KEYS = {sh: ['mi302-share-target', 'mi302-share-target-path'], rp: ['mi302-rapid-target', 'mi302-rapid-target-path']};
+function targetRestore(p) { $(p + 'TargetPath').value = localGet(TARGET_KEYS[p][1]); }
+async function targetMenu(p) {
   // 「整理到」：MoviePilot 目錄設定裡存儲是 115 的媒體庫目錄；沒設定、讀不到時只剩自己填的和先不整理
   let r;
   try { r = await api('/web/api/moviepilot/library-dirs'); } catch (e) { r = {enabled: true, dirs: [], error: e.message}; }
-  const sel = $('shTarget'), want = localGet('mi302-share-target') || 'none', paths = r.dirs.map(d => d.path);
+  const sel = $(p + 'Target'), want = localGet(TARGET_KEYS[p][0]) || 'none', paths = r.dirs.map(d => d.path);
   const noMp = r.enabled === false;  // 沒設定 MoviePilot：交給它整理不了（伺服器也會擋），只能先不整理
   sel.innerHTML = r.dirs.map(d => `<option value="${esc(d.path)}">${esc(d.name && d.name !== d.path ? `${d.name}（${d.path}）` : d.path)}</option>`).join('')
     + `<option value="other"${noMp ? ' disabled' : ''}>其他 115 資料夾…</option><option value="none">先不整理（只加進「整理 115 網盤」）</option>`;
   if (want.startsWith('/') && !paths.includes(want)) {  // 記住的媒體庫目錄不在選單上了（MoviePilot 改了設定、讀不到）：改成自己填的
     sel.value = 'other';
-    if (!$('shTargetPath').value) $('shTargetPath').value = want;
+    if (!$(p + 'TargetPath').value) $(p + 'TargetPath').value = want;
   } else sel.value = want;
   if (!sel.value || noMp && sel.value === 'other') sel.value = 'none';
-  $('shDirsNote').textContent = noMp ? '還沒設定 MoviePilot：只能先不整理；要交給 MoviePilot 整理，先到「MoviePilot」頁設定'
+  $(p + 'DirsNote').textContent = noMp ? '還沒設定 MoviePilot：只能先不整理；要交給 MoviePilot 整理，先到「MoviePilot」頁設定'
     : r.error ? `${r.error}：選單裡沒有它的媒體庫目錄，可以自己填 115 資料夾` : '';
-  $('shDirsNote').classList.toggle('hidden', !r.error);
-  shTargetUi();
+  $(p + 'DirsNote').classList.toggle('hidden', !r.error);
+  targetUi(p);
 }
-function shTargetUi() {
-  const other = $('shTarget').value === 'other';
-  $('shTargetPath').classList.toggle('hidden', !other); $('shTargetPick').classList.toggle('hidden', !other);
+function targetUi(p) {
+  const other = $(p + 'Target').value === 'other';
+  $(p + 'TargetPath').classList.toggle('hidden', !other); $(p + 'TargetPick').classList.toggle('hidden', !other);
 }
-function shTargetChange() {
-  try { localStorage.setItem('mi302-share-target', $('shTarget').value); localStorage.setItem('mi302-share-target-path', $('shTargetPath').value.trim()); } catch (e) {}
-  shTargetUi();
+function targetChange(p) {
+  try { localStorage.setItem(TARGET_KEYS[p][0], $(p + 'Target').value); localStorage.setItem(TARGET_KEYS[p][1], $(p + 'TargetPath').value.trim()); } catch (e) {}
+  targetUi(p);
 }
-async function shTargetPick() {
-  const v = await pickDir('115', $('shTargetPath').value || '/');
-  if (v) { $('shTargetPath').value = v; shTargetChange(); }
+async function targetPick(p) {
+  const v = await pickDir('115', $(p + 'TargetPath').value || '/');
+  if (v) { $(p + 'TargetPath').value = v; targetChange(p); }
 }
-async function shPick() {
-  const v = await pickDir('115', $('shFolder').value || '/');
-  if (v) { $('shFolder').value = v; shFolderCheck(); }
+function targetValue(p) {
+  // 送給伺服器的 target_path：空的是先不整理；選了「其他 115 資料夾」卻沒填是 null
+  const sel = $(p + 'Target').value, path = sel === 'other' ? shPath($(p + 'TargetPath').value) : sel.startsWith('/') ? sel : '';
+  return sel === 'other' && path === '/' ? null : path;
 }
-function shFolderCheck() {
+async function folderPick(p) {
+  const v = await pickDir('115', $(p + 'Folder').value || '/');
+  if (v) { $(p + 'Folder').value = v; folderCheck(p); }
+}
+function folderCheck(p) {
   // 存到同步目錄裡的：整理之前增量同步會先替原始檔名產生 strm
-  const p = shPath($('shFolder').value), roots = (cfg?.p115?.strm?.tasks || []).map(t => shPath(t.remote));
-  $('shFolderWarn').classList.toggle('hidden', p === '/' || !roots.some(r => r === '/' || p === r || p.startsWith(r + '/')));
+  const f = shPath($(p + 'Folder').value), roots = (cfg?.p115?.strm?.tasks || []).map(t => shPath(t.remote));
+  $(p + 'FolderWarn').classList.toggle('hidden', f === '/' || !roots.some(r => r === '/' || f === r || f.startsWith(r + '/')));
 }
 async function shRead() {
   const text = $('shText').value.trim();
@@ -3513,10 +3564,9 @@ function shButtons() {
 async function shStart() {
   const picked = shPicked();
   if (!picked.length) return;
-  const folder = shPath($('shFolder').value), sel = $('shTarget').value;
+  const folder = shPath($('shFolder').value), targetPath = targetValue('sh');
   if (folder === '/') { note($('shMsg'), '先選「存到」哪個 115 資料夾（不能是最上層）', 'warn'); return; }
-  const targetPath = sel === 'other' ? shPath($('shTargetPath').value) : sel.startsWith('/') ? sel : '';
-  if (sel === 'other' && targetPath === '/') { note($('shMsg'), '先填「整理到」哪個 115 資料夾', 'warn'); return; }
+  if (targetPath === null) { note($('shMsg'), '先填「整理到」哪個 115 資料夾', 'warn'); return; }
   const where = targetPath ? `轉存完在背景請 MoviePilot 整理到 ${targetPath}：沒問題的直接整理（改成它的命名格式、搬過去），整理完搬空的暫存子資料夾移到 115 回收站；有問題的留在「整理 115 網盤」。`
     : '先不整理：只加進「整理 115 網盤」，自己預覽、整理。';
   const inSync = !$('shFolderWarn').classList.contains('hidden') ? '這個資料夾在同步目錄裡，整理之前增量同步會先替原始檔名產生 strm。' : '';
@@ -3559,6 +3609,145 @@ function shJobHtml(j) {
   }).join('') + '</div>';
 }
 ACTS.shGo = () => goOrganize();
+
+// ---- 阿里雲盤秒傳 ----
+// 讀取（列出要秒傳的）→ 存到哪、整理到哪（和轉存分享同一套選單）→ 在伺服器上一支一支秒傳，這裡只看進度
+let rp = {read: null, aliyun: null, running: false, restored: false};
+const RP_STATE = {ok: ['ok', '成功'], missing: ['warn', '115 沒有'], failed: ['bad', '失敗'], skipped: ['', '略過']};
+function loadRapid() {
+  if (!rp.restored) {  // 記在這個瀏覽器的「只要影片和字幕」「存到」「整理到」
+    $('rpFolder').value = localGet('mi302-rapid-folder'); targetRestore('rp');
+    $('rpMedia').checked = localGet('mi302-rapid-media') !== '0';
+    rp.restored = true;
+  }
+  folderCheck('rp'); targetMenu('rp'); loadAliyun(); pollRapid();
+}
+async function loadAliyun() {
+  let s;
+  try { s = await api('/web/api/aliyun/status'); } catch (e) { $('alAcct').innerHTML = failHtml(e); return; }
+  rp.aliyun = s;
+  $('alLogout').classList.toggle('hidden', !s.logged_in);
+  $('alLogin').textContent = s.logged_in ? '換一個' : '登入';
+  const via = s.own_client ? '用自己的 client id 換 token' : '經 OpenList 的服務換 token';
+  setHtml($('alAcct'), !s.logged_in ? '<p class="hint">還沒登入阿里雲盤：貼上 refresh token 按「登入」。</p>'
+    : s.error ? `<p class="notice bad">已經存了 refresh token，但讀不到帳號：${esc(s.error)}</p>`
+    : `<div class="row wrap gap6"><span class="pill ok">已登入</span><b>${esc(s.name || '（沒有名稱）')}</b><span class="hint sp"><span>${esc(s.drives.join('、') || '沒有盤')}</span><span>${via}</span></span></div>`);
+  rpButtons();
+}
+async function aliyunLogin() {
+  const token = $('alToken').value.trim();
+  if (!token) { toast('先貼上 refresh token', 'bad'); return; }
+  $('alLogin').disabled = true;
+  try {
+    await api('/web/api/aliyun/token', {method: 'POST', body: JSON.stringify({refresh_token: token})});
+    $('alToken').value = ''; toast('已登入阿里雲盤');
+  } catch (e) { toast(e.message, 'bad'); }
+  finally { $('alLogin').disabled = false; }
+  loadAliyun();
+}
+async function aliyunLogout() {
+  if (!await ask({title: '登出阿里雲盤？', text: 'Mi302 存的 refresh token 會清掉，要秒傳時再貼一個。阿里雲盤上的檔案不受影響。', ok: '登出', danger: true})) return;
+  try { await api('/web/api/aliyun/logout', {method: 'POST'}); } catch (e) { toast(e.message, 'bad'); return; }
+  toast('已登出阿里雲盤'); rp.read = null; rpRender(); loadAliyun();
+}
+async function rpPickSource() {
+  const v = await pickDir('aliyun', $('rpSource').value || '/');
+  if (v) { $('rpSource').value = v; rpButtons(); }
+}
+function rpMediaChange() {
+  try { localStorage.setItem('mi302-rapid-media', $('rpMedia').checked ? '1' : '0'); } catch (e) {}
+  rpButtons();
+}
+async function rpRead() {
+  const source = shPath($('rpSource').value), media_only = $('rpMedia').checked;
+  if (source === '/') { note($('rpMsg'), '先選阿里雲盤上的資料夾或檔案', 'warn'); return; }
+  note($('rpMsg'), ''); $('rpRead').disabled = true;
+  $('rpInfo').innerHTML = '<p class="hint row"><span class="spin"></span>列出阿里雲盤上的檔案…（照阿里雲盤的頻率限制，資料夾多的要等一下）</p>';
+  try { rp.read = {...await api('/web/api/115/rapid/read', {method: 'POST', body: JSON.stringify({source, media_only})}), media_only}; }
+  catch (e) { rp.read = null; rpRender(); note($('rpMsg'), e.message, 'bad'); return; }
+  finally { $('rpRead').disabled = false; }
+  rpRender();
+}
+function rpRender() {
+  // 讀取的結果：幾支影片、字幕、總大小，會略過的（沒有 SHA1、超過 115 單檔上限），清單收在「清單」裡
+  const r = rp.read;
+  if (!r) { setHtml($('rpInfo'), ''); rpButtons(); return; }
+  const parts = [`${r.videos} 支影片`, `${r.subtitles} 個字幕`, r.others ? `${r.others} 個其他檔案` : '', `共 ${fmtSize(r.size)}`].filter(Boolean);
+  let h = `<div class="notice"><div class="brk"><b>${esc(r.source)}</b></div><div>${parts.join('・')}${r.ignored ? `；${r.ignored} 個不是影片或字幕，不傳` : ''}</div>`;
+  if (r.no_sha1) h += `<div class="t-warn">${r.no_sha1} 支阿里雲盤沒給 SHA1，不能秒傳，會略過</div>`;
+  if (r.too_big) h += `<div class="t-warn">${r.too_big} 支超過 115 的單檔上限（${fmtSize(r.size_limit)}），會略過</div>`;
+  if (r.too_many) h += `<div class="t-bad">超過 ${r.max_files} 支，一次做不了：選小一點的資料夾</div>`;
+  if (!r.total) h += '<div class="t-bad">沒有要秒傳的檔案</div>';
+  if (r.note) h += `<div class="hint">${esc(r.note)}</div>`;
+  h += '</div>';
+  if (r.items.length) h += `<details class="more"><summary>清單（${r.total} 支${r.more ? `，列出前 ${r.items.length} 支` : ''}）</summary><div class="in list">`
+    + r.items.map(i => `<div class="li"><div class="main"><div class="brk">${esc(i.path)}</div><div class="sub">${fmtSize(i.size)}${i.skip ? `・${esc(i.skip)}` : ''}</div></div></div>`).join('') + '</div></details>';
+  setHtml($('rpInfo'), h);
+  rpButtons();
+}
+function rpReady() {
+  // 讀取過、來源和「只要影片和字幕」沒改、有要秒傳的，才能開始
+  const r = rp.read;
+  return !!r && r.source === shPath($('rpSource').value) && r.media_only === $('rpMedia').checked && r.total > 0 && !r.too_many;
+}
+function rpButtons() {
+  const ready = rpReady(), stale = !!rp.read && !ready && rp.read.total > 0 && !rp.read.too_many;
+  $('rpStart').disabled = !ready || rp.running || !rp.aliyun?.logged_in;
+  $('rpStart').title = rp.running ? '上一批還在秒傳，等它做完' : ready ? '' : '先按「讀取」';
+  $('rpSel').textContent = stale ? '來源或「只要影片和字幕」改了，重新讀取' : '';
+}
+async function rpStart() {
+  if (!rpReady()) return;
+  const r = rp.read, folder = shPath($('rpFolder').value), targetPath = targetValue('rp');
+  if (folder === '/') { note($('rpMsg'), '先選「存到」哪個 115 資料夾（不能是最上層）', 'warn'); return; }
+  if (targetPath === null) { note($('rpMsg'), '先填「整理到」哪個 115 資料夾', 'warn'); return; }
+  const n = r.total - r.no_sha1 - r.too_big;
+  const where = targetPath ? `秒傳完在背景請 MoviePilot 整理到 ${targetPath}：沒問題的直接整理（改成它的命名格式、搬過去），整理完搬空的資料夾移到 115 回收站；有問題的留在「整理 115 網盤」。`
+    : '先不整理：只加進「整理 115 網盤」，自己預覽、整理。';
+  const inSync = !$('rpFolderWarn').classList.contains('hidden') ? '這個資料夾在同步目錄裡，整理之前增量同步會先替原始檔名產生 strm。' : '';
+  if (!await ask({title: `秒傳 ${n} 支到 ${folder}？`,
+    text: `在 ${folder} 底下建一個資料夾（「${r.name}」，同名的已經有了就加編號），子資料夾照原本的結構。115 上沒有的檔案不會上傳，只列出來；一支都沒成功的話，建好的空資料夾移到 115 回收站。${where}${inSync}`,
+    ok: '開始秒傳'})) return;
+  try { localStorage.setItem('mi302-rapid-folder', folder); } catch (e) {}
+  $('rpStart').disabled = true;
+  let j;
+  try {
+    j = await api('/web/api/115/rapid/start', {method: 'POST', body: JSON.stringify({source: r.source, folder, target: targetPath ? 'path' : '',
+      target_path: targetPath, media_only: r.media_only})});
+  } catch (e) { note($('rpMsg'), e.message, 'bad'); rpButtons(); return; }
+  note($('rpMsg'), ''); rp.read = null; rpRender();
+  rpShow(j); pollRapid();
+}
+async function pollRapid() {
+  // 秒傳中每 2 秒更新一次（只在這個分頁開著的時候）
+  cancel('rapid');
+  let j;
+  try { j = await api('/web/api/115/rapid/status'); } catch (e) { return; }
+  rpShow(j);
+  if (j.running && !$('rpCard').classList.contains('hidden')) later('rapid', pollRapid);
+}
+function rpShow(j) {
+  rp.running = !!j.running; rpButtons();
+  setHtml($('rpJob'), rpJobHtml(j));
+}
+function rpJobHtml(j) {
+  if (!j.started) return '';
+  const counts = `成功 ${j.ok}・115 沒有 ${j.missing}・失敗 ${j.failed}・略過 ${j.skipped}`;
+  let h = j.running
+    ? `<div class="row wrap mb8"><span class="pill accent"><span class="spin"></span>${j.stopping ? '停止中' : '秒傳中'}</span><span class="hint sp grow"><span>${j.done} / ${j.total || '…'}</span><span>${counts}</span>${j.current ? `<span class="brk">${esc(j.current)}</span>` : ''}</span>`
+      + (j.stopping ? '' : '<button class="btn sm ghost danger" data-act="stopJob" data-job="rapid">停止</button>') + '</div>'
+      + (j.total ? `<div class="meter mb8"><div style="width:${(j.done / j.total * 100).toFixed(1)}%"></div></div>` : '')
+    : `<p class="hint mb8">上次秒傳（${ago(j.finished)}）：${esc(j.source)} → ${esc(j.folder || '（沒有建資料夾）')}；${counts}${j.ignored ? `；${j.ignored} 個不是影片或字幕，沒傳` : ''}${j.stopped ? '；按了停止' : ''}</p>`;
+  if (j.error) h += `<p class="notice bad mb8">${esc(j.error)}</p>`;
+  if (j.note) h += `<div class="row wrap gap6 mb8"><span class="hint grow">${esc(j.note)}</span>${j.unit_id ? '<button class="btn sm" data-act="shGo">到「整理 115 網盤」</button>' : ''}</div>`;
+  const bad = j.results.filter(x => x.state !== 'ok');
+  if (bad.length) h += `<details class="more"><summary>沒成功的（${bad.length}${j.results_total > j.results.length ? `，明細只留前 ${j.results.length} 支` : ''}）</summary><div class="in list">`
+    + bad.slice(0, 200).map(x => {
+      const [cls, label] = RP_STATE[x.state] || ['', x.state];
+      return `<div class="li top"><div class="main"><div class="row wrap gap6"><span class="brk">${esc(x.path)}</span><span class="pill ${cls}">${label}</span></div><div class="sub">${fmtSize(x.size)}${x.message ? '・' + esc(x.message) : ''}</div></div></div>`;
+    }).join('') + (bad.length > 200 ? `<p class="hint">還有 ${bad.length - 200} 筆沒列出來</p>` : '') + '</div></details>';
+  return h;
+}
 
 // ---- 115 回收站 ----
 let rb = {offset: 0, count: 0, via: ''};
@@ -4082,16 +4271,19 @@ async function downloadBackup(name) {
 
 // ---- 資料夾選擇器 ----
 let pickKind = 'local', pickResolve = null, pickCur = '';
+// 三種：伺服器上的資料夾、115、阿里雲盤（最上層是「資源庫」「備份盤」）；回應都是 {path, parent, dirs}，阿里雲盤多給 files
+const PICK = {local: ['/web/api/browse?path=', '選擇伺服器上的資料夾'], '115': ['/web/api/115/browse?path=', '選擇 115 目錄'],
+  aliyun: ['/web/api/aliyun/dirs?path=', '選擇阿里雲盤上的資料夾']};
 function pickDir(kind, start) {
   pickKind = kind;
-  $('pickTitle').textContent = kind === '115' ? '選擇 115 目錄' : '選擇伺服器上的資料夾';
+  $('pickTitle').textContent = PICK[kind][1];
   picker.showModal(); pickPath.focus(); pickGo(start || '');
   return new Promise(res => { pickResolve = res; picker.onclose = () => { res(null); }; });
 }
 async function pickGo(path) {
   note($('pickMsg'), ''); $('pickList').innerHTML = '<p class="hint row"><span class="spin"></span>讀取中…</p>';
   let r;
-  try { r = await api((pickKind === '115' ? '/web/api/115/browse?path=' : '/web/api/browse?path=') + encodeURIComponent(path)); }
+  try { r = await api(PICK[pickKind][0] + encodeURIComponent(path)); }
   catch (e) { note($('pickMsg'), e.message, 'bad'); $('pickList').innerHTML = ''; return; }
   pickCur = r.path; pickPath.value = r.path;
   const list = $('pickList'); list.innerHTML = '';
@@ -4103,6 +4295,7 @@ async function pickGo(path) {
   const sep = pickKind === 'local' && r.path.includes('\\') ? '\\' : '/';
   for (const d of r.dirs) entry('folder', d, r.path.replace(/[\\/]$/, '') + sep + d);
   if (!r.dirs.length) list.insertAdjacentHTML('beforeend', '<p class="hint" style="padding:8px 10px">沒有子資料夾</p>');
+  if (r.files) list.insertAdjacentHTML('beforeend', `<p class="hint" style="padding:8px 10px">這一層還有 ${r.files} 個檔案</p>`);  // 阿里雲盤：看選對了沒有
 }
 function pickDone() { const res = pickResolve; pickResolve = null; picker.onclose = null; picker.close(); res?.(pickCur); }
 async function pick115() { const p = await pickDir('115', remote.value || '/'); if (p) remote.value = p; }

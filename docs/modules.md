@@ -52,6 +52,9 @@
 - 播放器的 User-Agent 照收到的位元組原樣送給 115（http_util.header_value）：直鏈綁 UA，UA 裡有中文也不能改。
 - /d/{pickcode}、/p115/redirect 不用登入（strm 裡的網址，播放器不帶 token）：同一個來源一分鐘取不到 10 次、
   所有來源加起來 60 次，就先回 429 不再替它問 115（ratelimit.FailureLimiter）；快取裡有的照給。
+- make_dir（建一個資料夾，cookie 的 POST /files/add，沒實測）：新 id 找回應的 cid、file_id（也看 data 裡），都沒有就照給的
+  路徑查一次；state 假（多半是同名的已經有了）丟 P115Error，要不要改名重試由呼叫的人決定（轉存分享加「(分享碼)」、
+  秒傳加「 (2)」）。
 
 ## embyserver/db.py
 
@@ -261,8 +264,8 @@ state 假時丟 P115Error，訊息裡有 115 的 error 原文，照實顯示給�
   errno 4100026）。成功時的欄位照 p115client、OpenList，**沒實測**：data.shareinfo 的 share_title、share_state（1 正常）、
   forbid_reason、file_size，data.count，data.list[]（有 fid 的是檔案，沒有的是資料夾、id 在 cid；名稱 n、大小 s）。
   缺欄位、型別不對都當成沒有；share_state 不是 1 只提醒、不擋（猜錯的話還能轉存看看，真的不行 115 會回錯誤）。
-- POST /files/add（pid、cname）：**沒實測**。新資料夾的 id 找回應的 cid、file_id（也看 data 裡）；都沒有就照路徑用
-  files/getid 查一次。
+- POST /files/add（pid、cname）：**沒實測**。在 P115Service.make_dir（秒傳也用）：新資料夾的 id 找回應的 cid、file_id
+  （也看 data 裡）；都沒有就照路徑用 files/getid 查一次。
 - POST /share/receive（share_code、receive_code、file_id 逗號分隔、cid）：**沒實測**。
 - GET /category/get（cid、aid=1）：實測過，count 是字串（底下含子資料夾的檔案數）；size 是格式化過的字串，不用。
   讀不到、沒有 count 都當成讀不到。
@@ -294,6 +297,68 @@ state 假時丟 P115Error，訊息裡有 115 的 error 原文，照實顯示給�
   GET /web/api/moviepilot/library-dirs（MoviePilot.u115_library_dirs：存儲是 115 的媒體庫目錄）加上自己填的 115 資料夾。
 - 存到同步目錄裡的（job.in_sync）：整理之前增量同步會先替原始檔名產生 strm，網頁提醒改用同步目錄外的資料夾。
 - 轉存本身不拿整理的鎖，全部整理、刪除進行中照樣轉存、加進清單，只是最後交不出去。
+
+## embyserver/aliyun.py
+
+阿里雲盤開放平台（openapi.alipan.com），給「從阿里雲盤秒傳到 115」用。照 OpenList 的 aliyundrive_open 驅動（網頁版的
+aliyundrive 驅動 OpenList 已經標成棄用，要 secp256k1 簽章，不用）。錯誤格式實測過（{code, message, requestId}），
+**成功時的欄位都沒實測**，一律防禦式解析，錯誤照「code：message」原文顯示。
+
+- 登入：使用者貼 refresh token，存在資料庫 meta（aliyun_refresh_token），不寫進設定檔。換 access token 兩種：
+  設定裡 client_id、client_secret 都有就 POST /oauth/access_token；沒有就 GET 設定的 online_api（預設 OpenList 的
+  https://api.oplist.org/alicloud/renewapi，參數 refresh_ui、server_use、driver_txt=alicloud_qr），**會把 refresh token
+  送給那個服務**（網頁和 Wiki 都寫明；refresh_ui 在 logs.SECRET_RE 裡遮掉）。回來的 refresh token 會換新（舊的可能失效），
+  每次都存回資料庫。access token 只在記憶體，記到期時間（沒給 expires_in 當 2 小時），提早 5 分鐘換。
+- 換 token 在 _token_lock 裡，同時只換一次：_token(stale) 只在目前的 token 還是剛被說過期的那個時才換，兩個執行緒同時碰到
+  過期不會換兩次。登入、登出也拿這把鎖。登入失敗時換回原本的 refresh token（原本沒登入就是清掉）。
+- 請求：Authorization: Bearer，POST JSON。回 code 是 AccessTokenInvalid、AccessTokenExpired、I400JD 時換一次 token 再試一次；
+  其他 code 丟 AliyunError。頻率限制照官方（OpenList 的註記）：列目錄每秒 4 次、取下載網址每秒 1 次、其他每秒 15 次，
+  三個 _Pace（兩次之間至少隔 0.26、1.1、0.07 秒，先在鎖裡排好時間再在鎖外等）。
+- getDriveInfo（user_id、name、resource_drive_id、default_drive_id）快取到換帳號；網頁上的路徑最上層是兩個虛擬資料夾
+  「資源庫」（resource_drive_id）、「備份盤」（default_drive_id），帳號有的才列。
+- openFile/list：items 的 file_id、name、type（folder／file）、size、content_hash（content_hash_name 是 sha1，或沒給時
+  看是不是 40 位十六進位）；next_marker 空的就沒有下一頁，同一個 marker 又出現也停。
+- 路徑解析一層一層列目錄找名稱（不用 get_by_path，沒實測過）；walk 是廣度優先，湊到 limit 支檔案就停，停止旗標在兩個
+  資料夾之間看。
+- 讀一段（read_range）：getDownloadUrl（expire_sec 900）拿到的網址加 Range，要 206 而且長度剛好（從 0 讀到最後一個位元組時
+  200 也收）；用 stream 先看狀態再讀，伺服器不理 Range 時不會把整個檔案讀進記憶體。stream 不經過 GuardedClient.request，
+  網路錯誤自己轉成 AliyunError。
+
+## embyserver/rapid115.py
+
+從阿里雲盤秒傳到 115：阿里雲盤的檔案清單直接給 SHA1，115 有同一個檔案就秒傳過來（不經過這台機器）；115 沒有的**不真的上傳**，
+列出來。秒傳完的資料夾加進「整理 115 網盤」，選了「整理到」就交給 Organizer.organize_units_in_background（和轉存分享一樣）。
+
+115 的上傳初始化（POST https://uplb.115.com/4.0/initupload.php）沒有文件，照 OpenList 的 drivers/115/util.go、p115client：
+- 請求：p115cipher.make_upload_payload(payload) 給 params（k_ec）和加密的 data；它會在傳進去的 dict 加 t、sig、token，
+  所以每次送都給它一份新的。User-Agent 一定要是「Mozilla/5.0 115Browser/<版本>」、payload 的 appversion 要是同一個版本，
+  不然回 status 4「请升级到最新版本」（實測）；版本號讀 https://appversion.115.com/1/web/1.0/api/chrome 的
+  data.win.version_code（實測），快取 6 小時，讀不到用上次的，再不行用 APPVER_FALLBACK。碰到 status 4 而且訊息有「升级」
+  就不用快取重讀一次再送。userid、userkey 讀 https://proapi.115.com/app/uploadinfo（實測），快取 1 小時、換 cookie 就作廢；
+  size_limit 是單檔上限（0 或沒有就不檢查）。
+- 回應：ecdh_aes_decrypt（AES 再 lz4）解開是 JSON；解不開再當成一般 JSON。status 1 = 115 沒有這個檔案、要真的上傳（實測，
+  這一步不會建立檔案）；**status 7（二次驗證）和 status 2（秒傳成功、有 pickcode）沒實測**：7 時 sign_check 是「起-迄」
+  （迄含在內）、sign_key；讀原檔那一段算 SHA1（大寫十六進位）當 sign_val，帶 sign_key 再送一次。115 對秒傳有時限，
+  拖太久會回 sig invalid，所以讀完馬上送、中間不等。欄位都先看最上層，沒有再看 data 裡。
+- HTTP 405／429 照其他 115 請求一樣熔斷、丟 P115Throttled；state 假而且是登入失效、限流的寫法也熔斷。
+- 測試裡的假 115 照真的解開請求（AES）、照真的加密回應（lz4 只放原文區塊），所以加解密、標頭、params 都有測到；
+  只有真的 115 的回應內容沒驗證過。
+
+整批（_run，背景執行緒）：
+1. 列來源（資料夾遞迴，或一支檔案），最多 MAX_FILES 支，超過就不做；讀取（read）時列過、10 分鐘內開始的直接用那份清單。
+   media_only 時只留影片（VIDEO_EXTS）和字幕（SUBTITLE_EXTS），其他的算 ignored。
+2. 在「存到」底下建資料夾（來源名稱，一支檔案時去掉副檔名；同名就加「 (2)」…，先列一次挑沒用過的），子資料夾照相對路徑
+   一層一層建（記在 dirs 不重建；去掉 115 不收的字元之後撞名就用已經有的那個）。
+3. 一支一支：沒有 SHA1、超過 115 單檔上限的記 skipped；其他的秒傳，需要二次驗證時才向阿里雲盤取下載網址（同一支只取一次）
+   讀那一段。每個 115 請求（建資料夾、每一支的上傳初始化）之前看熔斷、和上一次至少隔 PACE 秒乘 slowdown（同一支的二次驗證
+   緊接著送，不等）。AliyunError、P115Error 記在那一支繼續；P115Throttled 整批停下，job.error 寫原因、note 寫秒傳好的在哪，
+   不加進整理（那要列 115 的目錄）。
+4. 做完：一支都沒成功 → 剛建的資料夾（含子資料夾）列一遍確認沒有檔案才移到 115 回收站，deletelog 記成 rapid；有成功的 →
+   folder_unit 加進「整理 115 網盤」，target 是 path 而且沒按停止就 organize_units_in_background，開始不了在 note 說明。
+   程式要結束時不加進整理，note 寫檔案在哪。
+- 停止：cancel 設 job.stopping，在兩支之間、列阿里雲盤的兩個資料夾之間看；做完手上這一支就停，秒傳好的加進整理但不交給
+  MoviePilot。等的地方用 workers.stop.wait，程式要結束才提早醒來。
+- results 每一支記 path、size、state、message（最多 MAX_RESULTS 筆，數量照算）；網頁只列沒成功的前 200 筆。
 
 ## embyserver/reorganize.py
 

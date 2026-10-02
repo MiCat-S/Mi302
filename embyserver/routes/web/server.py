@@ -23,7 +23,7 @@ def _busy(request: Request) -> list:
         ("取消訂閱", st.moviepilot.unsubscribe_result.running),
         ("MoviePilot 整理", st.reorganizer.job.running), ("全部整理", st.organizer.batch.running),
         ("問 MoviePilot 檢查", st.organizer.job.running), ("刪除勾選的", st.organizer.deleting.running),
-        ("轉存分享", st.share.job.running),
+        ("轉存分享", st.share.job.running), ("秒傳", st.rapid.job.running),
         ("媒體資訊提取", st.prober.result.running),
         ("重複檔案", st.dupes.job.running), ("空資料夾", st.empty_dirs.job.running),
         ("查中文名", st.person_names.running),

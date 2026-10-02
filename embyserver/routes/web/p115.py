@@ -1,4 +1,4 @@
-"""115：瀏覽、回收站、選同步目錄、雲下載（離線下載）、轉存分享；115 上的重複檔案、空資料夾；媒體資訊（從 115 探測）。"""
+"""115：瀏覽、回收站、選同步目錄、雲下載（離線下載）、轉存分享、從阿里雲盤秒傳；115 上的重複檔案、空資料夾；媒體資訊（從 115 探測）。"""
 
 from __future__ import annotations
 
@@ -16,6 +16,8 @@ from ...offline115 import OfflineError
 from ...p115 import P115Error
 from ...p115_open import P115OpenError
 from ...reorganize import ReorgError
+from ...aliyun import AliyunError
+from ...rapid115 import RapidError
 from ...share115 import ShareError
 from ...probe_select import ProbeFilter, missing_paths, missing_titles, title_names
 from ..common import q, q_int, state
@@ -124,6 +126,49 @@ def share_stop(request: Request, ctx: AuthContext = Depends(require_admin)):
     """做完手上這一個分享就停：已經轉存的留在 115，沒做的不做，也不交給 MoviePilot 整理。"""
     st = state(request)
     return {"stopped": st.share.cancel(), "job": st.share.status()}
+
+
+# ---------------- 從阿里雲盤秒傳 ----------------
+
+
+def _rapid(fn, *args):
+    try:
+        return fn(*args)
+    except (RapidError, AliyunError, P115Error) as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@router.post("/web/api/115/rapid/read")
+async def rapid_read(request: Request, ctx: AuthContext = Depends(require_admin)):
+    """讀取要秒傳的：{source: 阿里雲盤路徑（/資源庫/…）, media_only: 只要影片和字幕（預設 true）}。回傳幾支影片、字幕、總大小、
+    沒有 SHA1 的、超過 115 單檔上限的，和前 200 支。"""
+    st = state(request)
+    body = await json_body(request)
+    return await run_in_threadpool(_rapid, st.rapid.read, str(body.get("source") or ""), bool(body.get("media_only", True)))
+
+
+@router.post("/web/api/115/rapid/start")
+async def rapid_start(request: Request, ctx: AuthContext = Depends(require_admin)):
+    """開始秒傳：{source, folder: 存到的 115 資料夾, target: "path" | ""（先不整理）, target_path, media_only}。在背景一支一支做，
+    回傳 job；進度看 GET /web/api/115/rapid/status。115 上沒有的檔案不會上傳，列在結果裡。"""
+    st = state(request)
+    body = await json_body(request)
+    return await run_in_threadpool(_rapid, st.rapid.start, str(body.get("source") or ""), str(body.get("folder") or ""),
+                                   str(body.get("target") or ""), str(body.get("target_path") or ""),
+                                   bool(body.get("media_only", True)))
+
+
+@router.get("/web/api/115/rapid/status")
+def rapid_status(request: Request, ctx: AuthContext = Depends(require_admin)):
+    """目前（或上一次）秒傳的進度和每一支的結果（最多 2000 筆）。"""
+    return state(request).rapid.status()
+
+
+@router.post("/web/api/115/rapid/stop")
+def rapid_stop(request: Request, ctx: AuthContext = Depends(require_admin)):
+    """做完手上這一支就停：秒傳好的加進「整理 115 網盤」，不交給 MoviePilot 整理；沒做的不做。"""
+    st = state(request)
+    return {"stopped": st.rapid.cancel(), "job": st.rapid.status()}
 
 
 # ---------------- 瀏覽 115、回收站 ----------------

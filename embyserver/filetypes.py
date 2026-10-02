@@ -16,5 +16,7 @@ MEDIA_EXTS = LIBRARY_VIDEO_EXTS | frozenset({
     ".mka", ".dsf", ".dff", ".aiff", ".tak", ".tta", ".wv",
 })
 IMAGE_EXTS = (".jpg", ".jpeg", ".png", ".webp")
+# 外掛字幕（idx／sub 是一對的 VobSub）
+SUBTITLE_EXTS = frozenset({".srt", ".ass", ".ssa", ".sup", ".vtt", ".sub", ".idx"})
 # 跟著影片一起從 115 下載的中繼資料：nfo、圖片、字幕
-METADATA_EXTS = frozenset({".nfo", ".jpg", ".jpeg", ".png", ".webp", ".srt", ".ass", ".ssa", ".sup", ".vtt"})
+METADATA_EXTS = frozenset({".nfo", *IMAGE_EXTS}) | SUBTITLE_EXTS

@@ -342,6 +342,20 @@ class P115Service:
             "查詢目錄路徑", lambda: self.open.dir_ancestors(cid), lambda: self._cookie_dir_ancestors(cid)
         )
 
+    def make_dir(self, pid: int, name: str, path: str = "") -> int:
+        """在 pid 底下建一個資料夾，回傳新的 id。用 cookie 的 POST /files/add（沒實測）：新 id 在回應的 cid 或 file_id
+        （也看 data 裡）；都沒有就照 path 查一次。state 假（多半是同名的已經有了）照樣丟 P115Error。"""
+        self.breaker.check()
+        body = self._webapi_post("/files/add", {"pid": str(pid), "cname": name})
+        data = body.get("data") if isinstance(body.get("data"), dict) else {}
+        for value in (body.get("cid"), body.get("file_id"), data.get("cid"), data.get("file_id")):
+            if str(value if value is not None else "").strip().isdecimal() and _int(value):
+                return _int(value)
+        if not path:
+            raise P115Error(f"115 建好資料夾「{name}」，但沒有回傳它的 id")
+        log.info("115 建資料夾的回應裡沒有新資料夾的 id，改用路徑查：%s", path)
+        return self.dir_id(path)
+
     def delete_files(self, file_ids: List[int]) -> None:
         """把 115 上的這些檔案送進回收站（可以在 115 還原）。要用掃碼或 cookie 登入。"""
         if not self.cookies:

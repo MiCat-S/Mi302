@@ -1,8 +1,8 @@
 [繁體中文](115-網盤與同步) | [简体中文](115-网盘与同步) | **English**
 
-This page covers logging in to 115 Cloud (115 網盤), turning 115 folders into local `.strm` files, how incremental sync, full sync, deletion and the circuit breaker work, how to browse folders on 115 and hand a wrong one to MoviePilot, how to transfer other people's 115 shares, and how to empty the 115 recycle bin. The web admin page is only in Traditional Chinese, so button and field names below are given in English with the original label in parentheses.
+This page covers logging in to 115 Cloud (115 網盤), turning 115 folders into local `.strm` files, how incremental sync, full sync, deletion and the circuit breaker work, how to browse folders on 115 and hand a wrong one to MoviePilot, how to transfer other people's 115 shares, how to rapid-upload from Aliyun Drive, and how to empty the 115 recycle bin. The web admin page is only in Traditional Chinese, so button and field names below are given in English with the original label in parentheses.
 
-The **115 Cloud** tab has six buttons at the top: **Account** (帳號), **Sync** (同步), **Offline download** (離線下載), **Transfer shares** (轉存分享), **Organise 115** (整理 115 網盤) and **Recycle bin** (回收站). Each one shows only its group of cards, and the tab reopens on the one you looked at last. **Sync** holds the **Sync tasks** (同步任務), **Sync** (同步) and **Sync options** (同步選項) cards. **Browse 115** (瀏覽 115) is a separate page in the sidebar.
+The **115 Cloud** tab has seven buttons at the top: **Account** (帳號), **Sync** (同步), **Offline download** (離線下載), **Transfer shares** (轉存分享), **Aliyun rapid upload** (阿里雲盤秒傳), **Organise 115** (整理 115 網盤) and **Recycle bin** (回收站). Each one shows only its group of cards, and the tab reopens on the one you looked at last. **Sync** holds the **Sync tasks** (同步任務), **Sync** (同步) and **Sync options** (同步選項) cards. **Browse 115** (瀏覽 115) is a separate page in the sidebar.
 
 ## Logging in to 115
 
@@ -302,6 +302,40 @@ Limits:
 - It uses interfaces of 115's web version that have no official documentation (reading shares, transferring, creating folders, counting files in a folder), so it fails when 115 changes them; the error message is shown as is.
 - The list at the top of Organise 115 (folders added from Browse 115) holds at most 20 entries. When more than 20 shares are transferred at once, the earlier ones drop off the list; their result says where the files are, so add them again from Browse 115.
 - It does not start while 115 is rate-limiting (see [Circuit breaker](#circuit-breaker)); if that happens halfway, the remaining shares are not done and the reason is shown.
+
+## Rapid upload from Aliyun Drive
+
+**Aliyun rapid upload** (阿里雲盤秒傳) on the **115 Cloud** tab rapid-uploads a folder (or a single file) from Aliyun Drive (阿里雲盤) to 115 and then hands it to MoviePilot to be organised into the library. Aliyun Drive's file listing gives the SHA1 of every file; when 115 already has the same file (someone uploaded it before), it is "uploaded" instantly by hash, without going through this machine and without downloading anything. **Files 115 does not have are never really uploaded**; they are only listed.
+
+### Logging in to Aliyun Drive
+
+Why the login is needed: besides listing the files, 115 often asks for a second check during a rapid upload, the SHA1 of a small piece in the middle of the file, as proof that you really have it. Mi302 reads that piece (a few KB) from Aliyun Drive and sends it back to 115.
+
+1. Get a refresh token with OpenList's tool: open <https://api.oplist.org/>, choose the Aliyun Drive QR login, scan it with the Aliyun Drive app and copy the refresh token.
+2. Paste it into the **Aliyun Drive account** (阿里雲盤帳號) card and click **Log in** (登入). The account name and its drives (資源庫 resource drive, 備份盤 backup drive) are then shown.
+3. **Without your own client id, the refresh token is sent to an OpenList service** (`https://api.oplist.org/alicloud/renewapi`) to get access tokens, the same way OpenList itself does it. To avoid that, fill in your own Aliyun Drive open-platform **Client ID** and **Client Secret** under **Advanced** (進階) (the refresh token must then come from that app as well), and Mi302 asks Aliyun Drive directly; the online API URL can also be changed (must be `https://`). See [Configuration reference](Configuration-Reference#aliyun).
+4. The refresh token is stored in Mi302's database, not in the config file. Aliyun Drive hands out a new refresh token with every access token, and Mi302 stores it again. **Log out** (登出) removes it.
+
+### Rapid upload
+
+1. Under **Source** (來源), type an Aliyun Drive path; the top level is 資源庫 and 備份盤, e.g. `/資源庫/電視劇/凡人修仙传`. Or click **Choose…** (選擇…) and go down level by level (each level shows how many files it has).
+2. **Videos and subtitles only** (只要影片和字幕), on by default and remembered in this browser: nfo files, images and the like are left out.
+3. Click **Read** (讀取): it shows how many videos and subtitles there are, the total size, files without a SHA1 from Aliyun Drive and files over 115's single-file limit (both cannot be rapid-uploaded and are skipped), and the first 200 files. At most 5000 files at a time.
+4. Under **Save to** (存到), choose an existing 115 folder, preferably outside the sync folders, e.g. `/待整理` (same reason as for [Transfer shares](#transfer-shares)). Mi302 creates a new folder in it named after the source (a single file: its name without the extension), adding " (2)", " (3)" if the name is taken; subfolders keep the original structure.
+5. **Organise to** (整理到) is the same menu as for transferring shares: with a library folder or another 115 folder, MoviePilot organises the result in the background afterwards and the emptied folder goes to the 115 recycle bin; **Don't organise yet** (先不整理) only adds it to Organise 115. The choice is remembered in this browser, separately from Transfer shares.
+6. Click **Start rapid upload** (開始秒傳) and confirm. The files are done one at a time on the server (closing the page does not stop it), at least 1 second apart between 115 requests. The card shows which file it is on and how many succeeded, were missing on 115, failed or were skipped; afterwards the ones that did not succeed are listed with the reason (up to 200).
+
+- **Nothing succeeded**: the folder it created is empty and goes to the 115 recycle bin, recorded under **Recycle bin → Deleted by Mi302** (Mi302 刪掉的) with the source 秒傳沒成功的空資料夾.
+- **Stop** (停止) finishes the file in hand and stops; what was uploaded is added to Organise 115 but not handed to MoviePilot.
+- **115 rate-limiting** ([circuit breaker](#circuit-breaker)): the whole run stops and the result says where the uploaded files are; add them from Browse 115 once 115 recovers.
+
+Limits:
+
+- It needs the QR-code login to 115 (cookie).
+- Files 115 does not have cannot be rapid-uploaded, and Mi302 never really uploads them.
+- 115's rapid upload has no official documentation (it follows OpenList and p115client), and Aliyun Drive is used through its open platform; if either side changes, it fails and the error message is shown as is. 115's second check is time-limited, so a slow answer fails (sig invalid).
+- At most 5000 files at a time; files without a SHA1 or over 115's single-file limit are skipped.
+- Listing folders and getting download links follow Aliyun Drive's rate limits (4 listings and 1 download link per second), so a folder with many subfolders takes a while.
 
 ## Browsing 115
 

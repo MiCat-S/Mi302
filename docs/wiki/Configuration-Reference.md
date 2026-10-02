@@ -53,6 +53,7 @@ Other checks:
 - `moviepilot.url` must start with `http://` or `https://`; a trailing `/` is removed.
 - Path mappings and path rules with an empty `from` or `to` are dropped.
 - An empty `mediainfo.ffprobe` becomes `ffprobe`.
+- `aliyun.online_api` must start with `https://` or be empty (the refresh token travels in its URL, so not over plain HTTP); `aliyun.client_id` and `aliyun.client_secret` must be filled in together or both left empty.
 
 ## Data that is not in the config file
 
@@ -60,6 +61,7 @@ These live in the database `<data_dir>/library.db`, not in the config file, and 
 
 - Accounts and passwords (stored as hashes only). Once an account exists, adding users, changing passwords or deleting users on the **Users** tab (使用者) never writes back to the config file.
 - The 115 login: the QR or pasted cookie, and the 115 open-platform token.
+- The Aliyun Drive refresh token (logged in under 115 Cloud → **Aliyun rapid upload** (阿里雲盤秒傳)).
 - API keys created in the web admin page.
 - 115 sync progress and index, and the automatically detected server address for strm files.
 - Watch history, media info, learned intros and credits, and so on.
@@ -225,6 +227,16 @@ A read-only WebDAV share: players browse 115 directly at `http://<host>:<port>/d
 | `enabled` | `false` | Turn on `/dav/` | Settings → WebDAV → **Enable WebDAV** (開啟 WebDAV) |
 | `root` | `""` | Which 115 folder to expose, e.g. `/Videos`; empty = the 115 folders of the sync tasks | Settings → WebDAV → **Folder to expose** (露出哪個 115 資料夾) |
 | `admin_only` | `false` | Only administrators can sign in (recommended when `root` is `/`) | Settings → WebDAV → **Administrators only** (只讓管理員登入) |
+
+## aliyun
+
+The Aliyun Drive (阿里雲盤) open platform, used by [Rapid upload from Aliyun Drive](115-Cloud-Sync#rapid-upload-from-aliyun-drive). The refresh token is entered in the web page and stored in the database, not in this file. Change these on the **115 Cloud** tab, **Aliyun rapid upload** (阿里雲盤秒傳), **Aliyun Drive account** (阿里雲盤帳號) card, under **Advanced** (進階), then click **Save** (儲存); they take effect immediately.
+
+| Key | Default | Meaning | In the web page |
+| --- | --- | --- | --- |
+| `client_id` | `""` | Your own Aliyun Drive open-platform app; with `client_secret` filled in too, Mi302 gets access tokens from `openapi.alipan.com` itself and the refresh token goes nowhere else | 115 Cloud → Aliyun rapid upload → Advanced → **Client ID** |
+| `client_secret` | `""` | That app's secret | 115 Cloud → Aliyun rapid upload → Advanced → **Client Secret** |
+| `online_api` | `https://api.oplist.org/alicloud/renewapi` | Without your own client id, access tokens come from this online API (an OpenList service), **which receives your refresh token**; must start with `https://`, empty = not used (own client id only) | 115 Cloud → Aliyun rapid upload → Advanced → **Online token URL** (線上換 token 的網址) |
 
 ## redirect
 

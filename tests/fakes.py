@@ -3,9 +3,11 @@
 各測試檔從這裡 import，不互相借用。只有一個測試檔用到的假物件留在那個檔案裡。
 """
 
+import hashlib
+import json
 import time
 from pathlib import Path
-from urllib.parse import parse_qs
+from urllib.parse import parse_qs, parse_qsl
 
 import httpx
 from fastapi.testclient import TestClient
@@ -29,7 +31,11 @@ class Fake115:
 
     分享（shares）：分享碼 → {receive_code, title, dirs: {id: (名稱, 上層 id；0 是最上層)}, files: [{fid, cid, n, s}]}。
     轉存（/share/receive）把勾的項目連同裡面的東西複製進目標資料夾；115 在背景做，所以要再列 receive_lag 次那個資料夾
-    才出現（None：一直不出現）。"""
+    才出現（None：一直不出現）。
+
+    秒傳（uplb.115.com/4.0/initupload.php）：照真的解開請求（AES）、回應也照真的加密（AES + lz4）。known 是 115 上已經有的
+    檔案（SHA1 → 內容）：沒有的回 status 1；verify 時先回 status 7 要第 sign 段的 SHA1，對了才 status 2、建出檔案。
+    User-Agent、appversion 不是 appver 時回 status 4「请升级到最新版本」；init_http 不是 200 時直接回那個 HTTP 狀態。"""
 
     def __init__(self):
         self.dirs = {0: ("根目录", None), 100: ("影視", 0), 101: ("電影", 100), 102: ("劇集", 100), 103: ("Dark", 102)}
@@ -49,6 +55,13 @@ class Fake115:
         self.pending = {}  # 暫存資料夾 cid → [還要列幾次, 分享碼, 勾的 id]
         self.forms = []  # 送出的表單：(路徑, 內容)
         self.next_id = NEW_ID
+        self.appver = self.appver_served = "36.0.1"  # 115 要的版本號、版本號 API 給的
+        self.size_limit = 0
+        self.known = {}  # SHA1（大寫）→ 內容
+        self.verify = False
+        self.sign = (3, 9)  # 二次驗證要的那一段（迄含在內）
+        self.init_http = 200
+        self.inits = []  # 每次上傳初始化：{form, ua, params}
 
     def tree(self, cid):
         """115 導出目錄樹的格式：根目录、導出的資料夾，再往下每層多一個「| 」。"""
@@ -137,6 +150,13 @@ class Fake115:
             return httpx.Response(200, json={"state": True, "id": "0"})
         if request.url.path == "/share/snap":
             return self.share_snap(p)
+        if request.url.path == "/1/web/1.0/api/chrome":
+            return httpx.Response(200, json={"data": {"win": {"version_code": self.appver_served}}})
+        if request.url.path == "/app/uploadinfo":
+            return httpx.Response(200, json={"state": True, "user_id": 1, "userkey": "UK", "size_limit": self.size_limit,
+                                             "upload_allowed": True, "upload_allowed_msg": ""})
+        if request.url.path == "/4.0/initupload.php":
+            return self.init_upload(request)
         if request.url.path == "/share/receive":
             return self.share_receive(dict(httpx.QueryParams(request.content.decode())))
         if request.url.path == "/files/add":
@@ -232,6 +252,46 @@ class Fake115:
                                          "file_id": str(cid), "file_name": name})
 
 
+    def init_upload(self, request: httpx.Request) -> httpx.Response:
+        import p115cipher
+        from p115cipher.util import aes_cbc_decrypt
+
+        if self.init_http != 200:
+            return httpx.Response(self.init_http)
+        form = dict(parse_qsl(bytes(aes_cbc_decrypt(request.content, p115cipher.AES_KEY, p115cipher.AES_IV)).decode()))
+        ua = request.headers.get("user-agent", "")
+        self.inits.append({"form": form, "ua": ua, "params": dict(request.url.params)})
+        if ua != f"Mozilla/5.0 115Browser/{self.appver}" or form.get("appversion") != self.appver:
+            return encrypted({"status": 4, "statuscode": 403, "statusmsg": "请升级到最新版本"})
+        data = self.known.get(form["fileid"])
+        if data is None:
+            return encrypted({"status": 1, "statuscode": 0, "bucket": "fhnfile", "object": "x", "callback": {}})
+        start, end = self.sign
+        want = hashlib.sha1(data[start:end + 1]).hexdigest().upper()
+        if self.verify and form.get("sign_val") != want:
+            if form.get("sign_val"):
+                return encrypted({"status": 7, "statuscode": 701, "statusmsg": "sig invalid"})
+            return encrypted({"status": 7, "statuscode": 701, "sign_key": "SK", "sign_check": f"{start}-{end}"})
+        cid = int(form["target"].rsplit("_", 1)[1])
+        fid = self.new_id()
+        self.files.append({"fid": fid, "cid": cid, "n": form["filename"], "pc": f"rp{fid % 10**9}".ljust(17, "x"),
+                           "s": int(form["filesize"]), "te": T0 + 600, "sha": form["fileid"]})
+        return encrypted({"status": 2, "statuscode": 0, "statusmsg": "", "pickcode": f"rp{fid % 10**9}"})
+
+
+def encrypted(obj) -> httpx.Response:
+    """照 115 上傳初始化的回應加密：每段前面兩個位元組是長度的 lz4 區塊（這裡只放原文，不壓縮），再 AES。"""
+    import p115cipher
+
+    raw, out = json.dumps(obj, ensure_ascii=False).encode(), b""
+    for i in range(0, len(raw), 4000):
+        part = raw[i:i + 4000]
+        n = len(part)
+        block = bytes([n << 4]) + part if n < 15 else bytes([0xF0]) + b"\xff" * ((n - 15) // 255) + bytes([(n - 15) % 255]) + part
+        out += len(block).to_bytes(2, "little") + block
+    return httpx.Response(200, content=p115cipher.ecdh_aes_encrypt(out))
+
+
 def make(tmp_path: Path, fake: Fake115, **kw) -> StrmSync:
     svc = P115Service(Database(":memory:"), initial_cookies="UID=1", transport=httpx.MockTransport(fake.handler))
     svc.download_url = lambda pc, ua="": f"https://cdn.115.test/{pc}"
@@ -240,6 +300,81 @@ def make(tmp_path: Path, fake: Fake115, **kw) -> StrmSync:
     sync = StrmSync(svc, cfg)
     sync._http = httpx.Client(transport=httpx.MockTransport(lambda r: httpx.Response(200, content=b"<nfo>")))
     return sync
+
+
+# ---------------- 阿里雲盤開放平台 ----------------
+
+
+class FakeAliyun:
+    """openapi.alipan.com 和線上換 token 的 API。files：檔案 id → {name, parent（"root" 是最上層）, drive, folder, data}；
+    SHA1 照內容算。每次換 token，refresh token 都換新（舊的不能再用）；expire_next 時下一個 API 請求回 AccessTokenExpired。"""
+
+    def __init__(self):
+        self.refresh = "rt0"
+        self.access = ""
+        self.serial = 0
+        self.expire_next = False
+        self.page = 2  # openFile/list 一頁幾項（測翻頁）
+        self.files = {}
+        self.calls = []  # (host, path)
+        self.ranges = []  # 讀過的 Range
+        self.client = ("", "")  # 自己的 client id、secret（空的 = 沒有）
+        self.drive = {"user_id": "u1", "name": "小明", "default_drive_id": "b1", "resource_drive_id": "r1"}
+
+    def add(self, fid, name, parent="root", drive="r1", data=None, sha1=True):
+        self.files[fid] = {"name": name, "parent": parent, "drive": drive, "folder": data is None, "data": data,
+                           "sha1": sha1}
+
+    def _rotate(self):
+        self.serial += 1
+        self.refresh, self.access = f"rt{self.serial}", f"at{self.serial}"
+        return {"refresh_token": self.refresh, "access_token": self.access, "expires_in": 7200}
+
+    def item(self, fid):
+        f = self.files[fid]
+        out = {"file_id": fid, "name": f["name"], "type": "folder" if f["folder"] else "file", "drive_id": f["drive"],
+               "parent_file_id": f["parent"]}
+        if not f["folder"]:
+            out.update(size=len(f["data"]), content_hash_name="sha1",
+                       content_hash=hashlib.sha1(f["data"]).hexdigest().upper() if f["sha1"] else "")
+        return out
+
+    def __call__(self, request: httpx.Request) -> httpx.Response:
+        host, path = request.url.host, request.url.path
+        self.calls.append((host, path))
+        if host == "api.oplist.org":
+            if request.url.params.get("refresh_ui") != self.refresh:
+                return httpx.Response(200, json={"text": "invalid refresh_token"})
+            return httpx.Response(200, json=self._rotate())
+        if host == "data.alipan.test":
+            data = self.files[path.strip("/")]["data"]
+            rng = request.headers.get("range", "")
+            self.ranges.append(rng)
+            start, end = (int(x) for x in rng.split("=")[1].split("-"))
+            return httpx.Response(206, content=data[start:end + 1])
+        body = json.loads(request.content or b"{}")
+        if path == "/oauth/access_token":
+            if (body.get("client_id"), body.get("client_secret")) != self.client or body.get("refresh_token") != self.refresh:
+                return httpx.Response(400, json={"code": "InvalidParameter.RefreshToken", "message": "refresh token 不對"})
+            return httpx.Response(200, json=self._rotate())
+        if request.headers.get("authorization") != f"Bearer {self.access}" or not self.access:
+            return httpx.Response(401, json={"code": "AccessTokenInvalid", "message": "AccessToken is invalid"})
+        if self.expire_next:
+            self.expire_next = False
+            self.access = "expired"
+            return httpx.Response(401, json={"code": "AccessTokenExpired", "message": "AccessToken is expired"})
+        if path == "/adrive/v1.0/user/getDriveInfo":
+            return httpx.Response(200, json=self.drive)
+        if path == "/adrive/v1.0/openFile/list":
+            kids = sorted((fid for fid, f in self.files.items() if f["parent"] == body["parent_file_id"]
+                           and f["drive"] == body["drive_id"]), key=lambda fid: self.files[fid]["name"])
+            start = int(body.get("marker") or 0)
+            more = start + self.page < len(kids)
+            return httpx.Response(200, json={"items": [self.item(fid) for fid in kids[start:start + self.page]],
+                                             "next_marker": str(start + self.page) if more else ""})
+        if path == "/adrive/v1.0/openFile/getDownloadUrl":
+            return httpx.Response(200, json={"url": f"https://data.alipan.test/{body['file_id']}", "expiration": "x"})
+        return httpx.Response(404, json={"code": "NotFound", "message": path})
 
 
 # ---------------- 115 開放平台 ----------------

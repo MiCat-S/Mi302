@@ -51,6 +51,7 @@ MEDIAINFO_FIELDS = (
     "enabled", "after_sync", "on_demand", "concurrency", "interval", "hourly_limit", "timeout", "ffprobe",
 )
 WEBDAV_FIELDS = ("enabled", "root", "admin_only")
+ALIYUN_FIELDS = ("client_id", "client_secret", "online_api")
 REDIRECT_FIELDS = ("resolve_redirects", "resolve_timeout", "cache_ttl", "require_auth", "default_container")
 P115_FIELDS = ("app", "open_app_id")
 
@@ -76,6 +77,7 @@ def export_settings(config: Config) -> Dict[str, Any]:
         },
         "mediainfo": {k: getattr(config.mediainfo, k) for k in MEDIAINFO_FIELDS},
         "webdav": {k: getattr(config.webdav, k) for k in WEBDAV_FIELDS},
+        "aliyun": {k: getattr(config.aliyun, k) for k in ALIYUN_FIELDS},
         "redirect": {
             **{k: getattr(config.redirect, k) for k in REDIRECT_FIELDS},
             "path_rules": [r.to_dict() for r in config.redirect.path_rules],
@@ -173,6 +175,13 @@ def apply_settings(config: Config, raw: dict) -> None:
     dav = config.webdav
     _set_fields(dav, WEBDAV_FIELDS, raw.get("webdav") or {})
     dav.root = "/" + dav.root.strip().strip("/") if dav.root.strip() else ""
+    ali = config.aliyun
+    _set_fields(ali, ALIYUN_FIELDS, raw.get("aliyun") or {})
+    if bool(ali.client_id) != bool(ali.client_secret):
+        raise SettingsError("阿里雲盤的 client id 和 client secret 要一起填（或都留空，用線上 API 換 token）")
+    if ali.online_api and not ali.online_api.lower().startswith("https://"):
+        # refresh token 會放在網址裡送過去，不能走明文
+        raise SettingsError("阿里雲盤換 token 的線上 API 要以 https:// 開頭（或留空，只用自己的 client id）")
 
 
 def _bad_proxies(server) -> List[tuple]:

@@ -15,6 +15,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse, Response
 from starlette.requests import ClientDisconnect
 
+from .aliyun import AliyunDrive
 from .auth import AuthService
 from .backup import Backup
 from .config import Config
@@ -29,6 +30,7 @@ from .reorganize import Reorganizer
 from .p115 import P115Service
 from .people import PeopleStore, PersonNames
 from .prober import MediaProber
+from .rapid115 import RapidUploader
 from .ratelimit import FailureLimiter
 from .redirect import Redirector
 from .routes import dav, items, p115, playback, system, web
@@ -114,16 +116,16 @@ async def _normalize_path(request: Request, call_next):
 
 def stop_workers(app: FastAPI) -> None:
     """程式結束時：叫所有背景工作停下，等它們結束（最多 workers.SHUTDOWN_WAIT 秒），之後才能關資料庫。
-    會開別人工作的排前面：轉存分享完會開整理，整理完會開同步，同步完會開探測、刮削、掃描。"""
+    會開別人工作的排前面：轉存分享、秒傳完會開整理，整理完會開同步，同步完會開探測、刮削、掃描。"""
     st = app.state
-    stop_all([st.share, st.organizer, st.empty_dirs, st.reorganizer, st.dupes, st.strm_sync, st.moviepilot, st.person_names,
-              st.prober, st.scanner, st.backup, st.updater])
+    stop_all([st.share, st.rapid, st.organizer, st.empty_dirs, st.reorganizer, st.dupes, st.strm_sync, st.moviepilot,
+              st.person_names, st.prober, st.scanner, st.backup, st.updater])
 
 
 def close_app(app: FastAPI) -> None:
     """程式結束時關掉連線池和資料庫。還在跑的背景工作之後再碰資料庫會出錯，所以呼叫前先停工作（stop_workers）。"""
     st = app.state
-    for close in (st.p115.close, st.redirector.close, st.strm_sync.close, st.db.close):
+    for close in (st.p115.close, st.aliyun.close, st.redirector.close, st.strm_sync.close, st.db.close):
         try:
             close()
         except Exception:  # 一個關不掉不影響其他的
@@ -198,6 +200,9 @@ def create_app(config: Config, db_path: Optional[str] = None, scan_on_start: boo
     app.state.organizer = Organizer(db, app.state.strm_sync, app.state.moviepilot, app.state.reorganizer, scanner)
     # 轉存 115 分享：每個分享轉存到一個子資料夾，加進「整理 115 網盤」交給 MoviePilot 整理
     app.state.share = ShareTransfer(app.state.organizer, app.state.strm_sync)
+    # 從阿里雲盤秒傳到 115：阿里雲盤給 SHA1，115 有同一個檔案就秒傳，完成的資料夾一樣加進「整理 115 網盤」
+    app.state.aliyun = AliyunDrive(db, config.aliyun)
+    app.state.rapid = RapidUploader(app.state.organizer, app.state.strm_sync, app.state.aliyun)
     # 115 上的空資料夾（沒有影音檔）：和整理共用一把鎖，MoviePilot 整理時不刪
     app.state.empty_dirs = EmptyDirs(db, app.state.strm_sync, app.state.moviepilot, app.state.reorganizer, scanner)
 

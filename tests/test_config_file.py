@@ -159,7 +159,7 @@ def test_field_lists_stay_in_sync():
     from dataclasses import fields
 
     from embyserver import settings
-    from embyserver.config import (Config, MediaInfoConfig, MoviePilotConfig, P115Config, P115StrmConfig,
+    from embyserver.config import (AliyunConfig, Config, MediaInfoConfig, MoviePilotConfig, P115Config, P115StrmConfig,
                                    RedirectConfig, ServerConfig, WebDAVConfig)
 
     sections = {  # 設定檔裡的位置 → (dataclass, 網頁能改的欄位)
@@ -169,6 +169,7 @@ def test_field_lists_stay_in_sync():
         ("moviepilot",): (MoviePilotConfig, settings.MOVIEPILOT_FIELDS),
         ("mediainfo",): (MediaInfoConfig, settings.MEDIAINFO_FIELDS),
         ("webdav",): (WebDAVConfig, settings.WEBDAV_FIELDS),
+        ("aliyun",): (AliyunConfig, settings.ALIYUN_FIELDS),
         ("redirect",): (RedirectConfig, settings.REDIRECT_FIELDS),
     }
     # 網頁不能改、只在設定檔裡的（或網頁用別的方式改的：任務、路徑對應、路徑替換）
@@ -179,6 +180,7 @@ def test_field_lists_stay_in_sync():
         ("moviepilot",): {"path_mappings"},
         ("mediainfo",): set(),
         ("webdav",): set(),
+        ("aliyun",): set(),
         ("redirect",): {"path_rules"},
     }
     rendered = yaml.safe_load(config_file.render(Config()))
@@ -295,3 +297,11 @@ def test_update_proxy_settings_are_checked(tmp_path: Path):
     assert c.put("/web/api/settings", json={"p115": {"strm": {"interval": "1e999"}}}, headers=h).status_code == 400
     assert c.put("/web/api/settings", json={"p115": {"strm": {"request_delay": -1}}}, headers=h).status_code == 200
     assert load_config(str(path)).p115.strm.request_delay == 0
+    # 阿里雲盤：線上換 token 的網址會帶著 refresh token，要 https；client id、secret 要一起填
+    for bad, why in (({"online_api": "http://api.oplist.org/alicloud/renewapi"}, "https://"), ({"client_id": "id"}, "一起填")):
+        r = c.put("/web/api/settings", json={"aliyun": bad}, headers=h)
+        assert r.status_code == 400 and why in r.text
+    good = {"client_id": "id", "client_secret": "sec", "online_api": ""}
+    assert c.put("/web/api/settings", json={"aliyun": good}, headers=h).status_code == 200
+    assert yaml.safe_load(path.read_text(encoding="utf-8"))["aliyun"] == good
+    assert c.get("/web/api/settings", headers=h).json()["aliyun"] == good
