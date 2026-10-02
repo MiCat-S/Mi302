@@ -19,7 +19,7 @@ from embyserver.p115 import P115Service
 from embyserver.reorganize import template_episode
 from embyserver.strm_sync import FULL
 
-from fakes import T0, Fake115, wait
+from fakes import SHARE_ID, T0, Fake115, wait
 
 FANREN = "F 凡人修仙传{tmdbid-106449} 更176｜停更｜预计第二季度更新"
 XUTIAN = "虚天战纪.导演剪辑版 (2025) [tmdb-282348]"
@@ -582,6 +582,41 @@ def test_folder_picked_in_browse(tmp_path: Path):
     assert listing(c, h)["pinned"] == [] and app.state.organizer._load_pinned() == {}
 
 
+def test_share_transfer_hands_folders_to_organize_all(tmp_path: Path):
+    """轉存分享選了「整理到」：轉存完釘在清單最上面，交給全部整理照指定的 115 資料夾整理（只整理這次轉存的），
+    整理完搬空的暫存子資料夾移到回收站。已經在全部整理時不開始，留在清單上說明。"""
+    app, fake, mp, media, c, h = setup(tmp_path)
+    fake.dirs[200] = ("待整理", 0)
+    fake.shares["swmov"] = {"receive_code": "", "title": "電影兩部", "dirs": {}, "files": [
+        {"fid": SHARE_ID + 1, "cid": 0, "n": "Up.2009.mkv", "s": 900_000_000},
+        {"fid": SHARE_ID + 2, "cid": 0, "n": "Interstellar.2014.mkv", "s": 900_000_000}]}
+    share, org = app.state.share, app.state.organizer
+    share.pace = share.poll = share.settle = 0
+    body = {"shares": [{"code": "swmov", "receive_code": "", "title": "電影兩部", "ids": [str(SHARE_ID + 1), str(SHARE_ID + 2)]}],
+            "folder": "/待整理", "target": "path", "target_path": "/影視/電影"}
+    org.batch.running = True  # 已經在全部整理：照樣轉存、加進清單，等它做完再整理
+    assert c.post("/web/api/115/share/start", json=body, headers=h).status_code == 200
+    wait(lambda: not share.job.running)
+    first = share.job.shares[0]
+    assert first["state"] == "pinned" and "目前有別的整理在跑" in first["message"] and org.is_pinned(first["unit_id"])
+    org.batch.running = False
+
+    mp.calls.clear()
+    assert c.post("/web/api/115/share/start", json=body, headers=h).status_code == 200  # 同名的子資料夾已經有了
+    wait(lambda: not share.job.running)
+    e = share.job.shares[0]
+    assert (e["state"], e["path"]) == ("done", "/待整理/電影兩部 (swmov)") and "「整理 115 網盤」看結果" in e["message"]
+    wait(lambda: not org.batch.running)
+    b = org.batch
+    assert (b.total, b.organized, b.files, b.skipped, b.failed, b.target, b.error) == (1, 1, 2, 0, 0, "path", "")
+    assert sent_bodies(mp) and all(s["target_path"] == "/影視/電影" for s in sent_bodies(mp))
+    moved = {f"{mp.path_of(f['cid'])}/{f['n']}" for f in fake.files if f["fid"] > SHARE_ID}
+    assert moved == {"/影視/電影/飞屋环游记 (2009) {tmdbid=14160}/飞屋环游记 (2009).mkv",
+                     "/影視/電影/星际穿越 (2014) {tmdbid=157336}/星际穿越 (2014).mkv",
+                     "/待整理/電影兩部/Up.2009.mkv", "/待整理/電影兩部/Interstellar.2014.mkv"}  # 第一次的還沒整理
+    assert e["unit_id"][1:] in fake.deleted and first["unit_id"][1:] not in fake.deleted  # 搬空的暫存子資料夾移到回收站
+
+
 def test_delete_a_movie_from_the_list(tmp_path: Path):
     app, fake, mp, media, c, h = setup(tmp_path)
     check(app, c, h)
@@ -959,7 +994,7 @@ def test_shutdown_wakes_waiting_work_before_closing_the_database(tmp_path: Path)
     assert time.monotonic() - started < 5
     assert not reorg.job.running and reorg.job.done and reorg.job.synced == ""
     st = app.state
-    for s in (st.organizer, reorg, st.dupes, st.strm_sync, st.moviepilot, st.person_names, st.prober, st.scanner,
+    for s in (st.share, st.organizer, reorg, st.dupes, st.strm_sync, st.moviepilot, st.person_names, st.prober, st.scanner,
               st.backup, st.updater):
         assert s.workers.join(0) == []
     with pytest.raises(sqlite3.ProgrammingError):

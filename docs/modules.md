@@ -243,6 +243,58 @@ Mi302 自己不判斷名稱對不對，也不猜 TMDB 編號、類型和季，�
 在背景一個一個呼叫 delete，兩個之間隔 DELETE_PACE 秒乘熔斷的 slowdown（每個都要問 115 資料夾還在不在），
 stop_delete 做完手上這一個就停；清單上找不到、刪不掉的記進 deleting.errors，其他照刪。
 
+全部整理有兩個入口，共用 _start_batch（呼叫的人拿著 _starting：看能不能開始、拿整理的鎖、建 BatchJob、開背景執行緒；
+背景執行緒不拿 _starting，在鎖裡開沒關係）：網頁的 organize_all（清單上符合的加上釘選的，套「先不整理」和影片數上限），和轉存分享（share115）用的
+organize_units_in_background（只整理給的這幾個釘選的 Unit，已經不在釘選清單上的略過，不套「先不整理」和影片數上限；
+開始不了不丟錯，記日誌、回傳 None）。
+釘選清單（_pinned）在 _starting 裡整個換一份新的、不就地改：轉存分享在背景執行緒釘上來時，網頁讀清單、全部整理
+取清單都不會碰上改到一半的 dict。
+
+## embyserver/share115.py
+
+轉存 115 分享：讀出別人分享的內容，轉存到使用者指定的 115 資料夾底下（每個分享一個暫存子資料夾），加進「整理 115 網盤」；
+選了「整理到」的再交給全部整理，在背景請 MoviePilot 整理。分享出來的命名五花八門，所以一定經過 MoviePilot，不直接轉存進媒體庫。
+
+用的都是 115 網頁版沒有文件的 webapi，都走 P115Service._webapi_get／_webapi_post（要 cookie；限流、登入失效照樣熔斷；
+state 假時丟 P115Error，訊息裡有 115 的 error 原文，照實顯示給使用者），每一步之前先 breaker.check()：
+- GET /share/snap（share_code、receive_code、cid=0、offset、limit）：錯誤情況實測過（不存在的分享是 HTTP 200、state 假、
+  errno 4100026）。成功時的欄位照 p115client、OpenList，**沒實測**：data.shareinfo 的 share_title、share_state（1 正常）、
+  forbid_reason、file_size，data.count，data.list[]（有 fid 的是檔案，沒有的是資料夾、id 在 cid；名稱 n、大小 s）。
+  缺欄位、型別不對都當成沒有；share_state 不是 1 只提醒、不擋（猜錯的話還能轉存看看，真的不行 115 會回錯誤）。
+- POST /files/add（pid、cname）：**沒實測**。新資料夾的 id 找回應的 cid、file_id（也看 data 裡）；都沒有就照路徑用
+  files/getid 查一次。
+- POST /share/receive（share_code、receive_code、file_id 逗號分隔、cid）：**沒實測**。
+- GET /category/get（cid、aid=1）：實測過，count 是字串（底下含子資料夾的檔案數）；size 是格式化過的字串，不用。
+  讀不到、沒有 count 都當成讀不到。
+
+流程：
+- read：一行一個連結（parse_links：網址的 /s/分享碼，訪問碼取 password= 或同一行「訪問碼／提取碼／密碼」後面的 4 個英數字，
+  簡繁都認）。逐一 snap，分享之間隔 PACE 秒乘熔斷的 slowdown；最上層超過一頁用 offset 翻頁，最多 SNAP_MAX 項。
+  限流、登入失效整批停下（丟 ShareError），其他錯誤寫在那個分享的 error。
+- start：要 cookie；「存到」不能是根目錄、要已經存在（dir_id，不自動建立）；target 是 path（target_path 不能是根目錄，
+  要設定好 MoviePilot）或空的（先不整理）；熔斷中不開始。在 _starting 鎖裡建 ShareJob 再開背景執行緒。ShareJob 每個分享的
+  鍵一開始就建好，之後只改值：status() 用 asdict 複製時背景執行緒正在改，加新鍵會出錯。
+- _run：一個分享一個分享做，之間隔 PACE 秒乘 slowdown，看停止旗標和熔斷（熔斷了後面的標 skipped、寫原因）：
+  1. 建暫存子資料夾：分享標題去掉 115 不收的字元和控制字元、頭尾空白和點，最多 NAME_MAX 字（folder_name）；
+     建不了（多半是同名的已經有了）改叫「名稱 (分享碼)」再建一次。限流不重試。
+  2. 轉存勾的項目到暫存子資料夾。115 回錯誤就這個分享 failed，訊息照原文；建好的子資料夾留著（轉存不刪任何東西）。
+  3. 等 115 轉存完：115 收到請求就回成功，實際在背景複製，大的分享要一陣子；沒做完就交給 MoviePilot 會只整理到一部分。
+     每 POLL 秒列一次暫存資料夾，最上層的項目數到了勾的數量（新建的資料夾本來是空的，看數量就好，不比對名稱：
+     115 可能改寫名稱）；之後隔 SETTLE 秒讀兩次 category/get 的 count，一樣才算完（讀不到 count 就多等那一次算完）。
+     最多 WAIT_MAX 秒，超過就這個分享 failed，寫明檔案在哪、等 115 做完到瀏覽 115 加進整理。
+  4. 加進整理：Organizer.folder_unit（列一次目錄、問 MoviePilot 叫什麼，釘在清單最上面），記下 unit_id。
+  5. 都做完之後（_organize）：已經被擠出釘選清單（MAX_PINNED，一次轉存超過 20 個時前面的會被擠掉）的寫明檔案在哪；
+     target 是 path 的交給 Organizer.organize_units_in_background(…, "path", target_path, cleanup=True)，開始了標 done，
+     開始不了（已經在全部整理、刪除、檢查、整理的鎖被拿走）標 pinned 並說明。按了停止、程式要結束、熔斷時不交出去。
+     cleanup=True：資料夾 Unit 的 cleanup_folders 是它自己，整理完搬空的暫存子資料夾移到 115 回收站，還有影片的不動。
+- 停止：cancel（網頁的停止）設 job.stopping，只在兩個分享之間看：手上這一個照樣等 115 做完、加進整理（不然轉存一半的
+  沒人管）。等 115 的時候用 workers.stop.wait，只有程式要結束才提早醒來，這時那個分享 failed，訊息寫檔案會在哪。
+- 「整理到」沒有「照 MoviePilot 的目錄設定」（auto）：暫存資料夾不在任何下載目錄或媒體庫目錄裡，Organizer._target 找不到
+  包含它的 115 媒體庫目錄，MoviePilot 的 transfer_target 也只認下載目錄，一定整理不了。網頁的選單是
+  GET /web/api/moviepilot/library-dirs（MoviePilot.u115_library_dirs：存儲是 115 的媒體庫目錄）加上自己填的 115 資料夾。
+- 存到同步目錄裡的（job.in_sync）：整理之前增量同步會先替原始檔名產生 strm，網頁提醒改用同步目錄外的資料夾。
+- 轉存本身不拿整理的鎖，全部整理、刪除進行中照樣轉存、加進清單，只是最後交不出去。
+
 ## embyserver/reorganize.py
 
 整理的執行和刪除（「整理 115 網盤」預覽過的交給這裡執行），以及集數定位模板的小工具。

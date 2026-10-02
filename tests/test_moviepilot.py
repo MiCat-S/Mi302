@@ -409,3 +409,25 @@ def test_bad_url_gives_a_reason_instead_of_500(tmp_path: Path):
     cfg = make_config(tmp_path)
     res = MoviePilot(cfg.moviepilot, cfg, transport=httpx.MockTransport(broken)).test()
     assert res["ok"] is False and "mp" in res["message"]
+
+
+def test_library_dirs_for_share_transfer(tmp_path: Path):
+    """轉存分享的「整理到」：只列存儲是 115 的媒體庫目錄（同一個路徑一個）；沒設定、讀不到時回空清單和原因，不回 5xx。"""
+    dirs = [{"name": "日番", "library_storage": "u115", "library_path": "cms/电视剧/日番/", "media_type": "电视剧"},
+            {"name": "日番（4K）", "library_storage": "u115", "library_path": "/cms/电视剧/日番", "media_type": "电视剧"},
+            {"name": "", "library_storage": "u115", "library_path": "/cms/电影/华语电影/", "media_type": "电影"},
+            {"name": "本機", "library_storage": "local", "library_path": "/media/movies"},
+            {"name": "沒填媒體庫", "library_storage": "u115", "library_path": ""}]
+    app = create_app(make_config(tmp_path), scan_on_start=False)
+    app.state.moviepilot._transport = httpx.MockTransport(lambda r: httpx.Response(200, json={"success": True, "data": dirs}))
+    c = TestClient(app)
+    h = {"X-Emby-Token": c.post("/Users/AuthenticateByName", json={"Username": "admin", "Pw": "pw"}).json()["AccessToken"]}
+    assert c.get("/web/api/moviepilot/library-dirs", headers=h).json() == {"enabled": True, "dirs": [
+        {"name": "日番", "path": "/cms/电视剧/日番", "type": "电视剧"},
+        {"name": "/cms/电影/华语电影", "path": "/cms/电影/华语电影", "type": "电影"}]}
+    app.state.moviepilot._transport = httpx.MockTransport(lambda r: httpx.Response(500, text="壞了"))
+    r = c.get("/web/api/moviepilot/library-dirs", headers=h)
+    assert r.status_code == 200 and r.json()["dirs"] == [] and "讀不到 MoviePilot 的目錄設定" in r.json()["error"]
+    app.state.config.moviepilot.url = ""
+    assert c.get("/web/api/moviepilot/library-dirs", headers=h).json() == {"enabled": False, "dirs": [],
+                                                                           "error": "還沒設定 MoviePilot"}

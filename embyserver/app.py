@@ -35,6 +35,7 @@ from .routes import dav, items, p115, playback, system, web
 from .routes.common import SafeJSONResponse
 from . import logs, settings
 from .scanner import Scanner
+from .share115 import ShareTransfer
 from .strm_sync import FULL, StrmSync
 from .updater import Updater
 from .webdav import WebDAV
@@ -113,10 +114,10 @@ async def _normalize_path(request: Request, call_next):
 
 def stop_workers(app: FastAPI) -> None:
     """程式結束時：叫所有背景工作停下，等它們結束（最多 workers.SHUTDOWN_WAIT 秒），之後才能關資料庫。
-    會開別人工作的排前面：整理完會開同步，同步完會開探測、刮削、掃描。"""
+    會開別人工作的排前面：轉存分享完會開整理，整理完會開同步，同步完會開探測、刮削、掃描。"""
     st = app.state
-    stop_all([st.organizer, st.empty_dirs, st.reorganizer, st.dupes, st.strm_sync, st.moviepilot, st.person_names, st.prober,
-              st.scanner, st.backup, st.updater])
+    stop_all([st.share, st.organizer, st.empty_dirs, st.reorganizer, st.dupes, st.strm_sync, st.moviepilot, st.person_names,
+              st.prober, st.scanner, st.backup, st.updater])
 
 
 def close_app(app: FastAPI) -> None:
@@ -195,6 +196,8 @@ def create_app(config: Config, db_path: Optional[str] = None, scan_on_start: boo
     app.state.reorganizer = Reorganizer(db, app.state.strm_sync, app.state.moviepilot, scanner)  # 集號不對的劇：整理或刪除
     # 整理 115 網盤：命名不照 MoviePilot 格式的資料夾整個交給它整理
     app.state.organizer = Organizer(db, app.state.strm_sync, app.state.moviepilot, app.state.reorganizer, scanner)
+    # 轉存 115 分享：每個分享轉存到一個子資料夾，加進「整理 115 網盤」交給 MoviePilot 整理
+    app.state.share = ShareTransfer(app.state.organizer, app.state.strm_sync)
     # 115 上的空資料夾（沒有影音檔）：和整理共用一把鎖，MoviePilot 整理時不刪
     app.state.empty_dirs = EmptyDirs(db, app.state.strm_sync, app.state.moviepilot, app.state.reorganizer, scanner)
 

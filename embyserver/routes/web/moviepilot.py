@@ -41,6 +41,19 @@ def moviepilot_scrape(request: Request, ctx: AuthContext = Depends(require_admin
     return {"started": started, "result": mp.result.as_dict()}
 
 
+@router.get("/web/api/moviepilot/library-dirs")
+def moviepilot_library_dirs(request: Request, ctx: AuthContext = Depends(require_admin)):
+    """MoviePilot 目錄設定裡存儲是 115 的媒體庫目錄：{enabled, dirs: [{name, path, type}]}（轉存分享的「整理到」選單）。
+    enabled 是設定了 MoviePilot 沒有；沒設定、讀不到時 dirs 是空的、error 寫原因（不回 5xx：網頁照樣能選「其他 115 資料夾」）。"""
+    mp = state(request).moviepilot
+    if not mp.enabled:
+        return {"enabled": False, "dirs": [], "error": "還沒設定 MoviePilot"}
+    try:
+        return {"enabled": True, "dirs": mp.u115_library_dirs()}
+    except MoviePilotError as exc:
+        return {"enabled": True, "dirs": [], "error": f"讀不到 MoviePilot 的目錄設定：{exc}"}
+
+
 @router.post("/web/api/moviepilot/stop")
 async def moviepilot_stop(request: Request, ctx: AuthContext = Depends(require_admin)):
     """停止刮削、補全缺集或取消訂閱：{"what": "scrape" | "fill" | "unsubscribe"}。刮削送出去的做完、沒送的不送；

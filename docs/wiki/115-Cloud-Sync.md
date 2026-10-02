@@ -1,8 +1,8 @@
 [繁體中文](115-網盤與同步) | [简体中文](115-网盘与同步) | **English**
 
-This page covers logging in to 115 Cloud (115 網盤), turning 115 folders into local `.strm` files, how incremental sync, full sync, deletion and the circuit breaker work, how to browse folders on 115 and hand a wrong one to MoviePilot, and how to empty the 115 recycle bin. The web admin page is only in Traditional Chinese, so button and field names below are given in English with the original label in parentheses.
+This page covers logging in to 115 Cloud (115 網盤), turning 115 folders into local `.strm` files, how incremental sync, full sync, deletion and the circuit breaker work, how to browse folders on 115 and hand a wrong one to MoviePilot, how to transfer other people's 115 shares, and how to empty the 115 recycle bin. The web admin page is only in Traditional Chinese, so button and field names below are given in English with the original label in parentheses.
 
-The **115 Cloud** tab has five buttons at the top: **Account** (帳號), **Sync** (同步), **Offline download** (離線下載), **Organise 115** (整理 115 網盤) and **Recycle bin** (回收站). Each one shows only its group of cards, and the tab reopens on the one you looked at last. **Sync** holds the **Sync tasks** (同步任務), **Sync** (同步) and **Sync options** (同步選項) cards. **Browse 115** (瀏覽 115) is a separate page in the sidebar.
+The **115 Cloud** tab has six buttons at the top: **Account** (帳號), **Sync** (同步), **Offline download** (離線下載), **Transfer shares** (轉存分享), **Organise 115** (整理 115 網盤) and **Recycle bin** (回收站). Each one shows only its group of cards, and the tab reopens on the one you looked at last. **Sync** holds the **Sync tasks** (同步任務), **Sync** (同步) and **Sync options** (同步選項) cards. **Browse 115** (瀏覽 115) is a separate page in the sidebar.
 
 ## Logging in to 115
 
@@ -274,6 +274,34 @@ Deleting a sync task never deletes the strm files it created, whether this optio
 - **Clear finished** (清除已完成) and **Clear failed** (清除失敗的) remove those task records in one go without touching files.
 
 With [115 open platform](#115-open-platform-advanced) authorisation its cloud-download API is used; otherwise the QR-code login cookie. The cookie path uses the 115 mobile app's interface, which has no official documentation, so it fails when 115 changes it; the error message is shown as is.
+
+## Transfer shares
+
+**Transfer shares** (轉存分享) on the **115 Cloud** tab saves other people's 115 share links into your own 115 and then hands them to MoviePilot to be organised into the library. Shared folders and file names come in every shape, so each share first goes into a temporary subfolder and always goes through MoviePilot; nothing is saved straight into the library.
+
+1. Paste the shares under **Links** (連結), one per line: `https://115.com/s/sw…?password=abcd`, or the same on `115cdn.com` or `anxia.com`. An access code on the same line is recognised too (`访问码：abcd`, `提取碼: abcd`, `密码 abcd`, simplified or traditional). Shares without an access code are read as well. A share pasted twice counts once; lines that are not share links are skipped and counted.
+2. Click **Read shares** (讀取分享). Each share gets a block with its title, total size, and every folder and file at its top level with a checkbox (all ticked by default; untick what you do not want). Shares that cannot be read (gone, expired, wrong access code) show 115's own message. Only the first 1000 top-level items are listed.
+3. Under **Save to** (存到), choose a 115 folder that already exists (it is not created for you). Each share gets a subfolder in it named after the share title, or `title (share code)` if that name is taken. The last one used is remembered in this browser. **Use a folder outside the sync folders**, for example `/待整理`: inside a sync folder, the next incremental sync creates strm files for the original names before anything is organised, and the page warns about it.
+4. Under **Organise to** (整理到), choose what happens after the transfer:
+   - A MoviePilot library folder whose storage is 115 (for example 日番（/cms/电视剧/日番）): MoviePilot previews it in the background and the entries without problems are organised right away (renamed to MoviePilot's format and moved into that library folder, without scraping); the emptied temporary subfolder then goes to the 115 recycle bin. Entries with problems are skipped and stay in [Organising 115](#organising-115) for you to look at.
+   - **Another 115 folder…** (其他 115 資料夾…): type or choose a 115 folder and it is organised there the same way.
+   - **Don't organise yet** (先不整理): only add it to Organise 115 (pinned to the top of the list, like **Organise this folder…** (整理這個資料夾…) in Browse 115) and preview and organise it yourself.
+
+   The choice is remembered in this browser. When MoviePilot's directory settings cannot be read, only the last two are offered; without MoviePilot settings, only **Don't organise yet**. The reason is shown below the list.
+5. Click **Transfer** (轉存) and confirm. The shares are handled one at a time on the server (closing the page does not stop it): create the subfolder, ask 115 to transfer, wait for 115 to finish (every ticked item shows up in the subfolder and the file count inside stops changing; at most 10 minutes), add it to Organise 115. The card shows how far each share has got and then the result: transfer failed (with 115's reason), added to Organise 115, or handed to MoviePilot (results in Organise 115).
+
+There is no **Follow MoviePilot's directory settings** option here: when MoviePilot picks a folder itself it only accepts sources under one of its download folders. The transferred files sit in a temporary 115 folder that is neither a download folder nor a library folder, so it cannot pick one (its preview only says 整理任务处理失败). You therefore choose where they go, and Mi302 sends that as a specified 115 folder.
+
+- **Stop** (停止) finishes the share in hand and stops. What was transferred stays on 115 and what was added stays in the Organise 115 list; the rest is not done, and nothing is handed to MoviePilot (use **Organise all** (全部整理) in Organise 115 when you want it).
+- **Another organise job is running** (organise all, deleting selected entries, asking MoviePilot to check, or a single organise run): the shares are still transferred and added to the list, but organising does not start; click **Organise all** in Organise 115 once that job is done.
+- **The transfer itself never deletes anything**: when a transfer fails, the subfolder it created stays; delete it in Browse 115 if it is empty.
+
+Limits:
+
+- It needs the QR-code login (cookie); open platform authorisation alone is not enough.
+- It uses interfaces of 115's web version that have no official documentation (reading shares, transferring, creating folders, counting files in a folder), so it fails when 115 changes them; the error message is shown as is.
+- The list at the top of Organise 115 (folders added from Browse 115) holds at most 20 entries. When more than 20 shares are transferred at once, the earlier ones drop off the list; their result says where the files are, so add them again from Browse 115.
+- It does not start while 115 is rate-limiting (see [Circuit breaker](#circuit-breaker)); if that happens halfway, the remaining shares are not done and the reason is shown.
 
 ## Browsing 115
 

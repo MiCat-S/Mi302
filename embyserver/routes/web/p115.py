@@ -1,4 +1,4 @@
-"""115：瀏覽、回收站、選同步目錄、雲下載（離線下載）；115 上的重複檔案、空資料夾；媒體資訊（從 115 探測）。"""
+"""115：瀏覽、回收站、選同步目錄、雲下載（離線下載）、轉存分享；115 上的重複檔案、空資料夾；媒體資訊（從 115 探測）。"""
 
 from __future__ import annotations
 
@@ -16,6 +16,7 @@ from ...offline115 import OfflineError
 from ...p115 import P115Error
 from ...p115_open import P115OpenError
 from ...reorganize import ReorgError
+from ...share115 import ShareError
 from ...probe_select import ProbeFilter, missing_paths, missing_titles, title_names
 from ..common import q, q_int, state
 from .common import json_body
@@ -79,6 +80,50 @@ async def offline_clear(request: Request, ctx: AuthContext = Depends(require_adm
     st = state(request)
     body = await json_body(request)
     return await run_in_threadpool(_offline, st.offline.clear, str(body.get("what") or ""))
+
+
+# ---------------- 轉存分享 ----------------
+
+
+def _share(fn, *args):
+    try:
+        return fn(*args)
+    except (ShareError, P115Error) as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@router.post("/web/api/115/share/read")
+async def share_read(request: Request, ctx: AuthContext = Depends(require_admin)):
+    """讀分享：{text: 一行一個分享連結（訪問碼寫在網址的 password= 或同一行）}。回傳每個分享的標題、大小、最上層的項目
+    （id 是字串），讀不到的在 error 寫 115 的原因；看不懂的行在 rejected。"""
+    st = state(request)
+    body = await json_body(request)
+    return await run_in_threadpool(_share, st.share.read, str(body.get("text") or ""))
+
+
+@router.post("/web/api/115/share/start")
+async def share_start(request: Request, ctx: AuthContext = Depends(require_admin)):
+    """開始轉存：{shares: [{code, receive_code, title, ids: [字串]}], folder: 存到的 115 資料夾, target: "path" | ""（先不整理）,
+    target_path: 整理到的 115 資料夾}。在背景一個分享一個分享做，回傳 job；進度看 GET /web/api/115/share/status。"""
+    st = state(request)
+    body = await json_body(request)
+    if not isinstance(body.get("shares"), list):
+        raise HTTPException(status_code=400, detail="shares 要是分享的清單")
+    return await run_in_threadpool(_share, st.share.start, body["shares"], str(body.get("folder") or ""),
+                                   str(body.get("target") or ""), str(body.get("target_path") or ""))
+
+
+@router.get("/web/api/115/share/status")
+def share_status(request: Request, ctx: AuthContext = Depends(require_admin)):
+    """目前（或上一次）轉存的進度：每個分享的狀態、訊息、暫存子資料夾。"""
+    return state(request).share.status()
+
+
+@router.post("/web/api/115/share/stop")
+def share_stop(request: Request, ctx: AuthContext = Depends(require_admin)):
+    """做完手上這一個分享就停：已經轉存的留在 115，沒做的不做，也不交給 MoviePilot 整理。"""
+    st = state(request)
+    return {"stopped": st.share.cancel(), "job": st.share.status()}
 
 
 # ---------------- 瀏覽 115、回收站 ----------------

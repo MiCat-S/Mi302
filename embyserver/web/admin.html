@@ -427,7 +427,7 @@ dialog .card-b{max-height:70vh;overflow:auto}
       <div class="page-h">
         <div><h1>115 網盤</h1><p class="sub">登入 115、選擇要產生 strm 的目錄，播放時 302 到 115 直鏈。</p></div>
       </div>
-      <div class="seg mb16 subtabs" role="tablist" aria-label="115 網盤的項目"><button data-act="sub" data-sub="acct" role="tab" aria-selected="false">帳號</button><button data-act="sub" data-sub="sync" role="tab" aria-selected="false">同步</button><button data-act="sub" data-sub="offline" role="tab" aria-selected="false">離線下載</button><button data-act="sub" data-sub="organize" role="tab" aria-selected="false">整理 115 網盤</button><button data-act="sub" data-sub="recycle" role="tab" aria-selected="false">回收站</button></div>
+      <div class="seg mb16 subtabs" role="tablist" aria-label="115 網盤的項目"><button data-act="sub" data-sub="acct" role="tab" aria-selected="false">帳號</button><button data-act="sub" data-sub="sync" role="tab" aria-selected="false">同步</button><button data-act="sub" data-sub="offline" role="tab" aria-selected="false">離線下載</button><button data-act="sub" data-sub="share" role="tab" aria-selected="false">轉存分享</button><button data-act="sub" data-sub="organize" role="tab" aria-selected="false">整理 115 網盤</button><button data-act="sub" data-sub="recycle" role="tab" aria-selected="false">回收站</button></div>
       <div class="card" data-sub="acct" role="tabpanel">
         <div class="card-h"><div class="t"><svg class="i"><use href="#i-cloud"/></svg><h2>帳號</h2></div>
           <div class="row"><button class="btn sm ghost" onclick="load115(true)"><svg class="i"><use href="#i-refresh"/></svg>重新整理</button></div></div>
@@ -560,6 +560,26 @@ dialog .card-b{max-height:70vh;overflow:auto}
           <div class="row wrap gap6"><button class="btn sm ghost" onclick="loadOffline()"><svg class="i"><use href="#i-refresh"/></svg>重新整理</button>
             <button class="btn sm" onclick="olClear('done')">清除已完成</button><button class="btn sm" onclick="olClear('failed')">清除失敗的</button></div></div>
         <div class="card-b"><div id="olList" class="list"><p class="hint">讀取中…</p></div></div>
+      </div>
+
+      <div class="card" id="shCard" data-sub="share" role="tabpanel">
+        <div class="card-h"><div class="t"><svg class="i"><use href="#i-download"/></svg><h2>轉存分享</h2></div></div>
+        <div class="card-b stack">
+          <p class="hint">把別人的 115 分享轉存到自己的 115，每個分享一個子資料夾，再交給 MoviePilot 整理進媒體庫（分享出來的命名五花八門，所以一定經過整理）。要用掃碼登入 115。 <a class="doc" href="https://github.com/MiCat-S/Mi302/wiki/115-網盤與同步#轉存分享" target="_blank" rel="noopener">說明</a></p>
+          <label class="field"><span>連結</span><textarea id="shText" rows="4" placeholder="一行一個：https://115.com/s/sw…?password=abcd，或連結後面寫「訪問碼：abcd」"></textarea></label>
+          <div><button class="btn" id="shRead" onclick="shRead()">讀取分享</button></div>
+          <div id="shList" class="list" onchange="shCheck(event)"></div>
+          <div class="row wrap gap6"><span class="hint">存到</span><input id="shFolder" type="text" class="grow" placeholder="例如 /待整理（要已經有這個資料夾）" aria-label="存到的 115 資料夾" oninput="shFolderCheck()">
+            <button class="btn sm" onclick="shPick()">選擇…</button></div>
+          <p id="shFolderWarn" class="notice warn hidden">這個資料夾在同步目錄裡，整理之前增量同步會先替原始檔名產生 strm；建議用同步目錄外的資料夾，例如 /待整理</p>
+          <div class="row wrap gap6"><span class="hint">整理到</span><select id="shTarget" class="w-auto" aria-label="整理到" onchange="shTargetChange()"><option value="none">先不整理（只加進「整理 115 網盤」）</option></select>
+            <input id="shTargetPath" type="text" class="grow hidden" placeholder="/影視/電視劇" aria-label="整理到的 115 資料夾" onchange="shTargetChange()"><button class="btn sm hidden" id="shTargetPick" onclick="shTargetPick()">選擇…</button></div>
+          <p id="shDirsNote" class="hint hidden"></p>
+          <p class="hint">選了「整理到」的，轉存完在背景請 MoviePilot 預覽，沒問題的直接整理（改成它的命名格式、搬過去），整理完搬空的暫存子資料夾移到 115 回收站；有問題的留在「整理 115 網盤」給你看。「存到」「整理到」記在這個瀏覽器。</p>
+          <div class="row wrap gap6"><button class="btn primary" id="shStart" onclick="shStart()" disabled>轉存</button><span class="hint grow" id="shSel" aria-live="polite"></span></div>
+          <p id="shMsg" class="notice hidden" aria-live="polite"></p>
+          <div id="shJob" aria-live="polite"></div>
+        </div>
       </div>
 
       <div class="card" data-sub="recycle" role="tabpanel">
@@ -1145,7 +1165,7 @@ const PAGES = {overview: () => loadOverview(), libraries: () => loadLibs(), '115
 // 值是切到那個分頁時要讀的資料（null = 頁面本身讀過了）
 const SUBS = {
   '115': {acct: null, sync: null, offline: () => { if (!$('olFolder').value) $('olFolder').value = localGet('mi302-ol-folder'); loadOffline(1); },
-    organize: () => organizeLoad(1), recycle: () => { loadRecycle(0); loadDeleted(0); }},
+    share: () => loadShare(), organize: () => organizeLoad(1), recycle: () => { loadRecycle(0); loadDeleted(0); }},
   tools: {mi: () => { restoreMiPrefs(); pollMI(); }, intro: () => pollIntro(), dup: () => loadDupes(), empty: () => loadEmpty()},
   moviepilot: {conn: null, scrape: null, fill: () => { restoreSeriesLimit(); loadSeries(1); }, emby: () => loadKeys()},
   settings: {general: null, webdav: () => davShow(), strm: null, zh: () => pollPeople(), backup: () => loadBackups(), about: null},
@@ -3218,6 +3238,7 @@ const STOPS = {
   ogcheck: ['/web/api/115/organize/check/stop', {}, '停止檢查？', '問完手上這幾個就停，問過的結果留著，沒問的下次按「問 MoviePilot 檢查」再問。', () => organizeLoad(og.page, true)],
   reo: ['/web/api/115/organize/execute/stop', {}, '停止整理？', '已經送給 MoviePilot 的這一批會做完，還沒送的不送，也不清舊資料夾。整理好的留著，重新預覽會接著做剩下的。', () => pollReorgJob()],
   ogdel: ['/web/api/115/organize/delete/stop', {}, '停止刪除？', '做完手上這一個就停，已經移到 115 回收站的留在回收站。', () => pollOgDelete()],
+  share: ['/web/api/115/share/stop', {}, '停止轉存？', '做完手上這一個分享就停；已經轉存的留在 115，沒做的不做，也不交給 MoviePilot 整理。', () => pollShare()],
 };
 ACTS.stopJob = async el => {
   const [url, body, title, text, after] = STOPS[el.dataset.job];
@@ -3391,6 +3412,153 @@ async function olClear(what) {
   catch (e) { toast(e.message, 'bad'); return; }
   toast(what === 'done' ? '已清除完成的任務（檔案還在）' : '已清除失敗的任務'); loadOffline(1);
 }
+
+// ---- 轉存分享 ----
+// 讀分享 → 勾要轉存的 → 存到哪、整理到哪 → 在伺服器上一個分享一個分享轉存（關掉網頁也會做完），這裡只看進度。
+// 115 的 id 有 19 位，一律當字串（放在 checkbox 的 value），不轉成數字
+let sh = {shares: [], running: false, restored: false};
+const SH_STATE = {waiting: ['', '等待中'], receiving: ['accent', '轉存中'], waiting_115: ['accent', '等 115 轉存完'],
+  pinned: ['ok', '已加進整理'], organizing: ['accent', '交給 MoviePilot'], done: ['ok', '已交給 MoviePilot 整理'],
+  failed: ['bad', '失敗'], skipped: ['warn', '沒做']};
+const shPath = v => '/' + String(v || '').trim().replace(/^\/+|\/+$/g, '');
+function loadShare() {
+  if (!sh.restored) {  // 記在這個瀏覽器的「存到」「整理到」
+    $('shFolder').value = localGet('mi302-share-folder'); $('shTargetPath').value = localGet('mi302-share-target-path');
+    sh.restored = true;
+  }
+  shFolderCheck(); shDirs(); pollShare();
+}
+async function shDirs() {
+  // 「整理到」：MoviePilot 目錄設定裡存儲是 115 的媒體庫目錄；沒設定、讀不到時只剩自己填的和先不整理
+  let r;
+  try { r = await api('/web/api/moviepilot/library-dirs'); } catch (e) { r = {enabled: true, dirs: [], error: e.message}; }
+  const sel = $('shTarget'), want = localGet('mi302-share-target') || 'none', paths = r.dirs.map(d => d.path);
+  const noMp = r.enabled === false;  // 沒設定 MoviePilot：交給它整理不了（伺服器也會擋），只能先不整理
+  sel.innerHTML = r.dirs.map(d => `<option value="${esc(d.path)}">${esc(d.name && d.name !== d.path ? `${d.name}（${d.path}）` : d.path)}</option>`).join('')
+    + `<option value="other"${noMp ? ' disabled' : ''}>其他 115 資料夾…</option><option value="none">先不整理（只加進「整理 115 網盤」）</option>`;
+  if (want.startsWith('/') && !paths.includes(want)) {  // 記住的媒體庫目錄不在選單上了（MoviePilot 改了設定、讀不到）：改成自己填的
+    sel.value = 'other';
+    if (!$('shTargetPath').value) $('shTargetPath').value = want;
+  } else sel.value = want;
+  if (!sel.value || noMp && sel.value === 'other') sel.value = 'none';
+  $('shDirsNote').textContent = noMp ? '還沒設定 MoviePilot：只能先不整理；要交給 MoviePilot 整理，先到「MoviePilot」頁設定'
+    : r.error ? `${r.error}：選單裡沒有它的媒體庫目錄，可以自己填 115 資料夾` : '';
+  $('shDirsNote').classList.toggle('hidden', !r.error);
+  shTargetUi();
+}
+function shTargetUi() {
+  const other = $('shTarget').value === 'other';
+  $('shTargetPath').classList.toggle('hidden', !other); $('shTargetPick').classList.toggle('hidden', !other);
+}
+function shTargetChange() {
+  try { localStorage.setItem('mi302-share-target', $('shTarget').value); localStorage.setItem('mi302-share-target-path', $('shTargetPath').value.trim()); } catch (e) {}
+  shTargetUi();
+}
+async function shTargetPick() {
+  const v = await pickDir('115', $('shTargetPath').value || '/');
+  if (v) { $('shTargetPath').value = v; shTargetChange(); }
+}
+async function shPick() {
+  const v = await pickDir('115', $('shFolder').value || '/');
+  if (v) { $('shFolder').value = v; shFolderCheck(); }
+}
+function shFolderCheck() {
+  // 存到同步目錄裡的：整理之前增量同步會先替原始檔名產生 strm
+  const p = shPath($('shFolder').value), roots = (cfg?.p115?.strm?.tasks || []).map(t => shPath(t.remote));
+  $('shFolderWarn').classList.toggle('hidden', p === '/' || !roots.some(r => r === '/' || p === r || p.startsWith(r + '/')));
+}
+async function shRead() {
+  const text = $('shText').value.trim();
+  if (!text) { note($('shMsg'), '先貼上分享連結', 'warn'); return; }
+  note($('shMsg'), ''); $('shRead').disabled = true;
+  $('shList').innerHTML = '<p class="hint row"><span class="spin"></span>讀取分享…（兩個分享之間隔一秒，免得被 115 限流）</p>';
+  let r;
+  try { r = await api('/web/api/115/share/read', {method: 'POST', body: JSON.stringify({text})}); }
+  catch (e) { sh.shares = []; shRender(); note($('shMsg'), e.message, 'bad'); return; }
+  finally { $('shRead').disabled = false; }
+  sh.shares = r.shares; shRender();
+  if (r.rejected.length) note($('shMsg'), `${r.rejected.length} 行看不懂，沒讀：${r.rejected.slice(0, 3).map(x => x.slice(0, 60)).join('、')}`, 'warn');
+}
+function shRender() {
+  // 每個分享一塊：標題、大小、最上層的每一項（預設全勾）；讀不到的照 115 的原文
+  $('shList').innerHTML = sh.shares.map((s, i) => {
+    const info = s.error ? (s.title !== s.code ? s.code : '') : `${fmtSize(s.size)}・${s.count} 項`;
+    const head = `<div class="row wrap gap6"><b class="brk">${esc(s.title)}</b><span class="hint">${esc(info)}</span></div>`;
+    if (s.error) return `<div class="li top"><div class="main">${head}<p class="notice bad mt6">讀不到：${esc(s.error)}</p></div></div>`;
+    return `<div class="li top" data-share="${i}"><div class="main">${head}${s.warning ? `<p class="hint t-warn mt4">${esc(s.warning)}</p>` : ''}
+      <label class="row gap6 selall mt6"><input type="checkbox" class="js-sh-all" checked><span>全選</span></label>
+      ${s.items.map(it => `<label class="dupm"><input type="checkbox" class="js-sh-item" value="${esc(it.id)}" checked><span class="p">${icon(it.is_dir ? 'folder' : 'doc')} ${esc(it.name)}${it.size ? ` <span class="hint">${fmtSize(it.size)}</span>` : ''}</span></label>`).join('')}
+      ${s.more ? `<p class="hint mt6">還有 ${s.more} 項沒列出來（最多列 1000 項），這次不會轉存</p>` : ''}</div></div>`;
+  }).join('');
+  shButtons();
+}
+function shCheck(e) {
+  const box = e.target.closest('[data-share]');
+  if (!box) return;
+  if (e.target.classList.contains('js-sh-all')) for (const c of box.querySelectorAll('.js-sh-item')) c.checked = e.target.checked;
+  else box.querySelector('.js-sh-all').checked = [...box.querySelectorAll('.js-sh-item')].every(c => c.checked);
+  shButtons();
+}
+function shPicked() {
+  return sh.shares.map((s, i) => ({s, ids: [...document.querySelectorAll(`#shList [data-share="${i}"] .js-sh-item:checked`)].map(c => c.value)}))
+    .filter(x => !x.s.error && x.ids.length);
+}
+function shButtons() {
+  const picked = shPicked(), n = picked.reduce((a, x) => a + x.ids.length, 0);
+  $('shStart').disabled = !picked.length || sh.running;
+  $('shStart').textContent = picked.length ? `轉存（${picked.length} 個分享）` : '轉存';
+  $('shStart').title = sh.running ? '上一批還在轉存，等它做完' : '';
+  $('shSel').textContent = !sh.shares.length ? '' : picked.length ? `勾了 ${picked.length} 個分享、${n} 項` : '沒有勾要轉存的';
+}
+async function shStart() {
+  const picked = shPicked();
+  if (!picked.length) return;
+  const folder = shPath($('shFolder').value), sel = $('shTarget').value;
+  if (folder === '/') { note($('shMsg'), '先選「存到」哪個 115 資料夾（不能是最上層）', 'warn'); return; }
+  const targetPath = sel === 'other' ? shPath($('shTargetPath').value) : sel.startsWith('/') ? sel : '';
+  if (sel === 'other' && targetPath === '/') { note($('shMsg'), '先填「整理到」哪個 115 資料夾', 'warn'); return; }
+  const where = targetPath ? `轉存完在背景請 MoviePilot 整理到 ${targetPath}：沒問題的直接整理（改成它的命名格式、搬過去），整理完搬空的暫存子資料夾移到 115 回收站；有問題的留在「整理 115 網盤」。`
+    : '先不整理：只加進「整理 115 網盤」，自己預覽、整理。';
+  const inSync = !$('shFolderWarn').classList.contains('hidden') ? '這個資料夾在同步目錄裡，整理之前增量同步會先替原始檔名產生 strm。' : '';
+  if (!await ask({title: `轉存 ${picked.length} 個分享到 ${folder}？`,
+    text: `每個分享在 ${folder} 底下建一個子資料夾，等 115 轉存完加進「整理 115 網盤」。${where}${inSync}轉存本身不刪任何東西。`, ok: '轉存'})) return;
+  try { localStorage.setItem('mi302-share-folder', folder); } catch (e) {}
+  const shares = picked.map(x => ({code: x.s.code, receive_code: x.s.receive_code, title: x.s.title, ids: x.ids}));
+  $('shStart').disabled = true;
+  let j;
+  try { j = await api('/web/api/115/share/start', {method: 'POST', body: JSON.stringify({shares, folder, target: targetPath ? 'path' : '', target_path: targetPath})}); }
+  catch (e) { note($('shMsg'), e.message, 'bad'); shButtons(); return; }
+  note($('shMsg'), ''); $('shText').value = ''; sh.shares = []; shRender();
+  shShow(j); pollShare();
+}
+async function pollShare() {
+  // 轉存中每 2 秒更新一次（只在這個分頁開著的時候）
+  cancel('share');
+  let j;
+  try { j = await api('/web/api/115/share/status'); } catch (e) { return; }
+  shShow(j);
+  if (j.running && !$('shCard').classList.contains('hidden')) later('share', pollShare);
+}
+function shShow(j) {
+  sh.running = !!j.running; shButtons();
+  setHtml($('shJob'), shJobHtml(j));
+}
+function shJobHtml(j) {
+  if (!j.started) return '';
+  let h = j.running
+    ? `<div class="row wrap mb8"><span class="pill accent"><span class="spin"></span>${j.stopping ? '停止中' : '轉存中'}</span><span class="hint sp grow"><span>存到 ${esc(j.folder)}</span>${j.current ? `<span>${esc(j.current)}</span>` : ''}</span>`
+      + (j.stopping ? '' : '<button class="btn sm ghost danger" data-act="stopJob" data-job="share">停止</button>') + '</div>'
+    : `<p class="hint mb8">上次轉存（${ago(j.finished)}）：存到 ${esc(j.folder)}，${j.target ? `整理到 ${esc(j.target_path)}` : '先不整理'}${j.stopped ? '，按了停止' : ''}</p>`;
+  if (j.error) h += `<p class="notice bad mb8">${esc(j.error)}</p>`;
+  if (j.in_sync) h += '<p class="hint t-warn mb8">存到的資料夾在同步目錄裡，整理之前增量同步會先替原始檔名產生 strm。</p>';
+  return h + '<div class="list">' + j.shares.map(e => {
+    const [cls, label] = SH_STATE[e.state] || ['', e.state], busy = ['receiving', 'waiting_115', 'organizing'].includes(e.state);
+    return `<div class="li top"><div class="main"><div class="row wrap gap6"><b class="brk">${esc(e.title)}</b><span class="pill ${cls}">${busy ? '<span class="spin"></span>' : ''}${label}</span></div>
+      ${e.path ? `<div class="sub">${esc(e.path)}</div>` : ''}${e.message ? `<div class="sub${e.state === 'failed' ? ' t-bad' : ''}">${esc(e.message)}</div>` : ''}</div>
+      ${e.unit_id && ['pinned', 'done'].includes(e.state) ? '<button class="btn sm" data-act="shGo">到「整理 115 網盤」</button>' : ''}</div>`;
+  }).join('') + '</div>';
+}
+ACTS.shGo = () => goOrganize();
 
 // ---- 115 回收站 ----
 let rb = {offset: 0, count: 0, via: ''};

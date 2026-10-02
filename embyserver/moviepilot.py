@@ -808,6 +808,19 @@ class MoviePilot:
             data = (res.get("data") or {}).get("value") if isinstance(res, dict) else None
         return [d for d in data or [] if isinstance(d, dict)] if isinstance(data, list) else []
 
+    def u115_library_dirs(self) -> List[dict]:
+        """目錄設定裡存儲是 115 的媒體庫目錄 [{name, path, type（media_type 原文）}]，路徑開頭補 /、去掉結尾的 /，
+        同一個路徑只留一個（轉存分享的「整理到」選單用）。"""
+        out: Dict[str, dict] = {}
+        for d in self.library_dirs():
+            raw = str(d.get("library_path") or "").strip().strip("/")
+            if d.get("library_storage") != "u115" or not raw:
+                continue
+            path = "/" + raw
+            out.setdefault(path, {"name": str(d.get("name") or "").strip() or path, "path": path,
+                                  "type": str(d.get("media_type") or "")})
+        return list(out.values())
+
     def transfer_target(self, fileitem: dict) -> Optional[dict]:
         """MoviePilot 自己照目錄設定會把這個項目整理到哪個媒體庫目錄（和它的網頁整理對話框一樣問）；
         對不上任何一個目錄設定時回傳 None。"""

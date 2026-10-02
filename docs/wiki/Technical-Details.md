@@ -145,6 +145,7 @@ The API behind the web admin page `/web`. 115 file and folder IDs have 19 digits
 | `GET /web/api/browse`, `/web/api/115/browse` | Pick a folder on the server, pick a 115 directory |
 | `GET /web/api/115/offline`, `POST /web/api/115/offline`, `POST /web/api/115/offline/delete`, `POST /web/api/115/offline/clear` | 115 cloud download: task list (`page`, with how many can still be added this month); add tasks (`urls` one per line, `folder` the 115 path to save to, empty for 115's default); delete tasks (`hashes`, `files` also deletes the downloaded files); clear finished or failed records (`what`: `done`/`failed`) |
 | `POST /web/api/115/offline/retry` | Add a failed cloud-download task again (`hash`, `url`, `folder_id`): removes that failed record first (not the files), then adds it back to the original folder |
+| `POST /web/api/115/share/read`, `POST /web/api/115/share/start`, `GET /web/api/115/share/status`, `POST /web/api/115/share/stop` | Transfer 115 shares (needs the cookie login): read shares (`text`, one link per line; returns each share's title, size and top-level items, with 115's own message in `error` when it cannot be read); transfer in the background (`shares`: `[{code, receive_code, title, ids}]`, `ids` as strings; `folder` the 115 folder to save into; `target`: `path` organises into `target_path`, empty does not organise yet); progress; stop (after the share in hand) |
 | `GET /web/api/115/recyclebin`, `POST /web/api/115/recyclebin/clean` | One page of the 115 recycle bin (`offset`, `limit`); emptying it (permanent; needs `{"confirm": "清空"}`, plus the `password` security key on the cookie channel) |
 | `GET /web/api/deleted` | What Mi302 sent to the 115 recycle bin, newest first (`source` filters by source, `offset`, `limit`); returns `items`, `total`, `sources` |
 | `GET /web/api/115/files` | Browse 115: subfolders and files of a folder (`cid` and `path`, or only `path`), with what the library made of each video (`lib`); files come 1000 at a time, `offset` for the next batch |
@@ -158,6 +159,7 @@ The API behind the web admin page `/web`. 115 file and folder IDs have 19 digits
 | `GET /web/api/server`, `POST /web/api/server/check`, `POST /web/api/server/update`, `POST /web/api/server/restart` | Version and the last update check (`boot` differs on every start); check now; update to the latest version (runs in the background, progress in `job`); restart |
 | `GET /web/api/libraries/suggest?path=` | Bulk add libraries: list the subfolders with a suggested type and the reason, the video count (`complete` when fully counted), whether a library already uses the folder (`used`), and whether to tick it by default; `partial` means some folders were not fully read |
 | `POST /web/api/moviepilot/test`, `GET /web/api/moviepilot/status`, `POST /web/api/moviepilot/scrape` | MoviePilot connection test, status, scrape items missing metadata |
+| `GET /web/api/moviepilot/library-dirs` | MoviePilot library folders whose storage is 115 (`dirs`: `name`, `path`, `type`; `enabled` says whether MoviePilot is set up), for **Organise to** (整理到) when transferring shares; `dirs` is empty with the reason in `error` when MoviePilot is not set up or cannot be read |
 | `GET /web/api/series`, `POST /web/api/moviepilot/fill` | Series and episode-gap list; fill missing episodes |
 | `GET /web/api/moviepilot/subscriptions`, `POST /web/api/moviepilot/subscriptions/clear`, `GET /web/api/moviepilot/subscriptions/unsubscribed` | How many subscriptions MoviePilot has; cancel them all (`{"confirm": "取消訂閱"}`); the subscription lists saved before the last 5 cancellations (`backups`) |
 | `GET /web/api/intro/status`, `POST /web/api/intro/clear` | Intro and credits (`{"season_id": id}` clears one season's learned records) |
@@ -212,6 +214,7 @@ Each module under `embyserver/`:
 | `redirect.py` | Resolves the real URL behind a strm, path rules, redirect cache |
 | `reorganize.py` | Running reorganisations (sending previews to MoviePilot, cleaning up emptied folders, the incremental sync afterwards) and deletion; episode-format templates (fallback when MoviePilot cannot recommend one) |
 | `scanner.py` | Library scanning |
+| `share115.py` | Transferring 115 shares: reads shares, saves them into a temporary subfolder, waits for 115 to finish, then adds it to Organise 115 for MoviePilot |
 | `strm_sync.py` | Creates strm files from 115 and downloads metadata |
 | `textutil.py` | Pinyin sorting, pinyin search, Traditional/Simplified conversion |
 | `updater.py` | Checking for updates, updating and restarting from the web page |

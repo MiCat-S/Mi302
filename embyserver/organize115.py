@@ -663,16 +663,18 @@ class Organizer:
                 self._ask(unit)
             except MoviePilotError as exc:
                 unit.error = f"問不到 MoviePilot：{exc}"
-        self._pinned.pop(unit.id, None)
-        self._pinned = {unit.id: unit, **self._pinned}
-        for extra in list(self._pinned)[MAX_PINNED:]:
-            self._pinned.pop(extra)
-        self._save_pinned()
+        # 轉存分享在背景執行緒也會釘上來：在鎖裡整個換一份新的（不就地改），網頁讀清單時不會碰上改到一半的
+        with self._starting:
+            rest = [(k, v) for k, v in self._pinned.items() if k != unit.id]
+            self._pinned = dict([(unit.id, unit)] + rest[:MAX_PINNED - 1])
+            self._save_pinned()
         return unit.view()
 
     def unpin(self, unit_id: str) -> None:
-        if self._pinned.pop(unit_id, None):
-            self._save_pinned()
+        with self._starting:
+            if unit_id in self._pinned:
+                self._pinned = {k: v for k, v in self._pinned.items() if k != unit_id}
+                self._save_pinned()
 
     def _load_pinned(self) -> Dict[str, Unit]:
         """上次留下的「瀏覽 115 加進來的」：照存下來的樣子還原，不重新列 115、不重問 MoviePilot（預覽時才會）。
@@ -1116,12 +1118,9 @@ class Organizer:
         if not self.p115.logged_in:
             raise OrganizeError(P115_NEEDED)  # 不然每個資料夾都列不出來，連續出錯才停
         with self._starting:
-            if self.batch.running:
-                raise OrganizeError("已經在全部整理了")
-            if self.deleting.running:  # 兩個刪除之間整理的鎖是空的：批次一拿走，剩下的刪除全部失敗
-                raise OrganizeError("正在刪除勾選的，等它做完再全部整理")
-            if self._lock.locked():
-                raise OrganizeError("正在問 MoviePilot 檢查，等它問完再全部整理")
+            busy = self._batch_busy()
+            if busy:  # 先看能不能開始，再算清單（忙的時候不必算）
+                raise OrganizeError(busy)
             units = list(self._pinned.values()) + self._matching(self.units(), q, kind, root)
             if not units:
                 raise OrganizeError("清單上沒有要整理的")
@@ -1129,14 +1128,61 @@ class Organizer:
             todo = [u for u in units if not (kind != "held" and u.path in self._held or limit and _biggest(u) > limit)]
             if not todo:
                 raise OrganizeError(f"清單上的 {len(units)} 個都標了「先不整理」" + (f"，或一次要送超過 {limit} 支影片" if limit else ""))
-            if target == "path" and _dir_path(target_path) == "/":
-                raise OrganizeError("請填要整理到哪個 115 資料夾")
-            if not self.reorg.hold():
-                raise OrganizeError("已經有一批在整理或刪除，等它完成再開始")
-            self.batch = BatchJob(running=True, started=time.time(), total=len(todo), target=target or "auto",
-                                  held=len(units) - len(todo), max_videos=limit)
-        self.workers.start(self._organize_all, todo, target or "auto", target_path, cleanup)
-        return self.batch.as_dict(results=False)
+            return self._start_batch(todo, len(units) - len(todo), target, target_path, cleanup, limit)
+
+    def _batch_busy(self) -> str:
+        """全部整理現在開始不了的原因；可以開始是空字串。呼叫的人拿著 _starting。"""
+        if self.batch.running:
+            return "已經在全部整理了"
+        if self.deleting.running:  # 兩個刪除之間整理的鎖是空的：批次一拿走，剩下的刪除全部失敗
+            return "正在刪除勾選的，等它做完再全部整理"
+        if self._lock.locked():
+            return "正在問 MoviePilot 檢查，等它問完再全部整理"
+        return ""
+
+    def _start_batch(self, units: List[Unit], held_count: int, target: str, target_path: str, cleanup: bool,
+                     limit: int) -> dict:
+        """全部整理這幾個：看能不能開始、拿整理的鎖、建 BatchJob、開背景執行緒。呼叫的人拿著 _starting；開始不了丟 OrganizeError。
+        回傳剛建好的 BatchJob（不含明細）。"""
+        if not self.p115.logged_in:
+            raise OrganizeError(P115_NEEDED)
+        busy = self._batch_busy()
+        if busy:
+            raise OrganizeError(busy)
+        if target == "path" and _dir_path(target_path) == "/":
+            raise OrganizeError("請填要整理到哪個 115 資料夾")
+        if not self.reorg.hold():
+            raise OrganizeError("已經有一批在整理或刪除，等它完成再開始")
+        self.batch = BatchJob(running=True, started=time.time(), total=len(units), target=target or "auto",
+                              held=held_count, max_videos=limit)
+        started = self.batch.as_dict(results=False)
+        self.workers.start(self._organize_all, units, target or "auto", target_path, cleanup)  # 它不拿 _starting，在鎖裡開沒關係
+        return started
+
+    def organize_units_in_background(self, unit_ids: List[str], target: str, target_path: str,
+                                     cleanup: bool = True) -> Optional[dict]:
+        """轉存分享用：瀏覽 115 釘上來的這幾個（已經不在釘選清單上的略過）在背景全部整理，不套「先不整理」和影片數上限。
+        開始不了（已經在全部整理、正在刪除勾選的、正在問 MoviePilot 檢查、整理的鎖被拿走、沒登入 115、沒設定 MoviePilot）
+        不丟錯，記日誌、回傳 None；開始了回傳 BatchJob（不含明細）。"""
+        if not self.mp.enabled:
+            log.warning("轉存分享：還沒設定 MoviePilot，不整理")
+            return None
+        with self._starting:
+            units = [self._pinned[i] for i in dict.fromkeys(unit_ids) if i in self._pinned]
+            if not units:
+                log.info("轉存分享：要整理的資料夾都不在釘選清單上了，不整理")
+                return None
+            try:
+                batch = self._start_batch(units, 0, target, target_path, cleanup, 0)
+            except OrganizeError as exc:
+                log.warning("轉存分享：%s 個資料夾現在沒辦法開始整理：%s", len(units), exc)
+                return None
+        log.info("轉存分享：%s 個資料夾交給 MoviePilot 整理到 %s", len(units), target_path if target == "path" else target)
+        return batch
+
+    def is_pinned(self, unit_id: str) -> bool:
+        """這個資料夾還在「瀏覽 115 加進來的」清單上（最多 MAX_PINNED 個，新的會把舊的擠掉）。"""
+        return unit_id in self._pinned
 
     def stop_all(self) -> dict:
         """做完手上這一個就停。"""

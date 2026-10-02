@@ -20,10 +20,16 @@ from embyserver.strm_sync import FULL, StrmSync
 # ---------------- 115（cookie）----------------
 
 T0 = 1_700_000_000
+SHARE_ID = 2_900_000_000_000_000_000  # 分享裡的 id：和真的一樣 19 位，超過 JavaScript 能精確表示的整數
+NEW_ID = 3_000_000_000_000_000_000  # 轉存、建資料夾時 115 新給的 id
 
 
 class Fake115:
-    """cid → (名稱, 上層 cid)；檔案 {fid, cid, n, pc, s, te}。"""
+    """cid → (名稱, 上層 cid)；檔案 {fid, cid, n, pc, s, te}。
+
+    分享（shares）：分享碼 → {receive_code, title, dirs: {id: (名稱, 上層 id；0 是最上層)}, files: [{fid, cid, n, s}]}。
+    轉存（/share/receive）把勾的項目連同裡面的東西複製進目標資料夾；115 在背景做，所以要再列 receive_lag 次那個資料夾
+    才出現（None：一直不出現）。"""
 
     def __init__(self):
         self.dirs = {0: ("根目录", None), 100: ("影視", 0), 101: ("電影", 100), 102: ("劇集", 100), 103: ("Dark", 102)}
@@ -37,6 +43,12 @@ class Fake115:
         self.export_ok = True  # 支援導出目錄樹
         self.exports = {}  # export_id → [cid, 還要輪詢幾次]
         self.deleted = []
+        self.shares = {}
+        self.receive_lag = 0
+        self.receive_error = ""  # 轉存時 115 回的錯誤
+        self.pending = {}  # 暫存資料夾 cid → [還要列幾次, 分享碼, 勾的 id]
+        self.forms = []  # 送出的表單：(路徑, 內容)
+        self.next_id = NEW_ID
 
     def tree(self, cid):
         """115 導出目錄樹的格式：根目录、導出的資料夾，再往下每層多一個「| 」。"""
@@ -123,8 +135,20 @@ class Fake115:
                 if cid and "/" + "/".join(a["name"] for a in self.ancestors(cid)[1:]) == p["path"]:
                     return httpx.Response(200, json={"state": True, "id": str(cid)})
             return httpx.Response(200, json={"state": True, "id": "0"})
+        if request.url.path == "/share/snap":
+            return self.share_snap(p)
+        if request.url.path == "/share/receive":
+            return self.share_receive(dict(httpx.QueryParams(request.content.decode())))
+        if request.url.path == "/files/add":
+            return self.add_folder(dict(httpx.QueryParams(request.content.decode())))
+        if request.url.path == "/category/get":  # 資料夾裡（含子資料夾）有幾個檔案；和真的一樣是字串
+            cid = int(p["cid"])
+            n = sum(1 for f in self.files if self.under(cid, f["cid"]))
+            return httpx.Response(200, json={"state": True, "count": str(n), "size": "1.2GB", "folder_count": "0",
+                                             "file_name": self.dirs[cid][0]})
         if request.url.path == "/files":
             cid = int(p["cid"])
+            self.received(cid)
             if cid not in self.dirs:  # 不存在的目錄，115 會回根目錄
                 return httpx.Response(200, json={"state": True, "count": 0, "data": [], "path": self.ancestors(0)})
             offset, limit = int(p.get("offset", 0)), int(p.get("limit", 1150))
@@ -140,6 +164,72 @@ class Fake115:
                 200, json={"state": True, "count": len(items), "data": page, "path": self.ancestors(cid)}
             )
         return httpx.Response(404)
+
+    # ---- 分享、轉存、建資料夾 ----
+    def new_id(self):
+        self.next_id += 1
+        return self.next_id
+
+    def share_snap(self, p):
+        share = self.shares.get(p["share_code"])
+        if share is None:
+            return httpx.Response(200, json={"state": False, "error": "该文件分享链接不存在或已被删除", "errno": 4100026,
+                                             "errtype": ""})
+        if share["receive_code"] and p.get("receive_code") != share["receive_code"]:
+            return httpx.Response(200, json={"state": False, "error": "访问码错误", "errno": 4100008})
+        top = [{"cid": str(d), "n": n, "s": 0} for d, (n, parent) in share["dirs"].items() if parent == 0]
+        top += [{"fid": str(f["fid"]), "cid": "0", "n": f["n"], "s": f["s"]} for f in share["files"] if f["cid"] == 0]
+        offset, limit = int(p.get("offset", 0)), int(p.get("limit", 32))
+        return httpx.Response(200, json={"state": True, "data": {
+            "shareinfo": {"share_title": share["title"], "share_state": "1", "forbid_reason": "",
+                          "file_size": str(sum(f["s"] for f in share["files"]))},
+            "count": len(top), "list": top[offset: offset + limit]}})
+
+    def share_receive(self, form):
+        self.forms.append(("/share/receive", form))
+        if self.receive_error:
+            return httpx.Response(200, json={"state": False, "error": self.receive_error, "errno": 4100014})
+        self.pending[int(form["cid"])] = [self.receive_lag, form["share_code"], form["file_id"].split(",")]
+        return httpx.Response(200, json={"state": True})
+
+    def received(self, cid):
+        """列暫存資料夾時：115 在背景轉存的東西，列了 receive_lag 次之後才出現。"""
+        job = self.pending.get(cid)
+        if not job or job[0] is None:
+            return
+        if job[0] > 0:
+            job[0] -= 1
+            return
+        del self.pending[cid]
+        share = self.shares[job[1]]
+        for sid in job[2]:
+            self.copy_from_share(share, int(sid), cid)
+
+    def copy_from_share(self, share, sid, parent):
+        if sid in share["dirs"]:
+            new = self.new_id()
+            self.dirs[new] = (share["dirs"][sid][0], parent)
+            for d, (_, p) in share["dirs"].items():
+                if p == sid:
+                    self.copy_from_share(share, d, new)
+            for f in share["files"]:
+                if f["cid"] == sid:
+                    self.copy_from_share(share, f["fid"], new)
+            return
+        f = next(f for f in share["files"] if f["fid"] == sid)
+        fid = self.new_id()
+        self.files.append({"fid": fid, "cid": parent, "n": f["n"], "pc": f"sh{fid % 10**9}".ljust(17, "x"), "s": f["s"],
+                           "te": T0 + 500})
+
+    def add_folder(self, form):
+        self.forms.append(("/files/add", form))
+        pid, name = int(form["pid"]), form["cname"]
+        if any(n == name and parent == pid for n, parent in self.dirs.values()):
+            return httpx.Response(200, json={"state": False, "error": "该目录名称已存在。", "errno": 20004})
+        cid = self.new_id()
+        self.dirs[cid] = (name, pid)
+        return httpx.Response(200, json={"state": True, "error": "", "errno": "", "aid": 1, "cid": str(cid), "cname": name,
+                                         "file_id": str(cid), "file_name": name})
 
 
 def make(tmp_path: Path, fake: Fake115, **kw) -> StrmSync:
