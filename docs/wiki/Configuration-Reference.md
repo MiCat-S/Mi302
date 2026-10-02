@@ -203,7 +203,7 @@ moviepilot:
 
 ## mediainfo
 
-Probing the videos behind strm files with ffprobe and writing `X-mediainfo.json`. In the collapsed **Settings** section (設定) of the **Media info** card (媒體資訊) on the **Tools** tab (整理), click **Save settings** (儲存設定). See [Media Info](Media-Info).
+Probing the videos behind strm files with ffprobe and writing `X-mediainfo.json`. In the collapsed **Settings** section (設定) of the **Media info** card (媒體資訊) on the **Tools** tab (整理), the switches are saved as soon as they are switched; for the number fields, click **Save settings** (儲存設定). See [Media Info](Media-Info).
 
 | Key | Default | Meaning | In the web page |
 | --- | --- | --- | --- |

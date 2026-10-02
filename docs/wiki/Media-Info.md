@@ -126,7 +126,7 @@ The **Media info** card lists failed videos with the reason:
 | (config file only) | `mediainfo.timeout` | 300 | 10–3600 seconds |
 | (config file only) | `mediainfo.ffprobe` | `ffprobe` | path to ffprobe |
 
-After changing them in the web UI, click **Save settings** in the **Settings** section at the bottom of the card. Changes apply immediately; no restart is needed. For the config file syntax, see [Configuration Reference](Configuration-Reference).
+In the web UI the switches are saved as soon as they are switched; for the number fields, click **Save settings** in the **Settings** section at the bottom of the card. Changes apply immediately; no restart is needed. For the config file syntax, see [Configuration Reference](Configuration-Reference).
 
 ## 115 limits
 

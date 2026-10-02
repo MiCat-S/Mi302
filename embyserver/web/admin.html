@@ -529,7 +529,8 @@ dialog .card-b{max-height:70vh;overflow:auto}
               <span class="hint">每一列還是可以自己改</span></div>
             <label class="field maxw320"><span>全部整理時，一次要送超過幾支影片的先不整理</span><input id="ogMaxV" type="number" min="0" step="50" onchange="organizeMaxV()">
               <small>整季或整個資料夾一次送給 MoviePilot，幾千支會吃光它的記憶體；0 = 不限。標了「先不整理」的也跳過</small></label>
-            <label class="switch"><input type="checkbox" id="ogClean" checked><span class="track"></span><span class="lbl">整理完後，沒有影片留下的舊資料夾移到 115 回收站<small>裡面剩下的 nfo、圖片一起移走；整理失敗或目標已有同一集的影片會留在原處，那個資料夾就保留</small></span></label>
+            <label class="switch"><input type="checkbox" id="ogClean" checked onchange="organizeClean()"><span class="track"></span><span class="lbl">整理完後，沒有影片留下的舊資料夾移到 115 回收站<small>裡面剩下的 nfo、圖片一起移走；整理失敗或目標已有同一集的影片會留在原處，那個資料夾就保留</small></span></label>
+            <p class="hint">「全部整理到」「一次要送超過幾支影片的先不整理」「整理完清舊資料夾」記在這個瀏覽器，換一台電腦要重新選；下面的外掛開關存在伺服器上。</p>
             <label class="switch"><input type="checkbox" data-key="moviepilot.rename_plugin" onchange="saveToggle(this)"><span class="track"></span><span class="lbl">用 MoviePilot 的「Mi302 整理助手」外掛算名字、改名<small>預覽時請它照 MoviePilot 的規則算新名字（幾百集幾秒，不必跑它的整理預覽）；資料夾結構已經對、只是名字不照格式的，再用 MoviePilot 的 115 授權直接改名，比整理流程快很多。要先在 MoviePilot 裝好、啟用外掛；沒裝時照舊走它的整理預覽和整理。 <a class="doc" href="https://github.com/MiCat-S/Mi302/wiki/MoviePilot-整合#mi302-整理助手外掛" target="_blank" rel="noopener">怎麼裝</a></small></span></label>
           </div>
           <div id="ogPinned" class="list"></div>
@@ -1056,6 +1057,7 @@ function ask({title, text = '', input = null, ok = '確定', danger = false}) {
     m.showModal(); if (input) inp.focus();
   });
 }
+const DEL_LOG_HINT = '刪掉的記在「115 網盤 → 回收站 → Mi302 刪掉的」。';  // 每個刪除確認框結尾都加這句，要還原時知道去哪裡找
 async function copyText(text) {
   try { await navigator.clipboard.writeText(text); }
   catch (e) {  // 區網 http 沒有 clipboard API
@@ -2269,7 +2271,7 @@ async function deleteDupes(group) {
       + (dupSuggestAll.big ? `勾選的是符合「${cond}」的全部，包含還沒翻到的頁面。` : `目前的條件：${cond}。`)
     : '會送進 115 回收站，需要時可以在 115 還原。本機的 strm 跟著刪，觀看紀錄轉到保留的那份。' +
       (group ? '' : $('dupQ').value.trim() ? `只算符合搜尋「${$('dupQ').value.trim()}」的幾組，包含還沒翻到的頁面裡照建議勾選的檔案。` : '包含還沒翻到的頁面裡，照建議勾選的檔案。');
-  if (!await ask({title: `刪除 ${plan.count} 個檔案（共 ${fmtSize(plan.size)}）？`, text, ok: '刪除', danger: true})) return;
+  if (!await ask({title: `刪除 ${plan.count} 個檔案（共 ${fmtSize(plan.size)}）？`, text: text + DEL_LOG_HINT, ok: '刪除', danger: true})) return;
   if (plan.count > 50 && !await ask({title: `真的要刪 ${plan.count} 個檔案嗎？`, text: '數量比較多，再確認一次。', ok: '確定刪除', danger: true})) return;
   let r;
   try { r = await api('/web/api/dupes/delete', {method: 'POST', body: JSON.stringify(body)}); } catch (e) { toast(e.message, 'bad'); return; }
@@ -2392,7 +2394,7 @@ async function deleteEmpty() {
   if (!plan.count) { toast('沒有勾選要刪的資料夾'); return; }
   const text = '資料夾連同裡面的 nfo、圖片這些移到 115 回收站，需要時可以在 115 還原。刪之前會再到 115 上確認一次：裡面有影音檔了、搬走或改名了、一小時內剛有變動的都不刪。'
     + (edAll ? `勾選的是${body.q ? `符合搜尋「${body.q}」的` : '清單上的'}全部${Object.values(edOverrides).some(on => !on) ? '（取消勾的除外）' : ''}，包含還沒翻到的頁面。` : '');
-  if (!await ask({title: `刪除 ${plan.count} 個空資料夾${plan.size ? `（裡面的檔案共 ${fmtSize(plan.size)}）` : ''}？`, text, ok: '刪除', danger: true})) return;
+  if (!await ask({title: `刪除 ${plan.count} 個空資料夾${plan.size ? `（裡面的檔案共 ${fmtSize(plan.size)}）` : ''}？`, text: text + DEL_LOG_HINT, ok: '刪除', danger: true})) return;
   if (plan.count > 50 && !await ask({title: `真的要刪 ${plan.count} 個資料夾嗎？`, text: '數量比較多，再確認一次。', ok: '確定刪除', danger: true})) return;
   let r;
   try { r = await api('/web/api/empty-dirs/delete', {method: 'POST', body: JSON.stringify(body)}); } catch (e) { toast(e.message, 'bad'); return; }
@@ -2533,6 +2535,7 @@ function renderSeriesBar() {
   $('fillCheckBtn').textContent = scoped && checkable ? `${fresh ? '檢查' : '重新檢查'}這 ${checkable} 部` : fresh ? '檢查缺集' : '重新檢查';
   $('fillCheckBtn').classList.toggle('primary', fresh && !!checkable);
   $('fillCheckBtn').disabled = busy || !checkable;
+  $('fillCheckBtn').classList.toggle('hidden', seriesView === 'unchecked');  // 這一頁用清單上方的「檢查這 N 部」（只查還沒對照的）；右上角的會連對照過的一起重查
   $('seriesLimit').parentElement.classList.toggle('hidden', r.total <= 20);  // 一頁放得下就不用選每頁幾部
   for (const b of document.querySelectorAll('#series .js-run')) b.disabled = busy;
   const subs = r.subscriptions;
@@ -2825,7 +2828,7 @@ async function delRun() {
   if (!ids.length) return;
   const all = ids.length === del.plan.files.filter(f => f.file_id).length;
   const folder = !$('delFolderRow').classList.contains('hidden') && $('delFolder').checked;
-  if (!await ask({title: `刪除「${u.name}」的 ${ids.length} 集？`, text: `勾選的檔案移到 115 回收站（在 115 可以還原），本機的 strm、nfo 和媒體庫裡的這幾集一起拿掉。${folder ? '刪完沒有影片留下的話，劇集資料夾也移到回收站。' : ''}${all ? '整部劇每一集都勾了；要連資料夾裡沒進媒體庫的檔案一起刪，用「整部劇刪掉」。' : ''}`,
+  if (!await ask({title: `刪除「${u.name}」的 ${ids.length} 集？`, text: `勾選的檔案移到 115 回收站（在 115 可以還原），本機的 strm、nfo 和媒體庫裡的這幾集一起拿掉。${folder ? '刪完沒有影片留下的話，劇集資料夾也移到回收站。' : ''}${all ? '整部劇每一集都勾了；要連資料夾裡沒進媒體庫的檔案一起刪，用「整部劇刪掉」。' : ''}${DEL_LOG_HINT}`,
     ok: '刪除', danger: true})) return;
   $('delRun').disabled = true; note($('delMsg'), '刪除中…');
   try { delDone(await api('/web/api/115/organize/delete', {method: 'POST', body: JSON.stringify({series_id: u.item_id, file_ids: ids, remove_folder: folder})}), u.name); }
@@ -2835,7 +2838,7 @@ async function delWhole() {
   // 整個劇集資料夾移到回收站：裡面每個檔案都走，包括沒進媒體庫的
   const p = del.plan, u = del.u;
   if (!p?.folder.cid) return;
-  if (!await ask({title: `整部「${u.name}」刪掉？`, text: `115 上的劇集資料夾「${p.folder.path}」整個移到 115 回收站（在 115 可以還原），裡面 ${p.folder.videos} 支影片和其他檔案都一起，包括沒進媒體庫的；本機的 strm、nfo 和媒體庫裡的這部劇也拿掉。`,
+  if (!await ask({title: `整部「${u.name}」刪掉？`, text: `115 上的劇集資料夾「${p.folder.path}」整個移到 115 回收站（在 115 可以還原），裡面 ${p.folder.videos} 支影片和其他檔案都一起，包括沒進媒體庫的；本機的 strm、nfo 和媒體庫裡的這部劇也拿掉。${DEL_LOG_HINT}`,
     ok: '整部刪掉', danger: true})) return;
   $('delWhole').disabled = $('delRun').disabled = true; note($('delMsg'), '刪除中…');
   try { delDone(await api('/web/api/115/organize/delete', {method: 'POST', body: JSON.stringify({id: u.id})}), u.name, true); }
@@ -2844,7 +2847,7 @@ async function delWhole() {
 async function deleteUnit(u) {
   // 電影（資料夾或那一支）、瀏覽 115 加進來的資料夾：整個移到回收站
   const what = u.kind === 'movie_file' ? `這支影片「${u.name}」` : `資料夾「${u.path}」整個（裡面所有檔案）`;
-  if (!await ask({title: `刪除「${u.name}」？`, text: `115 上的${what}移到 115 回收站（在 115 可以還原），本機的 strm、nfo 和媒體庫裡的也拿掉。`,
+  if (!await ask({title: `刪除「${u.name}」？`, text: `115 上的${what}移到 115 回收站（在 115 可以還原），本機的 strm、nfo 和媒體庫裡的也拿掉。${DEL_LOG_HINT}`,
     ok: '刪除', danger: true})) return;
   try { delDone(await api('/web/api/115/organize/delete', {method: 'POST', body: JSON.stringify({id: u.id})}), u.name, true); }
   catch (e) { toast(e.message, 'bad'); }
@@ -2908,6 +2911,7 @@ function organizeMaxV() {
   $('ogMaxV').value = v;
   try { localStorage.setItem('mi302-og-maxv', v); } catch (e) {}
 }
+function organizeClean() { try { localStorage.setItem('mi302-og-clean', $('ogClean').checked ? '1' : '0'); } catch (e) {} }
 async function organizeUnpin(u) {
   try { await api('/web/api/115/organize/folder/' + encodeURIComponent(u.id), {method: 'DELETE'}); } catch (e) { toast(e.message, 'bad'); return; }
   delete og.state[u.id];
@@ -2947,6 +2951,7 @@ async function organizeLoad(page, quiet) {
   $('ogHead').classList.toggle('hidden', !n && !r.pinned.length);
   $('ogInfo').innerHTML = n ? `<p class="hint"><b>${n}</b> 個要整理：劇集 ${c.series}、電影 ${c.movie}${c.episodes ? `；其中 ${c.episodes} 部劇的集號不對` : ''}${c.held ? `；${c.held} 個先不整理` : ''}</p>` : '';
   if (!$('ogMaxV').value) $('ogMaxV').value = localGet('mi302-og-maxv') || 300;
+  if (!$('ogClean').dataset.set) { $('ogClean').checked = localGet('mi302-og-clean') !== '0'; $('ogClean').dataset.set = '1'; }
   if (quiet && document.activeElement && ($('ogList').contains(document.activeElement) || $('ogPinned').contains(document.activeElement))) return;  // 正在填某一列：這次不重畫
   $('ogPinned').innerHTML = '';
   for (const u of r.pinned) $('ogPinned').appendChild(organizeRow(u));
@@ -3084,7 +3089,7 @@ async function organizeDeleteSelected() {
   if (!sel.length) return;
   const names = sel.map(st => `・${st.unit.name}`);
   if (!await ask({title: `刪除勾選的 ${sel.length} 個？`, ok: `刪除 ${sel.length} 個`, danger: true,
-    text: `115 上這些資料夾（或那支影片）整個移到 115 回收站（在 115 可以還原），本機的 strm、nfo 和媒體庫裡的也拿掉。\n\n`
+    text: `115 上這些資料夾（或那支影片）整個移到 115 回收站（在 115 可以還原），本機的 strm、nfo 和媒體庫裡的也拿掉。${DEL_LOG_HINT}\n\n`
       + names.slice(0, 10).join('\n') + (names.length > 10 ? `\n…等 ${names.length} 個` : '')})) return;
   // 在伺服器上一個一個刪（關掉網頁也會做完），這裡只看進度
   let r;
@@ -3602,7 +3607,7 @@ async function b115DeleteSelected() {
   if (!picked.length) return;
   const dirs = picked.filter(p => p.dir).length, names = picked.slice(0, 3).map(p => `「${p.name}」`).join('、') + (picked.length > 3 ? ` 等 ${picked.length} 個` : '');
   const inSync = !$('b115Info').textContent.includes('不在同步目錄裡');
-  if (!await ask({title: `刪除 ${picked.length} 個？`, text: `${names}移到 115 回收站（在 115 可以還原）${dirs ? '，資料夾連同裡面所有檔案' : ''}。${inSync ? '本機的 strm、nfo 和媒體庫裡的也一起拿掉。' : ''}`,
+  if (!await ask({title: `刪除 ${picked.length} 個？`, text: `${names}移到 115 回收站（在 115 可以還原）${dirs ? '，資料夾連同裡面所有檔案' : ''}。${inSync ? '本機的 strm、nfo 和媒體庫裡的也一起拿掉。' : ''}${DEL_LOG_HINT}`,
     ok: '刪除', danger: true})) return;
   $('b115DelSel').disabled = true;
   try {
