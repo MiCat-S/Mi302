@@ -41,6 +41,7 @@ SUGGEST_RULE_KEY = "dupes_suggest_rule"
 PREFERS = ("1080", "2160", "highest")
 DEFAULT_PREFER = "1080"
 DELETE_BATCH = 100  # 一次請求送幾個檔案進回收站
+EPISODE_TAIL_RE = re.compile(r"\s+S\d+E\d+.*$")  # 不同版本的組名「劇名 S01E02」去掉集號就是劇名
 BIG_FLOOR = 1 << 30  # 大檔案：記下多大以上的影片（1 GB）
 BIG_TYPES = {"movie": "type='Movie'", "episode": "type='Episode'", "none": "type IS NULL"}  # 大檔案的種類篩選
 
@@ -91,6 +92,24 @@ def name_complete(name: str, kind: Optional[str] = None) -> bool:
 
 def version_kind(grp: str) -> str:
     return "episode" if grp.startswith("ep:") else "movie"
+
+
+def show_of(grp: str) -> str:
+    """不同版本清單上的「一部」：劇集是 ep:{劇}（同一部劇的每一集合成一列，點了再展開），電影就是那一組自己。"""
+    return "ep:" + grp.split(":")[1] if grp.startswith("ep:") else grp
+
+
+def _episode_order(grp: str) -> tuple:
+    """展開一部劇時的順序：照季、集的數字排（ep:{劇}:季:集，後面可能有「|版本名」），字串排會變成 E1、E10、E100。"""
+    parts = grp.split("|")[0].split(":")
+    return (int(parts[2]), int(parts[3]), grp) if len(parts) == 4 and parts[2].isdecimal() and parts[3].isdecimal() else (0, 0, grp)
+
+
+def _show_where(show: str) -> Tuple[str, list]:
+    """只看這一部的條件：劇集是那部劇的每一組（ep:{劇}:季:集），電影是那一組。"""
+    if show.startswith("ep:") and show[3:].isdecimal():
+        return "grp LIKE ?", [show + ":%"]
+    return "grp = ?", [show]
 
 
 def version_order(prefer: str):
@@ -503,10 +522,11 @@ class DupeFinder:
 
     # ---------------- 清單 ----------------
 
-    def groups(self, query: str = "", offset: int = 0, limit: int = 20, kind: str = "exact") -> dict:
-        """一組一組列出來，可以省最多空間的在前面；query 比對檔名和路徑（不同版本也比對片名）。"""
+    def groups(self, query: str = "", offset: int = 0, limit: int = 20, kind: str = "exact", show: str = "") -> dict:
+        """一組一組列出來，可以省最多空間的在前面；query 比對檔名和路徑（不同版本也比對片名）。
+        不同版本給了 show（見 show_of）就只列那一部的組（展開一部劇時用）。"""
         if kind == "versions":
-            return self._version_groups(query, offset, limit)
+            return self._version_groups(query, offset, limit, show)
         where, params = "", []
         if query.strip():
             where = "WHERE sha1 IN (SELECT sha1 FROM dup_files WHERE name LIKE ? OR path LIKE ?)"
@@ -525,17 +545,53 @@ class DupeFinder:
                 {**self._member(m), "complete": name_complete(m["name"])} for m in members]})
         return {"items": items, "total": total}
 
-    def _version_groups(self, query: str, offset: int, limit: int) -> dict:
-        where, params = "", []
+    @staticmethod
+    def _versions_where(query: str, show: str = "") -> Tuple[str, list]:
+        """不同版本的篩選：query 比對片名、檔名、路徑（符合的那幾組），show 只看那一部。"""
+        conds, params = [], []
         if query.strip():
-            where = "WHERE grp IN (SELECT grp FROM dup_versions WHERE title LIKE ? OR name LIKE ? OR path LIKE ?)"
-            params = [f"%{query.strip()}%"] * 3
+            conds.append("grp IN (SELECT grp FROM dup_versions WHERE title LIKE ? OR name LIKE ? OR path LIKE ?)")
+            params += [f"%{query.strip()}%"] * 3
+        if show:
+            cond, more = _show_where(show)
+            conds.append(cond)
+            params += more
+        return ("WHERE " + " AND ".join(conds) if conds else ""), params
+
+    def version_shows(self, query: str = "", offset: int = 0, limit: int = 20) -> dict:
+        """不同版本按「一部」列：同一部劇的每一集合成一列（groups 是有不同版本的集數），點了再用 groups(show=…) 讀；
+        電影一組一列，直接附上那一組（group）。可以省最多空間的在前面，query 和 groups 同一套比對。"""
+        where, params = self._versions_where(query)
+        shows: Dict[str, dict] = {}
+        for r in self.db.query(
+                "SELECT grp, MIN(title) AS title, COUNT(*) AS n, SUM(size) AS size, "
+                f"SUM(CASE WHEN keep THEN 0 ELSE size END) AS saving FROM dup_versions {where} GROUP BY grp", params):
+            key = show_of(r["grp"])
+            s = shows.setdefault(key, {"show": key, "kind": "series" if key.startswith("ep:") else "movie",
+                                       "title": r["title"], "groups": 0, "files": 0, "size": 0, "saving": 0})
+            s["groups"] += 1
+            s["files"] += r["n"]
+            s["size"] += r["size"] or 0
+            s["saving"] += r["saving"] or 0
+        ordered = sorted(shows.values(), key=lambda s: (-s["saving"], s["show"]))
+        page = ordered[offset:offset + limit]
+        for s in page:
+            if s["kind"] == "series":
+                row = self.db.one("SELECT name FROM items WHERE id=?", (int(s["show"][3:]),))
+                s["title"] = row["name"] if row else EPISODE_TAIL_RE.sub("", s["title"])
+            else:
+                s["group"] = self._version_groups(query, 0, 1, s["show"])["items"][0]
+        return {"items": page, "total": len(ordered)}
+
+    def _version_groups(self, query: str, offset: int, limit: int, show: str = "") -> dict:
+        where, params = self._versions_where(query, show)
         total = self.db.one(f"SELECT COUNT(*) AS c FROM (SELECT 1 FROM dup_versions {where} GROUP BY grp)", params)["c"]
-        keys = self.db.query(
-            f"SELECT grp, MIN(title) AS title, COUNT(*) AS n, SUM(CASE WHEN keep THEN 0 ELSE size END) AS saving "
-            f"FROM dup_versions {where} "
-            "GROUP BY grp ORDER BY saving DESC, grp LIMIT ? OFFSET ?", (*params, limit, offset),
-        )
+        sql = (f"SELECT grp, MIN(title) AS title, COUNT(*) AS n, SUM(CASE WHEN keep THEN 0 ELSE size END) AS saving "
+               f"FROM dup_versions {where} GROUP BY grp ORDER BY saving DESC, grp")
+        if show.startswith("ep:"):  # 展開一部劇：照季、集排，不照可以省多少
+            keys = sorted(self.db.query(sql, params), key=lambda k: _episode_order(k["grp"]))[offset:offset + limit]
+        else:
+            keys = self.db.query(sql + " LIMIT ? OFFSET ?", (*params, limit, offset))
         items = []
         for k in keys:
             members = self.db.query("SELECT * FROM dup_versions WHERE grp=? ORDER BY keep DESC, size DESC, file_id", (k["grp"],))
@@ -590,23 +646,21 @@ class DupeFinder:
 
     def plan(self, overrides: Dict[int, bool], sha1: Optional[str] = None, size: Optional[int] = None,
              kind: str = "exact", grp: Optional[str] = None, use_suggestions: Optional[bool] = None,
-             query: str = "") -> List[dict]:
+             query: str = "", show: str = "") -> List[dict]:
         """要刪哪些：overrides 逐個指定（file_id → 要不要刪），沒指定的照預設。
         query：只看符合搜尋的那幾組（和清單同一套比對）；畫面上搜尋出哪些，刪的就只有那些。
 
         use_suggestions 為真時，沒指定的照建議刪（不是建議保留的都刪），為假時不刪；
         沒給的話，完全相同的照建議、不同版本的不刪（內容不同，要使用者自己挑）。
-        給了 sha1＋size（完全相同）或 grp（不同版本）時只看那一組。每一組至少要留一份，不然丟 ValueError。
+        給了 sha1＋size（完全相同）或 grp（不同版本）時只看那一組；不同版本給了 show 只看那一部（一部劇的每一集）。
+        每一組至少要留一份，不然丟 ValueError。
         """
         if kind == "versions":
             if grp:
                 rows = self.db.query("SELECT * FROM dup_versions WHERE grp=? ORDER BY file_id", (grp,))
-            elif query.strip():
-                rows = self.db.query(
-                    "SELECT * FROM dup_versions WHERE grp IN (SELECT grp FROM dup_versions WHERE title LIKE ? OR name LIKE ? "
-                    "OR path LIKE ?) ORDER BY grp, file_id", [f"%{query.strip()}%"] * 3)
             else:
-                rows = self.db.query("SELECT * FROM dup_versions ORDER BY grp, file_id")
+                where, params = self._versions_where(query, show)
+                rows = self.db.query(f"SELECT * FROM dup_versions {where} ORDER BY grp, file_id", params)
 
             def key(r):
                 return r["grp"]

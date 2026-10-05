@@ -26,6 +26,7 @@ from .common import json_body
 log = logging.getLogger(__name__)
 
 router = APIRouter()
+SHOW_LIMIT = 2000  # 不同版本展開一部劇時，一次最多給幾組（集）
 
 
 # ---------------- 雲下載（離線下載） ----------------
@@ -417,7 +418,20 @@ def dupes_groups(request: Request, ctx: AuthContext = Depends(require_admin)):
         return state(request).dupes.big(q_int(request, "min_size", 0) or 0, q(request, "type") or "", q(request, "q") or "",
                                          offset, limit)
     kind = "versions" if q(request, "kind") == "versions" else "exact"
-    return state(request).dupes.groups(q(request, "q") or "", offset, limit, kind)
+    show = q(request, "show") or "" if kind == "versions" else ""
+    if show:  # 展開一部劇：那部劇的每一組一次給（最多 SHOW_LIMIT 組）
+        limit = min(max(q_int(request, "limit", SHOW_LIMIT) or SHOW_LIMIT, 1), SHOW_LIMIT)
+    return state(request).dupes.groups(q(request, "q") or "", offset, limit, kind, show)
+
+
+@router.get("/web/api/dupes/shows")
+def dupes_shows(request: Request, ctx: AuthContext = Depends(require_admin)):
+    """不同版本按「一部」列（網頁的清單）：同一部劇的每一集合成一列 {show, kind: series, title（劇名）, groups（幾集）, files,
+    size, saving（照建議刪可以省）}，展開時用 GET /web/api/dupes/groups?kind=versions&show=…；電影一組一列（kind: movie），
+    group 是那一組。可以省最多空間的在前面；q 和 groups 同一套比對，offset、limit 分頁（照「部」算）。"""
+    offset = max(q_int(request, "offset", 0) or 0, 0)
+    limit = min(max(q_int(request, "limit", 20) or 20, 1), 100)
+    return state(request).dupes.version_shows(q(request, "q") or "", offset, limit)
 
 
 @router.post("/web/api/dupes/delete")
@@ -425,7 +439,8 @@ async def dupes_delete(request: Request, ctx: AuthContext = Depends(require_admi
     """刪重複：{"overrides": {"檔案 id": true/false}} 逐個指定要不要刪，沒指定的照預設。
 
     use_suggestions：沒指定的檔案要不要照建議刪（不是建議保留的都刪）。完全相同（kind=exact，預設）預設 true，
-    不同版本（kind=versions）預設 false。{"sha1", "size"}（完全相同）或 {"grp"}（不同版本）只處理那一組；
+    不同版本（kind=versions）預設 false。{"sha1", "size"}（完全相同）或 {"grp"}（不同版本）只處理那一組，
+    {"show"}（不同版本，見 GET /web/api/dupes/shows）只處理那一部；
     {"q"} 只處理符合搜尋的那幾組（和清單同一套比對）。
     送進 115 回收站，每組至少留一份；本機 strm 跟著刪、觀看紀錄轉到保留的那份。在背景跑。
     {"dry_run": true} 只算會刪幾個、多大，不刪（網頁上的數量和確認框用；不用登入 115）。
@@ -451,10 +466,11 @@ async def dupes_delete(request: Request, ctx: AuthContext = Depends(require_admi
     else:
         kind = "versions" if body.get("kind") == "versions" else "exact"
         grp = str(body["grp"]) if body.get("grp") else None
+        show = str(body.get("show") or "") if kind == "versions" else ""
         use_suggestions = bool(body.get("use_suggestions", kind == "exact"))
         try:
             plan = await run_in_threadpool(st.dupes.plan, overrides, body.get("sha1"), size, kind, grp, use_suggestions,
-                                           str(body.get("q") or ""))
+                                           str(body.get("q") or ""), show)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc))
     if body.get("dry_run"):

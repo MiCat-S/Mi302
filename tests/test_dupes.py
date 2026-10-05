@@ -188,6 +188,15 @@ def test_versions_are_grouped_and_deleted_only_when_picked(tmp_path: Path):
     assert ep["members"][1]["watched"]
     movie = by_title["Old Movie (2001)"]
     assert [m["file_id"] for m in movie["members"]] == [13, 1]  # 解析度高的在前
+    # 網頁的清單按「一部」列：同一部劇合成一列（展開時才讀每一集），電影一組一列、直接附上那一組
+    shows = c.get("/web/api/dupes/shows", headers=h).json()
+    by_kind = {s["kind"]: s for s in shows["items"]}
+    sid = ep["grp"].split(":")[1]
+    assert shows["total"] == 2 and {k: by_kind["series"][k] for k in ("show", "title", "groups", "files")} == {
+        "show": f"ep:{sid}", "title": "Dark", "groups": 1, "files": 2}
+    assert by_kind["movie"]["group"]["grp"] == movie["grp"] and len(by_kind["movie"]["group"]["members"]) == 2
+    r = c.get("/web/api/dupes/groups", params={"kind": "versions", "show": f"ep:{sid}"}, headers=h).json()
+    assert [g["grp"] for g in r["items"]] == [ep["grp"]]
 
     # 不同版本預設不勾：不勾就什麼都不刪
     assert c.post("/web/api/dupes/delete", json={"kind": "versions", "dry_run": True}, headers=h).json()["count"] == 0
@@ -207,6 +216,21 @@ def test_versions_are_grouped_and_deleted_only_when_picked(tmp_path: Path):
     s = c.get("/web/api/dupes", headers=h).json()
     assert s["versions"]["groups"] == 1  # 電影那一組還在
     assert c.get("/web/api/dupes/groups", params={"kind": "versions", "q": "Old Movie"}, headers=h).json()["total"] == 1
+
+    # 同一部劇好幾集都有不同版本：合成一列，展開讀得到每一集，刪除可以只算這一部
+    for fid, grp, name, size, keep in [(901, f"ep:{sid}:1:2", "Dark.S01E02.1080p.mkv", 100, 1),
+                                       (902, f"ep:{sid}:1:2", "Dark.S01E02.2160p.mkv", 300, 0),
+                                       (903, f"ep:{sid}:1:3", "Dark.S01E03.1080p.mkv", 100, 1),
+                                       (904, f"ep:{sid}:1:3", "Dark.S01E03.2160p.mkv", 500, 0)]:
+        db.execute("INSERT INTO dup_versions(file_id, grp, title, name, size, mtime, quality, keep) VALUES(?,?,?,?,?,0,'{}',?)",
+                   (fid, grp, f"Dark S01E0{grp[-1]}", name, size, keep))
+    series = next(x for x in c.get("/web/api/dupes/shows", headers=h).json()["items"] if x["kind"] == "series")
+    assert (series["show"], series["groups"], series["files"], series["saving"]) == (f"ep:{sid}", 2, 4, 800)
+    r = c.get("/web/api/dupes/groups", params={"kind": "versions", "show": series["show"]}, headers=h).json()
+    assert [g["grp"] for g in r["items"]] == [f"ep:{sid}:1:2", f"ep:{sid}:1:3"]  # 照集數排（E03 可以省的比較多也排後面）
+    r = c.post("/web/api/dupes/delete", json={"kind": "versions", "show": series["show"], "use_suggestions": True,
+                                              "dry_run": True}, headers=h).json()
+    assert (r["count"], r["size"]) == (2, 800)  # 只算這部劇，電影那一組不算
 
 
 def test_res_rank_prefers_1080_then_higher_then_lower():
