@@ -524,18 +524,17 @@ class DupeFinder:
 
     def groups(self, query: str = "", offset: int = 0, limit: int = 20, kind: str = "exact", show: str = "") -> dict:
         """一組一組列出來，可以省最多空間的在前面；query 比對檔名和路徑（不同版本也比對片名）。
-        不同版本給了 show（見 show_of）就只列那一部的組（展開一部劇時用）。"""
+        給了 show（見 shows）就只列那一部的組，劇集照季、集排（展開一部劇時用）。"""
         if kind == "versions":
             return self._version_groups(query, offset, limit, show)
-        where, params = "", []
-        if query.strip():
-            where = "WHERE sha1 IN (SELECT sha1 FROM dup_files WHERE name LIKE ? OR path LIKE ?)"
-            params = [f"%{query.strip()}%"] * 2
+        where, params = self._exact_where(query, show)
         total = self.db.one(f"SELECT COUNT(*) AS c FROM (SELECT 1 FROM dup_files {where} GROUP BY sha1, size)", params)["c"]
-        keys = self.db.query(
-            f"SELECT sha1, size, COUNT(*) AS n FROM dup_files {where} GROUP BY sha1, size "
-            "ORDER BY size * (COUNT(*) - 1) DESC, sha1 LIMIT ? OFFSET ?", (*params, limit, offset),
-        )
+        sql = f"SELECT sha1, size, COUNT(*) AS n FROM dup_files {where} GROUP BY sha1, size ORDER BY size * (COUNT(*) - 1) DESC, sha1"
+        if show.startswith("ep:"):  # 展開一部劇：照季、集排，不照可以省多少
+            order = self._exact_episode_order(int(show[3:]))
+            keys = sorted(self.db.query(sql, params), key=lambda k: order.get((k["sha1"], k["size"]), (0, 0)))[offset:offset + limit]
+        else:
+            keys = self.db.query(sql + " LIMIT ? OFFSET ?", (*params, limit, offset))
         items = []
         for k in keys:
             members = self.db.query(
@@ -544,6 +543,66 @@ class DupeFinder:
             items.append({"sha1": k["sha1"], "size": k["size"], "count": k["n"], "members": [
                 {**self._member(m), "complete": name_complete(m["name"])} for m in members]})
         return {"items": items, "total": total}
+
+    @staticmethod
+    def _exact_where(query: str, show: str = "") -> Tuple[str, list]:
+        """完全相同的篩選：query 比對檔名、路徑（符合的那幾組）；show 只看那一部：ep:{劇} 是本機 strm 屬於那部劇的組，
+        g:{sha1}:{大小} 是那一組。"""
+        conds, params = [], []
+        if query.strip():
+            conds.append("sha1 IN (SELECT sha1 FROM dup_files WHERE name LIKE ? OR path LIKE ?)")
+            params += [f"%{query.strip()}%"] * 2
+        if show.startswith("ep:") and show[3:].isdecimal():
+            conds.append("(sha1, size) IN (SELECT f.sha1, f.size FROM dup_files f JOIN items i ON i.path = f.local "
+                         "WHERE i.series_id = ?)")
+            params.append(int(show[3:]))
+        elif show:
+            sha1, _, size = show.removeprefix("g:").rpartition(":")
+            conds.append("sha1 = ? AND size = ?")
+            params += [sha1, int(size) if size.isdecimal() else -1]
+        return ("WHERE " + " AND ".join(conds) if conds else ""), params
+
+    def _exact_series(self) -> Dict[Tuple[str, int], int]:
+        """完全相同的每一組 → 那一集屬於哪部劇（本機有 strm、媒體庫認得出是哪一集的才有）。"""
+        return {(r["sha1"], r["size"]): r["sid"] for r in self.db.query(
+            "SELECT f.sha1, f.size, MIN(i.series_id) AS sid FROM dup_files f JOIN items i ON i.path = f.local "
+            "WHERE i.series_id IS NOT NULL GROUP BY f.sha1, f.size")}
+
+    def _exact_episode_order(self, series_id: int) -> Dict[Tuple[str, int], Tuple[int, int]]:
+        """展開一部劇時的順序：每一組那一集的 (季, 集)。"""
+        return {(r["sha1"], r["size"]): (r["s"] or 0, r["e"] or 0) for r in self.db.query(
+            "SELECT f.sha1, f.size, MIN(i.parent_index_number) AS s, MIN(i.index_number) AS e FROM dup_files f "
+            "JOIN items i ON i.path = f.local WHERE i.series_id = ? GROUP BY f.sha1, f.size", (series_id,))}
+
+    def shows(self, kind: str = "versions", query: str = "", offset: int = 0, limit: int = 20) -> dict:
+        """網頁的清單按「一部」列：同一部劇的每一集合成一列（kind: series，groups 是幾集），點了再用 groups(show=…) 讀；
+        其他的一組一列，直接附上那一組（group）。可以省最多空間的在前面，query 和 groups 同一套比對。"""
+        if kind == "versions":
+            return self.version_shows(query, offset, limit)
+        where, params = self._exact_where(query)
+        series = self._exact_series()
+        shows: Dict[str, dict] = {}
+        for r in self.db.query(
+                "SELECT sha1, size, COUNT(*) AS n, SUM(CASE WHEN keep THEN 0 ELSE size END) AS saving "
+                f"FROM dup_files {where} GROUP BY sha1, size", params):
+            sid = series.get((r["sha1"], r["size"]))
+            key = f"ep:{sid}" if sid else f"g:{r['sha1']}:{r['size']}"
+            s = shows.setdefault(key, {"show": key, "kind": "series" if sid else "group", "title": "", "groups": 0,
+                                       "files": 0, "size": 0, "saving": 0})
+            s["groups"] += 1
+            s["files"] += r["n"]
+            s["size"] += r["size"] * r["n"]
+            s["saving"] += r["saving"] or 0
+        ordered = sorted(shows.values(), key=lambda s: (-s["saving"], s["show"]))
+        page = ordered[offset:offset + limit]
+        for s in page:
+            if s["kind"] == "series":
+                row = self.db.one("SELECT name FROM items WHERE id=?", (int(s["show"][3:]),))
+                s["title"] = row["name"] if row else "?"
+            else:
+                s["group"] = self.groups(query, 0, 1, "exact", s["show"])["items"][0]
+                s["title"] = s["group"]["members"][0]["name"]
+        return {"items": page, "total": len(ordered)}
 
     @staticmethod
     def _versions_where(query: str, show: str = "") -> Tuple[str, list]:
@@ -652,7 +711,7 @@ class DupeFinder:
 
         use_suggestions 為真時，沒指定的照建議刪（不是建議保留的都刪），為假時不刪；
         沒給的話，完全相同的照建議、不同版本的不刪（內容不同，要使用者自己挑）。
-        給了 sha1＋size（完全相同）或 grp（不同版本）時只看那一組；不同版本給了 show 只看那一部（一部劇的每一集）。
+        給了 sha1＋size（完全相同）或 grp（不同版本）時只看那一組；給了 show（見 shows）只看那一部（一部劇的每一集）。
         每一組至少要留一份，不然丟 ValueError。
         """
         if kind == "versions":
@@ -673,12 +732,9 @@ class DupeFinder:
         else:
             if sha1:
                 rows = self.db.query("SELECT * FROM dup_files WHERE sha1=? AND size=? ORDER BY file_id", (sha1, int(size or 0)))
-            elif query.strip():
-                rows = self.db.query(
-                    "SELECT * FROM dup_files WHERE sha1 IN (SELECT sha1 FROM dup_files WHERE name LIKE ? OR path LIKE ?) "
-                    "ORDER BY sha1, size, file_id", [f"%{query.strip()}%"] * 2)
             else:
-                rows = self.db.query("SELECT * FROM dup_files ORDER BY sha1, size, file_id")
+                where, params = self._exact_where(query, show)
+                rows = self.db.query(f"SELECT * FROM dup_files {where} ORDER BY sha1, size, file_id", params)
 
             def key(r):
                 return (r["sha1"], r["size"])

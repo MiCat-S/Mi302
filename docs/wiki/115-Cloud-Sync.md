@@ -474,6 +474,7 @@ The **Duplicates and big files** card (重複和大檔案) on the **Tools** tab 
 - One copy per group is suggested to keep: the one with a local strm first, then one with complete numbering in its file name, then the earliest upload. The others are ticked, and you can change any tick.
 - Complete numbering in the file name means an episode shows both season and episode (`S01E02`, `1x02`) and a movie shows its year. Names with only an episode number (`EP05`, `第5集`, `10.xxx`) are incomplete and marked **Incomplete numbering in file name** (檔名編號不完整).
 - Each copy shows its 115 path, its upload time, and the tags suggested to keep (建議保留), has strm (有 strm), outside sync folders (不在同步目錄) and has watch history (有觀看紀錄).
+- Groups whose local strm files belong to the same series in the library are merged into one row per series, showing how many episodes have identical files, the number of files and how much following the suggestion would free; click the name to expand the episodes. **Follow suggestion** (照建議勾選) and **Delete ticked in this series** (刪這部劇勾選的) on the right act on the whole series. Movies and files outside the library are one group per row. Pages count rows.
 
 ### Versions
 

@@ -2137,10 +2137,10 @@ let dupOverrides = {exact: {}, versions: {}, big: {}};  // 檔案 id → 要不�
 // 大檔案沒有建議：打開時是「勾選符合條件的全部」，換篩選條件就取消
 let dupSuggestAll = {exact: true, versions: false, big: false};
 let dupSelSeq = 0;
-let dupOpen = new Set();  // 不同版本：展開著的劇，換頁、刪完重畫時照樣展開
+let dupOpen = new Set();  // 完全相同、不同版本：展開著的劇（種類:show），換頁、刪完重畫時照樣展開
 const DUP_PAGE = 20;
 const DUP_HINT = {
-  exact: '每組建議保留一份：本機有 strm 的優先，其次檔名編號格式完整的（劇集有 S01E02、電影有年份），再來最早上傳的；其餘預先勾選。',
+  exact: '同一部劇的每一集合成一列，點劇名展開。每組建議保留一份：本機有 strm 的優先，其次檔名編號格式完整的（劇集有 S01E02、電影有年份），再來最早上傳的；其餘預先勾選。',
   big: '掃描時記下 115 上 1 GB 以上的影片；清單只列符合上面條件的（預設大於 20 GB），大的在前。挑了才刪，不必留一份：刪掉的從媒體庫拿掉；標著「還有其他版本」的，觀看紀錄轉到別的版本，沒有的就沒了。',
   versions: '同一部劇的每一集合成一列，點劇名展開。檔案內容不同，所以預設都不勾，由你挑。建議保留哪一份照下面選的解析度（預設 1080P，沒有再 4K，再沒有就留剩下最高的），一樣時保留檔名編號格式完整的（劇集有 S01E02、電影有年份），再來佔空間小的；要照建議一次勾好每一組，按「全部照建議勾選」。畫質看已經提取的媒體資訊，沒有的從檔名猜，看不出解析度的排最後。分段檔（CD1）、一個檔案好幾集、加長版這類不同剪輯不會列在一起；不知道第幾集的、檔名集號和媒體庫對不上的也不列。',
 };
@@ -2254,8 +2254,8 @@ async function loadDupGroups(page) {
   const box = $('dupList'), seq = ++dupSeq, q = $('dupQ').value.trim();
   const big = dupKind === 'big', extra = big ? `&min_size=${+$('dupMin').value * 1024 ** 3}&type=${$('dupType').value}` : '';
   let r;
-  const versions = dupKind === 'versions', qs = `q=${encodeURIComponent(q)}&offset=${(dupPage - 1) * DUP_PAGE}&limit=${DUP_PAGE}`;
-  try { r = await api(versions ? `/web/api/dupes/shows?${qs}` : `/web/api/dupes/groups?kind=${dupKind}&${qs}${extra}`); }
+  const qs = `q=${encodeURIComponent(q)}&offset=${(dupPage - 1) * DUP_PAGE}&limit=${DUP_PAGE}`;  // 完全相同、不同版本按「一部」列
+  try { r = await api(big ? `/web/api/dupes/groups?kind=big&${qs}${extra}` : `/web/api/dupes/shows?kind=${dupKind}&${qs}`); }
   catch (e) { if (seq === dupSeq) box.innerHTML = failHtml(e); return; }
   if (seq !== dupSeq) return;
   const pages = Math.max(1, Math.ceil(r.total / DUP_PAGE));
@@ -2263,8 +2263,8 @@ async function loadDupGroups(page) {
   const none = {versions: '沒有同一部片的不同版本', exact: '沒有內容完全相同的檔案', big: `沒有 ${$('dupMin').value} GB 以上的影片`}[dupKind];
   box.innerHTML = r.items.length ? '' : `<p class="hint">${q ? '沒有符合的' : S.dupes?.scanned_at ? none : ''}</p>`;
   if (big && r.items.length) box.innerHTML = `<p class="hint">符合的 ${r.total} 支，共 ${fmtSize(r.size)}</p>`;
-  for (const g of r.items) box.appendChild(big ? dupBigRow(g) : versions ? dupShow(g) : dupGroup(g));
-  pager(box, {page: dupPage, pages, onPage: loadDupGroups, total: r.total, unit: big ? '支' : versions ? '部' : '組'});
+  for (const g of r.items) box.appendChild(big ? dupBigRow(g) : dupShow(g));
+  pager(box, {page: dupPage, pages, onPage: loadDupGroups, total: r.total, unit: big ? '支' : '項'});
   document.querySelectorAll('#dupList .js-delgroup').forEach(b => { b.disabled = !!S.dupes?.job.running; });
   refreshDupSelection();
 }
@@ -2303,18 +2303,20 @@ function dupBigRow(m) {
   return row;
 }
 function dupShow(s) {
-  // 不同版本的一部：電影直接是那一組；同一部劇合成一列，點了才讀那部劇有不同版本的每一集
+  // 完全相同、不同版本的一部：同一部劇合成一列，點了才讀那部劇的每一集；其他的（電影、對不到劇的）直接是那一組
   if (s.kind !== 'series') return dupGroup(s.group);
+  const kind = dupKind, open = `${kind}:${s.show}`;
   const row = document.createElement('div'); row.className = 'li top';
   // 按鈕放在劇名那一行（不另佔右邊一欄），展開的每一集才有整個寬度；按鈕在 summary 裡，點了不要順便展開、收起
-  row.innerHTML = `<div class="main"><details class="dupshow"><summary><b>${esc(s.title)}</b><span class="hint">${s.groups} 集有不同版本・${s.files} 個檔案・照建議刪可以省 ${fmtSize(s.saving)}<span class="js-picked"></span></span>
+  const what = kind === 'versions' ? '集有不同版本' : '集有完全相同的檔案';
+  row.innerHTML = `<div class="main"><details class="dupshow"><summary><b>${esc(s.title)}</b><span class="hint">${s.groups} ${what}・${s.files} 個檔案・照建議刪可以省 ${fmtSize(s.saving)}<span class="js-picked"></span></span>
     <span class="acts"><button class="btn sm js-suggest">照建議勾選</button><button class="btn sm danger js-delgroup">刪這部劇勾選的</button></span></summary>
     <div class="list js-eps"><p class="hint row"><span class="spin"></span>讀取中…</p></div></details></div>`;
   const det = row.querySelector('details'), box = row.querySelector('.js-eps');
   let groups = null;
   const load = async () => {  // 那部劇的每一組（和清單同一個搜尋），讀一次就記著
     if (!groups) {
-      const r = await api(`/web/api/dupes/groups?kind=versions&show=${encodeURIComponent(s.show)}&q=${encodeURIComponent($('dupQ').value.trim())}`);
+      const r = await api(`/web/api/dupes/groups?kind=${kind}&show=${encodeURIComponent(s.show)}&q=${encodeURIComponent($('dupQ').value.trim())}`);
       groups = r.items; s.members = groups.flatMap(g => g.members);
     }
   };
@@ -2324,7 +2326,7 @@ function dupShow(s) {
   };
   const draw = () => { box.innerHTML = ''; for (const g of groups) box.appendChild(dupGroup(g, picked, true)); picked(); };
   det.ontoggle = async () => {
-    if (det.open) dupOpen.add(s.show); else dupOpen.delete(s.show);
+    if (det.open) dupOpen.add(open); else dupOpen.delete(open);
     if (!det.open || box.dataset.drawn) return;
     try { await load(); } catch (e) { box.innerHTML = failHtml(e); return; }
     box.dataset.drawn = '1'; draw();
@@ -2333,13 +2335,13 @@ function dupShow(s) {
     e.preventDefault();
     try { await load(); } catch (e) { toast(e.message, 'bad'); return; }
     for (const m of s.members) {
-      if (!m.keep === dupDefault(m)) delete dupOverrides.versions[m.file_id]; else dupOverrides.versions[m.file_id] = !m.keep;
+      if (!m.keep === dupDefault(m)) delete dupOverrides[kind][m.file_id]; else dupOverrides[kind][m.file_id] = !m.keep;
     }
     if (box.dataset.drawn) draw(); else picked();
     refreshDupSelection();
   };
   row.querySelector('.js-delgroup').onclick = e => { e.preventDefault(); deleteDupes(s); };
-  if (dupOpen.has(s.show)) det.open = true;
+  if (dupOpen.has(open)) det.open = true;
   return row;
 }
 function dupGroup(g, changed, nested) {
@@ -2374,7 +2376,7 @@ function dupGroup(g, changed, nested) {
 async function deleteDupes(group) {
   // 先算會刪幾個、多大（含沒翻到的頁面裡照建議勾的），確認後才真的刪
   const body = dupBody();
-  if (group) Object.assign(body, dupKind !== 'versions' ? {sha1: group.sha1, size: group.size} : group.show ? {show: group.show} : {grp: group.grp});
+  if (group) Object.assign(body, group.show ? {show: group.show} : dupKind === 'versions' ? {grp: group.grp} : {sha1: group.sha1, size: group.size});
   let plan;
   try { plan = await api('/web/api/dupes/delete', {method: 'POST', body: JSON.stringify({...body, dry_run: true})}); }
   catch (e) { toast(e.message, 'bad'); return; }

@@ -43,6 +43,16 @@ def test_find_and_delete_exact_duplicates(tmp_path: Path):
     assert [(m["file_id"], m["keep"], m["path"], m["local"]) for m in ep["members"]][1] == (
         8, False, "/待整理/Dark.S01E01.mkv", None)
     assert c.get("/web/api/dupes/groups", params={"q": "待整理"}, headers=h).json()["total"] == 1
+    # 網頁的清單按「一部」列：本機 strm 是劇集的合成一列（劇名），其他的一組一列、直接附上那一組
+    shows = c.get("/web/api/dupes/shows", params={"kind": "exact"}, headers=h).json()
+    by_kind = {x["kind"]: x for x in shows["items"]}
+    assert shows["total"] == 2 and (by_kind["series"]["title"], by_kind["series"]["groups"], by_kind["series"]["files"]) == (
+        "Dark", 1, 2)
+    assert by_kind["group"]["group"]["sha1"] == SHA_MOVIE
+    r = c.get("/web/api/dupes/groups", params={"show": by_kind["series"]["show"]}, headers=h).json()
+    assert [g["sha1"] for g in r["items"]] == [SHA_EP]
+    r = c.post("/web/api/dupes/delete", json={"show": by_kind["series"]["show"], "dry_run": True}, headers=h).json()
+    assert (r["count"], r["size"]) == (1, 900_000_000)  # 只算這部劇，電影那一組不算
     # 搜尋時，照建議刪的只算符合搜尋的那幾組：畫面上看到哪些，刪的就是哪些（以前不管搜尋，全部都刪）
     count = lambda **b: c.post("/web/api/dupes/delete", json={"dry_run": True, **b}, headers=h).json()["count"]  # noqa: E731
     assert (count(), count(q="待整理"), count(q="沒有這個檔名")) == (2, 1, 0)
