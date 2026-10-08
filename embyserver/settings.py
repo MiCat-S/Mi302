@@ -48,7 +48,7 @@ MOVIEPILOT_FIELDS = (
     "timeout", "concurrency", "rename_plugin",
 )
 QBITTORRENT_FIELDS = ("url", "username", "password", "remove_stalled", "stalled_minutes", "stalled_speed", "delete_files",
-                      "no_seeds_only")
+                      "no_seeds_only", "keep_active", "force_seconds")
 MEDIAINFO_FIELDS = (
     "enabled", "after_sync", "on_demand", "concurrency", "interval", "hourly_limit", "timeout", "ffprobe",
 )
@@ -173,6 +173,8 @@ def apply_settings(config: Config, raw: dict) -> None:
     qb.url = qb.url.rstrip("/")
     qb.stalled_minutes = max(10, min(int(qb.stalled_minutes), 10080))  # 太短的話剛開始找人的種子也會被刪
     qb.stalled_speed = max(0.0, min(float(qb.stalled_speed), 100000.0))
+    qb.keep_active = max(0, min(int(qb.keep_active), 50))
+    qb.force_seconds = max(10, min(int(qb.force_seconds), 600))  # 太短的話 tracker 還沒回應就被判沒速度
     if qb.url and not qb.url.startswith(("http://", "https://")):
         raise SettingsError("qBittorrent 網址要以 http:// 或 https:// 開頭")
     mi = config.mediainfo

@@ -134,6 +134,8 @@ def render(config: Config) -> str:
         _kv("  stalled_speed", qb.stalled_speed, "平均速度不超過幾 KB/s 算沒速度；0 = 完全沒下載到東西才算"),
         _kv("  delete_files", qb.delete_files, "連同下載到一半的檔案一起刪"),
         _kv("  no_seeds_only", qb.no_seeds_only, "只刪做種數為 0 的；tracker 回報還有人做種就先不刪"),
+        _kv("  keep_active", qb.keep_active, "隨時要有幾個種子有速度在下載，不夠就強制開始排隊的；0 = 不管"),
+        _kv("  force_seconds", qb.force_seconds, "強制開始後幾秒內沒速度（tracker 有回應）就刪（10–600）"),
         "",
         "# 媒體資訊：用 ffprobe 探測 strm 指向的影片，寫出 X-mediainfo.json（需要安裝 ffmpeg）",
         "mediainfo:",

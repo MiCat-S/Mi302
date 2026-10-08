@@ -124,6 +124,10 @@ class QBittorrentConfig:
     stalled_speed: float = 0  # 平均速度不超過幾 KB/s 算沒速度；0 = 完全沒下載到東西才算
     delete_files: bool = True  # 連同下載到一半的檔案一起刪
     no_seeds_only: bool = False  # 只刪做種數為 0 的：tracker 回報還有人做種就先不刪，只列出來等
+    # 隨時要有幾個種子真的在下載（有速度）：不夠就照佇列順序強制開始（不受 qBittorrent 的佇列上限限制），排隊的用完就不開；
+    # 0 = 不管。強制開始後 force_seconds 秒還沒速度、tracker 又有正常回應，就是種子有問題，刪掉
+    keep_active: int = 0
+    force_seconds: int = 30
 
 
 @dataclass

@@ -19,6 +19,7 @@ class FakeQB:
         self.password, self.old = password, old
         self.calls = []
         self.offline = False
+        self.trackers = {}  # hash → tracker status（沒寫的是 2 = 正常）
 
     def __call__(self, request: httpx.Request) -> httpx.Response:
         if self.offline:
@@ -36,6 +37,13 @@ class FakeQB:
             return httpx.Response(200, text="v4.6.7" if self.old else "v5.2.2")
         if path == "/api/v2/torrents/info":
             return httpx.Response(200, json=list(self.torrents.values()))
+        if path == "/api/v2/torrents/trackers":
+            h = request.url.params["hash"]
+            return httpx.Response(200, json=[{"url": "** [DHT] **", "status": 2}, {"url": "https://t/announce", "status": self.trackers.get(h, 2)}])
+        if path == "/api/v2/torrents/setForceStart":
+            for h in form["hashes"].split("|"):
+                self.torrents[h]["state"] = "forcedDL" if form["value"] == "true" else "queuedDL"
+            return httpx.Response(200)
         if path == "/api/v2/torrents/delete":
             for h in form["hashes"].split("|"):
                 del self.torrents[h]
@@ -111,6 +119,62 @@ def test_stalled_torrents_are_removed_and_next_ones_start():
     fake.torrents["late"]["num_complete"] = -1  # tracker 沒回報，當成 0
     assert [(r["hash"], r["files"], r["seeds"]) for r in tick().removed] == [("late", False, 0)]
     assert [form for path, form in fake.calls if path.endswith("/delete")][-1] == {"hashes": "late", "deleteFiles": "false"}
+
+
+def test_keep_active_force_starts_and_judges_quickly():
+    fake = FakeQB([
+        torrent("live", "downloading", 0.3),
+        torrent("stuck", "stalledDL", 0.1),  # qB 自己開的、沒速度：照 60 分鐘的規則，不在這裡管
+        torrent("dead", "queuedDL", priority=1),  # 強制開始後還是沒速度
+        torrent("good", "queuedDL", priority=2),  # 強制開始後有速度
+        torrent("notracker", "stoppedDL", priority=3),  # tracker 沒回應：不是種子的錯
+        torrent("seeded", "queuedDL", priority=4),  # 還有人做種（no_seeds_only）
+        torrent("last", "queuedDL", priority=5),
+    ])
+    fake.trackers["notracker"] = 4
+    fake.torrents["stuck"]["num_complete"] = 2  # 還有人做種：60 分鐘的規則不會刪它，這裡只看強制開始的那一套
+    cfg = QBittorrentConfig(url="http://qb:8080", remove_stalled=True, keep_active=2, force_seconds=30, no_seeds_only=True)
+    qb = QBittorrent(cfg, transport=httpx.MockTransport(fake))
+    now = [100.0]
+    qb._clock = lambda: now[0]
+    forced = lambda: [form for path, form in fake.calls if path.endswith("/setForceStart")]  # noqa: E731
+
+    def tick(seconds):
+        now[0] += seconds
+        fake.torrents["live"]["downloaded"] += 1 << 20
+        if fake.torrents.get("good", {}).get("state") == "forcedDL":
+            fake.torrents["good"]["downloaded"] += 1 << 20
+        return qb.check()
+
+    fake.torrents["live"]["dlspeed"] = 1 << 20
+    last = tick(0)  # 第一次看：live 這一刻有速度、stuck 沒有：差一個，照佇列順序強制開始 dead
+    fake.torrents["live"]["dlspeed"] = 0  # 之後靠「上一輪到現在有下載到東西」判斷
+    assert [s["hash"] for s in last.started] == ["dead"] and forced() == [{"hashes": "dead", "value": "true"}]
+    assert last.forcing == 1 and last.moving == 1 and fake.torrents["dead"]["state"] == "forcedDL"
+    last = tick(15)  # 還沒到 30 秒：等
+    assert last.removed == [] and last.started == [] and last.forcing == 1 and last.slow[-1]["forced"]
+    last = tick(15)  # 30 秒沒速度、tracker 正常：刪掉，再強制開始 good
+    assert [(r["hash"], r["rule"], r["seconds"]) for r in last.removed] == [("dead", "forced", 30)]
+    assert [s["hash"] for s in last.started] == ["good"] and "dead" not in fake.torrents
+    last = tick(30)  # good 有速度了：夠兩個，不再開
+    assert last.removed == [] and last.started == [] and last.forcing == 0 and last.moving == 2
+    fake.torrents["live"]["state"], fake.torrents["live"]["progress"] = "stalledUP", 1.0  # live 下載完了：又差一個 → notracker
+    last = tick(300)
+    assert [s["hash"] for s in last.started] == ["notracker"]
+    last = tick(30)  # tracker 沒回應：不刪，放回佇列，接著試 seeded
+    assert last.removed == [] and [(t["hash"], t["why"]) for t in last.skipped] == [("notracker", "tracker 沒回應")]
+    assert fake.torrents["notracker"]["state"] == "queuedDL" and [s["hash"] for s in last.started] == ["seeded"]
+    fake.torrents["seeded"]["num_complete"] = 3
+    last = tick(30)  # 還有人做種：不刪，放回佇列，接著試 last
+    assert [(t["hash"], t["why"]) for t in last.skipped] == [("seeded", "還有 3 人做種")] and [s["hash"] for s in last.started] == ["last"]
+    last = tick(30)  # last 也沒速度、tracker 正常：刪；排隊的只剩試過的，不再開
+    assert [r["hash"] for r in last.removed] == ["last"] and last.started == [] and last.forcing == 0
+    for _ in range(11):  # 一小時內：試過的不再試，排隊的沒別的了
+        assert tick(300).started == []
+    last = tick(300)  # 滿一小時：試過的可以再試，還是差一個 → notracker 再來
+    assert [s["hash"] for s in last.started] == ["notracker"]
+    cfg.keep_active = 0  # 關掉：不再強制，等的也不管了
+    assert tick(30).forcing == 0 and fake.torrents["notracker"]["state"] == "forcedDL"
 
 
 def test_login_old_versions_and_web_api(tmp_path: Path):

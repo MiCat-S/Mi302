@@ -219,6 +219,8 @@ Connects to qBittorrent: torrents that have been downloading with no speed for t
 | `stalled_speed` | `0` | An average speed at or below this many KB/s over that time counts as no speed; 0 = nothing downloaded at all | MoviePilot → qBittorrent → Settings → **KB/s at or below which counts as no speed** (平均速度不超過幾 KB/s 算沒速度) |
 | `delete_files` | `true` | Delete the partly downloaded files too; `false` only removes the torrent from qBittorrent and keeps the files | MoviePilot → qBittorrent → **Also delete partly downloaded files** (連同下載到一半的檔案一起刪), saved as soon as it is switched |
 | `no_seeds_only` | `false` | Only delete torrents with zero seeds: while the tracker still reports seeders the torrent is listed but kept; it is deleted once the seed count drops to 0 and it still has no speed. A tracker that reports no seed count counts as 0 | MoviePilot → qBittorrent → **Only delete torrents with no seeds** (只刪做種數為 0 的), saved as soon as it is switched |
+| `keep_active` | `0` | How many torrents should be downloading with speed at all times, 0–50. When fewer are, queued torrents are force-started in queue order (bypassing qBittorrent's queue limits) until the queue runs out. 0 = do not manage | MoviePilot → qBittorrent → Settings → **Torrents to keep downloading** (隨時要有幾個種子在下載) |
+| `force_seconds` | `30` | Seconds a force-started torrent may stay without speed before it is deleted, 10–600. Only counts as a bad torrent when its tracker responds normally; with no tracker response it is just put back in the queue and not retried for an hour | MoviePilot → qBittorrent → Settings → **Seconds without speed after a force start** (強制開始後幾秒內沒速度就刪) |
 
 ## mediainfo
 

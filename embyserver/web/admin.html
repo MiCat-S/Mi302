@@ -849,10 +849,16 @@ dialog .card-b{max-height:70vh;overflow:auto}
           <label class="switch"><input type="checkbox" data-key="qbittorrent.no_seeds_only" onchange="saveToggle(this, pollQB)"><span class="track"></span><span class="lbl">只刪做種數為 0 的<small>tracker 回報還有人做種就先不刪，只列出來等；做種數掉到 0 又還是沒速度才刪。tracker 沒回報做種數時當成 0</small></span></label>
           <div id="qb"></div>
           <details class="more"><summary>設定</summary><div class="in stack" id="qbOpts">
-            <label class="field maxw320"><span>連續幾分鐘沒速度就刪</span><input type="number" min="10" max="10080" step="10" data-key="qbittorrent.stalled_minutes">
+            <div class="fields">
+            <label class="field"><span>連續幾分鐘沒速度就刪</span><input type="number" min="10" max="10080" step="10" data-key="qbittorrent.stalled_minutes">
               <small>10–10080，預設 60。從 Mi302 看到它在下載算起，排隊、暫停的時間不算；Mi302 重新啟動後從頭算</small></label>
-            <label class="field maxw320"><span>平均速度不超過幾 KB/s 算沒速度</span><input type="number" min="0" step="1" data-key="qbittorrent.stalled_speed">
+            <label class="field"><span>平均速度不超過幾 KB/s 算沒速度</span><input type="number" min="0" step="1" data-key="qbittorrent.stalled_speed">
               <small>預設 0：這段時間完全沒下載到東西才算</small></label>
+            <label class="field"><span>隨時要有幾個種子在下載</span><input type="number" min="0" max="50" step="1" data-key="qbittorrent.keep_active">
+              <small>有速度的不夠這麼多，就照佇列順序強制開始排隊的（不受 qBittorrent 佇列上限限制），排隊的用完就不開。0 = 不管</small></label>
+            <label class="field"><span>強制開始後幾秒內沒速度就刪</span><input type="number" min="10" max="600" step="5" data-key="qbittorrent.force_seconds">
+              <small>10–600，預設 30。tracker 有正常回應卻沒速度才算種子有問題；tracker 沒回應的只放回佇列，一小時內不再試</small></label>
+            </div>
             <div><button class="btn sm primary" onclick="saveFields($('qbOpts')).then(pollQB)">儲存設定</button></div>
           </div></details>
         </div>
@@ -2660,15 +2666,17 @@ function renderQB(s) {
   if (!s.enabled) h = emptyState('還沒連上 qBittorrent', '在上面填好 WebUI 網址後儲存。');
   else if (!s.at) h = `<p class="hint">${s.active ? '馬上會看第一次。' : '自動刪除沒打開；按「現在看一次」看目前下載中的種子。'}</p>`;
   else {
-    h = `<p class="hint">${ago(s.at)}看過：下載中 ${s.downloading} 個，排在後面等著的 ${s.waiting} 個${s.active ? '' : '（自動刪除沒打開）'}</p>`;
+    h = `<p class="hint">${ago(s.at)}看過：下載中 ${s.downloading} 個（有速度 ${s.moving} 個），排在後面等著的 ${s.waiting} 個${s.forcing ? `，強制開始、還在等的 ${s.forcing} 個` : ''}${s.active ? '' : '（自動刪除沒打開）'}</p>`;
     if (s.error) h += `<p class="notice bad">${esc(s.error)}</p>`;
-    const left = t => s.no_seeds_only && t.seeds > 0 ? '還有人做種，先不刪' : t.quiet >= s.minutes * 60 ? '下一輪刪掉' : `再 ${qbFor(s.minutes * 60 - t.quiet)}沒速度就刪`;
+    if (s.skipped?.length) h += `<p class="hint">這一輪強制開始後沒速度、先放回佇列的：${esc(s.skipped.map(t => `${t.name}（${t.why}）`).join('、'))}</p>`;
+    const left = t => t.forced ? (t.quiet >= s.force_seconds ? '下一輪判斷' : `強制開始的，再 ${s.force_seconds - t.quiet} 秒沒速度就刪`)
+      : s.no_seeds_only && t.seeds > 0 ? '還有人做種，先不刪' : t.quiet >= s.minutes * 60 ? '下一輪刪掉' : `再 ${qbFor(s.minutes * 60 - t.quiet)}沒速度就刪`;
     if (s.slow.length) h += `<div class="list">${s.slow.map(t => `<div class="li"><div class="main"><b>${esc(t.name)}</b>
-      <div class="sub">${[`${qbFor(t.quiet)}沒速度`, qbPct(t.progress), `做種 ${t.seeds}`, s.active ? left(t) : ''].filter(Boolean).map(esc).join('・')}</div></div></div>`).join('')}</div>`;
+      <div class="sub">${[t.forced ? `強制開始 ${t.quiet} 秒，還沒速度` : `${qbFor(t.quiet)}沒速度`, qbPct(t.progress), `做種 ${t.seeds}`, s.active ? left(t) : ''].filter(Boolean).map(esc).join('・')}</div></div></div>`).join('')}</div>`;
     else if (s.downloading) h += '<p class="hint">下載中的都有速度。</p>';
   }
   if (s.history.length) h += `<details class="more"><summary>最近刪掉的（${s.history.length}）</summary><div class="in"><div class="list">${s.history.map(r => `<div class="li"><div class="main"><b>${esc(r.name)}</b>
-    <div class="sub">${[fmtTime(r.at), `${qbFor(r.minutes * 60)}沒速度`, qbPct(r.progress), r.size ? fmtSize(r.size) : '', r.category, r.files ? '檔案一起刪了' : '檔案留著'].filter(Boolean).map(esc).join('・')}</div></div></div>`).join('')}</div></div></details>`;
+    <div class="sub">${[fmtTime(r.at), r.rule === 'forced' ? `強制開始後 ${r.seconds} 秒沒速度` : `${qbFor(r.minutes * 60)}沒速度`, qbPct(r.progress), r.size ? fmtSize(r.size) : '', r.category, r.files ? '檔案一起刪了' : '檔案留著'].filter(Boolean).map(esc).join('・')}</div></div></div>`).join('')}</div></div></details>`;
   setHtml($('qb'), h);
 }
 async function pollQB() {

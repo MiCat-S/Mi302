@@ -460,6 +460,14 @@ no_seeds_only 時還要做種數（_seeds：tracker 回報的 num_complete 和�
 WAITING 狀態、沒下載完，照佇列位置 priority，沒開佇列時 priority 是 0 或 -1，照 added_on）。queuedDL 的 qBittorrent 空出名額自己會開始，不必叫；停下來的（stoppedDL，5.0 以前 pausedDL）
 POST /api/v2/torrents/start，回 404 就是 5.0 以前，改叫 resume。
 
+隨時要有幾個在下載（keep_active > 0 時，_enforce 的後半）：有速度的（_moving：這一刻 dlspeed 超過門檻，或上一輪就看過、這一輪 _track 剛把計時歸零）
+加上剛強制開始、還在等的不夠 keep_active 個，就照佇列順序挑排隊的強制開始（POST /api/v2/torrents/setForceStart value=true，
+不受 qBittorrent 的佇列上限限制），記在 _forced；排隊的用完就不開。過了 force_seconds 還沒下載到東西（_judge_forced）：
+tracker 有正常回應（GET /api/v2/torrents/trackers 的 status 2，DHT 這些 ** 開頭的不算）才算種子有問題、刪掉（rule=forced）；
+tracker 沒回應是 tracker 或網路的問題、no_seeds_only 時還有人做種的，取消強制（value=false，回到佇列）、記在 _tried，
+RETRY_AFTER（1 小時）內不再試它，免得 tracker 一斷就把整條佇列刪光。有速度了就從 _forced 拿掉，之後照一般的規則看。
+背景迴圈剛強制開始了種子時，過 force_seconds 就回來看，不等 5 分鐘。
+
 定時：開了 remove_stalled 才每 CHECK_EVERY（5 分鐘）看一次；設定改了（after_change）wake() 馬上看一次。網頁的「現在看一次」
 直接呼叫 check()，沒開自動刪除時只記、只列，不刪。check 用一把鎖，一次一輪；程式結束時等手上這一輪做完。
 
