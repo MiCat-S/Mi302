@@ -69,7 +69,7 @@ curl -fsSL https://raw.githubusercontent.com/MiCat-S/Mi302/main/install.sh | bas
 | [播放与外网访问](https://github.com/MiCat-S/Mi302/wiki/播放与外网访问) | 302 播放流程、播放地址的登录、下载、反向代理 |
 | [片头片尾跳过](https://github.com/MiCat-S/Mi302/wiki/片头片尾跳过) | 怎样学出片头片尾、播放器拿到什么、怎样测试 |
 | [媒体信息与探测](https://github.com/MiCat-S/Mi302/wiki/媒体信息与探测) | `X-mediainfo.json`、ffprobe 探测、115 的限速 |
-| [MoviePilot 集成](https://github.com/MiCat-S/Mi302/wiki/MoviePilot-集成) | 刮削、补全缺集、qBittorrent 没速度的种子、把 Mi302 当作 Emby、媒体库封面 |
+| [MoviePilot 集成](https://github.com/MiCat-S/Mi302/wiki/MoviePilot-集成) | 刮削、补全缺集、qBittorrent 没速度的种子（也有插件版）、把 Mi302 当作 Emby、媒体库封面 |
 | [备份与还原](https://github.com/MiCat-S/Mi302/wiki/备份与还原) | 自动备份、下载备份、还原步骤 |
 | [配置文件参考](https://github.com/MiCat-S/Mi302/wiki/配置文件参考) | `config.yaml` 每一项的说明和默认值 |
 | [日志与常见问题](https://github.com/MiCat-S/Mi302/wiki/日志与常见问题) | 日志、连不上、权限、国内网络、忘记密码 |

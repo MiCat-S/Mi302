@@ -272,6 +272,18 @@ Mi302 更新后插件有新版本时，到 MoviePilot 的插件市场更新或�
 - 插件的接口在 `/api/v1/plugin/Mi302Organizer/`（`status`、`names`、`rename`、`job`、`cancel`），用 MoviePilot 的账号登录或 API 令牌。它只按 Mi302 发来的清单改，不会自己去改任何东西。
 - 遇到 115 限流（429）时，MoviePilot 会把所有 115 操作停一小时，插件的改名也跟着等。
 
+## Mi302 清种助手插件
+
+[qBittorrent 没速度的种子](#qbittorrent-没速度的种子)那一套规则也做成了 MoviePilot V3 插件“Mi302 清种助手”，和“Mi302 整理助手”在同一个 `moviepilot-plugin/` 目录里（安装方式同上，插件市场里会多一个）。区别：
+
+- 插件直接用 MoviePilot 里设置好的 qBittorrent 下载器，不用再填地址账号密码；有多个下载器时可以选要管哪几个（不选 = 全部 qBittorrent）。
+- 定时交给 MoviePilot 的调度（“几分钟看一次”，默认 5），强制开始后几秒回来看照样会做；“立即看一次”马上跑一轮。
+- 默认只看带 `MOVIEPILOT` 标签的种子（MoviePilot 自己加的），手动添加的不会被动到；清空标签就是全部。
+- 删掉时可以发 MoviePilot 的通知。插件详情页列出每个下载器上一轮看到的、现在没速度的种子和最近删掉的。
+- 其他选项（连续几分钟没速度就删、平均速度阈值、连同文件、只删做种数为 0 的、随时要有几个在下载、强制开始后几秒内没速度就删）和 Mi302 本体一样，判断规则也一样。
+
+Mi302 本体的“MoviePilot → qBittorrent”和这个插件二选一打开就好；两边都开会抢着删同一个种子，没速度的时间也各算各的。
+
 ## 让 MoviePilot 把 Mi302 当作 Emby
 
 MoviePilot 可以把 Mi302 加为媒体服务器，用来判断片子是否已经有了，整理完自动通知 Mi302 重新扫描。

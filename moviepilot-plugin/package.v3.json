@@ -8,5 +8,15 @@
     "level": 1,
     "system_version": ">=3.0.0",
     "labels": ["整理", "115"]
+  },
+  "Mi302TorrentCleaner": {
+    "name": "Mi302 清種助手",
+    "description": "qBittorrent 裡太久沒速度的種子自動刪掉，排在後面的接著開始；不夠幾個在下載就強制開始，開了沒速度的也刪。用 MoviePilot 的下載器設定，不用再填網址帳密。",
+    "version": "1.0.0",
+    "icon": "https://raw.githubusercontent.com/MiCat-S/Mi302/main/embyserver/web/icon-192.png",
+    "author": "MiCat-S",
+    "level": 1,
+    "system_version": ">=3.0.0",
+    "labels": ["下载器", "qBittorrent"]
   }
 }

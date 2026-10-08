@@ -69,7 +69,7 @@ Then open `http://<host>:8096/web` in a browser:
 | [Playback](https://github.com/MiCat-S/Mi302/wiki/Playback) | The 302 flow, playback authentication, downloads, reverse proxies |
 | [Intro and Credits](https://github.com/MiCat-S/Mi302/wiki/Intro-and-Credits) | How intros and credits are learned, what players receive, how to test |
 | [Media Info](https://github.com/MiCat-S/Mi302/wiki/Media-Info) | `X-mediainfo.json`, ffprobe probing, 115 rate limits |
-| [MoviePilot](https://github.com/MiCat-S/Mi302/wiki/MoviePilot) | Scraping, filling missing episodes, stalled qBittorrent torrents, Mi302 as an Emby server, library covers |
+| [MoviePilot](https://github.com/MiCat-S/Mi302/wiki/MoviePilot) | Scraping, filling missing episodes, stalled qBittorrent torrents (also as a plugin), Mi302 as an Emby server, library covers |
 | [Backup and Restore](https://github.com/MiCat-S/Mi302/wiki/Backup-and-Restore) | Daily backups, downloading a backup, restoring |
 | [Configuration Reference](https://github.com/MiCat-S/Mi302/wiki/Configuration-Reference) | Every `config.yaml` key with its default |
 | [Logs and FAQ](https://github.com/MiCat-S/Mi302/wiki/Logs-and-FAQ) | Logs, connection problems, permissions, networks in mainland China, lost passwords |

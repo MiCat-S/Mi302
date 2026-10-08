@@ -272,6 +272,18 @@ Details:
 - The plugin's API is under `/api/v1/plugin/Mi302Organizer/` (`status`, `names`, `rename`, `job`, `cancel`), using a MoviePilot login or API token. It only renames what Mi302 sends and never changes anything on its own.
 - When 115 rate-limits (429), MoviePilot pauses all 115 operations for an hour, and the plugin's renames wait as well.
 
+## Mi302 Torrent Cleaner plugin
+
+The [qBittorrent stalled torrents](#qbittorrent-stalled-torrents) rules are also available as a MoviePilot V3 plugin, **Mi302 清種助手** (Mi302 Torrent Cleaner), in the same `moviepilot-plugin/` folder as the Organizer plugin (install it the same way; it shows up as a second plugin in the market). The differences:
+
+- The plugin uses the qBittorrent downloaders already configured in MoviePilot, so there is no URL or password to enter; with several downloaders you can pick which ones to manage (none selected = all qBittorrent downloaders).
+- Scheduling is done by MoviePilot (**check every N minutes**, default 5); the quick re-check a few seconds after a force start still happens. **Run once now** (立即看一次) runs a round immediately.
+- By default only torrents tagged `MOVIEPILOT` (the tag MoviePilot adds) are considered, so torrents you added by hand are left alone; clear the tag field to consider all.
+- It can send a MoviePilot notification when it deletes something. The plugin's detail page lists, per downloader, what the last round saw, the torrents currently without speed and the recent deletions.
+- The other options (minutes without speed, speed threshold, delete files, only torrents with no seeds, torrents to keep downloading, seconds after a force start) and the rules are the same as in Mi302 itself.
+
+Turn on either Mi302's own **MoviePilot → qBittorrent** or this plugin, not both: they would race to delete the same torrent and each counts the time without speed separately.
+
 ## Add Mi302 to MoviePilot as Emby
 
 MoviePilot can add Mi302 as a media server. It uses it to check what you already have, and to notify Mi302 to rescan after organising files.

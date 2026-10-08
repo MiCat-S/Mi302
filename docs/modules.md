@@ -468,6 +468,11 @@ tracker 沒回應是 tracker 或網路的問題、no_seeds_only 時還有人做�
 RETRY_AFTER（1 小時）內不再試它，免得 tracker 一斷就把整條佇列刪光。有速度了就從 _forced 拿掉，之後照一般的規則看。
 背景迴圈剛強制開始了種子時，過 force_seconds 就回來看，不等 5 分鐘。
 
+同一套規則的 MoviePilot V3 外掛：moviepilot-plugin/plugins.v3/mi302torrentcleaner/。keeper.py 是純邏輯（Keeper.check(client)，
+client 要有 torrents／delete／start／set_force／tracker_working），__init__.py 接 MoviePilot 的下載器（DownloaderHelper 的
+qBittorrent 服務，instance.qbc 是 qbittorrent-api 的 Client）、設定表單、排程（get_service 的 interval）、強制開始後的
+threading.Timer、刪除紀錄（save_data 的 removed）和詳情頁。改規則時這裡和 keeper.py 要一起改，tests/test_qbittorrent.py 各有一個測試。
+
 定時：開了 remove_stalled 才每 CHECK_EVERY（5 分鐘）看一次；設定改了（after_change）wake() 馬上看一次。網頁的「現在看一次」
 直接呼叫 check()，沒開自動刪除時只記、只列，不刪。check 用一把鎖，一次一輪；程式結束時等手上這一輪做完。
 

@@ -214,3 +214,71 @@ def test_login_old_versions_and_web_api(tmp_path: Path):
     s = c.post("/web/api/qbittorrent/check", headers=h).json()
     assert s["enabled"] and s["active"] and s["downloading"] == 1 and s["error"] == "" and s["history"] == []
     assert c.get("/web/api/qbittorrent/status", headers=h).json()["at"] == s["at"]
+
+
+def test_moviepilot_plugin_keeper_follows_the_same_rules():
+    """MoviePilot 外掛的 keeper.py 和本體同一套規則：用假的下載器走一遍強制開始、判斷、刪除。"""
+    import importlib.util
+    import sys
+
+    path = Path(__file__).parent.parent / "moviepilot-plugin" / "plugins.v3" / "mi302torrentcleaner" / "keeper.py"
+    spec = importlib.util.spec_from_file_location("mi302torrentcleaner_keeper", path)
+    keeper = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = keeper  # dataclass 要從 sys.modules 找回模組來解析型別標註
+    spec.loader.exec_module(keeper)
+
+    class FakeClient:  # keeper 要的介面
+        def __init__(self, torrents):
+            self.torrents_ = {t["hash"]: dict(t) for t in torrents}
+            self.calls = []
+            self.trackers = {}
+
+        def torrents(self):
+            return list(self.torrents_.values())
+
+        def delete(self, hashes, files):
+            self.calls.append(("delete", list(hashes), files))
+            for h in hashes:
+                del self.torrents_[h]
+
+        def start(self, hashes):
+            self.calls.append(("start", list(hashes)))
+
+        def set_force(self, hashes, on):
+            self.calls.append(("force", list(hashes), on))
+            for h in hashes:
+                self.torrents_[h]["state"] = "forcedDL" if on else "queuedDL"
+
+        def tracker_working(self, h):
+            return self.trackers.get(h, 2) == 2
+
+    fake = FakeClient([
+        {**torrent("live", "downloading", 0.3), "tags": "MOVIEPILOT"},
+        {**torrent("dead", "queuedDL", priority=1), "tags": "MOVIEPILOT"},
+        {**torrent("manual", "queuedDL", priority=2), "tags": ""},  # 不是 MoviePilot 加的：不看
+        {**torrent("notracker", "queuedDL", priority=3), "tags": "MOVIEPILOT,other"},
+        {**torrent("old", "stalledDL", 0.5), "tags": "MOVIEPILOT"},  # qB 自己開的、一直沒速度
+    ])
+    fake.trackers["notracker"] = 4
+    cfg = keeper.KeeperConfig(stalled_minutes=10, keep_active=2, force_seconds=30, tags=("MOVIEPILOT",))
+    now = [100.0]
+    k = keeper.Keeper(cfg, clock=lambda: now[0])
+
+    def tick(seconds):
+        now[0] += seconds
+        fake.torrents_["live"]["downloaded"] += 1 << 20
+        fake.torrents_["live"]["dlspeed"] = 1 << 20
+        return k.check(fake)
+
+    r = tick(0)  # live 有速度、old 沒有：差一個 → 強制開始 dead（manual 沒標籤，跳過）
+    assert [s["hash"] for s in r.started] == ["dead"] and r.downloading == 3 and r.moving == 1
+    r = tick(30)  # dead 30 秒沒速度、tracker 正常：刪，接著強制 notracker
+    assert [(x["hash"], x["rule"], x["seconds"]) for x in r.removed] == [("dead", "forced", 30)]
+    assert [s["hash"] for s in r.started] == ["notracker"] and ("delete", ["dead"], True) in fake.calls
+    r = tick(30)  # tracker 沒回應：放回佇列，不刪；排隊的只剩試過的
+    assert r.removed == [] and [(t["hash"], t["why"]) for t in r.skipped] == [("notracker", "tracker 沒回應")]
+    assert ("force", ["notracker"], False) in fake.calls and r.started == []
+    assert tick(300).removed == []  # old 才 6 分鐘沒速度
+    r = tick(300)  # old 滿 10 分鐘沒速度：照一般規則刪，空出的名額 qB 會給排在後面的 notracker（manual 不在範圍內）
+    assert [(x["hash"], x["rule"]) for x in r.removed] == [("old", "stalled")] and [t["hash"] for t in r.started] == ["notracker"]
+    assert "manual" in fake.torrents_
