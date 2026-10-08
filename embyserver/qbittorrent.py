@@ -7,8 +7,10 @@ from __future__ import annotations
 
 import json
 import logging
+import sqlite3
 import threading
 import time
+from dataclasses import asdict, dataclass, field
 from typing import Dict, List, Optional, Tuple
 
 import httpx
@@ -22,6 +24,7 @@ log = logging.getLogger(__name__)
 
 CHECK_EVERY = 300  # 開了自動刪除時，幾秒看一次
 TIMEOUT = 15.0
+LOGIN_RETRY = 1800  # 登入失敗後隔多久才再試：qBittorrent 連續失敗幾次就封 IP 一小時，不能每 5 分鐘撞一次
 # 正在下載的狀態：只有這幾種會算沒速度的時間（排隊、暫停、校驗、搬檔案的不算）
 DOWNLOADING = frozenset({"downloading", "stalledDL", "metaDL", "forcedDL", "forcedMetaDL"})
 # 排在後面等著的：佇列裡的，和停下來的（5.0 起叫 stoppedDL，以前叫 pausedDL）
@@ -35,6 +38,22 @@ class QBittorrentError(Exception):
     def __init__(self, message: str, status: Optional[int] = None):
         super().__init__(message)
         self.status = status  # qBittorrent 回的 HTTP 狀態碼；連不上時是 None
+
+
+@dataclass
+class CheckResult:
+    """上一輪看到的。"""
+
+    at: float = 0.0  # 看的時間（牆上時鐘）
+    error: str = ""
+    downloading: int = 0
+    waiting: int = 0
+    slow: List[dict] = field(default_factory=list)  # 現在沒速度的（久的在前）：hash、name、progress、quiet（秒）
+    removed: List[dict] = field(default_factory=list)  # 這一輪刪掉的
+    started: List[dict] = field(default_factory=list)  # 這一輪接著開始的
+
+    def as_dict(self) -> dict:
+        return asdict(self)
 
 
 def _unfinished(t: dict) -> bool:
@@ -55,17 +74,18 @@ class QBittorrent:
         self._client: Optional[httpx.Client] = None
         self._client_key: Tuple[str, str, str] = ("", "", "")
         self._client_lock = threading.Lock()
+        self._login_failed: Tuple[Tuple[str, str, str], float] = (("", "", ""), 0.0)  # (失敗時的網址帳密, 時間)
         # 下載中的種子：hash → (從什麼時候開始沒速度, 那時已經下載了幾 bytes)。只記在記憶體，重新啟動後從頭算
         self._quiet: Dict[str, Tuple[float, int]] = {}
         self._last_ok = 0.0  # 上次讀到種子清單的時間
+        self._offline = False  # 上一輪連不上：連回來時記一行
         self._removed: List[dict] = []  # 沒有資料庫時（測試）記在這裡
-        self._clock = time.time  # 測試換成假的時鐘
+        self._clock = time.monotonic  # 算間隔用，時間被校正也不受影響；寫進紀錄、給網頁看的另外用 time.time()。測試換成假的
         self._check_lock = threading.Lock()  # 一次只做一輪
         self._stop = threading.Event()
         self._wake = threading.Event()
         self.workers = Workers(self._stop, busy=self._check_lock)
-        # 上一輪看到的：時間、錯誤、下載中和排在後面的各幾個、沒速度的種子、這一輪刪掉和接著開始的
-        self.last: dict = {"at": 0.0, "error": "", "downloading": 0, "waiting": 0, "slow": [], "removed": [], "started": []}
+        self.last = CheckResult()
 
     @property
     def enabled(self) -> bool:
@@ -99,8 +119,13 @@ class QBittorrent:
             raise QBittorrentError(f"qBittorrent 網址格式不對：{exc}") from exc
         except httpx.HTTPError as exc:
             raise QBittorrentError(describe(exc)) from exc
+        except RuntimeError as exc:  # 設定剛改、連線被換掉，這個請求用到的是關掉的舊連線：下一輪就正常
+            raise QBittorrentError(f"qBittorrent 的連線剛重建：{exc}") from exc
         if resp.status_code == 403:
             raise QBittorrentError("qBittorrent 登入後還是拒絕存取", 403)
+        if resp.status_code == 401:
+            raise QBittorrentError("qBittorrent 回應 401：多半是用主機名稱連、被它的 Host 標頭驗證擋下。"
+                                   "改用 IP 連，或在 qBittorrent 的 WebUI 設定把這個主機名稱加進允許的網域", 401)
         if resp.status_code >= 400:
             raise QBittorrentError(f"qBittorrent 回應 HTTP {resp.status_code}：{resp.text[:200]}", resp.status_code)
         return resp
@@ -108,11 +133,17 @@ class QBittorrent:
     def _login(self, client: httpx.Client) -> None:
         if not (self.cfg.username or self.cfg.password):
             raise QBittorrentError("qBittorrent 要登入：請填 WebUI 的帳號密碼，或在 qBittorrent 設定「本機略過驗證」", 403)
+        key, at = self._login_failed
+        if key == self._client_key and self._clock() - at < LOGIN_RETRY:
+            # 同一組帳密剛失敗過就不再撞：qBittorrent 連續失敗幾次就封 IP，MoviePilot 從同一台連的話會一起被擋
+            raise QBittorrentError(f"qBittorrent 帳號或密碼不對；{LOGIN_RETRY // 60} 分鐘內不再試，免得連續失敗被它封鎖 IP"
+                                   "（改了帳號密碼會馬上再試）", 403)
         resp = client.post(self.cfg.url.rstrip("/") + "/api/v2/auth/login",
                            data={"username": self.cfg.username, "password": self.cfg.password})
         if resp.status_code == 403:
             raise QBittorrentError("qBittorrent 因為登入失敗太多次，暫時封鎖了這台機器的 IP；過一陣子再試", 403)
         if resp.status_code not in (200, 204) or resp.text.strip() == "Fails.":
+            self._login_failed = (self._client_key, self._clock())
             raise QBittorrentError(f"qBittorrent 帳號或密碼不對（HTTP {resp.status_code}）", resp.status_code)
 
     def torrents(self) -> List[dict]:
@@ -154,12 +185,15 @@ class QBittorrent:
                 items = self.torrents()
             except QBittorrentError as exc:
                 self._quiet.clear()  # 連不上的這段時間不知道有沒有速度，連上之後從頭算，免得一連上就刪
-                if str(exc) != self.last["error"]:
+                if str(exc) != self.last.error:
                     log.warning("qBittorrent：%s", exc)
-                self.last = {**self.last, "at": now, "error": str(exc), "removed": [], "started": []}
+                self._offline = True
+                self.last = CheckResult(at=time.time(), error=str(exc), downloading=self.last.downloading,
+                                        waiting=self.last.waiting, slow=self.last.slow)
                 return self.last
-            if self.last["error"]:
+            if self._offline:
                 log.info("qBittorrent 連上了")
+                self._offline = False
             if now - self._last_ok > CHECK_EVERY * 3:
                 self._quiet.clear()  # 很久沒看了（剛打開、手動才看一次、電腦睡過）：中間有沒有速度不知道，從頭算
             self._last_ok = now
@@ -173,20 +207,22 @@ class QBittorrent:
                 if stalled:
                     try:
                         removed = self._remove(stalled, now)
-                        started = self._start_next(items, {t["hash"] for t in stalled}, len(stalled))
+                        # 強制開始的不佔佇列名額，刪了也不會空出位子
+                        freed = [t for t in stalled if not str(t.get("state") or "").startswith("forced")]
+                        started = self._start_next(items, {t["hash"] for t in stalled}, len(freed))
                     except QBittorrentError as exc:
                         error = str(exc)
                         log.warning("qBittorrent：%s", exc)
             gone = {r["hash"] for r in removed}
             slow = [t for t in slow if t["hash"] not in gone]
-            self.last = {
-                "at": now, "error": error,
-                "downloading": sum(1 for t in items if t.get("state") in DOWNLOADING and _unfinished(t)) - len(removed),
-                "waiting": sum(1 for t in items if t.get("state") in WAITING and _unfinished(t)),
-                "slow": [{"hash": t["hash"], "name": t.get("name") or "", "progress": float(t.get("progress") or 0),
-                          "quiet": int(now - self._quiet[t["hash"]][0])} for t in slow[:SLOW_SHOWN]],
-                "removed": removed, "started": [{"hash": t["hash"], "name": t.get("name") or ""} for t in started],
-            }
+            self.last = CheckResult(
+                at=time.time(), error=error,
+                downloading=sum(1 for t in items if t.get("state") in DOWNLOADING and _unfinished(t)) - len(removed),
+                waiting=sum(1 for t in items if t.get("state") in WAITING and _unfinished(t)),
+                slow=[{"hash": t["hash"], "name": t.get("name") or "", "progress": float(t.get("progress") or 0),
+                       "quiet": int(now - self._quiet[t["hash"]][0])} for t in slow[:SLOW_SHOWN]],
+                removed=removed, started=[{"hash": t["hash"], "name": t.get("name") or ""} for t in started],
+            )
             return self.last
 
     def _track(self, items: List[dict], now: float) -> List[dict]:
@@ -219,7 +255,7 @@ class QBittorrent:
             minutes = int((now - self._quiet.pop(t["hash"])[0]) // 60)
             rows.append({"hash": t["hash"], "name": t.get("name") or "", "size": int(t.get("size") or 0),
                          "progress": float(t.get("progress") or 0), "category": t.get("category") or "",
-                         "minutes": minutes, "files": files, "at": int(now)})
+                         "minutes": minutes, "files": files, "at": int(time.time())})
             log.info("qBittorrent：「%s」已經 %s 分鐘沒速度（下載了 %.1f%%），刪掉了%s", rows[-1]["name"], minutes,
                      rows[-1]["progress"] * 100, "，連同下載到一半的檔案" if files else "，檔案留著")
         self._record(rows)
@@ -257,12 +293,15 @@ class QBittorrent:
         rows = (rows + self.removed())[:REMOVED_KEEP]
         if self.db is None:
             self._removed = rows
-        else:
+            return
+        try:
             self.db.set_meta(REMOVED_KEY, json.dumps(rows, ensure_ascii=False))
+        except sqlite3.Error as exc:  # 種子已經刪了，紀錄寫不進去不能讓這一輪當成失敗
+            log.warning("qBittorrent 的刪除紀錄沒寫進去（%s 個）：%s", len(rows), exc)
 
     def status(self) -> dict:
         return {"enabled": self.enabled, "active": self.cfg.remove_stalled, "minutes": self.cfg.stalled_minutes,
-                "every": CHECK_EVERY, **self.last, "history": self.removed()[:20]}
+                "every": CHECK_EVERY, **self.last.as_dict(), "history": self.removed()[:20]}
 
     # ---------------- 定時 ----------------
 

@@ -440,9 +440,12 @@ qBittorrent：下載中的種子太久沒速度就刪掉，排在後面的接著
 
 用 WebUI API（/api/v2/…）。共用一個 httpx.Client，登入後的 cookie 存在裡面（qBittorrent 5.x 的 cookie 名稱不一定是 SID，
 不自己拼）；網址或帳號密碼改了就換一個新的。請求被拒（403 = 沒登入或登入過期）時登入一次（POST /api/v2/auth/login）再送；
-本機略過驗證的 qBittorrent 從來不會走到登入。登入失敗太多次 qBittorrent 會封鎖 IP（登入回 403），訊息分開講。
+本機略過驗證的 qBittorrent 從來不會走到登入。登入失敗太多次 qBittorrent 會封鎖 IP（登入回 403），訊息分開講；
+所以帳密不對時記下那組（網址, 帳號, 密碼），LOGIN_RETRY（30 分鐘）內不再登入，免得每 5 分鐘撞一次把 IP 撞到被封
+（MoviePilot 從同一台連的話會一起被擋），改了帳密馬上再試。用主機名稱連被 Host 標頭驗證擋下是 401，提示改用 IP。
 
-判斷沒速度（_track）：Mi302 自己記每個下載中種子的 (從什麼時候開始沒速度, 那時的 downloaded)，只在記憶體。
+判斷沒速度（_track）：Mi302 自己記每個下載中種子的 (從什麼時候開始沒速度, 那時的 downloaded)，只在記憶體；
+時間用 time.monotonic（_clock），時間被校正也不會多算，寫進紀錄、給網頁看的另外用 time.time()。
 只看 DOWNLOADING 的狀態、progress < 1；不是下載中的（排隊、暫停、校驗、搬檔案、做種）不記，之後再開始下載時從頭算。
 不用 qBittorrent 的 last_activity：排隊排了三天才輪到的種子，last_activity 也是三天前，一開始下載就會被當成三天沒速度。
 從那時起下載的 bytes 超過 stalled_speed × 經過的秒數就算有速度、從現在重新算；downloaded 變小（重新校驗）也從頭算。
@@ -450,9 +453,10 @@ stalled_speed 是 0 時就是「完全沒下載到東西」。連不上 qBittorr
 只是手動看一次、機器睡過），中間有沒有速度不知道，全部從頭算，免得一連上就刪。
 
 刪除（_remove）：沒速度滿 stalled_minutes 的一次刪掉（POST /api/v2/torrents/delete，deleteFiles 照 delete_files），
-每個記一行日誌，紀錄存 meta 的 qb_removed（新的在前，留 REMOVED_KEEP 筆），網頁的「最近刪掉的」讀它。
-接著開始（_start_next）：刪幾個就挑排在後面的幾個（WAITING 狀態、沒下載完，照佇列位置 priority，沒開佇列時 priority
-是 0 或 -1，照 added_on）。queuedDL 的 qBittorrent 空出名額自己會開始，不必叫；停下來的（stoppedDL，5.0 以前 pausedDL）
+每個記一行日誌，紀錄存 meta 的 qb_removed（新的在前，留 REMOVED_KEEP 筆），網頁的「最近刪掉的」讀它；
+寫不進去只記日誌，種子已經刪了，不能讓這一輪當成失敗。上一輪的結果是 CheckResult（網頁的 status 讀它）。
+接著開始（_start_next）：刪幾個就挑排在後面的幾個（強制開始的 forcedDL 不佔佇列名額，刪了不會空出位子，不算；
+WAITING 狀態、沒下載完，照佇列位置 priority，沒開佇列時 priority 是 0 或 -1，照 added_on）。queuedDL 的 qBittorrent 空出名額自己會開始，不必叫；停下來的（stoppedDL，5.0 以前 pausedDL）
 POST /api/v2/torrents/start，回 404 就是 5.0 以前，改叫 resume。
 
 定時：開了 remove_stalled 才每 CHECK_EVERY（5 分鐘）看一次；設定改了（after_change）wake() 馬上看一次。網頁的「現在看一次」

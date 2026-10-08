@@ -54,7 +54,7 @@ def torrent(h, state, progress=0.0, downloaded=0, priority=0, added_on=0):
 
 def test_stalled_torrents_are_removed_and_next_ones_start():
     fake = FakeQB([
-        torrent("dead", "stalledDL", priority=1),  # 一直沒速度
+        torrent("dead", "forcedDL", priority=1),  # 一直沒速度；強制開始的不佔佇列名額，刪了不會空出位子
         torrent("trickle", "downloading", 0.2, priority=2),  # 每 5 分鐘 100 KB，平均不到 1 KB/s
         torrent("fast", "downloading", 0.5, priority=3),
         torrent("seed", "stalledUP", 1.0),  # 做種的不管
@@ -80,32 +80,32 @@ def test_stalled_torrents_are_removed_and_next_ones_start():
         last = tick()
         if step < 12:
             assert not any(path.endswith("/delete") for path, _ in fake.calls), step
-    assert [(r["hash"], r["minutes"], r["files"]) for r in last["removed"]] == [("dead", 60, True), ("trickle", 60, True)]
+    assert [(r["hash"], r["minutes"], r["files"]) for r in last.removed] == [("dead", 60, True), ("trickle", 60, True)]
     deletes = [form for path, form in fake.calls if path.endswith("/delete")]
     assert deletes == [{"hashes": "dead|trickle", "deleteFiles": "true"}]
-    # 刪兩個接著開始兩個：照佇列順序是 paused、late；late 已經在下載了，輪到的是 paused 和 tail
-    assert [s["hash"] for s in last["started"]] == ["paused", "tail"]
-    assert [form for path, form in fake.calls if path.endswith("/start")] == [{"hashes": "paused|tail"}]
+    # 刪兩個只空出一個名額（dead 是強制開始的），接著開始一個：照佇列順序 late 已經在下載了，輪到的是 paused
+    assert [s["hash"] for s in last.started] == ["paused"]
+    assert [form for path, form in fake.calls if path.endswith("/start")] == [{"hashes": "paused"}]
     assert set(fake.torrents) == {"fast", "seed", "paused", "late", "tail"}
-    assert [(s["hash"], s["quiet"]) for s in last["slow"]] == [("late", 1800)]
-    assert last["downloading"] == 2 and qb.removed()[0]["name"] == "DEAD"
+    assert [(s["hash"], s["quiet"]) for s in last.slow] == [("late", 1800)]
+    assert last.downloading == 2 and qb.removed()[0]["name"] == "DEAD"
 
     # 連不上的那段時間不算：連回來之後從頭算，不會一連上就刪
     fake.offline = True
-    assert "拒絕連線" in tick()["error"]
+    assert "拒絕連線" in tick().error
     fake.offline = False
     for _ in range(7):
         last = tick()
-    assert last["error"] == "" and last["removed"] == [] and last["slow"][0]["quiet"] == 1800
+    assert last.error == "" and last.removed == [] and last.slow[0]["quiet"] == 1800
 
     # 關掉自動刪除：照樣記沒速度多久，但不刪
     cfg.remove_stalled, cfg.delete_files = False, False
     for _ in range(6):
         last = tick()
-    assert last["removed"] == [] and last["slow"][0]["quiet"] == 3600 and "late" in fake.torrents
+    assert last.removed == [] and last.slow[0]["quiet"] == 3600 and "late" in fake.torrents
     # 再打開：夠久的馬上刪，只拿掉種子、檔案留著
     cfg.remove_stalled = True
-    assert [(r["hash"], r["files"]) for r in tick()["removed"]] == [("late", False)]
+    assert [(r["hash"], r["files"]) for r in tick().removed] == [("late", False)]
     assert [form for path, form in fake.calls if path.endswith("/delete")][-1] == {"hashes": "late", "deleteFiles": "false"}
 
 
@@ -114,7 +114,11 @@ def test_login_old_versions_and_web_api(tmp_path: Path):
     cfg = QBittorrentConfig(url="http://qb:8080", username="admin", password="wrong")
     qb = QBittorrent(cfg, transport=httpx.MockTransport(fake))
     assert qb.test() == {"ok": False, "message": "qBittorrent 帳號或密碼不對（HTTP 200）"}
-    cfg.password = "pw"  # 改了密碼：換一個新的連線重新登入
+    # 同一組帳密不再撞：qBittorrent 連續失敗幾次就封 IP，MoviePilot 從同一台連的話會一起被擋
+    logins = lambda: sum(1 for path, _ in fake.calls if path.endswith("/auth/login"))  # noqa: E731
+    n = logins()
+    assert "分鐘內不再試" in qb.test()["message"] and logins() == n
+    cfg.password = "pw"  # 改了密碼：馬上換一個新的連線重新登入
     r = qb.test()
     assert r["ok"] and "v4.6.7" in r["message"] and "下載中 1 個，排在後面等著的 1 個" in r["message"]
     # 5.0 以前沒有 start：找不到就改叫 resume
@@ -124,7 +128,7 @@ def test_login_old_versions_and_web_api(tmp_path: Path):
     for _ in range(3):
         now[0] += 300
         last = qb.check()
-    assert [s["hash"] for s in last["started"]] == ["next"] and fake.torrents["next"]["state"] == "queuedDL"
+    assert [s["hash"] for s in last.started] == ["next"] and fake.torrents["next"]["state"] == "queuedDL"
     assert [p for p, _ in fake.calls][-3:] == ["/api/v2/torrents/delete", "/api/v2/torrents/start", "/api/v2/torrents/resume"]
 
     c = make_client(tmp_path, {"users": [{"name": "admin", "password": "pw", "admin": True}]})

@@ -2652,7 +2652,7 @@ async function checkQB(btn) {
   finally { btn.disabled = false; }
 }
 const qbFor = s => s < 3600 ? Math.max(1, Math.round(s / 60)) + ' 分鐘' : (s / 3600).toFixed(1).replace(/\.0$/, '') + ' 小時';
-const qbPct = p => `下載了 ${(p * 100).toFixed(1).replace(/\.0$/, '')}%`;
+const qbPct = p => `下載了 ${Math.floor(p * 1000) / 10}%`;  // 無條件捨去：99.96% 不能顯示成 100%
 function renderQB(s) {
   if (!$('qbPill').innerHTML || !s.enabled) $('qbPill').innerHTML = s.enabled ? '<span class="pill">已設定</span>' : '<span class="pill">未設定</span>';
   let h = '';
