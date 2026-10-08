@@ -255,7 +255,11 @@ Many folders in **Organise 115** (整理 115 網盤) already have the right stru
 
 From 1.1.0 the plugin also **works out names**. When the destination is already settled (the folder is already in a library folder, or **Same level** or a chosen folder is used), Mi302 sends it the file list of each part, and it calls the same MoviePilot functions MoviePilot uses to name files (parse the file name, recognise by TMDB id, keep the title from the organise history, fetch the season's episodes, apply the rename format, add the language tag to subtitles). The names are identical to what MoviePilot would produce, without running its whole organise preview (no artwork, no directory matching), and each title is recognised once. A folder with hundreds of episodes takes seconds instead of minutes, and MoviePilot no longer uses gigabytes of memory for previews. Files it cannot organise get clearer reasons (such as 未识别到文件集数, "no episode number", instead of only 整理任务处理失败). With an older plugin, or if naming fails, that part falls back to MoviePilot's organise preview and the preview says so; when MoviePilot picks the directory itself its preview is used as before. Anything that has to move is still organised by MoviePilot, which produces the same names as the preview.
 
-Installing (MoviePilot V3):
+Installing (MoviePilot V3), either way:
+
+**From the plugin market**: under MoviePilot's Settings → System → Plugin market add `https://github.com/MiCat-S/Mi302-MoviePilot-Plugins`, save, and both Mi302 plugins (Organizer and [Torrent Cleaner](#mi302-torrent-cleaner-plugin)) appear in the market on the Plugins page; updates come through the market too. That repository mirrors `moviepilot-plugin/` of the Mi302 repository (MoviePilot only reads `package.v3.json` at a repository's root, hence the separate repository).
+
+**From a local path** (same machine as Mi302, updating together with Mi302):
 
 1. Make the `moviepilot-plugin` folder visible to MoviePilot. On the same machine as Mi302 it is `moviepilot-plugin` inside the Mi302 install directory, for example `/root/Mi302/moviepilot-plugin`; otherwise copy the folder over.
 2. Add `PLUGIN_LOCAL_REPO_PATHS=/root/Mi302/moviepilot-plugin` (your path) to `app.env` in MoviePilot's config directory and restart MoviePilot. The path must exist, or MoviePilot fails to load any plugin at start-up.

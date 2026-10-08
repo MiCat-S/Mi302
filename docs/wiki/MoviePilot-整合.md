@@ -255,7 +255,11 @@ Mi302 倉庫裡的 `moviepilot-plugin/` 是一個 MoviePilot V3 外掛「Mi302 �
 
 1.1.0 起外掛也會**算名字**：預覽時（整理到哪裡已經定了：已經在媒體庫目錄裡、「同一層」或指定的資料夾），Mi302 把這一部分的檔案清單交給它，它呼叫 MoviePilot 自己算名字的那幾個函式（解析檔名、照 TMDB 編號認片、沿用整理紀錄裡的片名、查這一季的集資料、套重命名格式、字幕加語言標記），名字和 MoviePilot 整理的一模一樣，但不跑它整套整理預覽（不抓圖、不比對目錄設定），同一部片只認一次。幾百集的資料夾從幾分鐘變成幾秒，MoviePilot 也不會因為預覽吃掉幾 GB 記憶體。認不出來的檔案原因也比較清楚（例如「未识别到文件集数」，而不是只有「整理任务处理失败」）。外掛是舊版、或算名字出錯時，那一部分改用 MoviePilot 的整理預覽，預覽上會寫明；讓 MoviePilot 自己挑目錄的也照舊用它的預覽。真的要搬位置的照舊交給 MoviePilot 整理，它整理時算的名字和預覽一樣。
 
-安裝（MoviePilot V3）：
+安裝（MoviePilot V3），兩種方式擇一：
+
+**從插件市場裝**：MoviePilot「設定 → 系統 → 插件市場」加一行 `https://github.com/MiCat-S/Mi302-MoviePilot-Plugins`，儲存後到「插件」頁，市場裡就會出現 Mi302 的兩個外掛（整理助手、[清種助手](#mi302-清種助手外掛)），之後有新版也在市場裡更新。這個倉庫是 Mi302 倉庫 `moviepilot-plugin/` 的鏡像（MoviePilot 只讀倉庫根目錄的 `package.v3.json`，所以要另外一個倉庫）。
+
+**用本機路徑裝**（和 Mi302 同一台、想跟著 Mi302 一起更新時）：
 
 1. 讓 MoviePilot 看得到 `moviepilot-plugin` 這個資料夾。和 Mi302 裝在同一台機器時，就是 Mi302 安裝目錄底下的 `moviepilot-plugin`，例如 `/root/Mi302/moviepilot-plugin`；不同台的話把這個資料夾複製過去。
 2. 在 MoviePilot 設定目錄裡的 `app.env` 加一行 `PLUGIN_LOCAL_REPO_PATHS=/root/Mi302/moviepilot-plugin`（換成你的路徑），重新啟動 MoviePilot。路徑一定要存在，不然 MoviePilot 啟動時所有外掛都載入不了。
