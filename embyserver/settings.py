@@ -47,7 +47,8 @@ MOVIEPILOT_FIELDS = (
     "url", "api_token", "username", "password", "scrape_after_sync", "fill_after_full_sync", "fill_interval", "fill_max_missing",
     "timeout", "concurrency", "rename_plugin",
 )
-QBITTORRENT_FIELDS = ("url", "username", "password", "remove_stalled", "stalled_minutes", "stalled_speed", "delete_files")
+QBITTORRENT_FIELDS = ("url", "username", "password", "remove_stalled", "stalled_minutes", "stalled_speed", "delete_files",
+                      "no_seeds_only")
 MEDIAINFO_FIELDS = (
     "enabled", "after_sync", "on_demand", "concurrency", "interval", "hourly_limit", "timeout", "ffprobe",
 )

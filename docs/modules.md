@@ -452,7 +452,8 @@ qBittorrent：下載中的種子太久沒速度就刪掉，排在後面的接著
 stalled_speed 是 0 時就是「完全沒下載到東西」。連不上 qBittorrent，或離上次讀到清單超過 CHECK_EVERY × 3（剛打開、
 只是手動看一次、機器睡過），中間有沒有速度不知道，全部從頭算，免得一連上就刪。
 
-刪除（_remove）：沒速度滿 stalled_minutes 的一次刪掉（POST /api/v2/torrents/delete，deleteFiles 照 delete_files），
+no_seeds_only 時還要做種數（_seeds：tracker 回報的 num_complete 和連上的 num_seeds 取大的，沒回報的 -1 當成 0）是 0 才刪，
+有人做種的只列出來等，計時照算。刪除（_remove）：沒速度滿 stalled_minutes 的一次刪掉（POST /api/v2/torrents/delete，deleteFiles 照 delete_files），
 每個記一行日誌，紀錄存 meta 的 qb_removed（新的在前，留 REMOVED_KEEP 筆），網頁的「最近刪掉的」讀它；
 寫不進去只記日誌，種子已經刪了，不能讓這一輪當成失敗。上一輪的結果是 CheckResult（網頁的 status 讀它）。
 接著開始（_start_next）：刪幾個就挑排在後面的幾個（強制開始的 forcedDL 不佔佇列名額，刪了不會空出位子，不算；

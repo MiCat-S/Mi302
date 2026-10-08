@@ -123,6 +123,7 @@ class QBittorrentConfig:
     stalled_minutes: int = 60  # 連續幾分鐘沒速度算太久（10–10080）
     stalled_speed: float = 0  # 平均速度不超過幾 KB/s 算沒速度；0 = 完全沒下載到東西才算
     delete_files: bool = True  # 連同下載到一半的檔案一起刪
+    no_seeds_only: bool = False  # 只刪做種數為 0 的：tracker 回報還有人做種就先不刪，只列出來等
 
 
 @dataclass

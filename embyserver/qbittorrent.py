@@ -48,7 +48,7 @@ class CheckResult:
     error: str = ""
     downloading: int = 0
     waiting: int = 0
-    slow: List[dict] = field(default_factory=list)  # 現在沒速度的（久的在前）：hash、name、progress、quiet（秒）
+    slow: List[dict] = field(default_factory=list)  # 現在沒速度的（久的在前）：hash、name、progress、quiet（秒）、seeds
     removed: List[dict] = field(default_factory=list)  # 這一輪刪掉的
     started: List[dict] = field(default_factory=list)  # 這一輪接著開始的
 
@@ -58,6 +58,11 @@ class CheckResult:
 
 def _unfinished(t: dict) -> bool:
     return float(t.get("progress") or 0) < 1
+
+
+def _seeds(t: dict) -> int:
+    """做種數：tracker 回報的（num_complete；沒回報是 -1，當成 0）和實際連上的（num_seeds）取大的。"""
+    return max(int(t.get("num_complete") or 0), int(t.get("num_seeds") or 0), 0)
 
 
 def _queue_order(t: dict) -> tuple:
@@ -203,7 +208,9 @@ class QBittorrent:
             error = ""
             if self.cfg.remove_stalled:
                 limit = self.cfg.stalled_minutes * 60
-                stalled = [t for t in slow if now - self._quiet[t["hash"]][0] >= limit]
+                # 只刪做種數為 0 的：還有人做種就先不刪、只列出來等；計時照算，做種數掉到 0 的下一輪就刪
+                stalled = [t for t in slow if now - self._quiet[t["hash"]][0] >= limit
+                           and not (self.cfg.no_seeds_only and _seeds(t) > 0)]
                 if stalled:
                     try:
                         removed = self._remove(stalled, now)
@@ -220,7 +227,7 @@ class QBittorrent:
                 downloading=sum(1 for t in items if t.get("state") in DOWNLOADING and _unfinished(t)) - len(removed),
                 waiting=sum(1 for t in items if t.get("state") in WAITING and _unfinished(t)),
                 slow=[{"hash": t["hash"], "name": t.get("name") or "", "progress": float(t.get("progress") or 0),
-                       "quiet": int(now - self._quiet[t["hash"]][0])} for t in slow[:SLOW_SHOWN]],
+                       "quiet": int(now - self._quiet[t["hash"]][0]), "seeds": _seeds(t)} for t in slow[:SLOW_SHOWN]],
                 removed=removed, started=[{"hash": t["hash"], "name": t.get("name") or ""} for t in started],
             )
             return self.last
@@ -255,7 +262,7 @@ class QBittorrent:
             minutes = int((now - self._quiet.pop(t["hash"])[0]) // 60)
             rows.append({"hash": t["hash"], "name": t.get("name") or "", "size": int(t.get("size") or 0),
                          "progress": float(t.get("progress") or 0), "category": t.get("category") or "",
-                         "minutes": minutes, "files": files, "at": int(time.time())})
+                         "minutes": minutes, "files": files, "seeds": _seeds(t), "at": int(time.time())})
             log.info("qBittorrent：「%s」已經 %s 分鐘沒速度（下載了 %.1f%%），刪掉了%s", rows[-1]["name"], minutes,
                      rows[-1]["progress"] * 100, "，連同下載到一半的檔案" if files else "，檔案留著")
         self._record(rows)
@@ -301,7 +308,8 @@ class QBittorrent:
 
     def status(self) -> dict:
         return {"enabled": self.enabled, "active": self.cfg.remove_stalled, "minutes": self.cfg.stalled_minutes,
-                "every": CHECK_EVERY, **self.last.as_dict(), "history": self.removed()[:20]}
+                "no_seeds_only": self.cfg.no_seeds_only, "every": CHECK_EVERY, **self.last.as_dict(),
+                "history": self.removed()[:20]}
 
     # ---------------- 定時 ----------------
 

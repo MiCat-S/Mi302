@@ -49,7 +49,7 @@ class FakeQB:
 
 def torrent(h, state, progress=0.0, downloaded=0, priority=0, added_on=0):
     return {"hash": h, "name": h.upper(), "state": state, "progress": progress, "downloaded": downloaded,
-            "priority": priority, "added_on": added_on, "size": 1000, "category": "日番"}
+            "priority": priority, "added_on": added_on, "size": 1000, "category": "日番", "num_seeds": 0, "num_complete": -1}
 
 
 def test_stalled_torrents_are_removed_and_next_ones_start():
@@ -103,9 +103,13 @@ def test_stalled_torrents_are_removed_and_next_ones_start():
     for _ in range(6):
         last = tick()
     assert last.removed == [] and last.slow[0]["quiet"] == 3600 and "late" in fake.torrents
-    # 再打開：夠久的馬上刪，只拿掉種子、檔案留著
-    cfg.remove_stalled = True
-    assert [(r["hash"], r["files"]) for r in tick().removed] == [("late", False)]
+    # 再打開，但只刪做種數為 0 的：tracker 說還有人做種就先不刪、只列出來；做種數掉到 0 才刪（只拿掉種子、檔案留著）
+    cfg.remove_stalled, cfg.no_seeds_only = True, True
+    fake.torrents["late"]["num_complete"] = 1
+    last = tick()
+    assert last.removed == [] and last.slow[0]["seeds"] == 1 and "late" in fake.torrents
+    fake.torrents["late"]["num_complete"] = -1  # tracker 沒回報，當成 0
+    assert [(r["hash"], r["files"], r["seeds"]) for r in tick().removed] == [("late", False, 0)]
     assert [form for path, form in fake.calls if path.endswith("/delete")][-1] == {"hashes": "late", "deleteFiles": "false"}
 
 

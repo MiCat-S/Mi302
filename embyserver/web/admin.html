@@ -846,6 +846,7 @@ dialog .card-b{max-height:70vh;overflow:auto}
         <div class="card-b stack">
           <label class="switch"><input type="checkbox" data-key="qbittorrent.remove_stalled" onchange="qbToggle(this)"><span class="track"></span><span class="lbl">自動刪掉太久沒速度的種子<small>每 5 分鐘看一次。只看正在下載、還沒下載完的，排隊、暫停、做種的不動；刪掉幾個，排在後面的就接著開始幾個</small></span></label>
           <label class="switch"><input type="checkbox" data-key="qbittorrent.delete_files" onchange="saveToggle(this, pollQB)"><span class="track"></span><span class="lbl">連同下載到一半的檔案一起刪<small>關掉的話只從 qBittorrent 拿掉，檔案留在下載資料夾</small></span></label>
+          <label class="switch"><input type="checkbox" data-key="qbittorrent.no_seeds_only" onchange="saveToggle(this, pollQB)"><span class="track"></span><span class="lbl">只刪做種數為 0 的<small>tracker 回報還有人做種就先不刪，只列出來等；做種數掉到 0 又還是沒速度才刪。tracker 沒回報做種數時當成 0</small></span></label>
           <div id="qb"></div>
           <details class="more"><summary>設定</summary><div class="in stack" id="qbOpts">
             <label class="field maxw320"><span>連續幾分鐘沒速度就刪</span><input type="number" min="10" max="10080" step="10" data-key="qbittorrent.stalled_minutes">
@@ -2661,9 +2662,9 @@ function renderQB(s) {
   else {
     h = `<p class="hint">${ago(s.at)}看過：下載中 ${s.downloading} 個，排在後面等著的 ${s.waiting} 個${s.active ? '' : '（自動刪除沒打開）'}</p>`;
     if (s.error) h += `<p class="notice bad">${esc(s.error)}</p>`;
-    const left = t => t.quiet >= s.minutes * 60 ? '下一輪刪掉' : `再 ${qbFor(s.minutes * 60 - t.quiet)}沒速度就刪`;
+    const left = t => s.no_seeds_only && t.seeds > 0 ? '還有人做種，先不刪' : t.quiet >= s.minutes * 60 ? '下一輪刪掉' : `再 ${qbFor(s.minutes * 60 - t.quiet)}沒速度就刪`;
     if (s.slow.length) h += `<div class="list">${s.slow.map(t => `<div class="li"><div class="main"><b>${esc(t.name)}</b>
-      <div class="sub">${[`${qbFor(t.quiet)}沒速度`, qbPct(t.progress), s.active ? left(t) : ''].filter(Boolean).map(esc).join('・')}</div></div></div>`).join('')}</div>`;
+      <div class="sub">${[`${qbFor(t.quiet)}沒速度`, qbPct(t.progress), `做種 ${t.seeds}`, s.active ? left(t) : ''].filter(Boolean).map(esc).join('・')}</div></div></div>`).join('')}</div>`;
     else if (s.downloading) h += '<p class="hint">下載中的都有速度。</p>';
   }
   if (s.history.length) h += `<details class="more"><summary>最近刪掉的（${s.history.length}）</summary><div class="in"><div class="list">${s.history.map(r => `<div class="li"><div class="main"><b>${esc(r.name)}</b>

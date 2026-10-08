@@ -218,6 +218,7 @@ Connects to qBittorrent: torrents that have been downloading with no speed for t
 | `stalled_minutes` | `60` | How many minutes in a row without speed count as too long, 10–10080. Counted from when Mi302 sees the torrent downloading; time spent queued or paused does not count | MoviePilot → qBittorrent → Settings (設定) → **Minutes without speed before deleting** (連續幾分鐘沒速度就刪) |
 | `stalled_speed` | `0` | An average speed at or below this many KB/s over that time counts as no speed; 0 = nothing downloaded at all | MoviePilot → qBittorrent → Settings → **KB/s at or below which counts as no speed** (平均速度不超過幾 KB/s 算沒速度) |
 | `delete_files` | `true` | Delete the partly downloaded files too; `false` only removes the torrent from qBittorrent and keeps the files | MoviePilot → qBittorrent → **Also delete partly downloaded files** (連同下載到一半的檔案一起刪), saved as soon as it is switched |
+| `no_seeds_only` | `false` | Only delete torrents with zero seeds: while the tracker still reports seeders the torrent is listed but kept; it is deleted once the seed count drops to 0 and it still has no speed. A tracker that reports no seed count counts as 0 | MoviePilot → qBittorrent → **Only delete torrents with no seeds** (只刪做種數為 0 的), saved as soon as it is switched |
 
 ## mediainfo
 
