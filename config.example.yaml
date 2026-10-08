@@ -75,6 +75,16 @@ moviepilot:
   # 兩邊看到的路徑不同時：Mi302 的路徑（from）→ MoviePilot 的路徑（to）
   path_mappings: []
 
+# qBittorrent：下載中的種子太久沒速度就刪掉，排在後面的接著開始
+qbittorrent:
+  url: ''                           # WebUI 網址，例如 http://127.0.0.1:8080；空的 = 不連
+  username: ''                      # WebUI 帳號密碼；qBittorrent 設了本機略過驗證就不用填
+  password: ''
+  remove_stalled: false             # 下載中的種子太久沒速度就刪掉，排在後面的接著開始
+  stalled_minutes: 60               # 連續幾分鐘沒速度算太久（10–10080）
+  stalled_speed: 0                  # 平均速度不超過幾 KB/s 算沒速度；0 = 完全沒下載到東西才算
+  delete_files: true                # 連同下載到一半的檔案一起刪
+
 # 媒體資訊：用 ffprobe 探測 strm 指向的影片，寫出 X-mediainfo.json（需要安裝 ffmpeg）
 mediainfo:
   enabled: false                    # 批次探測（網頁上挑影片提取、同步後自動）；關閉時仍會讀現成的 X-mediainfo.json

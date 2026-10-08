@@ -434,6 +434,30 @@ POST /web/api/moviepilot/fill 帶同一組篩選加 view 時用同一個 library
 和補全共用一把鎖。清單可能分頁，所以刪完一輪再列一次，直到沒有還沒試過的；刪不掉的記下來、不重試。
 每一輪刪之前先把列出來的訂閱存進 meta（mp_unsubscribed，留最近 UNSUBSCRIBED_KEEP 次），取消錯了可以照它重建。
 
+## embyserver/qbittorrent.py
+
+qBittorrent：下載中的種子太久沒速度就刪掉，排在後面的接著開始。
+
+用 WebUI API（/api/v2/…）。共用一個 httpx.Client，登入後的 cookie 存在裡面（qBittorrent 5.x 的 cookie 名稱不一定是 SID，
+不自己拼）；網址或帳號密碼改了就換一個新的。請求被拒（403 = 沒登入或登入過期）時登入一次（POST /api/v2/auth/login）再送；
+本機略過驗證的 qBittorrent 從來不會走到登入。登入失敗太多次 qBittorrent 會封鎖 IP（登入回 403），訊息分開講。
+
+判斷沒速度（_track）：Mi302 自己記每個下載中種子的 (從什麼時候開始沒速度, 那時的 downloaded)，只在記憶體。
+只看 DOWNLOADING 的狀態、progress < 1；不是下載中的（排隊、暫停、校驗、搬檔案、做種）不記，之後再開始下載時從頭算。
+不用 qBittorrent 的 last_activity：排隊排了三天才輪到的種子，last_activity 也是三天前，一開始下載就會被當成三天沒速度。
+從那時起下載的 bytes 超過 stalled_speed × 經過的秒數就算有速度、從現在重新算；downloaded 變小（重新校驗）也從頭算。
+stalled_speed 是 0 時就是「完全沒下載到東西」。連不上 qBittorrent，或離上次讀到清單超過 CHECK_EVERY × 3（剛打開、
+只是手動看一次、機器睡過），中間有沒有速度不知道，全部從頭算，免得一連上就刪。
+
+刪除（_remove）：沒速度滿 stalled_minutes 的一次刪掉（POST /api/v2/torrents/delete，deleteFiles 照 delete_files），
+每個記一行日誌，紀錄存 meta 的 qb_removed（新的在前，留 REMOVED_KEEP 筆），網頁的「最近刪掉的」讀它。
+接著開始（_start_next）：刪幾個就挑排在後面的幾個（WAITING 狀態、沒下載完，照佇列位置 priority，沒開佇列時 priority
+是 0 或 -1，照 added_on）。queuedDL 的 qBittorrent 空出名額自己會開始，不必叫；停下來的（stoppedDL，5.0 以前 pausedDL）
+POST /api/v2/torrents/start，回 404 就是 5.0 以前，改叫 resume。
+
+定時：開了 remove_stalled 才每 CHECK_EVERY（5 分鐘）看一次；設定改了（after_change）wake() 馬上看一次。網頁的「現在看一次」
+直接呼叫 check()，沒開自動刪除時只記、只列，不刪。check 用一把鎖，一次一輪；程式結束時等手上這一輪做完。
+
 ## embyserver/intro.py
 
 片頭片尾：從播放行為學出來，給播放器「跳過片頭」「跳過片尾」用。

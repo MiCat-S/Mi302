@@ -41,6 +41,8 @@ When you save in the web page, or when Mi302 reads an edited file, it checks the
 | `server.log_level` | `info` or `debug`; anything else becomes `info` |
 | `moviepilot.concurrency` | 1–8 |
 | `moviepilot.timeout` | 10–3600 |
+| `qbittorrent.stalled_minutes` | 10–10080 |
+| `qbittorrent.stalled_speed` | 0–100000 |
 | `mediainfo.concurrency` | 1–3 |
 | `mediainfo.interval` | 0.5–60 |
 | `mediainfo.timeout` | 10–3600 |
@@ -50,7 +52,7 @@ Other checks:
 
 - Libraries: the name must not be empty or repeated, and each library needs at least one folder. Any `type` other than `tvshows` becomes `movies`.
 - Sync tasks: both the 115 folder and the local folder are required; the local folder must be an absolute path; two tasks cannot use the same local folder or folders inside each other.
-- `moviepilot.url` must start with `http://` or `https://`; a trailing `/` is removed.
+- `moviepilot.url` must start with `http://` or `https://`; a trailing `/` is removed. The same goes for `qbittorrent.url`.
 - Path mappings and path rules with an empty `from` or `to` are dropped.
 - An empty `mediainfo.ffprobe` becomes `ffprobe`.
 - `aliyun.online_api` must start with `https://` or be empty (the refresh token travels in its URL, so not over plain HTTP); `aliyun.client_id` and `aliyun.client_secret` must be filled in together or both left empty.
@@ -202,6 +204,20 @@ moviepilot:
     - from: /media/psf/Vo
       to: /Volumes/Vo
 ```
+
+## qbittorrent
+
+Connects to qBittorrent: torrents that have been downloading with no speed for too long are deleted and the ones queued behind them start. See [qBittorrent stalled torrents](MoviePilot#qbittorrent-stalled-torrents).
+
+| Key | Default | Meaning | In the web page |
+| --- | --- | --- | --- |
+| `url` | empty | qBittorrent WebUI address, for example `http://127.0.0.1:8080`; must start with `http://` or `https://`. Empty = not connected | MoviePilot → qBittorrent → **qBittorrent URL** (qBittorrent 網址) |
+| `username` | empty | WebUI username. Not needed when qBittorrent skips authentication for localhost and runs on the same machine as Mi302 | MoviePilot → qBittorrent → **WebUI username** (WebUI 帳號) |
+| `password` | empty | WebUI password, in plaintext | MoviePilot → qBittorrent → **WebUI password** (WebUI 密碼) |
+| `remove_stalled` | `false` | Delete torrents that have been downloading with no speed for too long and start the ones queued behind them; checked every 5 minutes | MoviePilot → qBittorrent → **Delete torrents with no speed for too long** (自動刪掉太久沒速度的種子), saved as soon as it is switched |
+| `stalled_minutes` | `60` | How many minutes in a row without speed count as too long, 10–10080. Counted from when Mi302 sees the torrent downloading; time spent queued or paused does not count | MoviePilot → qBittorrent → Settings (設定) → **Minutes without speed before deleting** (連續幾分鐘沒速度就刪) |
+| `stalled_speed` | `0` | An average speed at or below this many KB/s over that time counts as no speed; 0 = nothing downloaded at all | MoviePilot → qBittorrent → Settings → **KB/s at or below which counts as no speed** (平均速度不超過幾 KB/s 算沒速度) |
+| `delete_files` | `true` | Delete the partly downloaded files too; `false` only removes the torrent from qBittorrent and keeps the files | MoviePilot → qBittorrent → **Also delete partly downloaded files** (連同下載到一半的檔案一起刪), saved as soon as it is switched |
 
 ## mediainfo
 

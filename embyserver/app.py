@@ -30,6 +30,7 @@ from .reorganize import Reorganizer
 from .p115 import P115Service
 from .people import PeopleStore, PersonNames
 from .prober import MediaProber
+from .qbittorrent import QBittorrent
 from .rapid115 import RapidUploader
 from .ratelimit import FailureLimiter
 from .redirect import Redirector
@@ -119,13 +120,13 @@ def stop_workers(app: FastAPI) -> None:
     會開別人工作的排前面：轉存分享、秒傳完會開整理，整理完會開同步，同步完會開探測、刮削、掃描。"""
     st = app.state
     stop_all([st.share, st.rapid, st.organizer, st.empty_dirs, st.reorganizer, st.dupes, st.strm_sync, st.moviepilot,
-              st.person_names, st.prober, st.scanner, st.backup, st.updater])
+              st.person_names, st.prober, st.scanner, st.backup, st.updater, st.qbittorrent])
 
 
 def close_app(app: FastAPI) -> None:
     """程式結束時關掉連線池和資料庫。還在跑的背景工作之後再碰資料庫會出錯，所以呼叫前先停工作（stop_workers）。"""
     st = app.state
-    for close in (st.p115.close, st.aliyun.close, st.redirector.close, st.strm_sync.close, st.db.close):
+    for close in (st.p115.close, st.aliyun.close, st.redirector.close, st.strm_sync.close, st.qbittorrent.close, st.db.close):
         try:
             close()
         except Exception:  # 一個關不掉不影響其他的
@@ -160,6 +161,7 @@ def create_app(config: Config, db_path: Optional[str] = None, scan_on_start: boo
             app.state.backup.start()
             app.state.person_names.start()
             app.state.updater.start()
+            app.state.qbittorrent.start()
         yield
         try:
             stop_workers(app)
@@ -185,6 +187,7 @@ def create_app(config: Config, db_path: Optional[str] = None, scan_on_start: boo
     app.state.people = PeopleStore(db, config)
     app.state.intro = IntroLearner(db, config)
     app.state.person_names = PersonNames(db, config, app.state.moviepilot)
+    app.state.qbittorrent = QBittorrent(config.qbittorrent, db)  # 下載中的種子太久沒速度就刪掉，排在後面的接著開始
 
     app.state.strm_sync = StrmSync(
         app.state.p115,

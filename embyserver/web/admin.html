@@ -768,7 +768,7 @@ dialog .card-b{max-height:70vh;overflow:auto}
       <div class="page-h">
         <div><h1>MoviePilot</h1><p class="sub">Mi302 不自己刮削：同步產生新的 strm 後交給 MoviePilot 查影片資料，把 nfo 和海報寫到同一個資料夾，Mi302 再重新掃描。</p></div>
       </div>
-      <div class="seg mb16 subtabs" role="tablist" aria-label="MoviePilot 的項目"><button data-act="sub" data-sub="conn" role="tab" aria-selected="false">連線</button><button data-act="sub" data-sub="scrape" role="tab" aria-selected="false">刮削</button><button data-act="sub" data-sub="fill" role="tab" aria-selected="false">補全缺集</button><button data-act="sub" data-sub="emby" role="tab" aria-selected="false">當成 Emby</button></div>
+      <div class="seg mb16 subtabs" role="tablist" aria-label="MoviePilot 的項目"><button data-act="sub" data-sub="conn" role="tab" aria-selected="false">連線</button><button data-act="sub" data-sub="scrape" role="tab" aria-selected="false">刮削</button><button data-act="sub" data-sub="fill" role="tab" aria-selected="false">補全缺集</button><button data-act="sub" data-sub="qb" role="tab" aria-selected="false">qBittorrent</button><button data-act="sub" data-sub="emby" role="tab" aria-selected="false">當成 Emby</button></div>
       <div class="card" id="mpConn" data-sub="conn" role="tabpanel">
         <div class="card-h"><div class="t"><svg class="i"><use href="#i-spark"/></svg><h2>連線</h2></div><span id="mpPill"></span></div>
         <div class="card-b stack">
@@ -825,6 +825,34 @@ dialog .card-b{max-height:70vh;overflow:auto}
           <p class="hint" id="subsText">補全建的訂閱都在 MoviePilot 裡。建了太多不想要的、想清掉重來時，可以在這裡一次取消。</p>
           <div id="unsub"></div>
           <div class="row wrap gap6"><button class="btn sm ghost danger" onclick="unsubAll()">取消所有訂閱…</button><button class="btn sm ghost hidden" id="unsubDl" data-act="unsubList" title="最近幾次取消前的訂閱清單（名稱、年份、類型、季、tmdbid），取消錯了可以照它重新訂閱">下載之前取消的訂閱清單</button></div>
+          </div></details>
+        </div>
+      </div>
+      <div class="card" id="qbConn" data-sub="qb" role="tabpanel">
+        <div class="card-h"><div class="t"><svg class="i"><use href="#i-download"/></svg><h2>qBittorrent</h2></div><span id="qbPill"></span></div>
+        <div class="card-b stack">
+          <p class="hint">MoviePilot 訂閱到的種子交給 qBittorrent 下載。沒人做種的種子速度一直是 0，卻佔著同時下載的名額，排在後面的輪不到。連上之後，Mi302 可以把這種種子刪掉，讓排在後面的接著開始。 <a class="doc" href="https://github.com/MiCat-S/Mi302/wiki/MoviePilot-整合#qbittorrent-沒速度的種子" target="_blank" rel="noopener">說明</a></p>
+          <div class="fields">
+            <label class="field"><span>qBittorrent 網址</span><input type="text" data-key="qbittorrent.url" placeholder="例如 http://127.0.0.1:8080"><small>WebUI 的網址</small></label>
+            <label class="field"><span>WebUI 帳號</span><input type="text" data-key="qbittorrent.username" autocomplete="off"></label>
+            <label class="field"><span>WebUI 密碼</span><input type="password" data-key="qbittorrent.password" autocomplete="new-password"><small>qBittorrent 設了「本機略過驗證」（和 Mi302 裝在同一台）就不用填</small></label>
+          </div>
+          <p id="qbMsg" aria-live="polite" class="notice hidden"></p>
+        </div>
+        <div class="card-f"><button class="btn primary" onclick="saveQB()">儲存</button><button class="btn" onclick="testQB(this)">測試連線</button></div>
+      </div>
+      <div class="card" id="qbStalled" data-sub="qb" role="tabpanel">
+        <div class="card-h"><div class="t"><svg class="i"><use href="#i-alert"/></svg><h2>沒速度的種子</h2></div><button class="btn" onclick="checkQB(this)">現在看一次</button></div>
+        <div class="card-b stack">
+          <label class="switch"><input type="checkbox" data-key="qbittorrent.remove_stalled" onchange="qbToggle(this)"><span class="track"></span><span class="lbl">自動刪掉太久沒速度的種子<small>每 5 分鐘看一次。只看正在下載、還沒下載完的，排隊、暫停、做種的不動；刪掉幾個，排在後面的就接著開始幾個</small></span></label>
+          <label class="switch"><input type="checkbox" data-key="qbittorrent.delete_files" onchange="saveToggle(this, pollQB)"><span class="track"></span><span class="lbl">連同下載到一半的檔案一起刪<small>關掉的話只從 qBittorrent 拿掉，檔案留在下載資料夾</small></span></label>
+          <div id="qb"></div>
+          <details class="more"><summary>設定</summary><div class="in stack" id="qbOpts">
+            <label class="field maxw320"><span>連續幾分鐘沒速度就刪</span><input type="number" min="10" max="10080" step="10" data-key="qbittorrent.stalled_minutes">
+              <small>10–10080，預設 60。從 Mi302 看到它在下載算起，排隊、暫停的時間不算；Mi302 重新啟動後從頭算</small></label>
+            <label class="field maxw320"><span>平均速度不超過幾 KB/s 算沒速度</span><input type="number" min="0" step="1" data-key="qbittorrent.stalled_speed">
+              <small>預設 0：這段時間完全沒下載到東西才算</small></label>
+            <div><button class="btn sm primary" onclick="saveFields($('qbOpts')).then(pollQB)">儲存設定</button></div>
           </div></details>
         </div>
       </div>
@@ -1214,7 +1242,7 @@ const SUBS = {
   '115': {acct: null, sync: null, offline: () => { if (!$('olFolder').value) $('olFolder').value = localGet('mi302-ol-folder'); loadOffline(1); },
     share: () => loadShare(), rapid: () => loadRapid(), organize: () => organizeLoad(1), recycle: () => { loadRecycle(0); loadDeleted(0); }},
   tools: {mi: () => { restoreMiPrefs(); pollMI(); }, intro: () => pollIntro(), dup: () => loadDupes(), empty: () => loadEmpty()},
-  moviepilot: {conn: null, scrape: null, fill: () => { restoreSeriesLimit(); loadSeries(1); }, emby: () => loadKeys()},
+  moviepilot: {conn: null, scrape: null, fill: () => { restoreSeriesLimit(); loadSeries(1); }, qb: () => pollQB(), emby: () => loadKeys()},
   settings: {general: null, webdav: () => davShow(), strm: null, zh: () => pollPeople(), backup: () => loadBackups(), about: null},
 };
 function subOf(page, want) {
@@ -2589,6 +2617,64 @@ async function pollMP() {
   else renderSeriesBar();  // 進行中：補全、檢查的按鈕先不能按
   S.fillWasRunning = working;
   if (s.result.running || s.fill?.running || s.unsubscribe?.running) later('mp', pollMP);
+}
+
+// ---- qBittorrent ----
+async function saveQB(quiet) {
+  const body = {qbittorrent: {}};
+  for (const el of $('qbConn').querySelectorAll('[data-key]')) setKey(body, el.dataset.key, el.value);
+  try { await putSettings(body); if (!quiet) toast('已儲存'); pollQB(); return true; }
+  catch (e) { toast('儲存失敗：' + e.message, 'bad'); return false; }
+}
+async function testQB(btn) {
+  if (!await saveQB(true)) return;
+  btn.disabled = true;
+  note($('qbMsg'), '測試中…');
+  try {
+    const r = await api('/web/api/qbittorrent/test', {method: 'POST'});
+    note($('qbMsg'), r.message, r.ok ? '' : 'bad');
+    $('qbPill').innerHTML = r.ok ? '<span class="pill ok"><span class="dot"></span>連線成功</span>' : '<span class="pill bad">連線失敗</span>';
+  } catch (e) { note($('qbMsg'), '測試失敗：' + e.message, 'bad'); toast(e.message, 'bad'); }
+  finally { btn.disabled = false; }
+}
+async function qbToggle(el) {
+  // 打開前說清楚會刪什麼；取消就撥回去
+  const q = cfg.qbittorrent;
+  if (el.checked && !await ask({title: '自動刪掉太久沒速度的種子？',
+    text: `正在下載、連續 ${q.stalled_minutes} 分鐘沒速度的種子會從 qBittorrent 刪掉${q.delete_files ? '，下載到一半的檔案也一起刪' : '（檔案留著）'}，排在後面的接著開始。`
+      + 'MoviePilot 會當成那幾集已經送去下載；之後還缺的，到「補全缺集」再補。', ok: '打開', danger: true})) { el.checked = false; return; }
+  // 剛打開時馬上看一次再顯示，不然列的還是上一次看到的
+  saveToggle(el, () => el.checked ? api('/web/api/qbittorrent/check', {method: 'POST'}).then(renderQB, pollQB) : pollQB());
+}
+async function checkQB(btn) {
+  btn.disabled = true;
+  try { renderQB(await api('/web/api/qbittorrent/check', {method: 'POST'})); } catch (e) { toast(e.message, 'bad'); }
+  finally { btn.disabled = false; }
+}
+const qbFor = s => s < 3600 ? Math.max(1, Math.round(s / 60)) + ' 分鐘' : (s / 3600).toFixed(1).replace(/\.0$/, '') + ' 小時';
+const qbPct = p => `下載了 ${(p * 100).toFixed(1).replace(/\.0$/, '')}%`;
+function renderQB(s) {
+  if (!$('qbPill').innerHTML || !s.enabled) $('qbPill').innerHTML = s.enabled ? '<span class="pill">已設定</span>' : '<span class="pill">未設定</span>';
+  let h = '';
+  if (!s.enabled) h = emptyState('還沒連上 qBittorrent', '在上面填好 WebUI 網址後儲存。');
+  else if (!s.at) h = `<p class="hint">${s.active ? '馬上會看第一次。' : '自動刪除沒打開；按「現在看一次」看目前下載中的種子。'}</p>`;
+  else {
+    h = `<p class="hint">${ago(s.at)}看過：下載中 ${s.downloading} 個，排在後面等著的 ${s.waiting} 個${s.active ? '' : '（自動刪除沒打開）'}</p>`;
+    if (s.error) h += `<p class="notice bad">${esc(s.error)}</p>`;
+    const left = t => t.quiet >= s.minutes * 60 ? '下一輪刪掉' : `再 ${qbFor(s.minutes * 60 - t.quiet)}沒速度就刪`;
+    if (s.slow.length) h += `<div class="list">${s.slow.map(t => `<div class="li"><div class="main"><b>${esc(t.name)}</b>
+      <div class="sub">${[`${qbFor(t.quiet)}沒速度`, qbPct(t.progress), s.active ? left(t) : ''].filter(Boolean).map(esc).join('・')}</div></div></div>`).join('')}</div>`;
+    else if (s.downloading) h += '<p class="hint">下載中的都有速度。</p>';
+  }
+  if (s.history.length) h += `<details class="more"><summary>最近刪掉的（${s.history.length}）</summary><div class="in"><div class="list">${s.history.map(r => `<div class="li"><div class="main"><b>${esc(r.name)}</b>
+    <div class="sub">${[fmtTime(r.at), `${qbFor(r.minutes * 60)}沒速度`, qbPct(r.progress), r.size ? fmtSize(r.size) : '', r.category, r.files ? '檔案一起刪了' : '檔案留著'].filter(Boolean).map(esc).join('・')}</div></div></div>`).join('')}</div></div></details>`;
+  setHtml($('qb'), h);
+}
+async function pollQB() {
+  // 停在這個分頁時每 30 秒刷新一次（只讀 Mi302 記下的，不打 qBittorrent）；切走就不再問
+  cancel('qb');
+  try { renderQB(await api('/web/api/qbittorrent/status')); } catch (e) { setHtml($('qb'), failHtml(e)); return; }
+  if ($('qb').offsetParent) later('qb', pollQB, 30000);
 }
 
 // ---- 補全缺集 ----

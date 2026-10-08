@@ -113,6 +113,19 @@ class MoviePilotConfig:
 
 
 @dataclass
+class QBittorrentConfig:
+    """qBittorrent：下載中的種子太久沒速度就刪掉，排在後面的接著開始。"""
+
+    url: str = ""  # WebUI 網址，例如 http://127.0.0.1:8080
+    username: str = ""  # WebUI 帳號密碼；qBittorrent 設了本機（或這個網段）略過驗證就不用填
+    password: str = ""
+    remove_stalled: bool = False  # 下載中的種子太久沒速度就刪掉，排在後面的接著開始
+    stalled_minutes: int = 60  # 連續幾分鐘沒速度算太久（10–10080）
+    stalled_speed: float = 0  # 平均速度不超過幾 KB/s 算沒速度；0 = 完全沒下載到東西才算
+    delete_files: bool = True  # 連同下載到一半的檔案一起刪
+
+
+@dataclass
 class WebDAVConfig:
     """/dav/ 的 WebDAV（只能讀）：播放器直接瀏覽 115，播放時 302 到 115 直鏈；用 Mi302 的帳號密碼登入。"""
 
@@ -175,6 +188,7 @@ class Config:
     api_keys: List[str] = field(default_factory=list)
     p115: P115Config = field(default_factory=P115Config)
     moviepilot: MoviePilotConfig = field(default_factory=MoviePilotConfig)
+    qbittorrent: QBittorrentConfig = field(default_factory=QBittorrentConfig)
     mediainfo: MediaInfoConfig = field(default_factory=MediaInfoConfig)
     webdav: WebDAVConfig = field(default_factory=WebDAVConfig)
     aliyun: AliyunConfig = field(default_factory=AliyunConfig)
@@ -221,6 +235,7 @@ def _build(raw: dict) -> Config:
         api_keys=list(raw.get("api_keys") or []),
         p115=_build_p115(raw.get("p115") or {}),
         moviepilot=_build_moviepilot(raw.get("moviepilot") or {}),
+        qbittorrent=_make(QBittorrentConfig, raw.get("qbittorrent"), "qbittorrent"),
         mediainfo=_make(MediaInfoConfig, raw.get("mediainfo"), "mediainfo"),
         webdav=_make(WebDAVConfig, raw.get("webdav"), "webdav"),
         aliyun=_make(AliyunConfig, raw.get("aliyun"), "aliyun"),

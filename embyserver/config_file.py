@@ -40,7 +40,7 @@ def _rules(rules: List[PathRule], indent: str) -> str:
 
 def render(config: Config) -> str:
     s, p, st, mp, rd = config.server, config.p115, config.p115.strm, config.moviepilot, config.redirect
-    mi = config.mediainfo
+    mi, qb = config.mediainfo, config.qbittorrent
     lines = [
         "# Mi302 設定檔",
         "#",
@@ -123,6 +123,16 @@ def render(config: Config) -> str:
         _kv("  concurrency", mp.concurrency, "同時送幾項給 MoviePilot 刮削（1–8），太多可能被 TMDB 限速"),
         "  # 兩邊看到的路徑不同時：Mi302 的路徑（from）→ MoviePilot 的路徑（to）",
         "  path_mappings:" + _rules(mp.path_mappings, "    "),
+        "",
+        "# qBittorrent：下載中的種子太久沒速度就刪掉，排在後面的接著開始",
+        "qbittorrent:",
+        _kv("  url", qb.url, "WebUI 網址，例如 http://127.0.0.1:8080；空的 = 不連"),
+        _kv("  username", qb.username, "WebUI 帳號密碼；qBittorrent 設了本機略過驗證就不用填"),
+        _kv("  password", qb.password),
+        _kv("  remove_stalled", qb.remove_stalled, "下載中的種子太久沒速度就刪掉，排在後面的接著開始"),
+        _kv("  stalled_minutes", qb.stalled_minutes, "連續幾分鐘沒速度算太久（10–10080）"),
+        _kv("  stalled_speed", qb.stalled_speed, "平均速度不超過幾 KB/s 算沒速度；0 = 完全沒下載到東西才算"),
+        _kv("  delete_files", qb.delete_files, "連同下載到一半的檔案一起刪"),
         "",
         "# 媒體資訊：用 ffprobe 探測 strm 指向的影片，寫出 X-mediainfo.json（需要安裝 ffmpeg）",
         "mediainfo:",

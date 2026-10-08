@@ -47,6 +47,7 @@ MOVIEPILOT_FIELDS = (
     "url", "api_token", "username", "password", "scrape_after_sync", "fill_after_full_sync", "fill_interval", "fill_max_missing",
     "timeout", "concurrency", "rename_plugin",
 )
+QBITTORRENT_FIELDS = ("url", "username", "password", "remove_stalled", "stalled_minutes", "stalled_speed", "delete_files")
 MEDIAINFO_FIELDS = (
     "enabled", "after_sync", "on_demand", "concurrency", "interval", "hourly_limit", "timeout", "ffprobe",
 )
@@ -75,6 +76,7 @@ def export_settings(config: Config) -> Dict[str, Any]:
             **{k: getattr(config.moviepilot, k) for k in MOVIEPILOT_FIELDS},
             "path_mappings": [r.to_dict() for r in config.moviepilot.path_mappings],
         },
+        "qbittorrent": {k: getattr(config.qbittorrent, k) for k in QBITTORRENT_FIELDS},
         "mediainfo": {k: getattr(config.mediainfo, k) for k in MEDIAINFO_FIELDS},
         "webdav": {k: getattr(config.webdav, k) for k in WEBDAV_FIELDS},
         "aliyun": {k: getattr(config.aliyun, k) for k in ALIYUN_FIELDS},
@@ -165,6 +167,13 @@ def apply_settings(config: Config, raw: dict) -> None:
         raise SettingsError("MoviePilot 網址要以 http:// 或 https:// 開頭")
     if "path_mappings" in mp:
         config.moviepilot.path_mappings[:] = _rules(mp["path_mappings"])
+    qb = config.qbittorrent
+    _set_fields(qb, QBITTORRENT_FIELDS, raw.get("qbittorrent") or {})
+    qb.url = qb.url.rstrip("/")
+    qb.stalled_minutes = max(10, min(int(qb.stalled_minutes), 10080))  # 太短的話剛開始找人的種子也會被刪
+    qb.stalled_speed = max(0.0, min(float(qb.stalled_speed), 100000.0))
+    if qb.url and not qb.url.startswith(("http://", "https://")):
+        raise SettingsError("qBittorrent 網址要以 http:// 或 https:// 開頭")
     mi = config.mediainfo
     _set_fields(mi, MEDIAINFO_FIELDS, raw.get("mediainfo") or {})
     mi.concurrency = max(1, min(mi.concurrency, 3))  # 115 同時最多 3 條連線
@@ -374,6 +383,7 @@ def after_change(st, libraries_before: list) -> List[str]:
         changed = [lib["name"] for lib in after if lib not in libraries_before]
         st.scanner.in_background(st.scanner.scan_libraries, changed)
     st.prober.wake()  # 取直鏈間隔、每小時上限改了：在等的馬上照新設定重算
+    st.qbittorrent.wake()  # 剛打開自動刪除、改了網址：馬上看一次，不等下一輪
     if st.strm_sync.follow_format():
         notes.append("現有的 strm 正在背景改成新的網址")
     return notes

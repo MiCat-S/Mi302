@@ -11,7 +11,7 @@ You do not need a real Emby server behind it, or any other 115 tool. The full do
 - **115 sync**: sign in to 115 by scanning a QR code and sync folders into strm files. After that, incremental syncs read 115's activity log (its "life events"), and a weekly full sync catches anything missed.
 - **Emby compatible**: Infuse, VidHub, SenPlayer, the official Emby apps and other Emby clients just add the server and sign in.
 - **302 direct play**: Mi302 fetches the 115 direct link with the player's own User-Agent and redirects the player to it. No proxying, no transcoding.
-- **Scraping by MoviePilot**: newly synced videos are sent to [MoviePilot](https://github.com/jxxghp/MoviePilot) for metadata and artwork. When a series is missing episodes, MoviePilot can subscribe and download them. Series with wrong episode numbers, or any folder that looks wrong while browsing 115 in the web page, can be reorganised by MoviePilot on 115, with a preview first.
+- **Scraping by MoviePilot**: newly synced videos are sent to [MoviePilot](https://github.com/jxxghp/MoviePilot) for metadata and artwork. When a series is missing episodes, MoviePilot can subscribe and download them. Series with wrong episode numbers, or any folder that looks wrong while browsing 115 in the web page, can be reorganised by MoviePilot on 115, with a preview first. Connected to qBittorrent, Mi302 deletes torrents that have had no speed for too long so the queued ones can start.
 - **Media info**: reads `X-mediainfo.json` files (the StrmAssistant format) and can probe videos with ffprobe, so players show 4K, HDR, audio tracks and subtitle tracks.
 - **Intro and credits skipping**: learns intros and credits from how people watch, so players such as SenPlayer offer "Skip intro".
 - **Made for Chinese libraries**: Chinese titles sort by pinyin; search matches full pinyin, initials, Simplified and Traditional characters; cast names and genres can be shown in Chinese.
@@ -69,7 +69,7 @@ Then open `http://<host>:8096/web` in a browser:
 | [Playback](https://github.com/MiCat-S/Mi302/wiki/Playback) | The 302 flow, playback authentication, downloads, reverse proxies |
 | [Intro and Credits](https://github.com/MiCat-S/Mi302/wiki/Intro-and-Credits) | How intros and credits are learned, what players receive, how to test |
 | [Media Info](https://github.com/MiCat-S/Mi302/wiki/Media-Info) | `X-mediainfo.json`, ffprobe probing, 115 rate limits |
-| [MoviePilot](https://github.com/MiCat-S/Mi302/wiki/MoviePilot) | Scraping, filling missing episodes, Mi302 as an Emby server, library covers |
+| [MoviePilot](https://github.com/MiCat-S/Mi302/wiki/MoviePilot) | Scraping, filling missing episodes, stalled qBittorrent torrents, Mi302 as an Emby server, library covers |
 | [Backup and Restore](https://github.com/MiCat-S/Mi302/wiki/Backup-and-Restore) | Daily backups, downloading a backup, restoring |
 | [Configuration Reference](https://github.com/MiCat-S/Mi302/wiki/Configuration-Reference) | Every `config.yaml` key with its default |
 | [Logs and FAQ](https://github.com/MiCat-S/Mi302/wiki/Logs-and-FAQ) | Logs, connection problems, permissions, networks in mainland China, lost passwords |

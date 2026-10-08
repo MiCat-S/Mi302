@@ -40,12 +40,13 @@ def test_render_round_trips_tricky_values(tmp_path: Path):
     raw["p115"] = {"cookies": "UID=1; CID=2", "strm": {"tasks": [{"remote": "/影視/電影", "local": "/media/115"}], "interval": 5}}
     raw["moviepilot"] = {"url": "http://mp:3000", "api_token": "yes", "path_mappings": [{"from": "/media", "to": "/mnt/m"}]}
     raw["redirect"] = {"path_rules": [{"from": "/mnt/115", "to": "http://alist:5244/d/115"}]}
+    raw["qbittorrent"] = {"url": "http://qb:8080", "password": "p#w: 1", "remove_stalled": True, "stalled_speed": 2.5}
     raw["api_keys"] = ["k1"]
     cfg = config_from_dict(raw)
     out = tmp_path / "config.yaml"
     config_file.write(cfg, str(out))
     again = load_config(str(out))
-    for part in ("server", "users", "libraries", "p115", "moviepilot", "redirect", "api_keys"):
+    for part in ("server", "users", "libraries", "p115", "moviepilot", "qbittorrent", "redirect", "api_keys"):
         assert getattr(again, part) == getattr(cfg, part), part
     assert "# 網頁" in out.read_text(encoding="utf-8")  # 有說明註解
 
@@ -160,13 +161,14 @@ def test_field_lists_stay_in_sync():
 
     from embyserver import settings
     from embyserver.config import (AliyunConfig, Config, MediaInfoConfig, MoviePilotConfig, P115Config, P115StrmConfig,
-                                   RedirectConfig, ServerConfig, WebDAVConfig)
+                                   QBittorrentConfig, RedirectConfig, ServerConfig, WebDAVConfig)
 
     sections = {  # 設定檔裡的位置 → (dataclass, 網頁能改的欄位)
         ("server",): (ServerConfig, settings.SERVER_FIELDS),
         ("p115",): (P115Config, settings.P115_FIELDS),
         ("p115", "strm"): (P115StrmConfig, settings.STRM_FIELDS),
         ("moviepilot",): (MoviePilotConfig, settings.MOVIEPILOT_FIELDS),
+        ("qbittorrent",): (QBittorrentConfig, settings.QBITTORRENT_FIELDS),
         ("mediainfo",): (MediaInfoConfig, settings.MEDIAINFO_FIELDS),
         ("webdav",): (WebDAVConfig, settings.WEBDAV_FIELDS),
         ("aliyun",): (AliyunConfig, settings.ALIYUN_FIELDS),
@@ -178,6 +180,7 @@ def test_field_lists_stay_in_sync():
         ("p115",): {"cookies", "timeout", "strm"},
         ("p115", "strm"): {"tasks"},
         ("moviepilot",): {"path_mappings"},
+        ("qbittorrent",): set(),
         ("mediainfo",): set(),
         ("webdav",): set(),
         ("aliyun",): set(),

@@ -11,7 +11,7 @@ Mi302 是一個 API 與 Emby 相容的影片伺服器，給放在 115 網盤的�
 - **115 同步**：掃碼登入 115，把資料夾同步成 strm。之後讀 115 的生活事件做增量同步，每週再全量同步一次查漏補缺。
 - **Emby 相容**：Infuse、VidHub、SenPlayer、Emby 官方 App 等支援 Emby 的播放器，新增伺服器就能登入觀看。
 - **302 直連播放**：用播放器自己的 User-Agent 向 115 取直鏈再轉過去，伺服器不轉發影片、不轉碼。
-- **刮削交給 MoviePilot**：新同步的影片自動送去刮削。媒體庫缺集時，可以讓 MoviePilot 訂閱補齊；集號不對的劇、或在網頁上瀏覽 115 時覺得不對的資料夾，可以交給 MoviePilot 在 115 上重新整理（先預覽）。
+- **刮削交給 MoviePilot**：新同步的影片自動送去刮削。媒體庫缺集時，可以讓 MoviePilot 訂閱補齊；集號不對的劇、或在網頁上瀏覽 115 時覺得不對的資料夾，可以交給 MoviePilot 在 115 上重新整理（先預覽）。連上 qBittorrent 的話，太久沒速度的種子自動刪掉，讓排在後面的接著下載。
 - **媒體資訊**：讀 `X-mediainfo.json`（神醫助手的格式），也能用 ffprobe 探測，播放器看得到 4K、HDR、音軌和字幕軌。
 - **片頭片尾跳過**：從播放行為學出片頭片尾，SenPlayer 等播放器會出現「跳過片頭」。
 - **中文友善**：中文片名按拼音排序，拼音、首字母、繁簡體都搜得到；演職人員顯示中文名，類型中文化。
@@ -69,7 +69,7 @@ curl -fsSL https://raw.githubusercontent.com/MiCat-S/Mi302/main/install.sh | bas
 | [播放與外網連線](https://github.com/MiCat-S/Mi302/wiki/播放與外網連線) | 302 播放流程、播放網址的登入、下載、反向代理 |
 | [片頭片尾跳過](https://github.com/MiCat-S/Mi302/wiki/片頭片尾跳過) | 怎麼學出片頭片尾、播放器拿到什麼、怎麼測試 |
 | [媒體資訊與探測](https://github.com/MiCat-S/Mi302/wiki/媒體資訊與探測) | `X-mediainfo.json`、ffprobe 探測、115 的限速 |
-| [MoviePilot 整合](https://github.com/MiCat-S/Mi302/wiki/MoviePilot-整合) | 刮削、補全缺集、把 Mi302 當成 Emby、媒體庫封面 |
+| [MoviePilot 整合](https://github.com/MiCat-S/Mi302/wiki/MoviePilot-整合) | 刮削、補全缺集、qBittorrent 沒速度的種子、把 Mi302 當成 Emby、媒體庫封面 |
 | [備份與還原](https://github.com/MiCat-S/Mi302/wiki/備份與還原) | 自動備份、下載備份、還原步驟 |
 | [設定檔參考](https://github.com/MiCat-S/Mi302/wiki/設定檔參考) | `config.yaml` 每一項的說明和預設值 |
 | [日誌與常見問題](https://github.com/MiCat-S/Mi302/wiki/日誌與常見問題) | 日誌、連不上、權限、國內網路、忘記密碼 |

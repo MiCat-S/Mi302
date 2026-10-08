@@ -1,10 +1,10 @@
 [繁體中文](MoviePilot-整合) | [简体中文](MoviePilot-集成) | **English**
 
-Mi302 does not scrape (fetch metadata and artwork) by itself; it hands this to [MoviePilot](https://github.com/jxxghp/MoviePilot). This page covers connecting to MoviePilot, which videos are sent for scraping, how filling missing episodes decides what is missing, what Organise 115 needs from MoviePilot, and how to add Mi302 to MoviePilot as an Emby media server. The web admin page is in Traditional Chinese; original labels are given in parentheses.
+Mi302 does not scrape (fetch metadata and artwork) by itself; it hands this to [MoviePilot](https://github.com/jxxghp/MoviePilot). This page covers connecting to MoviePilot, which videos are sent for scraping, how filling missing episodes decides what is missing, what Organise 115 needs from MoviePilot, how to clear torrents stuck at no speed in qBittorrent, and how to add Mi302 to MoviePilot as an Emby media server. The web admin page is in Traditional Chinese; original labels are given in parentheses.
 
 Mi302 was built against MoviePilot V3. Older versions mostly work, with a few features reduced; see [Older MoviePilot versions](#older-moviepilot-versions).
 
-The **MoviePilot** tab of the web admin page has four buttons at the top: **Connection** (連線), **Scrape** (刮削), **Fill missing episodes** (補全缺集) and **As Emby** (當成 Emby). Each one shows only its card; **As Emby** is the **Let MoviePilot treat Mi302 as Emby** card (讓 MoviePilot 把 Mi302 當成 Emby). The page reopens on the one you looked at last.
+The **MoviePilot** tab of the web admin page has five buttons at the top: **Connection** (連線), **Scrape** (刮削), **Fill missing episodes** (補全缺集), **qBittorrent** and **As Emby** (當成 Emby). Each one shows only its card; **As Emby** is the **Let MoviePilot treat Mi302 as Emby** card (讓 MoviePilot 把 Mi302 當成 Emby). The page reopens on the one you looked at last.
 
 ## How it works
 
@@ -211,6 +211,28 @@ Expand "Results per season (N)" (每一季的結果（N）) to see which episode
 ### Fill after full sync
 
 With **Fill missing episodes after full sync** (全量同步後自動補全) ticked (off by default; saved as soon as you toggle it), every full sync ends by sending all series with a tmdbid, after scraping has finished. Nothing is sent if MoviePilot is not set up. It waits for scraping because newly scraped series only have a tmdbid at that point. Series marked **Skip** and seasons missing too many are passed over here too.
+
+## qBittorrent stalled torrents
+
+MoviePilot hands the torrents it finds for subscriptions to qBittorrent. When qBittorrent's queue is on (a limit on how many download at once), a torrent nobody seeds sits at 0 speed but still takes a slot, and the ones queued behind it never get a turn. Mi302 can connect to qBittorrent, delete such torrents and let the queued ones start.
+
+On the **MoviePilot** tab, click **qBittorrent**:
+
+1. Enter the WebUI address (for example `http://127.0.0.1:8080`), click **Save** (儲存), then **Test connection** (測試連線). If qBittorrent runs on the same machine as Mi302 and its WebUI skips authentication for localhost, leave the username and password empty; otherwise enter the WebUI credentials.
+2. Turn on **Delete torrents with no speed for too long** (自動刪掉太久沒速度的種子). It is off by default and asks for confirmation before turning on.
+
+How it decides:
+
+- The torrent list is read every 5 minutes. Only torrents that are downloading and not finished are considered (downloading, stalled, fetching metadata, forced); queued, paused, checking, seeding and finished torrents are left alone.
+- Counting from when Mi302 sees a torrent downloading, if its average speed stays at or below **KB/s at or below which counts as no speed** (平均速度不超過幾 KB/s 算沒速度; default 0, meaning nothing downloaded at all) for **Minutes without speed before deleting** (連續幾分鐘沒速度就刪; default 60, 10–10080), it is deleted. Any speed in between restarts the count.
+- Time spent queued or paused does not count: a torrent that waited days for its turn is timed from when it starts downloading, so it is not deleted the moment it starts. qBittorrent's own "last activity" time cannot tell these apart, so it is not used.
+- The count lives in memory only: after Mi302 restarts or loses its connection to qBittorrent, it starts over.
+- By default the partly downloaded files are deleted too; with **Also delete partly downloaded files** (連同下載到一半的檔案一起刪) off, only the torrent is removed from qBittorrent and the files stay in the download folder.
+- For every torrent deleted, the next one waiting starts (in queue order; without a queue, oldest added first). Queued torrents are started by qBittorrent itself once a slot frees up; paused ones are started by Mi302.
+
+The card lists the torrents currently without speed, for how long, and how long until they are deleted. **Check now** (現在看一次) checks immediately (with automatic deletion on, torrents past the limit are deleted as usual). Expand **Recently deleted** (最近刪掉的) to see what was deleted: when, how long it had no speed, how far it got and whether the files went too; each deletion is also logged.
+
+When MoviePilot hands a torrent to qBittorrent it considers those episodes sent to download, and it does not notice the torrent being deleted. A season sent more than 3 days ago that has still not arrived goes back to 缺集 and can be filled again; to retry sooner, press **Fill again** (再補一次) on that series, see [The series list](#the-series-list).
 
 ## Organising 115
 
