@@ -589,10 +589,9 @@ class Organizer:
                             f.cancel()
                         break
             live = {u.path for u in units} | {u.path for u in self._pinned.values()}
-            with self.db.lock:
-                old = [r["path"] for r in self.db.query("SELECT path FROM organize_checks")]
-                self.db.conn.executemany("DELETE FROM organize_checks WHERE path=?", [(p,) for p in old if p not in live])
-                self.db.conn.commit()
+            with self.db.transaction() as c:
+                old = [r["path"] for r in c.execute("SELECT path FROM organize_checks")]
+                c.executemany("DELETE FROM organize_checks WHERE path=?", [(p,) for p in old if p not in live])
             log.info("整理 115 網盤：問完 %s 個，%s 個要整理", job.done, job.found)
         except Exception as exc:  # 背景執行緒：記下來，不讓網頁一直顯示「檢查中」
             job.error = job.error or f"{type(exc).__name__}: {exc}"

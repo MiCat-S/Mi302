@@ -136,13 +136,24 @@ class AuthService:
 
     def create_api_key(self, name: str) -> dict:
         entry = {"key": secrets.token_hex(16), "name": name.strip() or "API", "created": now_iso()}
-        keys = self.list_api_keys() + [entry]
-        self.db.set_meta(API_KEYS_META_KEY, json.dumps(keys, ensure_ascii=False))
+        self._edit_api_keys(lambda keys: keys + [entry])
         return entry
 
     def delete_api_key(self, key: str) -> None:
-        keys = [k for k in self.list_api_keys() if k["key"] != key]
-        self.db.set_meta(API_KEYS_META_KEY, json.dumps(keys, ensure_ascii=False))
+        self._edit_api_keys(lambda keys: [k for k in keys if k["key"] != key])
+
+    def _edit_api_keys(self, change) -> None:
+        """讀出來、改、寫回去在同一個交易裡：兩個人同時建立（或一個建一個刪）不會蓋掉對方的。"""
+        with self.db.transaction() as conn:
+            row = conn.execute("SELECT value FROM meta WHERE key=?", (API_KEYS_META_KEY,)).fetchone()
+            try:
+                keys = json.loads(row["value"] if row else "[]")
+            except ValueError:
+                keys = []
+            conn.execute(
+                "INSERT INTO meta(key, value) VALUES(?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                (API_KEYS_META_KEY, json.dumps(change(keys), ensure_ascii=False)),
+            )
 
     def _is_api_key(self, token: str) -> bool:
         return token in self.api_keys or any(k["key"] == token for k in self.list_api_keys())
@@ -162,40 +173,54 @@ class AuthService:
         if self.db.one("SELECT id FROM users WHERE lower(name)=lower(?)", (name,)):
             raise ValueError(f"使用者已存在：{name}")
         user_id = uuid.uuid4().hex
-        self.db.execute(
-            "INSERT INTO users(id, name, password_hash, is_admin) VALUES(?,?,?,?)",
-            (user_id, name, hash_password(password) if password else "", int(admin)),
-        )
+        password_hash = hash_password(password) if password else ""  # 幾十毫秒，在交易外面算
+        with self.db.transaction() as conn:  # 同時建立同名帳號時，第二個在這裡擋下
+            if conn.execute("SELECT id FROM users WHERE lower(name)=lower(?)", (name,)).fetchone():
+                raise ValueError(f"使用者已存在：{name}")
+            conn.execute(
+                "INSERT INTO users(id, name, password_hash, is_admin) VALUES(?,?,?,?)",
+                (user_id, name, password_hash, int(admin)),
+            )
         return self.get_user(user_id)
 
     def update_user(self, user_id: str, password: Optional[str] = None, admin: Optional[bool] = None,
                     keep_token: str = "") -> dict:
         """改密碼時這個人其他的登入（播放器、網頁）一起失效，要用新密碼重新登入；keep_token 是現在這個請求的
         （管理員改自己的密碼時不會把自己登出）。"""
-        user = self.get_user(user_id)
-        if not user:
+        if not self.get_user(user_id):
             raise KeyError(user_id)
-        if admin is False and user["is_admin"] and self._admin_count() <= 1:
-            raise ValueError("至少要保留一個管理員")
-        if password is not None:
-            self.db.execute(
-                "UPDATE users SET password_hash=? WHERE id=?",
-                (hash_password(password) if password else "", user["id"]),
-            )
-            self.db.execute("DELETE FROM tokens WHERE user_id=? AND token<>?", (user["id"], keep_token))
-        if admin is not None:
-            self.db.execute("UPDATE users SET is_admin=? WHERE id=?", (int(admin), user["id"]))
+        password_hash = (hash_password(password) if password else "") if password is not None else None
+        # 「還剩幾個管理員」和降級、刪除在同一個交易裡：兩個管理員同時互相降級，第二個一定看得到第一個的結果
+        with self.db.transaction() as conn:
+            user = self._locked_user(conn, user_id)
+            if admin is False and user["is_admin"] and self._locked_admin_count(conn) <= 1:
+                raise ValueError("至少要保留一個管理員")
+            if password_hash is not None:
+                conn.execute("UPDATE users SET password_hash=? WHERE id=?", (password_hash, user["id"]))
+                conn.execute("DELETE FROM tokens WHERE user_id=? AND token<>?", (user["id"], keep_token))
+            if admin is not None:
+                conn.execute("UPDATE users SET is_admin=? WHERE id=?", (int(admin), user["id"]))
         return self.get_user(user["id"])
 
     def delete_user(self, user_id: str) -> None:
-        user = self.get_user(user_id)
-        if not user:
+        with self.db.transaction() as conn:
+            user = self._locked_user(conn, user_id)
+            if user["is_admin"] and self._locked_admin_count(conn) <= 1:
+                raise ValueError("至少要保留一個管理員")
+            conn.execute("DELETE FROM tokens WHERE user_id=?", (user["id"],))
+            conn.execute("DELETE FROM user_data WHERE user_id=?", (user["id"],))
+            conn.execute("DELETE FROM users WHERE id=?", (user["id"],))
+
+    @staticmethod
+    def _locked_user(conn, user_id: str):
+        user = conn.execute("SELECT id, is_admin FROM users WHERE lower(id)=lower(?)", (user_id,)).fetchone()
+        if user is None:
             raise KeyError(user_id)
-        if user["is_admin"] and self._admin_count() <= 1:
-            raise ValueError("至少要保留一個管理員")
-        self.db.execute("DELETE FROM tokens WHERE user_id=?", (user["id"],))
-        self.db.execute("DELETE FROM user_data WHERE user_id=?", (user["id"],))
-        self.db.execute("DELETE FROM users WHERE id=?", (user["id"],))
+        return user
+
+    @staticmethod
+    def _locked_admin_count(conn) -> int:
+        return conn.execute("SELECT COUNT(*) FROM users WHERE is_admin=1").fetchone()[0]
 
     def reset_password(self, name: str, password: str) -> None:
         """命令列忘記密碼用：帳號不存在時建立成管理員。"""
@@ -204,9 +229,6 @@ class AuthService:
             self.update_user(row["id"], password=password)
         else:
             self.create_user(name, password, True)
-
-    def _admin_count(self) -> int:
-        return self.db.one("SELECT COUNT(*) AS c FROM users WHERE is_admin=1")["c"]
 
     def get_user(self, user_id: str) -> Optional[dict]:
         row = self.db.one("SELECT * FROM users WHERE lower(id)=lower(?)", (user_id,))
@@ -235,30 +257,17 @@ class AuthService:
         token = secrets.token_hex(16)
         ts = now_iso()
         device_id = info.get("deviceid", "")
-        if device_id:
-            # 同一裝置重新登入時淘汰舊 token
-            self.db.execute(
-                "DELETE FROM tokens WHERE user_id=? AND device_id=?",
-                (user["id"], device_id),
+        with self.db.transaction() as conn:  # 淘汰舊 token、發新的一起成功或一起不算
+            if device_id:
+                # 同一裝置重新登入時淘汰舊 token
+                conn.execute("DELETE FROM tokens WHERE user_id=? AND device_id=?", (user["id"], device_id))
+            conn.execute(
+                "INSERT INTO tokens(token, user_id, device_id, device_name, client, version, created, last_used) "
+                "VALUES(?,?,?,?,?,?,?,?)",
+                (token, user["id"], device_id, info.get("device", ""), info.get("client", ""), info.get("version", ""),
+                 ts, ts),
             )
-        self.db.execute(
-            "INSERT INTO tokens(token, user_id, device_id, device_name, client, version, created, last_used) "
-            "VALUES(?,?,?,?,?,?,?,?)",
-            (
-                token,
-                user["id"],
-                device_id,
-                info.get("device", ""),
-                info.get("client", ""),
-                info.get("version", ""),
-                ts,
-                ts,
-            ),
-        )
-        self.db.execute(
-            "UPDATE users SET last_login=?, last_activity=? WHERE id=?",
-            (ts, ts, user["id"]),
-        )
+            conn.execute("UPDATE users SET last_login=?, last_activity=? WHERE id=?", (ts, ts, user["id"]))
         return token
 
     def revoke(self, token: str) -> None:

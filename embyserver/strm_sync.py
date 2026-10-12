@@ -275,13 +275,12 @@ class _TaskIndex:
         )
 
     def replace_all(self, rows: List[Tuple[int, str, bool]]) -> None:
-        with self.db.lock:
-            self.db.conn.execute("DELETE FROM p115_index WHERE task=?", (self.key,))
-            self.db.conn.executemany(
+        with self.db.transaction() as c:
+            c.execute("DELETE FROM p115_index WHERE task=?", (self.key,))
+            c.executemany(
                 "INSERT OR REPLACE INTO p115_index(task, file_id, is_dir, path) VALUES(?,?,?,?)",
                 ((self.key, fid, int(is_dir), path) for fid, path, is_dir in rows),
             )
-            self.db.conn.commit()
 
 
 def match_tree_dirs(

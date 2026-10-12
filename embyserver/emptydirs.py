@@ -223,12 +223,11 @@ class EmptyDirs:
             for root in self._expand(roots):
                 rows += self._scan_root(root, job, protected, skipped)
             self.workers.check()  # 換掉上次的結果之前再看一次：按了停止就保留上次的
-            with self.db.lock:
-                self.db.conn.execute("DELETE FROM empty_dirs")
-                self.db.conn.executemany(
+            with self.db.transaction() as c:
+                c.execute("DELETE FROM empty_dirs")
+                c.executemany(
                     "INSERT OR REPLACE INTO empty_dirs(cid, parent_cid, path, files, dirs, size, sample, mtime) "
                     "VALUES(?,?,?,?,?,?,?,?)", rows)
-                self.db.conn.commit()
             self.db.set_meta(SCAN_META_KEY, json.dumps({"at": int(time.time()), "roots": roots, "skipped": dict(skipped)},
                                                        ensure_ascii=False))
             log.info("找空資料夾：%s 有 %s 個（另外沒列的：%s）", "、".join(roots), len(rows), dict(skipped) or "無")

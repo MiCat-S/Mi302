@@ -307,10 +307,9 @@ class DupeFinder:
             exact.setdefault((r["sha1"], r["size"]), []).append(
                 (exact_order(r["local"], r["name"], r["mtime"], r["file_id"]), r["file_id"]))
         pick = lambda gs: [(int(i == 0), fid) for members in gs for i, (_, fid) in enumerate(sorted(members))]  # noqa: E731
-        with self.db.lock:
-            self.db.conn.executemany("UPDATE dup_versions SET keep=? WHERE file_id=?", pick(groups.values()))
-            self.db.conn.executemany("UPDATE dup_files SET keep=? WHERE file_id=?", pick(exact.values()))
-            self.db.conn.commit()
+        with self.db.transaction() as c:
+            c.executemany("UPDATE dup_versions SET keep=? WHERE file_id=?", pick(groups.values()))
+            c.executemany("UPDATE dup_files SET keep=? WHERE file_id=?", pick(exact.values()))
         self.db.set_meta(PREFER_APPLIED_KEY, prefer)
         self.db.set_meta(SUGGEST_RULE_KEY, SUGGEST_RULE)
 
@@ -366,23 +365,22 @@ class DupeFinder:
             job.current = f"記下 {len(big)} 支 1 GB 以上的影片"
             big_rows = self._big_rows(big, folders)
             self.workers.check()  # 換掉上次的結果之前再看一次：按了停止就保留上次的
-            with self.db.lock:
-                self.db.conn.execute("DELETE FROM dup_files")
-                self.db.conn.executemany(
+            with self.db.transaction() as c:
+                c.execute("DELETE FROM dup_files")
+                c.executemany(
                     "INSERT INTO dup_files(file_id, sha1, size, name, pickcode, parent_id, path, local, mtime, keep) "
                     "VALUES(?,?,?,?,?,?,?,?,?,?)", rows,
                 )
-                self.db.conn.execute("DELETE FROM dup_versions")
-                self.db.conn.executemany(
+                c.execute("DELETE FROM dup_versions")
+                c.executemany(
                     "INSERT INTO dup_versions(file_id, grp, title, item_id, name, path, local, size, mtime, sha1, quality, keep) "
                     "VALUES(?,?,?,?,?,?,?,?,?,?,?,?)", versions,
                 )
-                self.db.conn.execute("DELETE FROM big_files")
-                self.db.conn.executemany(
+                c.execute("DELETE FROM big_files")
+                c.executemany(
                     "INSERT INTO big_files(file_id, name, path, local, type, size, mtime, sha1, quality) VALUES(?,?,?,?,?,?,?,?,?)",
                     big_rows,
                 )
-                self.db.conn.commit()
             self.db.set_meta(SCAN_META_KEY, json.dumps({"at": int(time.time()), "roots": roots, "files": len(files)},
                                                        ensure_ascii=False))
             self.db.set_meta(VERSIONS_OUTDATED_KEY, "")
@@ -875,10 +873,9 @@ class DupeFinder:
         removed: List[str] = []
         if gone:  # 已經不在 115 上的：本機的 strm、清單照「已刪除」處理，但不記進刪除紀錄
             removed = self.strm_sync.remove_local([r["file_id"] for r in gone])
-            with self.db.lock:
+            with self.db.transaction() as c:
                 for table in ("dup_files", "dup_versions", "big_files"):
-                    self.db.conn.executemany(f"DELETE FROM {table} WHERE file_id=?", [(r["file_id"],) for r in gone])
-                self.db.conn.commit()
+                    c.executemany(f"DELETE FROM {table} WHERE file_id=?", [(r["file_id"],) for r in gone])
             job.errors.append(f"{len(gone)} 個已經不在 115 上（別的地方刪掉了），從清單拿掉")
         job.total = len(ok)
         return ok, removed
@@ -906,8 +903,7 @@ class DupeFinder:
                     self._move_user_data(r["local"], keeper["local"])
         removed = self.strm_sync.remove_local([r["file_id"] for r in batch])
         now = int(time.time())
-        with self.db.lock:
-            c = self.db.conn
+        with self.db.transaction() as c:
             c.executemany("INSERT INTO dup_deleted(file_id, sha1, size, name, path, at) VALUES(?,?,?,?,?,?)",
                           [(r["file_id"], r.get("sha1") or "", r["size"], r["name"], r["path"], now) for r in batch])
             # 三種清單都拿掉（同一個檔案可能都有），只剩一份的組不算重複了
@@ -917,7 +913,6 @@ class DupeFinder:
             c.execute("DELETE FROM dup_files WHERE sha1 || ':' || size IN "
                       "(SELECT sha1 || ':' || size FROM dup_files GROUP BY sha1, size HAVING COUNT(*) < 2)")
             c.execute("DELETE FROM dup_versions WHERE grp IN (SELECT grp FROM dup_versions GROUP BY grp HAVING COUNT(*) < 2)")
-            c.commit()
         deletelog.record(self.db, "dupes", batch)  # 和其他刪除一起列在「回收站」
         return removed
 

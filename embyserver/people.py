@@ -113,13 +113,12 @@ class PeopleStore:
              p.get("thumb") or None, person_id(p.get("tmdbid"), p["name"]))
             for i, p in enumerate(people)
         ]
-        with self.db.lock:
-            self.db.conn.execute("DELETE FROM people WHERE item_id=?", (item_id,))
+        with self.db.transaction() as c:
+            c.execute("DELETE FROM people WHERE item_id=?", (item_id,))
             if rows:
-                self.db.conn.executemany(
+                c.executemany(
                     "INSERT INTO people(item_id, ord, name, role, type, tmdbid, thumb, pid) VALUES(?,?,?,?,?,?,?,?)", rows
                 )
-            self.db.conn.commit()
 
     def prune(self) -> None:
         self.db.execute("DELETE FROM people WHERE item_id NOT IN (SELECT id FROM items)")

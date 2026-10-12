@@ -61,8 +61,12 @@
 SQLite，WAL 模式。寫入和交易走一條連線（self.conn，拿 self.lock）；查詢（query、one、scalar、get_item）走另外
 READERS 條唯讀連線，不必等寫入、也不必等別的查詢，一個慢查詢不會把整個伺服器卡住。
 
-- 查詢看到的是已經 commit 的資料：在 `with db.lock:` 裡還沒 commit 的寫入，同一段程式用 db.query 也讀不到。
-  要讀自己還沒 commit 的資料，用 db.conn 查。
+- 好幾筆寫入要一起成功或一起不算時用 `with db.transaction() as conn:`：正常結束 commit，丟例外 rollback。
+  db.execute、db.executemany 本身也是一個交易（一批寫到一半失敗，前面的也不算，不會被下一個無關的寫入一起 commit）；
+  在 transaction() 裡呼叫時併進外面那個交易。「讀出來、判斷、寫回去」（最後一個管理員、API 金鑰清單）要整段放在
+  transaction() 裡、用拿到的 conn 讀，兩個請求同時做才不會都讀到舊值。
+- 查詢看到的是已經 commit 的資料：transaction() 裡還沒 commit 的寫入，同一段程式用 db.query 也讀不到。
+  要讀自己還沒 commit 的資料，用拿到的 conn 查。
 - 拿整批結果的查詢（query）同時最多 BULK_READS 個：Python 把每一列轉成物件時搶同一把 GIL，太多個同時跑反而慢。
 - 記憶體資料庫（測試用的 :memory:）只有一條連線，照舊全部走那把鎖。
 - 資料庫、備份、設定檔建立時就是 0600（make_private）：裡面有 115 的 cookie、登入 token、密碼。

@@ -294,6 +294,7 @@ class Database:
         self.conn = sqlite3.connect(self.path, check_same_thread=False)
         self.conn.row_factory = sqlite3.Row
         self.lock = threading.RLock()
+        self._tx_depth = 0  # transaction() 疊了幾層；只有拿著 self.lock 的執行緒會動它
         # 讀寫分開：寫（和交易）照舊走 self.conn、拿 self.lock；查詢走另外幾條唯讀連線。WAL 模式下讀不必等寫、
         # 也不必等別的讀，一個慢查詢不會再把所有請求卡在同一把鎖後面。記憶體資料庫（測試）只有一條連線，照舊。
         self._readers: "queue.LifoQueue[sqlite3.Connection]" = queue.LifoQueue()
@@ -367,16 +368,43 @@ class Database:
         finally:
             self._readers.put(conn)
 
-    def execute(self, sql: str, params: Iterable[Any] = ()) -> sqlite3.Cursor:
+    @contextmanager
+    def transaction(self) -> Iterator[sqlite3.Connection]:
+        """一組寫入要嘛全部成功、要嘛全部不算：正常結束 commit，丟例外 rollback。
+
+        交易裡用拿到的 conn 讀寫；db.execute、db.executemany 也可以用（併進這個交易，不會自己 commit）。
+        db.one、db.query 走唯讀連線，讀不到這個交易還沒 commit 的資料。同一條執行緒裡疊起來的 transaction()
+        併進最外面那一個，由最外面那一層決定 commit 或 rollback。
+        """
         with self.lock:
-            cur = self.conn.execute(sql, tuple(params))
-            self.conn.commit()
-            return cur
+            if self._tx_depth:
+                self._tx_depth += 1
+                try:
+                    yield self.conn
+                finally:
+                    self._tx_depth -= 1
+                return
+            if self.conn.in_transaction:  # 不該發生：有寫入沒收尾，不能讓它跟著這次一起 commit
+                self.conn.rollback()
+            self.conn.execute("BEGIN IMMEDIATE")
+            self._tx_depth = 1
+            try:
+                yield self.conn
+                self.conn.commit()
+            except BaseException:
+                self.conn.rollback()
+                raise
+            finally:
+                self._tx_depth = 0
+
+    def execute(self, sql: str, params: Iterable[Any] = ()) -> sqlite3.Cursor:
+        with self.transaction() as conn:
+            return conn.execute(sql, tuple(params))
 
     def executemany(self, sql: str, rows: Iterable[Iterable[Any]]) -> None:
-        with self.lock:
-            self.conn.executemany(sql, (tuple(r) for r in rows))
-            self.conn.commit()
+        """一批寫入是一個交易：中間有一筆失敗，前面寫進去的也不算。"""
+        with self.transaction() as conn:
+            conn.executemany(sql, (tuple(r) for r in rows))
 
     def query(self, sql: str, params: Iterable[Any] = ()) -> List[sqlite3.Row]:
         with self._bulk, self._reading() as conn:

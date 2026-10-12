@@ -487,14 +487,13 @@ class MoviePilot:
         if self.db is None:
             self._no_image[str(path)] = now
             return
-        with self.db.lock:
-            self.db.conn.execute(
+        with self.db.transaction() as c:
+            c.execute(
                 "INSERT INTO mp_no_image(path, at) VALUES(?, ?) ON CONFLICT(path) DO UPDATE SET at=excluded.at",
                 (str(path), int(now)),
             )
             # 超過重送間隔的紀錄已經不擋重送了，順手清掉，免得這張表一直長大（at 有索引）
-            self.db.conn.execute("DELETE FROM mp_no_image WHERE at<?", (int(now - NO_IMAGE_RETRY_SECONDS),))
-            self.db.conn.commit()
+            c.execute("DELETE FROM mp_no_image WHERE at<?", (int(now - NO_IMAGE_RETRY_SECONDS),))
 
     def _recently_no_image(self) -> Set[str]:
         since = time.time() - NO_IMAGE_RETRY_SECONDS

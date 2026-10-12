@@ -30,13 +30,11 @@ def record(db: Database, source: str, rows: Iterable[dict]) -> None:
     if not values:
         return
     try:
-        with db.lock:
-            c = db.conn
+        with db.transaction() as c:
             c.executemany("INSERT INTO deleted_log(source, file_id, name, path, is_dir, size, at) VALUES(?,?,?,?,?,?,?)",
                           values)
             c.execute("DELETE FROM deleted_log WHERE id <= (SELECT id FROM deleted_log ORDER BY id DESC LIMIT 1 OFFSET ?)",
                       (KEEP,))
-            c.commit()
     except sqlite3.Error as exc:
         log.warning("刪除紀錄沒寫進去（%s 個，%s）：%s", len(values), source, exc)
 
