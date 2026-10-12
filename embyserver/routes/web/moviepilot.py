@@ -106,14 +106,16 @@ def list_series(request: Request, ctx: AuthContext = Depends(require_admin)):
 
 
 @router.post("/web/api/moviepilot/fill/exclude")
-async def moviepilot_fill_exclude(request: Request, ctx: AuthContext = Depends(require_admin)):
-    """補全缺集時跳過這部劇：{"tmdbid": 123, "name": "劇名", "exclude": true}；exclude=false 取消。照 tmdbid 記。"""
-    body = await json_body(request)
+def moviepilot_fill_exclude(request: Request, ctx: AuthContext = Depends(require_admin), body: dict = Depends(json_body)):
+    """補全缺集時跳過這部劇：{"tmdbid": 123, "name": "劇名", "exclude": true}；exclude=false 取消。照 tmdbid 記。
+    一般 def：set_fill_excluded 會等鎖、讀寫資料庫，放在執行緒池裡不卡住事件迴圈。"""
     tmdbid = str(body.get("tmdbid") or "")
     if not tmdbid.isdecimal():
         raise HTTPException(status_code=400, detail="要有 tmdbid（沒有 tmdbid 的劇本來就不會補）")
-    excluded = state(request).moviepilot.set_fill_excluded(int(tmdbid), str(body.get("name") or ""),
-                                                           bool(body.get("exclude", True)))
+    exclude = body.get("exclude", True)
+    if not isinstance(exclude, bool):
+        raise HTTPException(status_code=400, detail="exclude 要是 true 或 false")
+    excluded = state(request).moviepilot.set_fill_excluded(int(tmdbid), str(body.get("name") or ""), exclude)
     return {"excluded": tmdbid in excluded, "count": len(excluded)}
 
 

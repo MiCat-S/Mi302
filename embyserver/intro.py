@@ -105,12 +105,13 @@ class IntroLearner:
 
     # ---------------- 用 ----------------
 
-    def marks_for(self, item) -> dict:
-        """這一集的片頭 (start, end) 和片尾 start（ticks）；沒有的鍵不出現。手動設定優先於學到的值。"""
+    def marks_for(self, item, season: Optional[tuple] = None) -> dict:
+        """這一集的片頭 (start, end) 和片尾 start（ticks）；沒有的鍵不出現。手動設定優先於學到的值。
+        season：列表先一次查好的（那一季所有的紀錄, 手動設定），見 dto.Prefetch.intro_season；沒給就自己查。"""
         if not self.enabled or item["type"] != "Episode":
             return {}
-        manual = self.manual(item["season_id"])
-        out = self.learned_for(item)
+        manual = season[1] if season else self.manual(item["season_id"])
+        out = self.learned_for(item, season[0] if season else None)
         if not manual:
             return out
         if manual["intro_mode"] == "manual":
@@ -124,16 +125,20 @@ class IntroLearner:
             out.pop("credits", None)  # 標成沒有片尾，或不知道片長、算不出從哪裡開始
         return out
 
-    def learned_for(self, item) -> dict:
-        """只看學到的：這一集自己的紀錄，沒有就用同一季其他集的中位數。"""
+    def learned_for(self, item, season_obs: Optional[list] = None) -> dict:
+        """只看學到的：這一集自己的紀錄，沒有就用同一季其他集的中位數。season_obs：先查好的這一季所有紀錄。"""
         out: dict = {}
-        own = self.db.query("SELECT kind, start_ticks, end_ticks FROM intro_obs WHERE item_id=?", (item["id"],))
+        if season_obs is not None:
+            own = [r for r in season_obs if r["item_id"] == item["id"]]
+            season = [r for r in season_obs if r["item_id"] != item["id"]]  # 算其他集的中位數時不含自己
+        else:
+            own = self.db.query("SELECT kind, start_ticks, end_ticks FROM intro_obs WHERE item_id=?", (item["id"],))
+            season = self.db.query(
+                "SELECT o.kind, o.start_ticks, o.end_ticks, i.runtime_ticks FROM intro_obs o JOIN items i ON i.id=o.item_id "
+                "WHERE i.season_id=? AND o.item_id<>?", (item["season_id"], item["id"]),
+            ) if item["season_id"] else []
         intro = [(r["start_ticks"], r["end_ticks"]) for r in own if r["kind"] == "intro"]
         credits = [r["start_ticks"] for r in own if r["kind"] == "credits"]
-        season = self.db.query(
-            "SELECT o.kind, o.start_ticks, o.end_ticks, i.runtime_ticks FROM intro_obs o JOIN items i ON i.id=o.item_id "
-            "WHERE i.season_id=? AND o.item_id<>?", (item["season_id"], item["id"]),
-        ) if item["season_id"] else []
         if not intro:
             intro = [(r["start_ticks"], r["end_ticks"]) for r in season if r["kind"] == "intro"]
         if intro:
@@ -151,9 +156,9 @@ class IntroLearner:
                 out["credits"] = max(0, runtime - int(statistics.median(tails)))
         return out
 
-    def chapters_for(self, item) -> List[dict]:
+    def chapters_for(self, item, season: Optional[tuple] = None) -> List[dict]:
         """Emby 的章節標記。"""
-        marks = self.marks_for(item)
+        marks = self.marks_for(item, season)
         out = []
         if "intro" in marks:
             s, e = marks["intro"]

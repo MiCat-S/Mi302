@@ -211,9 +211,9 @@ def test_blocking_endpoints_run_in_threadpool(tmp_path: Path):
     import inspect
 
     from embyserver.routes import items
-    from embyserver.routes.web import intro, setup
+    from embyserver.routes.web import intro, moviepilot, setup
 
-    for endpoint in (intro.intro_clear, setup.create_api_key, items.upload_image):
+    for endpoint in (intro.intro_clear, setup.create_api_key, items.upload_image, moviepilot.moviepilot_fill_exclude):
         assert not inspect.iscoroutinefunction(endpoint), endpoint.__name__
     c = make_client(tmp_path, {"users": [{"name": "admin", "password": "pw", "admin": True}]})
     h = admin_headers(c)

@@ -45,7 +45,11 @@ SORT_COLUMNS = {
 
 def _dtos(request: Request, ctx: AuthContext, rows, full: bool = False) -> List[dict]:
     """列表：整頁的使用者資料、所屬的劇和季、子項數先一次查好，再一項一項組（見 dto.Prefetch）。"""
-    prefetch = Prefetch(state(request).db, rows, ctx.user_id)
+    st = state(request)
+    prefetch = Prefetch(st.db, rows, ctx.user_id)
+    fields = {f.lower() for f in q_list(request, "Fields")}
+    media = full or "mediasources" in fields or "chapters" in fields  # 章節要媒體資訊和片頭片尾紀錄
+    prefetch.load_extras(st.db, rows, people=full or "people" in fields, media=media, intro=media and st.intro.enabled)
     return [_dto(request, ctx, r, full, prefetch) for r in rows]
 
 
@@ -487,15 +491,16 @@ def episodes(series_id: str, request: Request, ctx: AuthContext = Depends(requir
     elif season_no is not None:
         where += " AND parent_index_number=?"
         params.append(season_no)
-    rows = st.db.query(
-        f"SELECT * FROM items WHERE {where} ORDER BY parent_index_number, index_number, sort_name",
-        params,
-    )
     start, limit = paging(request)
-    sliced = rows[start: start + limit] if limit is not None else rows[start:]
+    total = st.db.scalar(f"SELECT COUNT(*) FROM items WHERE {where}", params)
+    # 分頁交給 SQLite：Limit=20 不必先把整部劇幾百集都拿出來（LIMIT -1 是不限）
+    rows = st.db.query(
+        f"SELECT * FROM items WHERE {where} ORDER BY parent_index_number, index_number, sort_name, id LIMIT ? OFFSET ?",
+        [*params, -1 if limit is None else limit, start],
+    )
     fields = {f.lower() for f in q_list(request, "Fields")}
-    items = _dtos(request, ctx, sliced, full="mediasources" in fields)
-    return query_result(items, len(rows), start)
+    items = _dtos(request, ctx, rows, full="mediasources" in fields)
+    return query_result(items, total, start)
 
 
 @router.get("/shows/nextup")
@@ -509,25 +514,18 @@ def next_up(request: Request, ctx: AuthContext = Depends(require_user)):
     if series_filter and series_filter.isdecimal():
         extra = " AND i.series_id=?"
         params.append(int(series_filter))
-    # 每部劇取最後看過的集數，下一集即為「接著看」
-    last = st.db.query(
-        f"SELECT i.series_id, MAX(i.parent_index_number*{SEASON_KEY_BASE} + COALESCE(i.index_number,0)) AS k, "
-        "MAX(u.last_played) AS lp FROM items i JOIN user_data u ON u.item_id=i.id AND u.user_id=? "
-        f"WHERE i.type='Episode' AND u.played=1{extra} GROUP BY i.series_id ORDER BY lp DESC",
-        params,
+    # 每部劇取最後看過的集數，下一集即為「接著看」。一個查詢做完：之前逐劇查下一集，看完的劇很多時要查幾百次
+    key = f"parent_index_number*{SEASON_KEY_BASE} + COALESCE(index_number,0)"
+    rows = st.db.query(
+        "SELECT n.* FROM ("
+        f"  SELECT i.series_id, MAX(i.{key}) AS k, MAX(u.last_played) AS lp "
+        "  FROM items i JOIN user_data u ON u.item_id=i.id AND u.user_id=? "
+        f"  WHERE i.type='Episode' AND u.played=1{extra} GROUP BY i.series_id) l "
+        "JOIN items n ON n.id=(SELECT e.id FROM items e WHERE e.type='Episode' AND e.series_id=l.series_id "
+        f"  AND e.{key} > l.k ORDER BY e.parent_index_number, e.index_number LIMIT 1) "
+        "ORDER BY l.lp DESC LIMIT ?",
+        [*params, limit],
     )
-    rows = []
-    for r in last:
-        if len(rows) >= limit:  # 先看：Limit=0 一集都不要
-            break
-        nxt = st.db.one(
-            "SELECT * FROM items WHERE type='Episode' AND series_id=? "
-            f"AND parent_index_number*{SEASON_KEY_BASE} + COALESCE(index_number,0) > ? "
-            "ORDER BY parent_index_number, index_number LIMIT 1",
-            (r["series_id"], r["k"]),
-        )
-        if nxt:
-            rows.append(nxt)
     out = _dtos(request, ctx, rows)
     return query_result(out, len(out))
 
@@ -544,15 +542,21 @@ def mark_played(request: Request, ctx: AuthContext, item_id: str, played: bool) 
     if row["type"] in ("Series", "Season"):
         col = "series_id" if row["type"] == "Series" else "season_id"
         targets = st.db.query(f"SELECT * FROM items WHERE {col}=? AND type='Episode'", (row["id"],))
-    for t in targets:
+    # 整部劇、整季一個交易寫完：之前每集三次 commit，標到一半失敗會留下一半看過
+    with st.db.transaction() as conn:
         if played:
-            set_user_data(request, ctx, t["id"], played=1, position_ticks=0, last_played=now_iso())
-            st.db.execute(
-                "UPDATE user_data SET play_count=play_count+1 WHERE user_id=? AND item_id=?",
-                (ctx.user_id, t["id"]),
+            conn.executemany(
+                "INSERT INTO user_data(user_id, item_id, played, position_ticks, last_played, play_count) "
+                "VALUES(?,?,1,0,?,1) ON CONFLICT(user_id, item_id) DO UPDATE SET played=1, position_ticks=0, "
+                "last_played=excluded.last_played, play_count=COALESCE(user_data.play_count,0)+1",
+                [(ctx.user_id, t["id"], now_iso()) for t in targets],
             )
-        else:
-            set_user_data(request, ctx, t["id"], played=0, position_ticks=0)
+        else:  # 播放次數、最後播放時間照舊
+            conn.executemany(
+                "INSERT INTO user_data(user_id, item_id, played, position_ticks) VALUES(?,?,0,0) "
+                "ON CONFLICT(user_id, item_id) DO UPDATE SET played=0, position_ticks=0",
+                [(ctx.user_id, t["id"]) for t in targets],
+            )
     return user_data_dto(st.db, ctx.user_id, row)
 
 

@@ -231,6 +231,23 @@ def test_tv_shows(client):
     r = client.get(f"/Videos/{eps[1]['Id']}/stream", headers=h, follow_redirects=False)
     assert r.headers["location"] == "http://cdn.example.com/dark/s1e2.mp4"
 
+    # 集列表在 SQLite 分頁，總數是整部劇的
+    page = client.get(f"/Shows/{sid}/Episodes", params={"StartIndex": 1, "Limit": 2}, headers=h).json()
+    assert page["TotalRecordCount"] == 3 and page["StartIndex"] == 1
+    assert [(e["ParentIndexNumber"], e["IndexNumber"]) for e in page["Items"]] == [(1, 2), (2, 1)]
+
+    # 整季標成看過：一個交易寫完，播放次數加一；接著看是下一季第一集，看完整部劇就沒有
+    client.post(f"/Users/{uid}/PlayedItems/{seasons[0]['Id']}", headers=h)
+    nxt = client.get("/Shows/NextUp", headers=h).json()["Items"]
+    assert [(e["ParentIndexNumber"], e["IndexNumber"]) for e in nxt] == [(2, 1)]
+    played = client.get(f"/Users/{uid}/Items/{eps[0]['Id']}", headers=h).json()["UserData"]
+    assert played["Played"] is True and played["PlayCount"] == 1
+    client.post(f"/Users/{uid}/PlayedItems/{sid}", headers=h)
+    assert client.get("/Shows/NextUp", headers=h).json()["Items"] == []
+    client.delete(f"/Users/{uid}/PlayedItems/{sid}", headers=h)
+    unplayed = client.get(f"/Users/{uid}/Items/{eps[0]['Id']}", headers=h).json()["UserData"]
+    assert unplayed["Played"] is False and unplayed["PlayCount"] == 2
+
 
 def test_progress_and_played(client):
     token, uid = login(client)

@@ -75,6 +75,45 @@ class Prefetch:
         for r in self._select(db, "SELECT parent_id AS k, COUNT(*) AS c FROM items WHERE parent_id IN ({}) AND id<>parent_id "
                                   "GROUP BY parent_id", others):
             self._children[("", r["k"])] = r["c"]
+        # 要 People、MediaSources、Chapters 時才查（load_extras）；None = 沒查，照舊逐項查
+        self.people: Optional[Dict[int, List[sqlite3.Row]]] = None
+        self.media_info: Optional[Dict[str, Optional[dict]]] = None
+        self._intro: Optional[Tuple[Dict[int, List[sqlite3.Row]], Dict[int, sqlite3.Row]]] = None
+
+    def load_extras(self, db: Database, rows: List[sqlite3.Row], people: bool = False, media: bool = False,
+                    intro: bool = False) -> None:
+        """整頁的演職人員（含集、季借用的劇的）、媒體資訊、片頭片尾紀錄和手動設定也一次查好：
+        之前每集要多查六次（自己的人員、劇的人員、媒體資訊、手動設定、自己的紀錄、同一季的紀錄）。"""
+        if people:
+            ids = {r["id"] for r in rows if r["type"] in ("Movie", "Series", "Season", "Episode")}
+            ids |= {r["series_id"] for r in rows if r["type"] in ("Season", "Episode") and r["series_id"]}
+            self.people = {}
+            for r in self._select(db, "SELECT p.*, n.zh FROM people p LEFT JOIN person_names n ON n.tmdbid=p.tmdbid "
+                                      "WHERE p.item_id IN ({}) ORDER BY p.item_id, p.ord", sorted(ids)):
+                self.people.setdefault(r["item_id"], []).append(r)
+        if media:
+            paths = sorted({r["path"] for r in rows if r["type"] in VIDEO_TYPES})
+            self.media_info = dict.fromkeys(paths)
+            for r in self._select(db, "SELECT path, data FROM media_info WHERE path IN ({})", paths):
+                try:
+                    self.media_info[r["path"]] = json.loads(r["data"])
+                except ValueError:
+                    pass
+        if intro:
+            seasons = sorted({r["season_id"] for r in rows if r["type"] == "Episode" and r["season_id"]})
+            obs: Dict[int, List[sqlite3.Row]] = {sid: [] for sid in seasons}
+            for r in self._select(db, "SELECT o.item_id, o.kind, o.start_ticks, o.end_ticks, i.runtime_ticks, i.season_id "
+                                      "FROM intro_obs o JOIN items i ON i.id=o.item_id WHERE i.season_id IN ({})", seasons):
+                obs[r["season_id"]].append(r)
+            manual = {r["season_id"]: r for r in self._select(db, "SELECT * FROM intro_manual WHERE season_id IN ({})",
+                                                               seasons)}
+            self._intro = (obs, manual)
+
+    def intro_season(self, item: sqlite3.Row) -> Optional[Tuple[List[sqlite3.Row], Optional[sqlite3.Row]]]:
+        """這一集所在的季：(那一季所有的片頭片尾紀錄, 手動設定)；沒先查好時是 None。"""
+        if self._intro is None or item["season_id"] not in self._intro[0]:
+            return None
+        return self._intro[0][item["season_id"]], self._intro[1].get(item["season_id"])
 
     @classmethod
     def _select(cls, db: Database, sql: str, ids: List[int], before: Tuple = ()) -> List[sqlite3.Row]:
@@ -242,10 +281,10 @@ def item_dto(
     dto["UserData"] = user_data_dto(db, user_id, item, prefetch)
 
     if with_people and people is not None and t in ("Movie", "Series", "Season", "Episode"):
-        dto["People"] = people.for_item(item)
+        dto["People"] = people.for_item(item, prefetch.people if prefetch else None)
 
     if (with_media_sources or with_chapters) and t in VIDEO_TYPES:
-        _media_fields(db, dto, item, token, with_media_sources, resolve_remote, intro)
+        _media_fields(db, dto, item, token, with_media_sources, resolve_remote, intro, prefetch)
     return {k: v for k, v in dto.items() if v is not None}
 
 
@@ -347,9 +386,12 @@ def _folder_fields(db: Database, dto: Dict[str, Any], item: sqlite3.Row, prefetc
 
 
 def _media_fields(db: Database, dto: Dict[str, Any], item: sqlite3.Row, token: Optional[str], with_media_sources: bool,
-                  resolve_remote, intro) -> None:
+                  resolve_remote, intro, prefetch: Optional[Prefetch] = None) -> None:
     """影片的 MediaSources、媒體流、解析度和章節（含學到的片頭片尾標記）。"""
-    info = MediaInfoStore(db).get(item["path"])
+    if prefetch is not None and prefetch.media_info is not None:
+        info = prefetch.media_info.get(item["path"])
+    else:
+        info = MediaInfoStore(db).get(item["path"])
     if with_media_sources:
         remote = resolve_remote(item) if resolve_remote else None
         ms = media_source_dto(item, remote, token, info)
@@ -365,7 +407,7 @@ def _media_fields(db: Database, dto: Dict[str, Any], item: sqlite3.Row, token: O
     # 媒體資訊裡的章節，加上學到的片頭片尾標記（Emby 的 MarkerType）
     chapters = list((info or {}).get("chapters") or [])
     if intro is not None:
-        chapters += intro.chapters_for(item)
+        chapters += intro.chapters_for(item, prefetch.intro_season(item) if prefetch else None)
     if chapters or with_media_sources:
         dto["Chapters"] = chapters
 

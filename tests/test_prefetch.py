@@ -45,6 +45,20 @@ def build(tmp_path: Path):
     db.executemany("INSERT INTO user_data(user_id, item_id, played, play_count, position_ticks, is_favorite, last_played) "
                    "VALUES(?,?,?,?,?,?,?)", [(uid, e, int(i % 3 == 0), i % 3, 0 if i % 3 else 1000, int(i % 7 == 0),
                                               "2026-09-01T00:00:00.0000000Z") for i, e in enumerate(eps)])
+    # 演職人員（劇有、第 1 集自己也有）、媒體資訊、片頭片尾紀錄和手動設定：給 Fields=People,MediaSources,Chapters 比
+    eps1 = [r["id"] for r in db.query("SELECT id FROM items WHERE series_id=? AND type='Episode' ORDER BY index_number",
+                                      (series[1],))]
+    db.executemany("INSERT INTO people(item_id, ord, name, role, type, tmdbid, thumb, pid) VALUES(?,?,?,?,?,?,?,?)",
+                   [(series[1], 0, "Actor", "Hero", "Actor", "7", None, "p7"), (eps1[0], 0, "Guest", None, "GuestStar", None,
+                                                                                "/x.jpg", "g1")])
+    db.execute("INSERT INTO person_names(tmdbid, zh, at) VALUES('7', '演員', 0)")
+    db.execute("INSERT INTO media_info(path, data) VALUES(?, ?)", (f"/tv/{series[1]}/S01E001.strm",
+               '{"source": {"MediaStreams": [], "Container": "mkv"}, "chapters": [{"StartPositionTicks": 0, "Name": "A"}]}'))
+    db.executemany("INSERT INTO intro_obs(item_id, user_id, kind, start_ticks, end_ticks, at) VALUES(?,?,?,?,?,0)",
+                   [(eps1[i], uid, "intro", 100 + i, 900 + i) for i in range(3)] +
+                   [(eps1[1], uid, "credits", 23000000000, 24000000000)])
+    db.execute("INSERT INTO intro_manual(season_id, credits_mode, credits_tail, at) VALUES(?, 'manual', 600000000, 0)",
+               (seasons[series[1]],))
     return app, c, h, uid, lib, series
 
 
@@ -70,6 +84,7 @@ def test_list_endpoints_prefetch_same_output_fewer_queries(tmp_path: Path, monke
         (f"/Users/{uid}/Items", {"ParentId": series[0]}),
         (f"/Users/{uid}/Items", {"Recursive": "true", "Filters": "IsResumable,IsFavorite"}),
         (f"/Shows/{series[1]}/Episodes", {}),
+        (f"/Shows/{series[1]}/Episodes", {"Fields": "People,MediaSources,Chapters"}),
         (f"/Shows/{series[1]}/Seasons", {}),
         (f"/Users/{uid}/Views", {}),
         (f"/Users/{uid}/Items/Latest", {"Limit": 50}),
@@ -103,3 +118,8 @@ def test_list_endpoints_prefetch_same_output_fewer_queries(tmp_path: Path, monke
     # 一頁 100 部劇：每部原本要查使用者資料、子項數、沒看過幾集
     assert slow_n[1] >= 300 and fast_n[1] <= 10, (slow_n, fast_n)
     assert all(f <= s for f, s in zip(fast_n, slow_n)), (slow_n, fast_n)
+    # 要演職人員、媒體資訊、章節的 100 集：逐項查每集多六次，先查好只多幾次
+    full = fast[5]["Items"]
+    assert full[0]["People"][0]["Name"] == "Guest" and full[1]["People"][0]["Name"] == "演員"
+    assert [c["Name"] for c in full[0]["Chapters"]] == ["A", "Intro Start", "Intro End", "Credits Start"]
+    assert slow_n[5] >= 600 and fast_n[5] <= 15, (slow_n, fast_n)

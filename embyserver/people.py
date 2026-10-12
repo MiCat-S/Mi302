@@ -126,11 +126,13 @@ class PeopleStore:
     def _display(self, name: str, zh: Optional[str]) -> str:
         return zh if self.chinese and zh else name
 
-    def for_item(self, item) -> List[dict]:
-        """項目的演職人員（Emby 的 BaseItemPerson）；集沒有自己的就用劇的。"""
-        rows = self._rows(item["id"])
+    def for_item(self, item, prefetched: Optional[Dict[int, list]] = None) -> List[dict]:
+        """項目的演職人員（Emby 的 BaseItemPerson）；集沒有自己的就用劇的。
+        prefetched：列表先一次查好的 {項目 id: 人員}（dto.Prefetch.load_extras），沒給就逐項查。"""
+        rows_of = self._rows if prefetched is None else (lambda item_id: prefetched.get(item_id, []))
+        rows = rows_of(item["id"])
         if not rows and item["type"] in ("Episode", "Season") and item["series_id"]:
-            rows = self._rows(item["series_id"])
+            rows = rows_of(item["series_id"])
         out = []
         for r in rows:
             p = {"Name": self._display(r["name"], r["zh"]), "Id": r["pid"], "Type": r["type"]}
