@@ -20,9 +20,21 @@ def intro_status(request: Request, ctx: AuthContext = Depends(require_admin)):
 
 @router.post("/web/api/intro/clear")
 def intro_clear(request: Request, ctx: AuthContext = Depends(require_admin), body: dict = Depends(json_body)):
-    """清掉學到的片頭片尾（{"season_id": id} 只清一季，沒有就全清）。"""
+    """清掉學到的片頭片尾：{"season_id": id} 只清一季，{"all": true} 全清。
+
+    兩個都沒給、season_id 不是正整數或不是一季都回錯誤：輸入有錯不能變成清掉全部。"""
     sid = body.get("season_id")
-    return {"removed": state(request).intro.clear(int(sid) if str(sid or "").isdecimal() else None)}
+    st = state(request)
+    if sid is None:
+        if body.get("all") is not True:
+            raise HTTPException(status_code=400, detail="要指定 season_id，或送 all: true 清掉全部")
+        return {"removed": st.intro.clear(None)}
+    if isinstance(sid, bool) or not isinstance(sid, (int, str)) or not str(sid).isdecimal() or int(sid) <= 0:
+        raise HTTPException(status_code=400, detail="season_id 要是正整數")
+    row = st.db.get_item(int(sid))
+    if row is None or row["type"] != "Season":
+        raise HTTPException(status_code=404, detail="找不到這一季")
+    return {"removed": st.intro.clear(int(sid))}
 
 
 @router.get("/web/api/intro/seasons")

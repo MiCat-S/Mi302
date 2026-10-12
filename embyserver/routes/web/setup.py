@@ -88,7 +88,10 @@ def setup_status(request: Request):
 async def setup(request: Request):
     """還沒有任何帳號時，建立第一個管理員；之後這個端點就失效。"""
     body = await json_body(request)
-    name, password = str(body.get("name") or "").strip(), str(body.get("password") or "")
+    name, password = body.get("name") or "", body.get("password") or ""
+    if not isinstance(name, str) or not isinstance(password, str):
+        raise HTTPException(status_code=400, detail="帳號和密碼要是文字")
+    name = name.strip()
     if not name or not password:
         raise HTTPException(status_code=400, detail="帳號和密碼都要填")
     st = state(request)
@@ -159,12 +162,13 @@ def list_users(request: Request, ctx: AuthContext = Depends(require_admin)):
 @router.post("/web/api/users")
 async def add_user(request: Request, ctx: AuthContext = Depends(require_admin)):
     body = await json_body(request)
-    if not str(body.get("password") or ""):
+    name, password, admin = body.get("name") or "", body.get("password") or "", body.get("admin", False)
+    _check_user_fields(name, password, admin)
+    if not password:
         raise HTTPException(status_code=400, detail="密碼不可空白")
     try:
         user = await run_in_threadpool(  # 算密碼雜湊要幾十毫秒，不佔事件迴圈
-            state(request).auth.create_user,
-            str(body.get("name") or ""), str(body.get("password") or ""), bool(body.get("admin")),
+            state(request).auth.create_user, name, password, admin,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
@@ -174,14 +178,15 @@ async def add_user(request: Request, ctx: AuthContext = Depends(require_admin)):
 @router.put("/web/api/users/{user_id}")
 async def edit_user(user_id: str, request: Request, ctx: AuthContext = Depends(require_admin)):
     body = await json_body(request)
-    if "password" in body and not str(body["password"] or ""):
+    _check_user_fields("", body.get("password", ""), body.get("admin", False))
+    if "password" in body and not body["password"]:
         raise HTTPException(status_code=400, detail="密碼不可空白")
     try:
         user = await run_in_threadpool(
             state(request).auth.update_user,
             user_id,
-            password=str(body["password"]) if "password" in body else None,
-            admin=bool(body["admin"]) if "admin" in body else None,
+            password=body["password"] if "password" in body else None,
+            admin=body["admin"] if "admin" in body else None,
             keep_token=ctx.token or "",
         )
     except KeyError:
@@ -189,6 +194,12 @@ async def edit_user(user_id: str, request: Request, ctx: AuthContext = Depends(r
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     return _user_view(user)
+
+
+def _check_user_fields(name, password, admin) -> None:
+    """不默默轉型：字串 "false" 經過 bool() 會變成 True，把人升成管理員。"""
+    if not isinstance(name, str) or not isinstance(password, str) or not isinstance(admin, bool):
+        raise HTTPException(status_code=400, detail="格式錯誤：name、password 要是文字，admin 要是 true 或 false")
 
 
 @router.delete("/web/api/users/{user_id}")

@@ -11,9 +11,12 @@ config.redirect…），所以這裡一律就地修改，不替換物件，改�
 from __future__ import annotations
 
 import copy
+import functools
 import json
 import logging
+import math
 import os
+import threading
 from dataclasses import fields
 from pathlib import Path
 from typing import Any, Dict, List, get_type_hints
@@ -23,6 +26,21 @@ from .config import Config, LibraryConfig, PathRule, StrmTask, read_file
 from .db import Database
 
 log = logging.getLogger(__name__)
+
+# 讀設定檔、驗證、寫回、套用到執行中的設定是一整段：兩個請求同時存設定（或一邊存一邊重新讀取）要排隊，
+# 不然後存的那個會拿存之前的舊設定蓋掉先存的
+LOCK = threading.RLock()
+
+
+def _locked(fn):
+    @functools.wraps(fn)
+    def run(*args, **kwargs):
+        with LOCK:
+            return fn(*args, **kwargs)
+    return run
+
+
+TRUE_WORDS, FALSE_WORDS = ("1", "true", "yes", "on"), ("0", "false", "no", "off", "")
 
 # 舊版存放網頁設定、同步任務的位置
 SETTINGS_META_KEY = "web_settings"
@@ -91,18 +109,44 @@ def export_settings(config: Config) -> Dict[str, Any]:
 def _coerce(obj, name: str, value):
     """依 dataclass 欄位宣告的型別轉換網頁送來的值（看宣告而不是目前的值：float 欄位預設 0 時目前的值是 int）。"""
     kind = get_type_hints(type(obj)).get(name, str)
+    if isinstance(value, (list, dict)):  # 不能默默變成字串 "[]" 或 True 存起來
+        raise SettingsError(f"{name} 的值不正確：{value}")
     try:
         if kind is bool:
-            if isinstance(value, str):
-                return value.strip().lower() in ("1", "true", "yes", "on")
-            return bool(value)
+            if isinstance(value, str) and value.strip().lower() in TRUE_WORDS + FALSE_WORDS:
+                return value.strip().lower() in TRUE_WORDS
+            if value is None or isinstance(value, bool) or value in (0, 1):
+                return bool(value)
+            raise ValueError(value)
         if kind is int:
             return int(float(value or 0))
         if kind is float:
-            return float(value or 0)
+            number = float(value or 0)
+            if not math.isfinite(number):  # nan 比大小永遠是 False，夾不進範圍
+                raise ValueError(value)
+            return number
         return str(value if value is not None else "").strip()
     except (TypeError, ValueError, OverflowError):  # OverflowError：1e999 這種轉不成整數的
         raise SettingsError(f"{name} 的值不正確：{value}")
+
+
+def _section(raw: dict, key: str, label: str = "") -> dict:
+    """設定的一個區塊（server、p115…）；沒有是 {}，不是物件丟 SettingsError（不然後面 .get 會 500）。"""
+    value = raw.get(key)
+    if value is None:
+        return {}
+    if not isinstance(value, dict):
+        raise SettingsError(f"{label or key} 的格式不正確：要是物件")
+    return value
+
+
+def _objects(raw, label: str) -> List[dict]:
+    """一串物件（媒體庫、同步任務、路徑對應）；沒有是 []，不是一串物件丟 SettingsError。"""
+    if raw is None:
+        return []
+    if not isinstance(raw, list) or not all(isinstance(r, dict) for r in raw):
+        raise SettingsError(f"{label} 的格式不正確：要是一串物件")
+    return raw
 
 
 def _set_fields(obj, allowed, raw: dict) -> None:
@@ -115,9 +159,11 @@ def _set_fields(obj, allowed, raw: dict) -> None:
 def _libraries(raw: list) -> List[LibraryConfig]:
     out: List[LibraryConfig] = []
     seen = set()
-    for lib in raw or []:
-        name = str(lib.get("name") or "").strip()
-        paths = [str(p).strip() for p in lib.get("paths") or [] if str(p).strip()]
+    for lib in _objects(raw, "libraries"):
+        name, paths = lib.get("name") or "", lib.get("paths") or []
+        if not isinstance(name, str) or not isinstance(paths, list) or not all(isinstance(p, str) for p in paths):
+            raise SettingsError("媒體庫的格式不正確：name 要是文字、paths 要是一串文字")
+        name, paths = name.strip(), [p.strip() for p in paths if p.strip()]
         if not name:
             raise SettingsError("媒體庫名稱不可空白")
         if name in seen:
@@ -133,31 +179,34 @@ def _libraries(raw: list) -> List[LibraryConfig]:
 def apply_settings(config: Config, raw: dict) -> None:
     """把網頁設定就地套用到 config；raw 可以只包含部分區塊。"""
     raw = raw or {}
+    if not isinstance(raw, dict):
+        raise SettingsError("設定的格式不正確：要是物件")
     if "libraries" in raw:
         config.libraries[:] = _libraries(raw["libraries"])
     if "server" in raw:
-        _set_fields(config.server, SERVER_FIELDS, raw["server"] or {})
+        _set_fields(config.server, SERVER_FIELDS, _section(raw, "server"))
         config.server.log_level = "debug" if str(config.server.log_level).lower() == "debug" else "info"
         config.server.backup_keep = max(0, min(config.server.backup_keep, 90))
         bad = _bad_proxies(config.server)
         if bad:
             _, label, how = bad[0]
             raise SettingsError(label + how)
-    p115 = raw.get("p115") or {}
+    p115 = _section(raw, "p115")
     _set_fields(config.p115, P115_FIELDS, p115)
     if "strm" in p115:
-        _set_fields(config.p115.strm, STRM_FIELDS, p115["strm"] or {})
-        if "tasks" in (p115["strm"] or {}):
-            config.p115.strm.tasks[:] = _tasks(p115["strm"]["tasks"])
+        strm_raw = _section(p115, "strm", "p115.strm")
+        _set_fields(config.p115.strm, STRM_FIELDS, strm_raw)
+        if "tasks" in strm_raw:
+            config.p115.strm.tasks[:] = _tasks(strm_raw["tasks"])
     strm = config.p115.strm  # 負數沒有意義：request_delay 是負的，逐層列目錄時 time.sleep 會丟 ValueError、整個任務失敗
     strm.request_delay = max(0.0, min(float(strm.request_delay), 60.0))
     strm.min_size_mb = max(0.0, float(strm.min_size_mb))
     strm.interval, strm.full_interval = max(0, int(strm.interval)), max(0, int(strm.full_interval))
-    redirect = raw.get("redirect") or {}
+    redirect = _section(raw, "redirect")
     _set_fields(config.redirect, REDIRECT_FIELDS, redirect)
     if "path_rules" in redirect:
         config.redirect.path_rules[:] = _rules(redirect["path_rules"])
-    mp = raw.get("moviepilot") or {}
+    mp = _section(raw, "moviepilot")
     _set_fields(config.moviepilot, MOVIEPILOT_FIELDS, mp)
     config.moviepilot.url = config.moviepilot.url.rstrip("/")
     config.moviepilot.concurrency = max(1, min(config.moviepilot.concurrency, 8))
@@ -169,7 +218,7 @@ def apply_settings(config: Config, raw: dict) -> None:
     if "path_mappings" in mp:
         config.moviepilot.path_mappings[:] = _rules(mp["path_mappings"])
     qb = config.qbittorrent
-    _set_fields(qb, QBITTORRENT_FIELDS, raw.get("qbittorrent") or {})
+    _set_fields(qb, QBITTORRENT_FIELDS, _section(raw, "qbittorrent"))
     qb.url = qb.url.rstrip("/")
     qb.stalled_minutes = max(10, min(int(qb.stalled_minutes), 10080))  # 太短的話剛開始找人的種子也會被刪
     qb.stalled_speed = max(0.0, min(float(qb.stalled_speed), 100000.0))
@@ -178,17 +227,17 @@ def apply_settings(config: Config, raw: dict) -> None:
     if qb.url and not qb.url.startswith(("http://", "https://")):
         raise SettingsError("qBittorrent 網址要以 http:// 或 https:// 開頭")
     mi = config.mediainfo
-    _set_fields(mi, MEDIAINFO_FIELDS, raw.get("mediainfo") or {})
+    _set_fields(mi, MEDIAINFO_FIELDS, _section(raw, "mediainfo"))
     mi.concurrency = max(1, min(mi.concurrency, 3))  # 115 同時最多 3 條連線
     mi.interval = max(0.5, min(mi.interval, 60.0))  # 最多每秒 2 次，115 的 WAF 很敏感
     mi.timeout = max(10, min(mi.timeout, 3600))
     mi.hourly_limit = max(0, min(mi.hourly_limit, 100000))
     mi.ffprobe = mi.ffprobe or "ffprobe"
     dav = config.webdav
-    _set_fields(dav, WEBDAV_FIELDS, raw.get("webdav") or {})
+    _set_fields(dav, WEBDAV_FIELDS, _section(raw, "webdav"))
     dav.root = "/" + dav.root.strip().strip("/") if dav.root.strip() else ""
     ali = config.aliyun
-    _set_fields(ali, ALIYUN_FIELDS, raw.get("aliyun") or {})
+    _set_fields(ali, ALIYUN_FIELDS, _section(raw, "aliyun"))
     if bool(ali.client_id) != bool(ali.client_secret):
         raise SettingsError("阿里雲盤的 client id 和 client secret 要一起填（或都留空，用線上 API 換 token）")
     if ali.online_api and not ali.online_api.lower().startswith("https://"):
@@ -205,7 +254,7 @@ def _bad_proxies(server) -> List[tuple]:
 def _tasks(raw) -> List[StrmTask]:
     tasks = []
     seen: List[Path] = []
-    for t in raw or []:
+    for t in _objects(raw, "同步任務"):
         remote, local = str(t.get("remote") or "").strip(), str(t.get("local") or "").strip()
         if not (remote and local):
             raise SettingsError("115 目錄和本機資料夾都要填")
@@ -224,7 +273,7 @@ def _tasks(raw) -> List[StrmTask]:
 
 def _rules(raw) -> List[PathRule]:
     rules = []
-    for r in raw or []:
+    for r in _objects(raw, "路徑對應"):
         src, dst = str(r.get("from") or "").strip(), str(r.get("to") or "").strip()
         if src and dst:
             rules.append(PathRule.from_dict({"from": src, "to": dst}))
@@ -306,6 +355,7 @@ def check_loaded(config: Config) -> List[str]:
     return config.problems
 
 
+@_locked
 def reload_if_changed(config: Config) -> bool:
     """設定檔被手動改過時重新讀取，就地套用；有變動回傳 True。"""
     if not config.path:
@@ -335,6 +385,7 @@ def reload_if_changed(config: Config) -> bool:
     return True
 
 
+@_locked
 def save(db: Database, config: Config, raw: dict) -> None:
     """驗證並寫進設定檔，成功後才套用到執行中的設定。"""
     reload_if_changed(config)  # 先接上手動改過的內容，免得被網頁的舊內容蓋掉
@@ -346,6 +397,7 @@ def save(db: Database, config: Config, raw: dict) -> None:
     config.problems[:] = _problems(config)  # 設定檔照執行中的設定重寫了：先不用的同步任務已經不在檔案裡
 
 
+@_locked
 def forget_user(config: Config, name: str) -> bool:
     """網頁上刪掉的帳號也從設定檔的 users 拿掉，不然下次啟動又會照設定檔建立回來。有拿掉回傳 True。
     設定檔有錯、寫不進去時丟 SettingsError（帳號已經刪了，只是設定檔沒改到）。"""

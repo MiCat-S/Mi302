@@ -117,16 +117,21 @@ async def authenticate_by_name(request: Request):
                 body = json.loads(raw)
             except ValueError:
                 body = {}
+            if not isinstance(body, dict):  # [] 或 null 是合法的 JSON，但不是登入資料
+                raise HTTPException(status_code=400, detail="Invalid request body.")
         else:
             # 表單（application/x-www-form-urlencoded）自己解析：request.form() 要另裝 python-multipart
             body = dict(parse_qsl(raw.decode("utf-8", "replace"), keep_blank_values=True))
-    lb = {k.lower(): v for k, v in body.items()}
+    lb = {str(k).lower(): v for k, v in body.items()}
     username = lb.get("username") or q(request, "username") or ""
     password = lb.get("pw")
     if password is None:
         password = lb.get("password")
     if password is None:
         password = q(request, "pw", "") or ""
+    # 帳號密碼不是文字（[1]、123）時 .strip()、.encode() 會 500；太長的不必算雜湊
+    if not isinstance(username, str) or not isinstance(password, str) or len(username) > 256 or len(password) > 1024:
+        raise HTTPException(status_code=400, detail="Invalid username or password.")
     info = client_info(request)
     source = request.client.host if request.client else ""
 

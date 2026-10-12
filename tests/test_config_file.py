@@ -51,7 +51,7 @@ def test_render_round_trips_tricky_values(tmp_path: Path):
     assert "# 網頁" in out.read_text(encoding="utf-8")  # 有說明註解
 
 
-def test_web_changes_are_written_to_config_file(tmp_path: Path):
+def test_web_changes_are_written_to_config_file(tmp_path: Path, monkeypatch):
     path = tmp_path / "config.yaml"
     write_yaml(path, base(tmp_path))
     c = start(path)
@@ -78,6 +78,40 @@ def test_web_changes_are_written_to_config_file(tmp_path: Path):
     c2 = start(path)
     assert c2.app.state.config.moviepilot.url == "http://mp:3000"
     assert [t.remote for t in c2.app.state.strm_sync.tasks] == ["/影視"]
+
+    # 兩個請求同時存（兩個都寫完暫存檔才換上去）：都要成功，兩邊改的都留下。
+    # 舊寫法共用 config.yaml.tmp，先換的把它搬走，後換的找不到檔案而失敗
+    import threading
+
+    from embyserver import settings
+
+    gate, replace = threading.Barrier(2, timeout=1), os.replace
+
+    def replace_together(src, dst):
+        try:
+            gate.wait()
+        except threading.BrokenBarrierError:  # 改好的寫法排隊存：等不到另一個
+            pass
+        return replace(src, dst)
+
+    monkeypatch.setattr(config_file.os, "replace", replace_together)
+    st, errors = c2.app.state, []
+
+    def save(raw):
+        try:
+            settings.save(st.db, st.config, raw)
+        except Exception as exc:  # noqa: BLE001 - 收起來給測試看
+            errors.append(exc)
+
+    threads = [threading.Thread(target=save, args=(raw,))
+               for raw in ({"moviepilot": {"api_token": "A"}}, {"p115": {"strm": {"interval": 7}}})]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    saved = load_config(str(path))
+    assert errors == [] and (saved.moviepilot.api_token, saved.p115.strm.interval) == ("A", 7)
+    assert not list(tmp_path.glob("*.tmp"))
 
 
 def test_manual_file_edits_show_up_without_restart(tmp_path: Path):

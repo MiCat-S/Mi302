@@ -94,7 +94,14 @@ def test_learns_intro_from_a_skip_and_applies_to_the_season(tmp_path: Path):
     assert (st["seasons"], st["episodes"]) == (1, 1)
     season = c.get("/web/api/intro/seasons", headers=p.h).json()["items"][0]
     assert season["intro"] == [10, 100] and season["credits_tail"] == 90
-    assert c.post("/web/api/intro/clear", json={}, headers=p.h).json()["removed"] == 2
+    # 範圍寫錯不能變成清掉全部：沒指定、不是正整數、不是一季都拒絕，一筆都不刪
+    for bad, code in (({}, 400), ({"season_id": "bad-id"}, 400), ({"season_id": -1}, 400), ({"season_id": True}, 400),
+                      ({"season_id": {"a": 1}}, 400), ({"season_id": None}, 400), ({"all": "true"}, 400),
+                      ({"season_id": e2}, 404), ({"season_id": 999999}, 404)):
+        assert c.post("/web/api/intro/clear", json=bad, headers=p.h).status_code == code, bad
+    assert c.get("/web/api/intro/status", headers=p.h).json()["episodes"] == 1
+    assert c.post("/web/api/intro/clear", json={"season_id": str(season["season_id"])}, headers=p.h).json()["removed"] == 2
+    assert c.post("/web/api/intro/clear", json={"all": True}, headers=p.h).json()["removed"] == 0
     assert markers(c, p.h, e2) == {} and c.get(f"/Episode/{e2}/IntroTimestamps", headers=p.h).status_code == 404
 
 
@@ -249,7 +256,7 @@ def test_manual_settings_override_learning_and_search(tmp_path: Path):
     assert markers(c, p.h, ep[2, 1]) == {"IntroStart": 3, "IntroEnd": 60}
 
     # 清除學到的紀錄不動手動設定；兩個都改回自動就回到學的值
-    c.post("/web/api/intro/clear", json={}, headers=p.h)
+    c.post("/web/api/intro/clear", json={"all": True}, headers=p.h)
     assert markers(c, p.h, ep[1, 1])["IntroEnd"] == 60
     p.progress(ep[1, 1], 0, after=0)
     p.progress(ep[1, 1], 10)

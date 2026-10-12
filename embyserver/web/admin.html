@@ -1697,7 +1697,7 @@ async function pollIntro() {
 }
 async function clearIntro() {
   if (!await ask({title: '清掉所有學到的片頭片尾？', text: '手動設定的不會清掉。之後看劇時會重新學。', ok: '清除', danger: true})) return;
-  try { const r = await api('/web/api/intro/clear', {method: 'POST', body: '{}'}); toast('已清除 ' + r.removed + ' 筆'); } catch (e) { toast(e.message, 'bad'); }
+  try { const r = await api('/web/api/intro/clear', {method: 'POST', body: JSON.stringify({all: true})}); toast('已清除 ' + r.removed + ' 筆'); } catch (e) { toast(e.message, 'bad'); }
   pollIntro();
 }
 

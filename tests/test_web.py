@@ -190,6 +190,21 @@ def test_non_object_json_body_is_400(tmp_path: Path):
     # 沒登入時照樣先擋權限，不先看內容
     assert c.post("/web/api/intro/clear", content="[1]").status_code == 401
 
+    # 外層是物件、裡面的型別不對：一樣回 400，不是 500，也不默默轉型存起來
+    for body in ("[]", "null", '{"Username": ["admin"], "Pw": "pw"}', '{"Username": "admin", "Pw": 123}'):
+        r = c.post("/Users/AuthenticateByName", content=body, headers={"Content-Type": "application/json"})
+        assert r.status_code == 400, (body, r.status_code)
+    for body in ({"libraries": [1]}, {"libraries": [{"name": "a", "paths": "/x"}]}, {"server": {"name": []}},
+                 {"server": []}, {"p115": {"strm": {"tasks": ["x"]}}}, {"redirect": {"path_rules": [1]}},
+                 {"webdav": {"enabled": "maybe"}}, {"moviepilot": {"timeout": "nan"}}):
+        assert c.put("/web/api/settings", json=body, headers=h).status_code == 400, body
+    assert c.get("/web/api/settings", headers=h).json()["server"]["name"] != "[]"
+    for body in ({"name": "x", "password": "p", "admin": "false"}, {"name": ["x"], "password": "p"}, {"name": "x", "password": 1}):
+        assert c.post("/web/api/users", json=body, headers=h).status_code == 400, body
+    kid = c.post("/web/api/users", json={"name": "kid", "password": "k"}, headers=h).json()
+    assert c.put(f"/web/api/users/{kid['id']}", json={"admin": "false"}, headers=h).status_code == 400
+    assert not next(u for u in c.get("/web/api/users", headers=h).json() if u["name"] == "kid")["admin"]
+
 
 def test_blocking_endpoints_run_in_threadpool(tmp_path: Path):
     """會寫檔、寫資料庫的端點寫成一般 def，FastAPI 放進執行緒池，不佔住事件迴圈。"""
@@ -202,6 +217,6 @@ def test_blocking_endpoints_run_in_threadpool(tmp_path: Path):
         assert not inspect.iscoroutinefunction(endpoint), endpoint.__name__
     c = make_client(tmp_path, {"users": [{"name": "admin", "password": "pw", "admin": True}]})
     h = admin_headers(c)
-    assert c.post("/web/api/intro/clear", json={}, headers=h).json() == {"removed": 0}
+    assert c.post("/web/api/intro/clear", json={"all": True}, headers=h).json() == {"removed": 0}
     key = c.post("/web/api/apikeys", json={"name": "MP"}, headers=h).json()
     assert key["name"] == "MP" and [k["key"] for k in c.get("/web/api/apikeys", headers=h).json()] == [key["key"]]
