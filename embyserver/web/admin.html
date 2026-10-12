@@ -82,7 +82,7 @@ textarea{resize:vertical;font-family:var(--mono);font-size:13px}
 .field{display:block}
 .field>span{display:block;font-size:13px;font-weight:600;margin-bottom:6px}
 .field>small{display:block;color:var(--muted);font-size:12.5px;margin-top:6px;line-height:1.45}
-.fields{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px}
+.fields{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(220px,100%),1fr));gap:14px}
 .inline{display:flex;gap:8px}.inline>input{flex:1;min-width:0}
 /* 開關 */
 .switch{display:flex;gap:12px;align-items:flex-start;cursor:pointer;padding:6px 0;position:relative}  /* 藏起來的 checkbox 以它定位，不會撐大可捲動的對話框 */
@@ -258,7 +258,7 @@ dialog.wide{width:min(720px,calc(100vw - 32px))}
 .lg.ERROR,.lg.CRITICAL{background:var(--danger-soft)}.lg.ERROR .lv,.lg.CRITICAL .lv{color:var(--danger)}
 .lg.DEBUG .m{color:var(--muted)}
 .ogacts{flex:0 0 auto;display:flex;flex-direction:column;gap:6px}.ogacts .btn{justify-content:center}  /* 整理每一列右邊：預覽、整理、刪除，直排不佔寬度 */
-#mText{white-space:pre-line}
+#mText{white-space:pre-line;overflow-wrap:anywhere;min-width:0}  /* 確認框裡的長網址、長路徑要換行，不能撐出橫向捲動 */
 .savebar.wrap{flex-wrap:wrap}#ogSel,#ogBatchBar{flex:1 1 240px}#ogBatchBar .meter{margin-bottom:6px}  /* 窄螢幕上說明自己一行，按鈕排在下面 */
 .savebar{position:sticky;bottom:16px;display:flex;gap:10px;align-items:center;justify-content:flex-end;padding:10px 12px;background:var(--glass);-webkit-backdrop-filter:saturate(180%) blur(20px);backdrop-filter:saturate(180%) blur(20px);border:1px solid var(--line);border-radius:var(--r);box-shadow:0 8px 30px rgba(0,0,0,.12);margin-top:8px}
 
@@ -340,7 +340,7 @@ dialog .card-b{max-height:70vh;overflow:auto}
   </div></div>
 </div>
 <div id="setup" class="auth hidden">
-  <form class="card" onsubmit="doSetup();return false">
+  <form class="card" id="setupForm" onsubmit="doSetup();return false">
     <div class="card-b stack">
       <div class="brand"><svg><use href="#i-logo"/></svg><b>Mi302</b></div>
       <div><h1 style="font-size:18px">歡迎！先建立管理員帳號</h1><p class="hint mt4">這組帳號用來登入這個管理網頁，也可以直接在播放器裡登入。</p></div>
@@ -348,21 +348,21 @@ dialog .card-b{max-height:70vh;overflow:auto}
       <label class="field"><span>密碼</span><input id="sPw" type="password" autocomplete="new-password"></label>
       <label class="field"><span>再輸入一次密碼</span><input id="sPw2" type="password" autocomplete="new-password"></label>
       <p id="sMsg" aria-live="polite" class="notice bad hidden"></p>
-      <button class="btn primary full">建立並登入</button>
-      <p class="auth-foot"><svg class="i"><use href="#i-github"/></svg><a href="https://github.com/MiCat-S/Mi302" target="_blank" rel="noopener">Mi302 在 GitHub</a>・覺得好用請點個 Star</p>
+      <button type="submit" class="btn primary full">建立並登入</button>
+      <p class="auth-foot"><svg class="i" aria-hidden="true"><use href="#i-github"/></svg><a href="https://github.com/MiCat-S/Mi302" target="_blank" rel="noopener">Mi302 在 GitHub</a>・覺得好用請點個 Star</p>
     </div>
   </form>
 </div>
 <div id="login" class="auth hidden">
-  <form class="card" onsubmit="login();return false">
+  <form class="card" id="loginForm" onsubmit="login();return false">
     <div class="card-b stack">
       <div class="brand"><svg><use href="#i-logo"/></svg><b>Mi302</b></div>
       <label class="field"><span>帳號</span><input id="u" type="text" autocomplete="username"></label>
       <label class="field"><span>密碼</span><input id="p" type="password" autocomplete="current-password"></label>
       <p id="lMsg" aria-live="polite" class="notice bad hidden"></p>
-      <button class="btn primary full">登入</button>
+      <button type="submit" class="btn primary full">登入</button>
       <p class="hint center">用管理員帳號登入</p>
-      <p class="auth-foot"><svg class="i"><use href="#i-github"/></svg><a href="https://github.com/MiCat-S/Mi302" target="_blank" rel="noopener">Mi302 在 GitHub</a>・覺得好用請點個 Star</p>
+      <p class="auth-foot"><svg class="i" aria-hidden="true"><use href="#i-github"/></svg><a href="https://github.com/MiCat-S/Mi302" target="_blank" rel="noopener">Mi302 在 GitHub</a>・覺得好用請點個 Star</p>
     </div>
   </form>
 </div>
@@ -370,37 +370,37 @@ dialog .card-b{max-height:70vh;overflow:auto}
 <div id="main" class="app hidden">
   <aside class="side">
     <div class="brand"><svg><use href="#i-logo"/></svg><div><b>Mi302</b><small id="srvName"></small></div></div>
-    <nav role="tablist" aria-label="分頁">
-      <a href="#overview" data-tab="overview" id="nav-overview" role="tab" aria-controls="tab-overview" aria-selected="false" aria-label="概覽"><svg class="i"><use href="#i-grid"/></svg><span>概覽</span></a>
-      <a href="#libraries" data-tab="libraries" id="nav-libraries" role="tab" aria-controls="tab-libraries" aria-selected="false" aria-label="媒體庫"><svg class="i"><use href="#i-film"/></svg><span>媒體庫</span></a>
-      <a href="#115" data-tab="115" id="nav-115" role="tab" aria-controls="tab-115" aria-selected="false" aria-label="115 網盤"><svg class="i"><use href="#i-cloud"/></svg><span>115 網盤</span></a>
-      <a href="#browse" data-tab="browse" id="nav-browse" role="tab" aria-controls="tab-browse" aria-selected="false" aria-label="瀏覽 115"><svg class="i"><use href="#i-folder"/></svg><span>瀏覽 115</span></a>
-      <a href="#tools" data-tab="tools" id="nav-tools" role="tab" aria-controls="tab-tools" aria-selected="false" aria-label="整理"><svg class="i"><use href="#i-tool"/></svg><span>整理</span></a>
-      <a href="#moviepilot" data-tab="moviepilot" id="nav-moviepilot" role="tab" aria-controls="tab-moviepilot" aria-selected="false" aria-label="MoviePilot"><svg class="i"><use href="#i-spark"/></svg><span>MoviePilot</span></a>
-      <a href="#users" data-tab="users" id="nav-users" role="tab" aria-controls="tab-users" aria-selected="false" aria-label="使用者"><svg class="i"><use href="#i-users"/></svg><span>使用者</span></a>
-      <a href="#logs" data-tab="logs" id="nav-logs" role="tab" aria-controls="tab-logs" aria-selected="false" aria-label="日誌"><svg class="i"><use href="#i-doc"/></svg><span>日誌</span></a>
-      <a href="#settings" data-tab="settings" id="nav-settings" role="tab" aria-controls="tab-settings" aria-selected="false" aria-label="設定"><svg class="i"><use href="#i-sliders"/></svg><span>設定</span></a>
+    <nav aria-label="主導覽">
+      <a href="#overview" data-tab="overview" id="nav-overview" aria-label="概覽"><svg class="i" aria-hidden="true"><use href="#i-grid"/></svg><span>概覽</span></a>
+      <a href="#libraries" data-tab="libraries" id="nav-libraries" aria-label="媒體庫"><svg class="i" aria-hidden="true"><use href="#i-film"/></svg><span>媒體庫</span></a>
+      <a href="#115" data-tab="115" id="nav-115" aria-label="115 網盤"><svg class="i" aria-hidden="true"><use href="#i-cloud"/></svg><span>115 網盤</span></a>
+      <a href="#browse" data-tab="browse" id="nav-browse" aria-label="瀏覽 115"><svg class="i" aria-hidden="true"><use href="#i-folder"/></svg><span>瀏覽 115</span></a>
+      <a href="#tools" data-tab="tools" id="nav-tools" aria-label="整理"><svg class="i" aria-hidden="true"><use href="#i-tool"/></svg><span>整理</span></a>
+      <a href="#moviepilot" data-tab="moviepilot" id="nav-moviepilot" aria-label="MoviePilot"><svg class="i" aria-hidden="true"><use href="#i-spark"/></svg><span>MoviePilot</span></a>
+      <a href="#users" data-tab="users" id="nav-users" aria-label="使用者"><svg class="i" aria-hidden="true"><use href="#i-users"/></svg><span>使用者</span></a>
+      <a href="#logs" data-tab="logs" id="nav-logs" aria-label="日誌"><svg class="i" aria-hidden="true"><use href="#i-doc"/></svg><span>日誌</span></a>
+      <a href="#settings" data-tab="settings" id="nav-settings" aria-label="設定"><svg class="i" aria-hidden="true"><use href="#i-sliders"/></svg><span>設定</span></a>
     </nav>
     <div class="foot">
-      <a class="star" href="https://github.com/MiCat-S/Mi302" target="_blank" rel="noopener" title="Mi302 在 GitHub 上，覺得好用請點個 Star" aria-label="Mi302 在 GitHub，點個 Star"><svg class="i"><use href="#i-github"/></svg><span>GitHub 點個 Star</span><svg class="i gold"><use href="#i-star"/></svg></a>
-      <button class="vercard" id="verBtn" onclick="openServer()" title="版本與更新" aria-label="版本與更新"><i class="vic" id="verIcon"><svg class="i"><use href="#i-info"/></svg></i><span class="vt"><b id="verTitle">版本</b><small id="verSub">讀取中…</small></span><i class="updot hidden" id="navUpd" title="有新版本"></i></button>
+      <a class="star" href="https://github.com/MiCat-S/Mi302" target="_blank" rel="noopener" title="Mi302 在 GitHub 上，覺得好用請點個 Star" aria-label="Mi302 在 GitHub，點個 Star"><svg class="i" aria-hidden="true"><use href="#i-github"/></svg><span>GitHub 點個 Star</span><svg class="i gold"><use href="#i-star"/></svg></a>
+      <button class="vercard" id="verBtn" onclick="openServer()" title="版本與更新" aria-label="版本與更新"><i class="vic" id="verIcon"><svg class="i" aria-hidden="true"><use href="#i-info"/></svg></i><span class="vt"><b id="verTitle">版本</b><small id="verSub">讀取中…</small></span><i class="updot hidden" id="navUpd" title="有新版本"></i></button>
       <div class="footrow">
-        <button class="btn ghost" id="restartSide" onclick="restartServer()" title="重新啟動 Mi302" aria-label="重新啟動 Mi302"><svg class="i"><use href="#i-refresh"/></svg><span>重新啟動</span></button>
-        <button class="btn ghost" onclick="logoutWeb()" title="登出" aria-label="登出"><svg class="i"><use href="#i-logout"/></svg><span>登出</span></button>
+        <button class="btn ghost" id="restartSide" onclick="restartServer()" title="重新啟動 Mi302" aria-label="重新啟動 Mi302"><svg class="i" aria-hidden="true"><use href="#i-refresh"/></svg><span>重新啟動</span></button>
+        <button class="btn ghost" onclick="logoutWeb()" title="登出" aria-label="登出"><svg class="i" aria-hidden="true"><use href="#i-logout"/></svg><span>登出</span></button>
       </div></div>
   </aside>
 
   <main>
-    <div id="fileErr" class="banner hidden"><svg class="i"><use href="#i-alert"/></svg><span></span></div>
-    <div id="updBanner" class="banner info hidden" role="status"><svg class="i"><use href="#i-download"/></svg><span class="grow" id="updText"></span>
+    <div id="fileErr" class="banner hidden"><svg class="i" aria-hidden="true"><use href="#i-alert"/></svg><span></span></div>
+    <div id="updBanner" class="banner info hidden" role="status"><svg class="i" aria-hidden="true"><use href="#i-download"/></svg><span class="grow" id="updText"></span>
       <button class="btn sm" onclick="openServer()">看更新內容</button><button class="btn sm primary" id="updNow" onclick="updateServer()">立即更新</button>
       <button class="btn sm ghost" onclick="dismissUpdate()" title="這一版先不提示">先不要</button></div>
 
     <!-- 概覽 -->
-    <section id="tab-overview" class="page hidden" role="tabpanel" aria-labelledby="nav-overview">
+    <section id="tab-overview" class="page hidden" aria-labelledby="nav-overview">
       <div class="page-h">
         <div><h1>概覽</h1><p class="sub">伺服器、115 同步與刮削的狀態。</p></div>
-        <button class="btn" onclick="loadOverview()"><svg class="i"><use href="#i-refresh"/></svg>重新整理</button>
+        <button class="btn" onclick="loadOverview()"><svg class="i" aria-hidden="true"><use href="#i-refresh"/></svg>重新整理</button>
       </div>
       <div id="ovStart" class="card hidden">
         <div class="card-h"><div class="t"><h2>開始設定</h2></div><span class="hint">完成這幾步就能在播放器裡看片</span></div>
@@ -414,23 +414,23 @@ dialog .card-b{max-height:70vh;overflow:auto}
       </div>
       <div class="grid2">
         <div class="card">
-          <div class="card-h"><div class="t"><svg class="i"><use href="#i-cloud"/></svg><h2>115 帳號</h2></div><a href="#115/acct" class="btn sm ghost">管理</a></div>
+          <div class="card-h"><div class="t"><svg class="i" aria-hidden="true"><use href="#i-cloud"/></svg><h2>115 帳號</h2></div><a href="#115/acct" class="btn sm ghost">管理</a></div>
           <div class="card-b" id="ovAcct"><p class="hint">讀取中…</p></div>
         </div>
         <div class="card">
-          <div class="card-h"><div class="t"><svg class="i"><use href="#i-sync"/></svg><h2>115 同步</h2></div>
+          <div class="card-h"><div class="t"><svg class="i" aria-hidden="true"><use href="#i-sync"/></svg><h2>115 同步</h2></div>
             <div class="row"><button class="btn sm primary" onclick="syncStrm('incremental')">增量同步</button><button class="btn sm" onclick="syncStrm('full')">全量</button></div></div>
           <div class="card-b stack"><div class="js-sync"><p class="hint">讀取中…</p></div><p class="hint sp" id="ovSched"></p></div>
         </div>
         <div class="card">
-          <div class="card-h"><div class="t"><svg class="i"><use href="#i-spark"/></svg><h2>MoviePilot 刮削</h2></div><a href="#moviepilot/scrape" class="btn sm ghost">查看</a></div>
+          <div class="card-h"><div class="t"><svg class="i" aria-hidden="true"><use href="#i-spark"/></svg><h2>MoviePilot 刮削</h2></div><a href="#moviepilot/scrape" class="btn sm ghost">查看</a></div>
           <div class="card-b js-mp"><p class="hint">讀取中…</p></div>
         </div>
         <div class="card">
-          <div class="card-h"><div class="t"><svg class="i"><use href="#i-play"/></svg><h2>在播放器裡連線</h2></div></div>
+          <div class="card-h"><div class="t"><svg class="i" aria-hidden="true"><use href="#i-play"/></svg><h2>在播放器裡連線</h2></div></div>
           <div class="card-b stack">
             <p class="hint">在 Infuse、VidHub、SenPlayer、Emby 等播放器新增 Emby 伺服器：</p>
-            <dl class="kv"><dt>地址</dt><dd><div class="row"><code class="js-origin"></code><button class="btn sm ghost icon" data-act="copyOrigin" title="複製" aria-label="複製伺服器地址"><svg class="i"><use href="#i-copy"/></svg></button></div></dd>
+            <dl class="kv"><dt>地址</dt><dd><div class="row"><code class="js-origin"></code><button class="btn sm ghost icon" data-act="copyOrigin" title="複製" aria-label="複製伺服器地址"><svg class="i" aria-hidden="true"><use href="#i-copy"/></svg></button></div></dd>
               <dt>帳號</dt><dd>在「使用者」頁建立的帳號</dd></dl>
           </div>
         </div>
@@ -438,28 +438,28 @@ dialog .card-b{max-height:70vh;overflow:auto}
     </section>
 
     <!-- 媒體庫 -->
-    <section id="tab-libraries" class="page hidden" role="tabpanel" aria-labelledby="nav-libraries">
+    <section id="tab-libraries" class="page hidden" aria-labelledby="nav-libraries">
       <div class="page-h">
         <div><h1>媒體庫</h1><p class="sub">播放器首頁看到的分類，點一格可以改名稱、類型、資料夾和封面。有「国产剧」「日番」這類分類資料夾時選上層資料夾就好，會自動往下找。 <a class="doc" href="https://github.com/MiCat-S/Mi302/wiki/媒體庫與掃描" target="_blank" rel="noopener">說明</a></p></div>
-        <div class="row wrap"><div id="scanSt" class="hint"></div><button class="btn" onclick="scanFolder()"><svg class="i"><use href="#i-folder"/></svg>掃描資料夾…</button><button class="btn" onclick="scanNow()"><svg class="i"><use href="#i-refresh"/></svg>全部重新掃描</button></div>
+        <div class="row wrap"><div id="scanSt" class="hint"></div><button class="btn" onclick="scanFolder()"><svg class="i" aria-hidden="true"><use href="#i-folder"/></svg>掃描資料夾…</button><button class="btn" onclick="scanNow()"><svg class="i" aria-hidden="true"><use href="#i-refresh"/></svg>全部重新掃描</button></div>
       </div>
       <div id="libs" class="libgrid"></div>
 
     </section>
 
     <!-- 115 -->
-    <section id="tab-115" class="page hidden" role="tabpanel" aria-labelledby="nav-115">
+    <section id="tab-115" class="page hidden" aria-labelledby="nav-115">
       <div class="page-h">
         <div><h1>115 網盤</h1><p class="sub">登入 115、選擇要產生 strm 的目錄，播放時 302 到 115 直鏈。</p></div>
       </div>
       <div class="seg mb16 subtabs" role="tablist" aria-label="115 網盤的項目"><button data-act="sub" data-sub="acct" role="tab" aria-selected="false">帳號</button><button data-act="sub" data-sub="sync" role="tab" aria-selected="false">同步</button><button data-act="sub" data-sub="offline" role="tab" aria-selected="false">離線下載</button><button data-act="sub" data-sub="share" role="tab" aria-selected="false">轉存分享</button><button data-act="sub" data-sub="rapid" role="tab" aria-selected="false">阿里雲盤秒傳</button><button data-act="sub" data-sub="organize" role="tab" aria-selected="false">整理 115 網盤</button><button data-act="sub" data-sub="recycle" role="tab" aria-selected="false">回收站</button></div>
       <div class="card" data-sub="acct" role="tabpanel">
-        <div class="card-h"><div class="t"><svg class="i"><use href="#i-cloud"/></svg><h2>帳號</h2></div>
-          <div class="row"><button class="btn sm ghost" onclick="load115(true)"><svg class="i"><use href="#i-refresh"/></svg>重新整理</button></div></div>
+        <div class="card-h"><div class="t"><svg class="i" aria-hidden="true"><use href="#i-cloud"/></svg><h2>帳號</h2></div>
+          <div class="row"><button class="btn sm ghost" onclick="load115(true)"><svg class="i" aria-hidden="true"><use href="#i-refresh"/></svg>重新整理</button></div></div>
         <div class="card-b">
           <div id="acct"><p class="hint">讀取中…</p></div>
           <div class="row wrap mt16">
-            <button class="btn primary" id="qrBtn" onclick="startQr()"><svg class="i"><use href="#i-qr"/></svg>掃碼登入</button>
+            <button class="btn primary" id="qrBtn" onclick="startQr()"><svg class="i" aria-hidden="true"><use href="#i-qr"/></svg>掃碼登入</button>
             <button class="btn danger hidden" id="logoutBtn" onclick="logout115()">登出 115</button>
           </div>
           <div id="qrBox" class="qr hidden"><div id="qr"></div><div class="grow"><b>用手機 115 App 掃描</b><p id="qrst" class="hint"></p></div></div>
@@ -488,7 +488,7 @@ dialog .card-b{max-height:70vh;overflow:auto}
       </div>
 
       <div class="card" data-sub="sync" role="tabpanel">
-        <div class="card-h"><div class="t"><svg class="i"><use href="#i-folder"/></svg><h2>同步任務</h2></div><span class="hint">115 目錄 → 本機資料夾</span></div>
+        <div class="card-h"><div class="t"><svg class="i" aria-hidden="true"><use href="#i-folder"/></svg><h2>同步任務</h2></div><span class="hint">115 目錄 → 本機資料夾</span></div>
         <div class="card-b stack">
           <div id="tasks" class="list"></div>
           <div class="notice stack">
@@ -496,14 +496,14 @@ dialog .card-b{max-height:70vh;overflow:auto}
               <label class="field"><span>115 目錄</span><div class="inline"><input id="remote" type="text" placeholder="例如 /影視/電影"><button class="btn" onclick="pick115()">瀏覽</button></div></label>
               <label class="field"><span>放到本機資料夾</span><div class="inline"><input id="local" type="text" placeholder="例如 /media/movies/115"><button class="btn" onclick="pickLocal('local')">瀏覽</button></div></label>
             </div>
-            <div class="row wrap"><button class="btn primary" onclick="addTask()"><svg class="i"><use href="#i-plus"/></svg>新增任務</button>
+            <div class="row wrap"><button class="btn primary" onclick="addTask()"><svg class="i" aria-hidden="true"><use href="#i-plus"/></svg>新增任務</button>
               <span class="hint" style="flex:1 1 260px">目錄結構不變。本機資料夾要在某個媒體庫裡，建議用子資料夾，例如 …/movies/115。</span></div>
           </div>
         </div>
       </div>
 
       <div class="card" data-sub="sync" role="tabpanel">
-        <div class="card-h"><div class="t"><svg class="i"><use href="#i-sync"/></svg><h2>同步</h2></div>
+        <div class="card-h"><div class="t"><svg class="i" aria-hidden="true"><use href="#i-sync"/></svg><h2>同步</h2></div>
           <div class="row"><button class="btn primary" onclick="syncStrm('incremental')">增量同步</button><button class="btn" onclick="syncStrm('full')">全量同步</button></div></div>
         <div class="card-b stack">
           <div class="js-sync"></div>
@@ -517,7 +517,7 @@ dialog .card-b{max-height:70vh;overflow:auto}
       </div>
 
       <div class="card" id="syncOpts" data-sub="sync" role="tabpanel">
-        <div class="card-h"><div class="t"><svg class="i"><use href="#i-sliders"/></svg><h2>同步選項</h2></div></div>
+        <div class="card-h"><div class="t"><svg class="i" aria-hidden="true"><use href="#i-sliders"/></svg><h2>同步選項</h2></div></div>
         <div class="card-b stack">
           <div class="fields">
             <label class="field"><span>自動增量同步間隔（分鐘）</span><input type="number" min="0" data-key="p115.strm.interval"><small>0 = 不自動，建議 5</small></label>
@@ -535,7 +535,7 @@ dialog .card-b{max-height:70vh;overflow:auto}
       </div>
 
       <div class="card" id="ogCard" data-sub="organize" role="tabpanel">
-        <div class="card-h"><div class="t"><svg class="i"><use href="#i-tool"/></svg><h2>整理 115 網盤</h2></div>
+        <div class="card-h"><div class="t"><svg class="i" aria-hidden="true"><use href="#i-tool"/></svg><h2>整理 115 網盤</h2></div>
           <div class="row wrap gap6"><button class="btn" id="ogCheck" onclick="organizeCheck(false)">問 MoviePilot 檢查</button><button class="btn ghost" id="ogRecheck" onclick="organizeCheck(true)">全部重新檢查</button></div></div>
         <div class="card-b stack">
           <p class="hint">問 MoviePilot 媒體庫裡每一部劇、每一部電影該叫什麼，和它給的名稱不一樣的、集號不對的列出來，整個資料夾交給它整理（影片、字幕一起搬），先預覽再執行；不要的直接刪。辨識、命名都是 MoviePilot 做的。 <a class="doc" href="https://github.com/MiCat-S/Mi302/wiki/115-網盤與同步#整理-115-網盤" target="_blank" rel="noopener">說明</a></p>
@@ -571,7 +571,7 @@ dialog .card-b{max-height:70vh;overflow:auto}
       </div>
 
       <div class="card" id="olCard" data-sub="offline" role="tabpanel">
-        <div class="card-h"><div class="t"><svg class="i"><use href="#i-download"/></svg><h2>離線下載</h2></div><span class="hint" id="olQuota"></span></div>
+        <div class="card-h"><div class="t"><svg class="i" aria-hidden="true"><use href="#i-download"/></svg><h2>離線下載</h2></div><span class="hint" id="olQuota"></span></div>
         <div class="card-b stack">
           <p class="hint">把磁力、ed2k、http 連結交給 115 下載到網盤（115 的「雲下載」），不經過這台機器。存到同步目錄裡的，下載完下一次增量同步就會產生 strm；存到其他地方的，可以到「瀏覽 115」整理。 <a class="doc" href="https://github.com/MiCat-S/Mi302/wiki/115-網盤與同步#離線下載" target="_blank" rel="noopener">說明</a></p>
           <label class="field"><span>連結</span><textarea id="olUrls" rows="4" placeholder="一行一個：magnet:?xt=urn:btih:…、ed2k://|file|…|/、http(s)://…、ftp://…，或只貼 40 位的 info hash"></textarea></label>
@@ -582,13 +582,13 @@ dialog .card-b{max-height:70vh;overflow:auto}
       </div>
       <div class="card" data-sub="offline" role="tabpanel">
         <div class="card-h"><div class="t"><h2>下載任務</h2></div>
-          <div class="row wrap gap6"><button class="btn sm ghost" onclick="loadOffline()"><svg class="i"><use href="#i-refresh"/></svg>重新整理</button>
+          <div class="row wrap gap6"><button class="btn sm ghost" onclick="loadOffline()"><svg class="i" aria-hidden="true"><use href="#i-refresh"/></svg>重新整理</button>
             <button class="btn sm" onclick="olClear('done')">清除已完成</button><button class="btn sm" onclick="olClear('failed')">清除失敗的</button></div></div>
         <div class="card-b"><div id="olList" class="list"><p class="hint">讀取中…</p></div></div>
       </div>
 
       <div class="card" id="shCard" data-sub="share" role="tabpanel">
-        <div class="card-h"><div class="t"><svg class="i"><use href="#i-download"/></svg><h2>轉存分享</h2></div></div>
+        <div class="card-h"><div class="t"><svg class="i" aria-hidden="true"><use href="#i-download"/></svg><h2>轉存分享</h2></div></div>
         <div class="card-b stack">
           <p class="hint">把別人的 115 分享轉存到自己的 115，每個分享一個子資料夾，再交給 MoviePilot 整理進媒體庫（分享出來的命名五花八門，所以一定經過整理）。要用掃碼登入 115。 <a class="doc" href="https://github.com/MiCat-S/Mi302/wiki/115-網盤與同步#轉存分享" target="_blank" rel="noopener">說明</a></p>
           <label class="field"><span>連結</span><textarea id="shText" rows="4" placeholder="一行一個：https://115.com/s/sw…?password=abcd，或連結後面寫「訪問碼：abcd」"></textarea></label>
@@ -608,8 +608,8 @@ dialog .card-b{max-height:70vh;overflow:auto}
       </div>
 
       <div class="card" id="alCard" data-sub="rapid" role="tabpanel">
-        <div class="card-h"><div class="t"><svg class="i"><use href="#i-cloud"/></svg><h2>阿里雲盤帳號</h2></div>
-          <div class="row"><button class="btn sm ghost" onclick="loadAliyun()"><svg class="i"><use href="#i-refresh"/></svg>重新整理</button></div></div>
+        <div class="card-h"><div class="t"><svg class="i" aria-hidden="true"><use href="#i-cloud"/></svg><h2>阿里雲盤帳號</h2></div>
+          <div class="row"><button class="btn sm ghost" onclick="loadAliyun()"><svg class="i" aria-hidden="true"><use href="#i-refresh"/></svg>重新整理</button></div></div>
         <div class="card-b stack">
           <div id="alAcct"><p class="hint">讀取中…</p></div>
           <p class="hint">秒傳時 Mi302 要列出阿里雲盤上的檔案（阿里雲盤直接給 SHA1），115 要二次驗證時還要讀檔案中間一小段，所以要登入阿里雲盤。refresh token 用 <a href="https://api.oplist.org/" target="_blank" rel="noopener">OpenList 的取得工具</a>拿（選阿里雲盤掃碼）。<b>沒填自己的 client id 時，refresh token 會送給 OpenList 的服務換 access token。</b> <a class="doc" href="https://github.com/MiCat-S/Mi302/wiki/115-網盤與同步#登入阿里雲盤" target="_blank" rel="noopener">說明</a></p>
@@ -627,7 +627,7 @@ dialog .card-b{max-height:70vh;overflow:auto}
         </div>
       </div>
       <div class="card" id="rpCard" data-sub="rapid" role="tabpanel">
-        <div class="card-h"><div class="t"><svg class="i"><use href="#i-download"/></svg><h2>秒傳到 115</h2></div></div>
+        <div class="card-h"><div class="t"><svg class="i" aria-hidden="true"><use href="#i-download"/></svg><h2>秒傳到 115</h2></div></div>
         <div class="card-b stack">
           <p class="hint">阿里雲盤上的檔案，115 上已經有的（有人傳過）直接秒傳到 115，不經過這台機器；115 沒有的不會上傳，只列出來。秒傳完的資料夾加進「整理 115 網盤」，選了「整理到」就交給 MoviePilot 整理。要用掃碼登入 115。 <a class="doc" href="https://github.com/MiCat-S/Mi302/wiki/115-網盤與同步#從阿里雲盤秒傳" target="_blank" rel="noopener">說明</a></p>
           <div class="row wrap gap6"><span class="hint">來源</span><input id="rpSource" type="text" class="grow" placeholder="阿里雲盤路徑，例如 /資源庫/電視劇/凡人修仙传" aria-label="阿里雲盤上的來源" oninput="rpButtons()">
@@ -649,8 +649,8 @@ dialog .card-b{max-height:70vh;overflow:auto}
       </div>
 
       <div class="card" data-sub="recycle" role="tabpanel">
-        <div class="card-h"><div class="t"><svg class="i"><use href="#i-trash"/></svg><h2>115 回收站</h2></div>
-          <div class="row"><button class="btn ghost" onclick="loadRecycle(0)"><svg class="i"><use href="#i-refresh"/></svg>重新整理</button><button class="btn danger" id="rbClean" onclick="cleanRecycle()" disabled>清空回收站…</button></div></div>
+        <div class="card-h"><div class="t"><svg class="i" aria-hidden="true"><use href="#i-trash"/></svg><h2>115 回收站</h2></div>
+          <div class="row"><button class="btn ghost" onclick="loadRecycle(0)"><svg class="i" aria-hidden="true"><use href="#i-refresh"/></svg>重新整理</button><button class="btn danger" id="rbClean" onclick="cleanRecycle()" disabled>清空回收站…</button></div></div>
         <div class="card-b stack">
           <p class="hint">115 上刪掉的檔案（包括 Mi302 刪重複檔案時送進去的）先留在這裡，在 115 還能還原。清空就永久刪除；只用掃碼登入時要填 115 的安全密鑰。 <a class="doc" href="https://github.com/MiCat-S/Mi302/wiki/115-網盤與同步#115-回收站" target="_blank" rel="noopener">說明</a></p>
           <div id="rbInfo"></div>
@@ -658,7 +658,7 @@ dialog .card-b{max-height:70vh;overflow:auto}
         </div>
       </div>
       <div class="card" data-sub="recycle" role="tabpanel">
-        <div class="card-h"><div class="t"><svg class="i"><use href="#i-doc"/></svg><h2>Mi302 刪掉的</h2></div>
+        <div class="card-h"><div class="t"><svg class="i" aria-hidden="true"><use href="#i-doc"/></svg><h2>Mi302 刪掉的</h2></div>
           <div class="row"><select id="dlSource" class="w-auto" aria-label="從哪裡刪的" onchange="loadDeleted(0)"><option value="">全部</option></select></div></div>
         <div class="card-b stack">
           <p class="hint">Mi302 送進 115 回收站的都記在這裡：重複檔案、空資料夾、瀏覽 115、整理 115 網盤、整理後清掉的舊資料夾，最多留 5000 筆。要還原請到 115 的回收站找同名的。</p>
@@ -669,7 +669,7 @@ dialog .card-b{max-height:70vh;overflow:auto}
     </section>
 
     <!-- 瀏覽 115 -->
-    <section id="tab-browse" class="page hidden" role="tabpanel" aria-labelledby="nav-browse">
+    <section id="tab-browse" class="page hidden" aria-labelledby="nav-browse">
       <div class="page-h">
         <div><h1>瀏覽 115</h1><p class="sub">看 115 上的資料夾裡有什麼，影片標出在 Mi302 媒體庫裡被認成哪一集或哪部電影。認錯的資料夾按「整理…」加進「115 網盤」頁的「整理 115 網盤」，先預覽再執行。 <a class="doc" href="https://github.com/MiCat-S/Mi302/wiki/115-網盤與同步#瀏覽-115" target="_blank" rel="noopener">說明</a></p></div>
         <div class="row wrap gap6"><button class="btn" id="b115Go" onclick="goOrganize()">去整理</button><button class="btn" id="b115Start" onclick="browse115Start()">回到同步目錄</button></div>
@@ -691,13 +691,13 @@ dialog .card-b{max-height:70vh;overflow:auto}
     </section>
 
     <!-- 整理 -->
-    <section id="tab-tools" class="page hidden" role="tabpanel" aria-labelledby="nav-tools">
+    <section id="tab-tools" class="page hidden" aria-labelledby="nav-tools">
       <div class="page-h">
         <div><h1>整理</h1><p class="sub">補齊媒體資訊、校正片頭片尾、刪掉 115 上重複的影片和空資料夾。</p></div>
       </div>
       <div class="seg mb16 subtabs" role="tablist" aria-label="整理的項目"><button data-act="sub" data-sub="mi" role="tab" aria-selected="false">媒體資訊</button><button data-act="sub" data-sub="intro" role="tab" aria-selected="false">片頭片尾</button><button data-act="sub" data-sub="dup" role="tab" aria-selected="false">重複和大檔案</button><button data-act="sub" data-sub="empty" role="tab" aria-selected="false">空資料夾</button></div>
       <div class="card" id="miCard" data-sub="mi" role="tabpanel">
-        <div class="card-h"><div class="t"><svg class="i"><use href="#i-film"/></svg><h2>媒體資訊</h2></div></div>
+        <div class="card-h"><div class="t"><svg class="i" aria-hidden="true"><use href="#i-film"/></svg><h2>媒體資訊</h2></div></div>
         <div class="card-b stack">
           <p class="hint">解析度、HDR、音軌和字幕軌，播放器靠它標出 4K、HDR，讓人選音軌和字幕。影片旁邊有 X-mediainfo.json 就直接讀，沒有的可以在這裡用 ffprobe 從 115 提取（每支要取一次直鏈、讀幾 MB）。 <a class="doc" href="https://github.com/MiCat-S/Mi302/wiki/媒體資訊與探測" target="_blank" rel="noopener">說明</a></p>
           <div id="miStat"><p class="hint">讀取中…</p></div>
@@ -730,7 +730,7 @@ dialog .card-b{max-height:70vh;overflow:auto}
       </div>
 
       <div class="card" id="introCard" data-sub="intro" role="tabpanel">
-        <div class="card-h"><div class="t"><svg class="i"><use href="#i-play"/></svg><h2>片頭片尾</h2></div><button class="btn ghost" onclick="clearIntro()">清除全部</button></div>
+        <div class="card-h"><div class="t"><svg class="i" aria-hidden="true"><use href="#i-play"/></svg><h2>片頭片尾</h2></div><button class="btn ghost" onclick="clearIntro()">清除全部</button></div>
         <div class="card-b stack">
           <p class="hint">從播放行為學：有人在開頭跳過一段、在片尾切下一集，就記成這一季的片頭片尾，播放器會顯示「跳過片頭」。學得不準的可以搜尋劇名、按「編輯」手動設定，手動的優先。 <a class="doc" href="https://github.com/MiCat-S/Mi302/wiki/片頭片尾跳過" target="_blank" rel="noopener">說明</a></p>
           <div id="introStat"><p class="hint">讀取中…</p></div>
@@ -743,7 +743,7 @@ dialog .card-b{max-height:70vh;overflow:auto}
       </div>
 
       <div class="card" id="dupCard" data-sub="dup" role="tabpanel">
-        <div class="card-h"><div class="t"><svg class="i"><use href="#i-copy"/></svg><h2>重複和大檔案</h2></div>
+        <div class="card-h"><div class="t"><svg class="i" aria-hidden="true"><use href="#i-copy"/></svg><h2>重複和大檔案</h2></div>
           <div class="row"><button class="btn" onclick="pickDupRoot()">改選 115 目錄…</button><button class="btn primary" id="dupScanBtn" onclick="scanDupes()">掃描</button></div></div>
         <div class="card-b stack">
           <p class="hint">掃描一次，找出 115 上內容完全相同的檔案、同一部片的不同版本（例如 1080p 和 2160p），並列出 1 GB 以上的大檔案。刪除會送進 115 回收站，本機的 strm 跟著刪，觀看紀錄轉到保留的那份。 <a class="doc" href="https://github.com/MiCat-S/Mi302/wiki/115-網盤與同步#重複檔案" target="_blank" rel="noopener">說明</a></p>
@@ -760,15 +760,15 @@ dialog .card-b{max-height:70vh;overflow:auto}
                 <option value="1080">1080P（沒有再 4K）</option><option value="2160">4K（沒有再 1080P）</option><option value="highest">解析度最高的</option></select></label>
             <button class="btn sm" id="dupAllOn" onclick="dupSelectAll(true)">全部照建議勾選</button><button class="btn sm" onclick="dupSelectAll(false)">全部取消勾選</button>
             <span class="hint grow" id="dupSelInfo"></span>
-            <button class="btn danger js-dupdel" onclick="deleteDupes()"><svg class="i"><use href="#i-trash"/></svg><span class="js-dupdel-label">刪除勾選的</span></button></div>
+            <button class="btn danger js-dupdel" onclick="deleteDupes()"><svg class="i" aria-hidden="true"><use href="#i-trash"/></svg><span class="js-dupdel-label">刪除勾選的</span></button></div>
           <div id="dupList" class="list"></div>
-          <div class="row wrap"><span class="grow"></span><button class="btn danger js-dupdel" onclick="deleteDupes()"><svg class="i"><use href="#i-trash"/></svg><span class="js-dupdel-label">刪除勾選的</span></button></div>
+          <div class="row wrap"><span class="grow"></span><button class="btn danger js-dupdel" onclick="deleteDupes()"><svg class="i" aria-hidden="true"><use href="#i-trash"/></svg><span class="js-dupdel-label">刪除勾選的</span></button></div>
           <p class="hint">刪掉的記在「115 網盤 → 回收站 → Mi302 刪掉的」。<a href="#115/recycle" data-act="deletedOf" data-source="dupes">看刪除紀錄</a></p>
         </div>
       </div>
 
       <div class="card" id="edCard" data-sub="empty" role="tabpanel">
-        <div class="card-h"><div class="t"><svg class="i"><use href="#i-folder"/></svg><h2>空資料夾</h2></div>
+        <div class="card-h"><div class="t"><svg class="i" aria-hidden="true"><use href="#i-folder"/></svg><h2>空資料夾</h2></div>
           <div class="row"><button class="btn" onclick="pickEmptyRoot()">改選 115 目錄…</button><button class="btn primary" id="edScan" onclick="scanEmpty()">掃描</button></div></div>
         <div class="card-b stack">
           <p class="hint">找出 115 上底下沒有影音檔的資料夾：完全是空的，或只剩 nfo、海報、字幕這類東西（常是整理後留下的舊資料夾）。一部劇整個是空的只列劇的資料夾。勾選後移到 115 回收站；刪之前會再到 115 上確認一次，裡面有影音檔了、或一小時內剛有變動的不刪。 <a class="doc" href="https://github.com/MiCat-S/Mi302/wiki/115-網盤與同步#空資料夾" target="_blank" rel="noopener">說明</a></p>
@@ -776,20 +776,20 @@ dialog .card-b{max-height:70vh;overflow:auto}
           <div class="logbar"><input id="edQ" type="search" placeholder="搜尋路徑" aria-label="搜尋空資料夾" oninput="soon('edQ', () => { edAll = false; loadEmptyList(1); })"></div>
           <div class="row wrap dupbar"><button class="btn sm" onclick="emptySelectAll(true)" title="符合搜尋的全部，包含還沒翻到的頁面">全選</button><button class="btn sm" onclick="emptySelectAll(false)">全部取消勾選</button>
             <span class="hint grow" id="edSelInfo"></span>
-            <button class="btn danger js-eddel" onclick="deleteEmpty()" disabled><svg class="i"><use href="#i-trash"/></svg><span class="js-eddel-label">刪除勾選的</span></button></div>
+            <button class="btn danger js-eddel" onclick="deleteEmpty()" disabled><svg class="i" aria-hidden="true"><use href="#i-trash"/></svg><span class="js-eddel-label">刪除勾選的</span></button></div>
           <div id="edList" class="list"></div>
         </div>
       </div>
     </section>
 
     <!-- MoviePilot -->
-    <section id="tab-moviepilot" class="page hidden" role="tabpanel" aria-labelledby="nav-moviepilot">
+    <section id="tab-moviepilot" class="page hidden" aria-labelledby="nav-moviepilot">
       <div class="page-h">
         <div><h1>MoviePilot</h1><p class="sub">Mi302 不自己刮削：同步產生新的 strm 後交給 MoviePilot 查影片資料，把 nfo 和海報寫到同一個資料夾，Mi302 再重新掃描。</p></div>
       </div>
       <div class="seg mb16 subtabs" role="tablist" aria-label="MoviePilot 的項目"><button data-act="sub" data-sub="conn" role="tab" aria-selected="false">連線</button><button data-act="sub" data-sub="scrape" role="tab" aria-selected="false">刮削</button><button data-act="sub" data-sub="fill" role="tab" aria-selected="false">補全缺集</button><button data-act="sub" data-sub="qb" role="tab" aria-selected="false">qBittorrent</button><button data-act="sub" data-sub="emby" role="tab" aria-selected="false">當成 Emby</button></div>
       <div class="card" id="mpConn" data-sub="conn" role="tabpanel">
-        <div class="card-h"><div class="t"><svg class="i"><use href="#i-spark"/></svg><h2>連線</h2></div><span id="mpPill"></span></div>
+        <div class="card-h"><div class="t"><svg class="i" aria-hidden="true"><use href="#i-spark"/></svg><h2>連線</h2></div><span id="mpPill"></span></div>
         <div class="card-b stack">
           <div class="fields">
             <label class="field"><span>MoviePilot 網址</span><input type="text" data-key="moviepilot.url" placeholder="例如 http://192.168.1.10:3000"></label>
@@ -809,7 +809,7 @@ dialog .card-b{max-height:70vh;overflow:auto}
         <div class="card-f"><button class="btn primary" onclick="saveMP()">儲存</button><button class="btn" onclick="testMP(this)">測試連線</button></div>
       </div>
       <div class="card" id="mpScrape" data-sub="scrape" role="tabpanel">
-        <div class="card-h"><div class="t"><svg class="i"><use href="#i-film"/></svg><h2>刮削</h2></div><button class="btn" onclick="scrapeMP()">刮削缺少資料的項目</button></div>
+        <div class="card-h"><div class="t"><svg class="i" aria-hidden="true"><use href="#i-film"/></svg><h2>刮削</h2></div><button class="btn" onclick="scrapeMP()">刮削缺少資料的項目</button></div>
         <div class="card-b stack">
           <div class="js-mp"></div>
           <label class="switch"><input type="checkbox" data-key="moviepilot.scrape_after_sync" onchange="saveToggle(this)"><span class="track"></span><span class="lbl">同步產生新的 strm 後自動送去刮削<small>關掉時同步完只掃描，要刮削就按上面的按鈕</small></span></label>
@@ -817,7 +817,7 @@ dialog .card-b{max-height:70vh;overflow:auto}
         </div>
       </div>
       <div class="card" id="mpFill" data-sub="fill" role="tabpanel">
-        <div class="card-h"><div class="t"><svg class="i"><use href="#i-tv"/></svg><h2>補全缺集</h2></div><button class="btn" id="fillCheckBtn" onclick="checkAll()" title="向 MoviePilot 查 TMDB 上每一季已播出的集，記下缺哪幾集；不建訂閱、不下載">檢查缺集</button></div>
+        <div class="card-h"><div class="t"><svg class="i" aria-hidden="true"><use href="#i-tv"/></svg><h2>補全缺集</h2></div><button class="btn" id="fillCheckBtn" onclick="checkAll()" title="向 MoviePilot 查 TMDB 上每一季已播出的集，記下缺哪幾集；不建訂閱、不下載">檢查缺集</button></div>
         <div class="card-b stack">
           <p class="hint">對照 TMDB 找出缺集的劇，再交給 MoviePilot 訂閱、下載。「檢查缺集」只對照，不會訂閱；按了「補全」才建訂閱。 <a class="doc" href="https://github.com/MiCat-S/Mi302/wiki/MoviePilot-整合#補全缺集" target="_blank" rel="noopener">說明</a></p>
           <div id="fillNeed"></div>
@@ -848,7 +848,7 @@ dialog .card-b{max-height:70vh;overflow:auto}
         </div>
       </div>
       <div class="card" id="qbConn" data-sub="qb" role="tabpanel">
-        <div class="card-h"><div class="t"><svg class="i"><use href="#i-download"/></svg><h2>qBittorrent</h2></div><span id="qbPill"></span></div>
+        <div class="card-h"><div class="t"><svg class="i" aria-hidden="true"><use href="#i-download"/></svg><h2>qBittorrent</h2></div><span id="qbPill"></span></div>
         <div class="card-b stack">
           <p class="hint">MoviePilot 訂閱到的種子交給 qBittorrent 下載。沒人做種的種子速度一直是 0，卻佔著同時下載的名額，排在後面的輪不到。連上之後，Mi302 可以把這種種子刪掉，讓排在後面的接著開始。 <a class="doc" href="https://github.com/MiCat-S/Mi302/wiki/MoviePilot-整合#qbittorrent-沒速度的種子" target="_blank" rel="noopener">說明</a></p>
           <div class="fields">
@@ -861,7 +861,7 @@ dialog .card-b{max-height:70vh;overflow:auto}
         <div class="card-f"><button class="btn primary" onclick="saveQB()">儲存</button><button class="btn" onclick="testQB(this)">測試連線</button></div>
       </div>
       <div class="card" id="qbStalled" data-sub="qb" role="tabpanel">
-        <div class="card-h"><div class="t"><svg class="i"><use href="#i-alert"/></svg><h2>沒速度的種子</h2></div><button class="btn" onclick="checkQB(this)">現在看一次</button></div>
+        <div class="card-h"><div class="t"><svg class="i" aria-hidden="true"><use href="#i-alert"/></svg><h2>沒速度的種子</h2></div><button class="btn" onclick="checkQB(this)">現在看一次</button></div>
         <div class="card-b stack">
           <label class="switch"><input type="checkbox" data-key="qbittorrent.remove_stalled" onchange="qbToggle(this)"><span class="track"></span><span class="lbl">自動刪掉太久沒速度的種子<small>每 5 分鐘看一次。只看正在下載、還沒下載完的，排隊、暫停、做種的不動；刪掉幾個，排在後面的就接著開始幾個</small></span></label>
           <label class="switch"><input type="checkbox" data-key="qbittorrent.delete_files" onchange="saveToggle(this, pollQB)"><span class="track"></span><span class="lbl">連同下載到一半的檔案一起刪<small>關掉的話只從 qBittorrent 拿掉，檔案留在下載資料夾</small></span></label>
@@ -883,25 +883,25 @@ dialog .card-b{max-height:70vh;overflow:auto}
         </div>
       </div>
       <div class="card" id="mpEmby" data-sub="emby" role="tabpanel">
-        <div class="card-h"><div class="t"><svg class="i"><use href="#i-key"/></svg><h2>讓 MoviePilot 把 Mi302 當成 Emby</h2></div></div>
+        <div class="card-h"><div class="t"><svg class="i" aria-hidden="true"><use href="#i-key"/></svg><h2>讓 MoviePilot 把 Mi302 當成 Emby</h2></div></div>
         <div class="card-b stack">
           <p class="hint">MoviePilot 可以把 Mi302 加成媒體伺服器，用來判斷片子是否已經有了、整理完自動通知 Mi302 重新掃描。在 MoviePilot 的「設定 → 媒體伺服器」新增一個 Emby：</p>
-          <dl class="kv"><dt>地址</dt><dd><div class="row"><code class="js-origin"></code><button class="btn sm ghost icon" data-act="copyOrigin" title="複製" aria-label="複製伺服器地址"><svg class="i"><use href="#i-copy"/></svg></button></div></dd>
+          <dl class="kv"><dt>地址</dt><dd><div class="row"><code class="js-origin"></code><button class="btn sm ghost icon" data-act="copyOrigin" title="複製" aria-label="複製伺服器地址"><svg class="i" aria-hidden="true"><use href="#i-copy"/></svg></button></div></dd>
             <dt>API 金鑰</dt><dd>在下面建立一把，複製過去</dd></dl>
           <div id="keys" class="list"></div>
-          <div class="inline"><input id="keyName" type="text" placeholder="用途，例如 MoviePilot"><button class="btn" onclick="addKey(this)"><svg class="i"><use href="#i-plus"/></svg>建立 API 金鑰</button></div>
+          <div class="inline"><input id="keyName" type="text" placeholder="用途，例如 MoviePilot"><button class="btn" onclick="addKey(this)"><svg class="i" aria-hidden="true"><use href="#i-plus"/></svg>建立 API 金鑰</button></div>
         </div>
       </div>
     </section>
 
     <!-- 使用者 -->
-    <section id="tab-users" class="page hidden" role="tabpanel" aria-labelledby="nav-users">
+    <section id="tab-users" class="page hidden" aria-labelledby="nav-users">
       <div class="page-h">
         <div><h1>使用者</h1><p class="sub">這些帳號可以在播放器裡登入；管理員才能進這個網頁。</p></div>
       </div>
-      <div class="card"><div class="card-h"><div class="t"><svg class="i"><use href="#i-users"/></svg><h2>帳號</h2></div></div><div class="card-b"><div id="users" class="list"></div></div></div>
+      <div class="card"><div class="card-h"><div class="t"><svg class="i" aria-hidden="true"><use href="#i-users"/></svg><h2>帳號</h2></div></div><div class="card-b"><div id="users" class="list"></div></div></div>
       <form class="card" onsubmit="addUser();return false">
-        <div class="card-h"><div class="t"><svg class="i"><use href="#i-plus"/></svg><h2>新增使用者</h2></div></div>
+        <div class="card-h"><div class="t"><svg class="i" aria-hidden="true"><use href="#i-plus"/></svg><h2>新增使用者</h2></div></div>
         <div class="card-b stack">
           <div class="fields">
             <label class="field"><span>帳號</span><input id="nuName" type="text" autocomplete="off"></label>
@@ -914,10 +914,10 @@ dialog .card-b{max-height:70vh;overflow:auto}
     </section>
 
     <!-- 日誌 -->
-    <section id="tab-logs" class="page hidden" role="tabpanel" aria-labelledby="nav-logs">
+    <section id="tab-logs" class="page hidden" aria-labelledby="nav-logs">
       <div class="page-h">
         <div><h1>日誌</h1><p class="sub">同步、刮削、播放和錯誤的紀錄，最新的在最上面。這裡顯示最近 <span id="logMax">1000</span> 筆，完整紀錄在日誌檔 <code id="logFile"></code>。</p></div>
-        <button class="btn" onclick="downloadLog()"><svg class="i"><use href="#i-download"/></svg>下載日誌檔</button>
+        <button class="btn" onclick="downloadLog()"><svg class="i" aria-hidden="true"><use href="#i-download"/></svg>下載日誌檔</button>
       </div>
       <div class="card">
         <div class="card-h logbar">
@@ -938,7 +938,7 @@ dialog .card-b{max-height:70vh;overflow:auto}
     </section>
 
     <!-- 設定 -->
-    <section id="tab-settings" class="page hidden" role="tabpanel" aria-labelledby="nav-settings">
+    <section id="tab-settings" class="page hidden" aria-labelledby="nav-settings">
       <div class="page-h">
         <div><h1>設定</h1><p class="sub">設定都存在設定檔 <code id="cfgPath"></code>，儲存時自動寫入（舊檔留成 .bak）。直接改檔案也可以，重新整理網頁就會套用。</p></div>
       </div>
@@ -952,14 +952,14 @@ dialog .card-b{max-height:70vh;overflow:auto}
         </div>
       </div>
       <div class="card" data-sub="general" role="tabpanel">
-        <div class="card-h"><div class="t"><svg class="i"><use href="#i-play"/></svg><h2>播放</h2></div></div>
+        <div class="card-h"><div class="t"><svg class="i" aria-hidden="true"><use href="#i-play"/></svg><h2>播放</h2></div></div>
         <div class="card-b stack">
           <label class="switch"><input type="checkbox" data-key="redirect.require_auth"><span class="track"></span><span class="lbl">播放網址要求登入<small>和官方 Emby 一樣，建議開著；關掉的話，知道項目編號的人不用登入就能拿到 115 直鏈。某個播放器播不了時再關</small></span></label>
           <label class="switch"><input type="checkbox" data-key="server.allow_download"><span class="track"></span><span class="lbl">允許播放器下載影片<small>要登入才能下載；關掉後播放器不顯示下載，直接打下載網址也會被拒絕</small></span></label>
         </div>
       </div>
       <div class="card" data-sub="webdav" role="tabpanel">
-        <div class="card-h"><div class="t"><svg class="i"><use href="#i-folder"/></svg><h2>WebDAV</h2></div></div>
+        <div class="card-h"><div class="t"><svg class="i" aria-hidden="true"><use href="#i-folder"/></svg><h2>WebDAV</h2></div></div>
         <div class="card-b stack">
           <p class="hint">Infuse、VidHub、Kodi 這類播放器可以用 WebDAV 直接瀏覽 115 的資料夾，播放時一樣 302 到 115 直鏈，不必產生 strm、不必掃描。只能讀，不能在播放器裡刪除、改名、上傳。 <a class="doc" href="https://github.com/MiCat-S/Mi302/wiki/播放與外網連線#webdav" target="_blank" rel="noopener">說明</a></p>
           <label class="switch"><input type="checkbox" data-key="webdav.enabled"><span class="track"></span><span class="lbl">開啟 WebDAV<small>儲存後馬上生效，不用重新啟動</small></span></label>
@@ -967,7 +967,7 @@ dialog .card-b{max-height:70vh;overflow:auto}
             <div class="row gap6"><input type="text" id="davRoot" class="grow" data-key="webdav.root" placeholder="空白 = 同步任務的 115 目錄" oninput="davShow()"><button class="btn sm" onclick="davPick()">選擇…</button></div>
             <small id="davRoots"></small></label>
           <label class="switch"><input type="checkbox" data-key="webdav.admin_only"><span class="track"></span><span class="lbl">只讓管理員登入<small>露出整個 115（填 /）時建議打開，一般使用者就看不到網盤裡的其他檔案</small></span></label>
-          <dl class="kv"><dt>地址</dt><dd><div class="row"><code id="davUrl"></code><button class="btn sm ghost icon" data-act="copyDav" title="複製" aria-label="複製 WebDAV 地址"><svg class="i"><use href="#i-copy"/></svg></button></div></dd>
+          <dl class="kv"><dt>地址</dt><dd><div class="row"><code id="davUrl"></code><button class="btn sm ghost icon" data-act="copyDav" title="複製" aria-label="複製 WebDAV 地址"><svg class="i" aria-hidden="true"><use href="#i-copy"/></svg></button></div></dd>
             <dt>帳號密碼</dt><dd>Mi302 的使用者名稱和密碼（和播放器登入 Mi302 用的一樣）</dd></dl>
           <div class="stack" id="davTestBox"><p class="hint">測試已儲存的設定：用一個 Mi302 帳號，從這個網址實際連一次 /dav/（經過反向代理的話也一起測到），再看每個露出的 115 資料夾讀不讀得到。</p>
             <div class="row wrap gap6"><input id="davUser" type="text" class="w-auto grow" placeholder="Mi302 使用者名稱" aria-label="測試用的使用者名稱" autocomplete="username">
@@ -989,7 +989,7 @@ dialog .card-b{max-height:70vh;overflow:auto}
         </div>
       </div>
       <div class="card" id="zhCard" data-sub="zh" role="tabpanel">
-        <div class="card-h"><div class="t"><svg class="i"><use href="#i-users"/></svg><h2>中文化</h2></div><button class="btn" id="zhBtn" onclick="resolvePeople()">現在查中文名</button></div>
+        <div class="card-h"><div class="t"><svg class="i" aria-hidden="true"><use href="#i-users"/></svg><h2>中文化</h2></div><button class="btn" id="zhBtn" onclick="resolvePeople()">現在查中文名</button></div>
         <div class="card-b stack">
           <div id="zhStat"><p class="hint">讀取中…</p></div>
           <label class="switch"><input type="checkbox" data-key="server.chinese_people"><span class="track"></span><span class="lbl">演職人員顯示中文名<small>TMDB 的人名常是拼音或英文（Chen He）。先經 MoviePilot 查 TMDB 別名挑中文的，沒有再問 Wikidata；用原名、中文名都搜得到人。查過沒有的 30 天後再查。</small></span></label>
@@ -997,7 +997,7 @@ dialog .card-b{max-height:70vh;overflow:auto}
         </div>
       </div>
       <div class="card" data-sub="backup" role="tabpanel">
-        <div class="card-h"><div class="t"><svg class="i"><use href="#i-download"/></svg><h2>備份</h2></div><button class="btn" id="bkBtn" onclick="backupNow()">立即備份</button></div>
+        <div class="card-h"><div class="t"><svg class="i" aria-hidden="true"><use href="#i-download"/></svg><h2>備份</h2></div><button class="btn" id="bkBtn" onclick="backupNow()">立即備份</button></div>
         <div class="card-b stack">
           <p class="hint">每天自動備份資料庫（使用者、觀看紀錄、115 登入狀態、同步索引、媒體資訊）和設定檔，放在 <code id="bkDir"></code>。備份含 115 登入資訊和密碼雜湊，下載後請妥善保管。</p>
           <label class="field maxw280"><span>保留幾份</span><input type="number" min="0" max="90" data-key="server.backup_keep"><small>0 = 不自動備份（手動備份仍留最新 7 份）</small></label>
@@ -1007,13 +1007,13 @@ dialog .card-b{max-height:70vh;overflow:auto}
         </div>
       </div>
       <div class="card" data-sub="about" role="tabpanel">
-        <div class="card-h"><div class="t"><svg class="i"><use href="#i-github"/></svg><h2>關於 Mi302</h2></div></div>
+        <div class="card-h"><div class="t"><svg class="i" aria-hidden="true"><use href="#i-github"/></svg><h2>關於 Mi302</h2></div></div>
         <div class="card-b stack">
           <p>Mi302 的原始碼公開在 GitHub。覺得好用的話，請到 GitHub 點個 Star，讓更多人看到；遇到問題或有建議，歡迎開 Issue。</p>
           <div class="row wrap">
-            <a class="btn primary" href="https://github.com/MiCat-S/Mi302" target="_blank" rel="noopener"><svg class="i"><use href="#i-star"/></svg>到 GitHub 點 Star</a>
+            <a class="btn primary" href="https://github.com/MiCat-S/Mi302" target="_blank" rel="noopener"><svg class="i" aria-hidden="true"><use href="#i-star"/></svg>到 GitHub 點 Star</a>
             <a class="btn" href="https://github.com/MiCat-S/Mi302/issues" target="_blank" rel="noopener">回報問題</a>
-            <a class="btn ghost" href="https://github.com/MiCat-S/Mi302/wiki" target="_blank" rel="noopener"><svg class="i"><use href="#i-doc"/></svg>說明文件</a>
+            <a class="btn ghost" href="https://github.com/MiCat-S/Mi302/wiki" target="_blank" rel="noopener"><svg class="i" aria-hidden="true"><use href="#i-doc"/></svg>說明文件</a>
           </div>
           <p class="hint">授權：PolyForm Noncommercial 1.0.0。個人、家庭、學習研究、非營利組織都可以免費使用和修改，<b>不能用在商業用途</b>（例如拿來賣、做成收費服務）。<a href="https://github.com/MiCat-S/Mi302/blob/main/LICENSE.md" target="_blank" rel="noopener">授權全文</a></p>
         </div>
@@ -1024,33 +1024,33 @@ dialog .card-b{max-height:70vh;overflow:auto}
 </div>
 
 <dialog id="picker" aria-labelledby="pickTitle">
-  <div class="card-h"><div class="t"><svg class="i"><use href="#i-folder"/></svg><h2 id="pickTitle">選擇資料夾</h2></div></div>
+  <div class="card-h"><div class="t"><svg class="i" aria-hidden="true"><use href="#i-folder"/></svg><h2 id="pickTitle">選擇資料夾</h2></div></div>
   <div class="card-b stack">
-    <div class="inline"><input id="pickPath" type="text"><button class="btn" onclick="pickGo(pickPath.value)">前往</button></div>
+    <div class="inline"><input id="pickPath" type="text" aria-label="資料夾路徑"><button class="btn" onclick="pickGo(pickPath.value)">前往</button></div>
     <p id="pickMsg" aria-live="polite" class="notice bad hidden"></p>
     <div id="pickList"></div>
   </div>
-  <div class="card-f fe"><button class="btn" onclick="picker.close()">取消</button><button class="btn primary" onclick="pickDone()">選這個資料夾</button></div>
+  <div class="card-f fe"><button class="btn" onclick="picker.close()">取消</button><button class="btn primary" id="pickOk" onclick="pickDone()">選這個資料夾</button></div>
 </dialog>
 <dialog id="libDlg" class="wide" aria-labelledby="ldTitle">
-  <div class="card-h"><div class="t"><svg class="i"><use href="#i-film"/></svg><h2 id="ldTitle">編輯媒體庫</h2></div></div>
+  <div class="card-h"><div class="t"><svg class="i" aria-hidden="true"><use href="#i-film"/></svg><h2 id="ldTitle">編輯媒體庫</h2></div></div>
   <div class="card-b stack">
     <div class="fields">
       <label class="field"><span>名稱</span><input id="ldName" type="text" placeholder="例如 電影"></label>
       <label class="field"><span>類型</span><select id="ldType"><option value="movies">電影</option><option value="tvshows">劇集</option></select></label>
     </div>
     <div>
-      <div class="row"><b class="grow">資料夾</b><button class="btn sm" onclick="libDlgAddPath()"><svg class="i"><use href="#i-plus"/></svg>加入資料夾</button></div>
+      <div class="row"><b class="grow">資料夾</b><button class="btn sm" onclick="libDlgAddPath()"><svg class="i" aria-hidden="true"><use href="#i-plus"/></svg>加入資料夾</button></div>
       <div id="ldPaths" class="list mt10"></div>
     </div>
     <div id="ldCover"></div>
     <p id="ldMsg" aria-live="polite" class="notice bad hidden"></p>
   </div>
-  <div class="card-f"><button class="btn danger" id="ldDel" onclick="deleteLibDlg()"><svg class="i"><use href="#i-trash"/></svg>刪除媒體庫</button><span class="grow"></span>
+  <div class="card-f"><button class="btn danger" id="ldDel" onclick="deleteLibDlg()"><svg class="i" aria-hidden="true"><use href="#i-trash"/></svg>刪除媒體庫</button><span class="grow"></span>
     <button class="btn" onclick="libDlg.close()">取消</button><button class="btn primary" id="ldSave" onclick="saveLibDlg()">儲存並掃描</button></div>
 </dialog>
 <dialog id="bulkDlg" class="wide" aria-labelledby="blkTitle">
-  <div class="card-h"><div class="t"><svg class="i"><use href="#i-folder"/></svg><h2 id="blkTitle">從資料夾批量新增</h2></div></div>
+  <div class="card-h"><div class="t"><svg class="i" aria-hidden="true"><use href="#i-folder"/></svg><h2 id="blkTitle">從資料夾批量新增</h2></div></div>
   <div class="card-b stack">
     <p class="hint">選一個上層資料夾，底下每個子資料夾各建一個媒體庫。類型是看裡面的檔案猜的，可以改。名稱改成一樣的會合成一個媒體庫；和現有的媒體庫同名，就加進那個媒體庫。</p>
     <div class="inline"><input id="blkPath" type="text" placeholder="/media" onkeydown="if (event.key === 'Enter') bulkLoad()"><button class="btn" onclick="bulkPick()">選擇…</button><button class="btn" onclick="bulkLoad()">讀取</button></div>
@@ -1061,7 +1061,7 @@ dialog .card-b{max-height:70vh;overflow:auto}
   <div class="card-f"><span class="grow"></span><button class="btn" onclick="bulkDlg.close()">取消</button><button class="btn primary" id="blkOk" onclick="bulkSave()" disabled>新增並掃描</button></div>
 </dialog>
 <dialog id="srvDlg" aria-labelledby="srvTitle">
-  <div class="card-h"><div class="t"><svg class="i"><use href="#i-download"/></svg><h2 id="srvTitle">版本與更新</h2></div></div>
+  <div class="card-h"><div class="t"><svg class="i" aria-hidden="true"><use href="#i-download"/></svg><h2 id="srvTitle">版本與更新</h2></div></div>
   <div class="card-b stack">
     <div id="srvInfo" aria-live="polite"><p class="hint row"><span class="spin"></span>讀取中…</p></div>
     <label class="switch"><input type="checkbox" data-key="server.update_check" onchange="saveToggle(this, loadServer)"><span class="track"></span><span class="lbl">自動檢查更新<small>每 6 小時向 GitHub 查一次，有新版時每一頁上方都會提示</small></span></label>
@@ -1078,7 +1078,7 @@ dialog .card-b{max-height:70vh;overflow:auto}
   <div class="card-f"><button class="btn" id="srvCheck" onclick="checkUpdate()">檢查更新</button><button class="btn" id="srvRestart" onclick="restartServer()">重新啟動</button><span class="grow"></span><button class="btn" onclick="srvDlg.close()">關閉</button></div>
 </dialog>
 <dialog id="delDlg" class="wide" aria-labelledby="delTitle">
-  <div class="card-h"><div class="t"><svg class="i"><use href="#i-trash"/></svg><h2 id="delTitle">刪除</h2></div></div>
+  <div class="card-h"><div class="t"><svg class="i" aria-hidden="true"><use href="#i-trash"/></svg><h2 id="delTitle">刪除</h2></div></div>
   <div class="card-b stack">
     <p class="hint">勾選的檔案移到 115 回收站（在 115 可以還原），本機的 strm、nfo 和媒體庫裡的這幾集一起拿掉。預設只勾認不出集號的；集號是從檔名猜的通常是真的集，交給 MoviePilot 整理比刪掉好。</p>
     <div class="row wrap gap6" id="delPicks"><button class="btn sm" onclick="delPick('none')">認不出集號的</button><button class="btn sm" onclick="delPick('problem')">集號不對的（含猜的）</button>
@@ -1095,7 +1095,7 @@ dialog .card-b{max-height:70vh;overflow:auto}
     <div class="card-b stack">
       <h2 id="mTitle"></h2>
       <p id="mText" class="hint"></p>
-      <input id="mInput" class="hidden">
+      <input id="mInput" class="hidden" aria-labelledby="mTitle" aria-describedby="mText">
     </div>
     <div class="card-f fe"><button class="btn" value="cancel">取消</button><button class="btn primary" id="mOk" value="ok">確定</button></div>
   </form>
@@ -1109,8 +1109,21 @@ let cfg = null, tasks = [];
 const S = {};  // 最近一次讀到的狀態：p115、sync、mp、scan、mi、dupes、reo（整理工作）
 const $ = id => document.getElementById(id);
 const H = () => ({'X-Emby-Token': token, 'Content-Type': 'application/json'});
+// 舊瀏覽器沒有 AbortSignal.timeout 就不限時
+const timeoutSignal = ms => AbortSignal.timeout ? AbortSignal.timeout(ms) : undefined;
+// fetch 本身丟的錯（斷線、逾時）換成看得懂的話；AbortError（自己取消的）照原樣丟，呼叫的地方看到就不理
+function netError(e, seconds) {
+  if (e?.name === 'AbortError') return e;
+  return new Error(e?.name === 'TimeoutError' ? `伺服器 ${seconds} 秒沒有回應，請重試` : `連不上 Mi302（${e?.message || e}）`);
+}
 async function api(path, opt = {}) {
-  const r = await fetch(path, {...opt, headers: H()});
+  // 自己帶的 headers 併進去，不蓋掉登入 token；讀取（GET）60 秒沒回應就放棄，會改東西的不限時：伺服器可能還在做，
+  // 中途放棄不代表沒做完，也不自動重送
+  const method = (opt.method || 'GET').toUpperCase();
+  const signal = opt.signal || (method === 'GET' ? timeoutSignal(60000) : undefined);
+  let r;
+  try { r = await fetch(path, {...opt, signal, headers: {...H(), ...opt.headers}}); }
+  catch (e) { throw netError(e, 60); }
   if (r.status === 401) { token = ''; localStorage.removeItem('mi302'); boot(); throw new Error('請重新登入'); }
   if (!r.ok) throw new Error(await r.text() || r.status);
   return r.status === 204 ? null : r.json();
@@ -1119,7 +1132,7 @@ function show(id) { for (const s of ['boot', 'setup', 'login', 'main']) $(s).cla
 const ESC = {'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'};
 function esc(s) { return String(s ?? '').replace(/[&<>"']/g, c => ESC[c]); }
 function setHtml(el, html) { if (el._html !== html) { el._html = html; el.innerHTML = html; } }  // 內容沒變就不重畫
-const icon = name => `<svg class="i"><use href="#i-${name}"/></svg>`;
+const icon = name => `<svg class="i" aria-hidden="true"><use href="#i-${name}"/></svg>`;
 function chip(n, l, hl) { return `<div class="chip ${hl && n ? 'hl' : ''}"><div class="n">${n}</div><div class="l">${esc(l)}</div></div>`; }
 const failHtml = e => `<p class="notice bad">${esc(e?.message || e)}</p>`;  // 讀取失敗的提示，各處同一種寫法
 
@@ -1130,9 +1143,19 @@ function cancel(key) { clearTimeout(timers[key]); delete timers[key]; }
 function soon(key, fn, ms = 300) { cancel(key); timers[key] = setTimeout(() => { delete timers[key]; fn(); }, ms); }
 function later(key, fn, ms = 2000) {
   // 輪詢：ms 之後再問一次；分頁在背景（document.hidden）時不打伺服器，只延後再看
-  cancel(key);
+  cancel(key); delete pollFails[key];
   const tick = () => { if (document.hidden) timers[key] = setTimeout(tick, ms); else { delete timers[key]; fn(); } };
   timers[key] = setTimeout(tick, ms);
+}
+// 輪詢讀狀態失敗（重新啟動中、反向代理回 502、網路斷一下）：不能就此停住、畫面停在舊的進度，
+// 隔 2、4、8、16、30 秒再問；連續失敗的第一次提示一下。登出（token 清掉）後不再問
+const pollFails = {};
+function pollFailed(key, fn, e) {
+  if (!token || e?.name === 'AbortError') return;
+  const n = (pollFails[key] || 0) + 1;
+  if (n === 1) toast('讀不到最新進度（' + (e?.message || e) + '），會自動重試', 'bad');
+  later(key, fn, Math.min(30000, 1000 * 2 ** Math.min(n, 5)));
+  pollFails[key] = n;
 }
 // 分頁列：「第 N / M 頁，共 X 項」和上一頁、下一頁。只有一頁時不畫；always 為真時照樣顯示總數
 function pager(box, {page, pages, onPage, total = null, unit = '', always = false}) {
@@ -1214,8 +1237,7 @@ async function boot() {
   cancel('boot');
   let s;
   try {
-    // 舊瀏覽器沒有 AbortSignal.timeout 就不限時
-    const r = await fetch('/web/api/setup', {cache: 'no-store', signal: AbortSignal.timeout ? AbortSignal.timeout(15000) : undefined});
+    const r = await fetch('/web/api/setup', {cache: 'no-store', signal: timeoutSignal(15000)});
     if (!r.ok) throw new Error(`伺服器回應 ${r.status}`);
     s = await r.json();
   } catch (e) { return bootFailed(e); }
@@ -1224,6 +1246,7 @@ async function boot() {
   try { cfg = await api('/web/api/settings'); }
   catch (e) { return token ? bootFailed(e) : undefined; }  // token 被清掉是 401，api() 已經改顯示登入
   bootTries = 0;
+  fillFields();  // 只在讀到設定時填；切換分頁不再重填，不然還沒儲存的輸入會被蓋回去
   show('main'); route();
   loadServer(true);  // 側欄的版本按鈕、頁首的更新提示
   const done = sessionGet('mi302-done');
@@ -1239,27 +1262,73 @@ function bootFailed(e) {
   show('boot');
   soon('boot', boot, wait * 1000);
 }
-const AUTH_HEADER = 'MediaBrowser Client="Mi302 Web", Device="Browser", DeviceId="mi302web", Version="1"';
-async function doSetup() {
-  if (!sPw.value || sPw.value !== sPw2.value) return note($('sMsg'), '兩次密碼不一樣或是空的', 'bad');
-  const r = await fetch('/web/api/setup', {method: 'POST', headers: {'Content-Type': 'application/json', 'X-Emby-Authorization': AUTH_HEADER},
-    body: JSON.stringify({name: sName.value, password: sPw.value})});
-  if (!r.ok) return note($('sMsg'), await r.text(), 'bad');
-  token = (await r.json()).token; localStorage.setItem('mi302', token);
-  location.hash = '#overview'; boot();
-}
-async function login() {
-  const r = await fetch('/Users/AuthenticateByName', {method: 'POST', headers: {'Content-Type': 'application/json', 'X-Emby-Authorization': AUTH_HEADER},
-    body: JSON.stringify({Username: u.value, Pw: p.value})});
-  if (!r.ok) return note($('lMsg'), '帳號或密碼錯誤', 'bad');
-  const j = await r.json();
-  if (!j.User.Policy.IsAdministrator) {  // 網頁不用一般帳號的登入，剛發的 token 收回
-    fetch('/Sessions/Logout', {method: 'POST', headers: {'X-Emby-Token': j.AccessToken}}).catch(() => {});
-    return note($('lMsg'), '這個帳號不是管理員', 'bad');
+function browserDeviceId() {
+  // 每個瀏覽器一個裝置 id：伺服器在同一個裝置重新登入時收回舊的 token，大家共用同一個的話，手機一登入電腦就被登出。
+  // 存不了（無痕模式、封鎖網站資料）就這一次用隨機的
+  let id = '';
+  try { id = localStorage.getItem('mi302.device') || ''; } catch (e) {}
+  if (!id) {
+    // 不用 crypto.randomUUID：區網的 http 位址不是安全環境，沒有它
+    id = 'web-' + [...crypto.getRandomValues(new Uint8Array(8))].map(b => b.toString(16).padStart(2, '0')).join('');
+    try { localStorage.setItem('mi302.device', id); } catch (e) {}
   }
-  token = j.AccessToken; localStorage.setItem('mi302', token); note($('lMsg'), ''); boot();
+  return id;
 }
-async function logoutWeb() { try { await api('/Sessions/Logout', {method: 'POST'}); } catch (e) {} token = ''; localStorage.removeItem('mi302'); show('login'); }
+const AUTH_HEADER = `MediaBrowser Client="Mi302 Web", Device="Browser", DeviceId="${browserDeviceId()}", Version="1"`;
+async function busy(form, label, work) {
+  // 登入、建立管理員：送出時按鈕停用、顯示「…中」，連點不會送兩次；斷線、逾時也要告訴使用者
+  const btn = form.querySelector('button[type="submit"]');
+  if (btn.disabled) return;
+  const text = btn.textContent;
+  btn.disabled = true; btn.textContent = label; form.setAttribute('aria-busy', 'true');
+  try { await work(); }
+  finally { btn.disabled = false; btn.textContent = text; form.removeAttribute('aria-busy'); }
+}
+async function authFetch(path, body) {
+  try {
+    return await fetch(path, {method: 'POST', headers: {'Content-Type': 'application/json', 'X-Emby-Authorization': AUTH_HEADER},
+      body: JSON.stringify(body), signal: timeoutSignal(15000)});
+  } catch (e) { throw netError(e, 15); }
+}
+function doSetup() {
+  if (!sPw.value || sPw.value !== sPw2.value) return note($('sMsg'), '兩次密碼不一樣或是空的', 'bad');
+  return busy($('setupForm'), '建立中…', async () => {
+    note($('sMsg'), '');
+    try {
+      const r = await authFetch('/web/api/setup', {name: sName.value, password: sPw.value});
+      if (!r.ok) throw new Error(await r.text() || `HTTP ${r.status}`);
+      token = (await r.json()).token; localStorage.setItem('mi302', token);
+    } catch (e) { return note($('sMsg'), e.message, 'bad'); }
+    location.hash = '#overview'; boot();
+  });
+}
+function login() {
+  return busy($('loginForm'), '登入中…', async () => {
+    note($('lMsg'), '');
+    let j;
+    try {
+      const r = await authFetch('/Users/AuthenticateByName', {Username: u.value, Pw: p.value});
+      if (r.status === 429) {
+        const wait = r.headers.get('Retry-After');
+        throw new Error('猜錯太多次，' + (wait ? `${wait} 秒後再試` : '請稍後再試'));
+      }
+      if (r.status === 401) throw new Error('帳號或密碼錯誤');
+      if (!r.ok) throw new Error(`伺服器暫時無法登入（HTTP ${r.status}）`);
+      j = await r.json();
+    } catch (e) { return note($('lMsg'), e.message, 'bad'); }
+    if (!j.User.Policy.IsAdministrator) {  // 網頁不用一般帳號的登入，剛發的 token 收回
+      fetch('/Sessions/Logout', {method: 'POST', headers: {'X-Emby-Token': j.AccessToken}}).catch(() => {});
+      return note($('lMsg'), '這個帳號不是管理員', 'bad');
+    }
+    token = j.AccessToken; localStorage.setItem('mi302', token); boot();
+  });
+}
+async function logoutWeb() {
+  try { await api('/Sessions/Logout', {method: 'POST'}); } catch (e) {}
+  token = ''; localStorage.removeItem('mi302');
+  for (const key of Object.keys(timers)) cancel(key);  // 輪詢都停掉
+  show('login');
+}
 
 const PAGES = {overview: () => loadOverview(), libraries: () => loadLibs(), '115': () => load115(false), browse: () => openBrowse(), tools: () => {}, moviepilot: () => loadMP(), users: () => loadUsers(), logs: () => loadLogs(true), settings: () => {}};
 // 頁內分頁：頁面上方一排按鈕（data-sub），一次只顯示那一組卡片；網址是 #頁/分頁，沒指定就回到上次看的那個。
@@ -1278,24 +1347,35 @@ function subOf(page, want) {
 }
 function showSub(page, sub) {
   const box = $('tab-' + page);
-  for (const b of box.querySelectorAll('.subtabs button')) { b.classList.toggle('on', b.dataset.sub === sub); b.setAttribute('aria-selected', b.dataset.sub === sub); }
+  for (const b of box.querySelectorAll('.subtabs button')) {
+    b.classList.toggle('on', b.dataset.sub === sub); b.setAttribute('aria-selected', b.dataset.sub === sub);
+    b.tabIndex = b.dataset.sub === sub ? 0 : -1;  // Tab 鍵只停在選中的那個，其他用方向鍵
+  }
   for (const el of box.querySelectorAll(':scope > [data-sub]')) el.classList.toggle('hidden', !el.dataset.sub.split(' ').includes(sub));
   try { localStorage.setItem('mi302.sub.' + page, sub); } catch (e) {}
   if (location.hash !== `#${page}/${sub}`) history.replaceState(null, '', `#${page}/${sub}`);  // 不觸發 hashchange，重新整理網頁還在這裡
   SUBS[page][sub]?.();
 }
 ACTS.sub = el => showSub(el.closest('section.page').id.slice(4), el.dataset.sub);
+// 分頁按鈕（role="tab"）照 ARIA 的分頁做法：左右鍵換到旁邊那個、Home／End 第一個和最後一個
+document.addEventListener('keydown', e => {
+  const tab = e.target.closest?.('[role="tablist"] [role="tab"]');
+  const moves = {ArrowRight: 1, ArrowLeft: -1, Home: 'first', End: 'last'};
+  if (!tab || !(e.key in moves)) return;
+  const tabs = [...tab.closest('[role="tablist"]').querySelectorAll('[role="tab"]')], i = tabs.indexOf(tab), m = moves[e.key];
+  const next = tabs[m === 'first' ? 0 : m === 'last' ? tabs.length - 1 : (i + m + tabs.length) % tabs.length];
+  e.preventDefault(); next.focus(); next.click();
+});
 function route() {
   let [tab, sub] = (location.hash || '#overview').slice(1).split('/');
   if (!PAGES[tab]) tab = 'overview';
   for (const a of document.querySelectorAll('nav a[data-tab]')) {
     a.classList.toggle('on', a.dataset.tab === tab);
-    a.setAttribute('aria-selected', a.dataset.tab === tab);
+    if (a.dataset.tab === tab) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current');
   }
   document.querySelector('nav a.on')?.scrollIntoView({block: 'nearest', inline: 'nearest'});  // 窄螢幕上分頁列會橫向捲動
   for (const s of document.querySelectorAll('section.page')) s.classList.toggle('hidden', s.id !== 'tab-' + tab);
   document.title = document.querySelector(`nav a[data-tab="${tab}"] span`).textContent + ' · Mi302';
-  fillFields();
   PAGES[tab]();
   if (SUBS[tab]) showSub(tab, subOf(tab, sub));
   window.scrollTo(0, 0);
@@ -1362,10 +1442,18 @@ async function davPick() { const p = await pickDir('115', $('davRoot').value || 
 // ---- 表單欄位 data-key="a.b.c" 對應設定 ----
 function getKey(obj, key) { return key.split('.').reduce((o, k) => o?.[k], obj); }
 function setKey(obj, key, v) { const ks = key.split('.'); let o = obj; ks.slice(0, -1).forEach(k => o = o[k] ??= {}); o[ks.at(-1)] = v; }
+// 改過還沒儲存的設定欄位：離開網頁前提醒；儲存的回應回來時不把送出之後又改的蓋掉
+const dirty = new Set();
+const fieldValue = el => el.type === 'checkbox' ? el.checked : el.value;
+for (const type of ['input', 'change']) {
+  document.addEventListener(type, e => { if (e.target.dataset?.key) dirty.add(e.target.dataset.key); });
+}
+window.addEventListener('beforeunload', e => { if (dirty.size && token) { e.preventDefault(); e.returnValue = ''; } });
 function fillFields(only) {
   // only：剛存的那部分設定（和送出的格式一樣）；給了就只刷新這些欄位，同頁其他還沒存的輸入不動
   for (const el of document.querySelectorAll('[data-key]')) {
     if (only && getKey(only, el.dataset.key) === undefined) continue;
+    if (dirty.has(el.dataset.key)) continue;  // 還在改（送出之後又動過）
     const v = getKey(cfg, el.dataset.key);
     if (el.type === 'checkbox') { el.checked = !!v; continue; }
     if (el.tagName === 'SELECT' && v != null && v !== '' && ![...el.options].some(o => o.value === String(v))) {
@@ -1386,6 +1474,10 @@ function fillFields(only) {
 }
 async function putSettings(body) {
   cfg = await api('/web/api/settings', {method: 'PUT', body: JSON.stringify(body)});
+  for (const el of document.querySelectorAll('[data-key]')) {
+    const sent = getKey(body, el.dataset.key);
+    if (sent !== undefined && fieldValue(el) === sent) dirty.delete(el.dataset.key);  // 存好的；送出之後又改的留著
+  }
   fillFields(body);
 }
 async function saveToggle(el, after) {
@@ -1396,7 +1488,7 @@ async function saveToggle(el, after) {
 }
 async function saveFields(scope, withRules) {
   const body = {};
-  for (const el of scope.querySelectorAll('[data-key]')) setKey(body, el.dataset.key, el.type === 'checkbox' ? el.checked : el.value);
+  for (const el of scope.querySelectorAll('[data-key]')) setKey(body, el.dataset.key, fieldValue(el));
   if (withRules) setKey(body, 'redirect.path_rules', parseRules($('rules').value));
   try { await putSettings(body); toast(cfg.notes?.length ? '已儲存；' + cfg.notes.join('；') : '已儲存'); } catch (e) { toast('儲存失敗：' + e.message, 'bad'); }
 }
@@ -1673,7 +1765,7 @@ async function resetCover(id) {
 }
 async function refreshScan() {
   cancel('scan');  // 好幾個地方會叫它，不能各開一條輪詢
-  try { S.scan = await api('/web/api/scan'); } catch (e) { return; }
+  try { S.scan = await api('/web/api/scan'); } catch (e) { return pollFailed('scan', refreshScan, e); }
   setHtml($('scanSt'), scanHtml(S.scan));
   if (!$('tab-libraries').classList.contains('hidden')) {
     const same = libShape(S.scan) === libsShape && $('libs').querySelectorAll('.lib[data-i]').length === libs.length;
@@ -1804,7 +1896,7 @@ async function saveIntro(box, it) {
 async function pollMI() {
   cancel('mi');
   let s;
-  try { s = await api('/web/api/mediainfo/status'); } catch (e) { return; }
+  try { s = await api('/web/api/mediainfo/status'); } catch (e) { return pollFailed('mi', pollMI, e); }
   const wasRunning = S.mi?.result.running;
   S.mi = s;
   setHtml($('miStat'), miHtml(s));
@@ -2155,7 +2247,7 @@ function syncHtml(s) {
 async function pollSync(first) {
   cancel('sync');
   let s;
-  try { s = await api('/p115/strm/status'); } catch (e) { return; }
+  try { s = await api('/p115/strm/status'); } catch (e) { return pollFailed('sync', () => pollSync(false), e); }
   S.sync = s;
   if (first || !s.result.running) renderTasks(s.tasks);
   $('base').textContent = s.base_url;
@@ -2261,7 +2353,7 @@ function loadDupes() { $('dupKindHint').textContent = DUP_HINT[dupKind]; $('dupP
 async function pollDupes() {
   cancel('dupes');
   let s;
-  try { s = await api('/web/api/dupes'); } catch (e) { setHtml($('dupStat'), failHtml(e)); return; }
+  try { s = await api('/web/api/dupes'); } catch (e) { setHtml($('dupStat'), failHtml(e)); return pollFailed('dupes', pollDupes, e); }
   const wasRunning = S.dupes?.job.running, j = s.job;
   S.dupes = s;
   if (document.activeElement !== $('dupPrefer')) $('dupPrefer').value = s.prefer || '1080';
@@ -2472,7 +2564,7 @@ function loadEmpty() { pollEmpty(); loadEmptyList(1); }
 async function pollEmpty() {
   cancel('empty');
   let s;
-  try { s = await api('/web/api/empty-dirs'); } catch (e) { setHtml($('edStat'), failHtml(e)); return; }
+  try { s = await api('/web/api/empty-dirs'); } catch (e) { setHtml($('edStat'), failHtml(e)); return pollFailed('empty', pollEmpty, e); }
   const wasRunning = S.empty?.job.running, j = s.job;
   S.empty = s;
   setHtml($('edStat'), emptyStatHtml(s));
@@ -2631,7 +2723,7 @@ function mpHtml(s) {
 async function pollMP() {
   cancel('mp');
   let s;
-  try { s = await api('/web/api/moviepilot/status'); } catch (e) { return; }
+  try { s = await api('/web/api/moviepilot/status'); } catch (e) { return pollFailed('mp', pollMP, e); }
   S.mp = s;
   for (const el of document.querySelectorAll('.js-mp')) setHtml(el, mpHtml(s));
   if (!$('mpPill').innerHTML || !s.enabled) $('mpPill').innerHTML = s.enabled ? '<span class="pill">已設定</span>' : '<span class="pill">未設定</span>';
@@ -2989,7 +3081,7 @@ async function pollReorgJob() {
   // 整理的進度顯示在「瀏覽 115」和「整理 115 網盤」；做完時把送出的標成已整理
   cancel('reo');
   let r;
-  try { r = await api('/web/api/115/organize/job'); } catch (e) { return; }
+  try { r = await api('/web/api/115/organize/job'); } catch (e) { return pollFailed('reo', pollReorgJob, e); }
   const wasRunning = S.reo?.running;
   S.reo = r.job;
   const html = reoJobHtml(r.job);
@@ -3339,7 +3431,7 @@ function ogDeleteHtml(d) {
 async function pollOgDelete() {
   cancel('ogdel');
   let r;
-  try { r = await api('/web/api/115/organize/job'); } catch (e) { return; }
+  try { r = await api('/web/api/115/organize/job'); } catch (e) { return pollFailed('ogdel', pollOgDelete, e); }
   const d = r.deleting, was = !!og.deleting;
   og.deleting = d.running ? d : null;
   setHtml($('ogDelJob'), ogDeleteHtml(d));
@@ -3754,7 +3846,7 @@ async function pollShare() {
   // 轉存中每 2 秒更新一次（只在這個分頁開著的時候）
   cancel('share');
   let j;
-  try { j = await api('/web/api/115/share/status'); } catch (e) { return; }
+  try { j = await api('/web/api/115/share/status'); } catch (e) { return pollFailed('share', pollShare, e); }
   shShow(j);
   if (j.running && !$('shCard').classList.contains('hidden')) later('share', pollShare);
 }
@@ -3891,7 +3983,7 @@ async function pollRapid() {
   // 秒傳中每 2 秒更新一次（只在這個分頁開著的時候）
   cancel('rapid');
   let j;
-  try { j = await api('/web/api/115/rapid/status'); } catch (e) { return; }
+  try { j = await api('/web/api/115/rapid/status'); } catch (e) { return pollFailed('rapid', pollRapid, e); }
   rpShow(j);
   if (j.running && !$('rpCard').classList.contains('hidden')) later('rapid', pollRapid);
 }
@@ -4253,7 +4345,7 @@ async function setLogLevel(on) {
 async function pollPeople() {
   cancel('zh');
   let s;
-  try { s = await api('/web/api/people/status'); } catch (e) { $('zhStat').innerHTML = failHtml(e); return; }
+  try { s = await api('/web/api/people/status'); } catch (e) { $('zhStat').innerHTML = failHtml(e); return pollFailed('zh', pollPeople, e); }
   let h = `<div class="chips">${chip(s.people, '演職人員')}${chip(s.resolved, '有中文名', true)}${chip(s.pending, '還沒查')}${chip(s.none, '查過沒有')}</div>`;
   h += `<p class="hint mt8">來源：MoviePilot ${s.from_moviepilot}、Wikidata ${s.from_wikidata}${s.moviepilot ? '' : '。還沒設定 MoviePilot，只能問 Wikidata（覆蓋較窄，國內連線也慢）'}${s.last_run ? '・上次查詢 ' + ago(s.last_run) : ''}${s.running ? '・<span class="pill accent"><span class="spin"></span>查詢中</span>' : ''}</p>`;
   if (s.last_error) h += `<p class="notice warn mt8">${esc(s.last_error)}</p>`;
@@ -4439,22 +4531,32 @@ async function downloadBackup(name) {
 }
 
 // ---- 資料夾選擇器 ----
-let pickKind = 'local', pickResolve = null, pickCur = '';
+let pickKind = 'local', pickResolve = null, pickCur = '', pickSeq = 0, pickCtl = null;
 // 三種：伺服器上的資料夾、115、阿里雲盤（最上層是「資源庫」「備份盤」）；回應都是 {path, parent, dirs}，阿里雲盤多給 files
 const PICK = {local: ['/web/api/browse?path=', '選擇伺服器上的資料夾'], '115': ['/web/api/115/browse?path=', '選擇 115 目錄'],
   aliyun: ['/web/api/aliyun/dirs?path=', '選擇阿里雲盤上的資料夾']};
 function pickDir(kind, start) {
-  pickKind = kind;
+  pickKind = kind; pickCur = '';  // 上一次選到的不能帶過來
   $('pickTitle').textContent = PICK[kind][1];
   picker.showModal(); pickPath.focus(); pickGo(start || '');
   return new Promise(res => { pickResolve = res; picker.onclose = () => { res(null); }; });
 }
+function pickStop() { pickCtl?.abort(); pickCtl = null; pickSeq++; }  // 還沒回來的讀取不要了，回來了也不畫
+picker.addEventListener('close', pickStop);  // 取消、Esc、選好了都會關
 async function pickGo(path) {
+  // 先點 A 再點 B、A 比較慢回來時，畫面和選到的都要是 B：每次讀取有序號，不是最新的那次就丟掉
+  pickStop();
+  const seq = pickSeq, kind = pickKind, ctl = pickCtl = new AbortController();
+  pickCur = ''; $('pickOk').disabled = true;
   note($('pickMsg'), ''); $('pickList').innerHTML = '<p class="hint row"><span class="spin"></span>讀取中…</p>';
   let r;
-  try { r = await api(PICK[pickKind][0] + encodeURIComponent(path)); }
-  catch (e) { note($('pickMsg'), e.message, 'bad'); $('pickList').innerHTML = ''; return; }
-  pickCur = r.path; pickPath.value = r.path;
+  try { r = await api(PICK[kind][0] + encodeURIComponent(path), {signal: ctl.signal}); }
+  catch (e) {
+    if (seq !== pickSeq || e.name === 'AbortError') return;
+    note($('pickMsg'), e.message, 'bad'); $('pickList').innerHTML = ''; return;
+  }
+  if (seq !== pickSeq || !picker.open) return;
+  pickCur = r.path; pickPath.value = r.path; $('pickOk').disabled = false;
   const list = $('pickList'); list.innerHTML = '';
   const entry = (ic, label, target) => {
     const b = document.createElement('button'); b.type = 'button'; b.innerHTML = icon(ic) + '<span>' + esc(label) + '</span>';
@@ -4466,7 +4568,10 @@ async function pickGo(path) {
   if (!r.dirs.length) list.insertAdjacentHTML('beforeend', '<p class="hint" style="padding:8px 10px">沒有子資料夾</p>');
   if (r.files) list.insertAdjacentHTML('beforeend', `<p class="hint" style="padding:8px 10px">這一層還有 ${r.files} 個檔案</p>`);  // 阿里雲盤：看選對了沒有
 }
-function pickDone() { const res = pickResolve; pickResolve = null; picker.onclose = null; picker.close(); res?.(pickCur); }
+function pickDone() {
+  if (!pickCur || $('pickOk').disabled) return;  // 還在讀、或讀失敗：沒有可以選的
+  const res = pickResolve, cur = pickCur; pickResolve = null; picker.onclose = null; picker.close(); res?.(cur);
+}
 async function pick115() { const p = await pickDir('115', remote.value || '/'); if (p) remote.value = p; }
 async function pickLocal(id) { const p = await pickDir('local', $(id).value); if (p) $(id).value = p; }
 
