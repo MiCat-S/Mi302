@@ -74,8 +74,8 @@ These live in the database `<data_dir>/library.db`, not in the config file, and 
 | --- | --- | --- | --- |
 | `name` | `Emby Server` | Server name shown in players | Settings → Server (伺服器) → **Server name** (伺服器名稱) |
 | `host` | `0.0.0.0` | Address to listen on. `0.0.0.0` means all network interfaces; `127.0.0.1` means only this machine can connect | File only; restart |
-| `port` | `8096` | Port for the web admin page and players | File only; restart. With the one-line installer you can also rerun the installer with `--port`; see [Installation](Installation) |
-| `data_dir` | `./data` | Folder for the database, logs, backups and uploaded covers. A relative path is relative to the working folder Mi302 starts in (`config/` for the installer's service), not to the config file's folder | File only; restart |
+| `port` | `8096` | Port for the web admin page and players | File only; restart. With the one-line installer you can also rerun the installer with `--port`; see [Installation](Installation). As a MoviePilot plugin, the port in the plugin settings wins |
+| `data_dir` | `./data` | Folder for the database, logs, backups and uploaded covers. A relative path is relative to the working folder Mi302 starts in (`config/` for the installer's service), not to the config file's folder; as a MoviePilot plugin it is the config file's folder | File only; restart |
 | `public_users` | `true` | Whether players' login screens list the user names | Settings → Server → **List user names on the player login screen** (播放器登入畫面列出使用者名稱) |
 | `log_level` | `info` | `info` = normal; `debug` = verbose, also logs every player request | Logs tab (日誌) → **Verbose mode** (詳細模式) |
 | `backup_keep` | `7` | Daily automatic backups to keep, 0–90; 0 = no automatic backups | Settings → Backup (備份) → **Keep this many** (保留幾份) |

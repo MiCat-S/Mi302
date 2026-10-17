@@ -792,8 +792,8 @@ dialog .card-b{max-height:70vh;overflow:auto}
         <div class="card-h"><div class="t"><svg class="i" aria-hidden="true"><use href="#i-spark"/></svg><h2>連線</h2></div><span id="mpPill"></span></div>
         <div class="card-b stack">
           <div class="fields">
-            <label class="field"><span>MoviePilot 網址</span><input type="text" data-key="moviepilot.url" placeholder="例如 http://192.168.1.10:3000"></label>
-            <label class="field"><span>API 令牌</span><input type="text" data-key="moviepilot.api_token"><small>MoviePilot 的「設定 → 系統 → API 令牌」</small></label>
+            <label class="field"><span>MoviePilot 網址</span><input type="text" id="mpUrl" data-key="moviepilot.url" placeholder="例如 http://192.168.1.10:3000"></label>
+            <label class="field"><span>API 令牌</span><input type="text" id="mpToken" data-key="moviepilot.api_token"><small>MoviePilot 的「設定 → 系統 → API 令牌」</small></label>
             <label class="field"><span>同時刮削幾項</span><input type="number" min="1" max="8" data-key="moviepilot.concurrency"><small>1–8，預設 3；太多可能被 TMDB 限速</small></label>
           </div>
           <label class="field"><span>路徑對應</span><textarea id="mpMap" rows="2" placeholder="/media => /mnt/media"></textarea>
@@ -948,7 +948,7 @@ dialog .card-b{max-height:70vh;overflow:auto}
         <div class="card-b stack">
           <label class="field"><span>伺服器名稱</span><input type="text" data-key="server.name"><small>播放器裡顯示的名稱</small></label>
           <label class="switch"><input type="checkbox" data-key="server.public_users"><span class="track"></span><span class="lbl">播放器登入畫面列出使用者名稱</span></label>
-          <p class="hint">埠號目前是 <b id="port"></b>。要改埠號：改設定檔的 <code>server.port</code>，然後重新啟動。115 的設定在「115 網盤」分頁，媒體資訊、片頭片尾的設定在「整理」分頁各卡片的「設定」裡。</p>
+          <p class="hint">埠號目前是 <b id="port"></b>。<span id="portHow">要改埠號：改設定檔的 <code>server.port</code>，然後重新啟動。</span>115 的設定在「115 網盤」分頁，媒體資訊、片頭片尾的設定在「整理」分頁各卡片的「設定」裡。</p>
         </div>
       </div>
       <div class="card" data-sub="general" role="tabpanel">
@@ -1064,7 +1064,7 @@ dialog .card-b{max-height:70vh;overflow:auto}
   <div class="card-h"><div class="t"><svg class="i" aria-hidden="true"><use href="#i-download"/></svg><h2 id="srvTitle">版本與更新</h2></div></div>
   <div class="card-b stack">
     <div id="srvInfo" aria-live="polite"><p class="hint row"><span class="spin"></span>讀取中…</p></div>
-    <label class="switch"><input type="checkbox" data-key="server.update_check" onchange="saveToggle(this, loadServer)"><span class="track"></span><span class="lbl">自動檢查更新<small>每 6 小時向 GitHub 查一次，有新版時每一頁上方都會提示</small></span></label>
+    <label class="switch" id="updAuto"><input type="checkbox" data-key="server.update_check" onchange="saveToggle(this, loadServer)"><span class="track"></span><span class="lbl">自動檢查更新<small>每 6 小時向 GitHub 查一次，有新版時每一頁上方都會提示</small></span></label>
     <details class="more" id="updProxy"><summary>連不上 GitHub：代理、GitHub 加速</summary><div class="in stack">
       <p class="hint">國內網路檢查更新失敗時填一個就好，用法和 MoviePilot 的「網路代理」「GitHub 加速代理」一樣。只用在檢查更新和更新（下載新版、安裝相依套件），播放、115 不經過這裡。</p>
       <label class="field"><span>代理</span><input type="text" data-key="server.update_proxy" placeholder="例如 http://127.0.0.1:7890" autocomplete="off">
@@ -1073,7 +1073,7 @@ dialog .card-b{max-height:70vh;overflow:auto}
         <small>下載新版時接在 GitHub 網址前面；加速站偶爾會失效，換一個就好</small></label>
       <div><button class="btn" onclick="saveUpdateProxy()">儲存並檢查更新</button></div>
     </div></details>
-    <p class="hint">網頁上的更新和終端機的 <code>mi302 update</code> 一樣下載新版、需要時安裝相依套件；新版啟動不了會退回原本的版本。安裝腳本管的服務設定、ffprobe 還是要用 <code>mi302 update</code> 更新。 <a class="doc" href="https://github.com/MiCat-S/Mi302/wiki/安裝#在網頁上更新和重新啟動" target="_blank" rel="noopener">說明</a></p>
+    <p class="hint" id="updHint">網頁上的更新和終端機的 <code>mi302 update</code> 一樣下載新版、需要時安裝相依套件；新版啟動不了會退回原本的版本。安裝腳本管的服務設定、ffprobe 還是要用 <code>mi302 update</code> 更新。 <a class="doc" href="https://github.com/MiCat-S/Mi302/wiki/安裝#在網頁上更新和重新啟動" target="_blank" rel="noopener">說明</a></p>
   </div>
   <div class="card-f"><button class="btn" id="srvCheck" onclick="checkUpdate()">檢查更新</button><button class="btn" id="srvRestart" onclick="restartServer()">重新啟動</button><span class="grow"></span><button class="btn" onclick="srvDlg.close()">關閉</button></div>
 </dialog>
@@ -1463,6 +1463,13 @@ function fillFields(only) {
   }
   $('srvName').textContent = cfg.server.name;
   $('port').textContent = cfg.port;
+  // 插件模式：埠號在 MoviePilot 的插件設定改；MoviePilot 網址、令牌留空就用插件所在的那個
+  const emb = cfg.embedded;
+  if (emb) {
+    $('portHow').textContent = `要改埠號：到 ${emb.host} 的插件設定改。`;
+    $('mpUrl').placeholder = `留空 = 這個 ${emb.host}（${emb.moviepilot_url}）`;
+    $('mpToken').placeholder = emb.moviepilot_token ? `網址留空時用這個 ${emb.host} 的 API 令牌` : `這個 ${emb.host} 沒有設 API 令牌，請填`;
+  }
   $('cfgPath').textContent = cfg.config_path || '（沒有設定檔）';
   // 設定檔改壞了（繼續用上次讀到的），或啟動時檢查不過（有錯的同步任務先不用）
   const bad = cfg.file_error ? cfg.file_error + '。網頁目前用的是上次讀到的設定，修正設定檔後重新整理網頁。'
@@ -4391,8 +4398,11 @@ function renderServer() {
   if (j.error) h += `<p class="notice bad mt8">更新失敗：${esc(j.error)}</p>`;
   else if (j.message && !j.running) h += `<p class="notice mt8">${esc(j.message)}</p>`;
   if (j.patch) h += `<p class="hint mt8">自己改過的程式檔已備份成 <code>${esc(j.patch)}</code></p>`;
-  if (!s.can_update) h += `<p class="hint mt8">${esc(s.update_reason)}</p>`;
+  if (s.managed) h = `<div class="row wrap gap6"><b>Mi302 ${esc(s.version)}</b><span class="pill">${esc(s.managed)} 插件</span></div>`
+    + `<p class="hint mt8">${esc(s.update_reason)}。「重新啟動」只重新啟動 Mi302，不動 ${esc(s.managed)}。</p>`;
+  else if (!s.can_update) h += `<p class="hint mt8">${esc(s.update_reason)}</p>`;
   if (!s.can_restart) h += '<p class="hint mt8">Mi302 這次不是用 python -m embyserver 啟動的，網頁上不能重新啟動。</p>';
+  for (const id of ['updAuto', 'updProxy', 'updHint', 'srvCheck']) $(id).classList.toggle('hidden', !!s.managed);
   if (c.available && s.can_update) h += `<div class="row wrap mt10"><button class="btn primary" onclick="updateServer()"${j.running ? ' disabled' : ''}>${icon('download')}更新到最新版</button></div>`;
   setHtml($('srvInfo'), h);
   $('srvCheck').disabled = c.checking || j.running;
@@ -4426,6 +4436,7 @@ function renderVersion() {
   else if (c.available) [kind, ic, title, sub] = ['new', icon('download'), `有新版本${c.behind ? `（${c.behind}）` : ''}`, '目前 ' + ver];
   else if (c.error) [kind, ic, title, sub] = ['bad', icon('alert'), '檢查更新失敗', ver];
   else if (c.at) [kind, ic, title, sub] = ['ok', icon('check'), '已是最新版', ver];
+  else if (s.managed) sub = `${s.managed} 插件`;
   else if (!s.git) sub = '不是用 git 安裝的';
   $('verBtn').className = 'vercard ' + kind;
   $('verIcon').innerHTML = ic; $('verTitle').textContent = title; $('verSub').textContent = sub;
@@ -4497,7 +4508,8 @@ async function waitRestart(oldBoot, done) {
     } catch (e) {}
   }
   $('bootMsg').className = 'notice warn';
-  $('bootMsg').textContent = 'Mi302 三分鐘都沒有回來。請在伺服器上執行 mi302 status 看有沒有在執行，mi302 logs 看原因。';
+  $('bootMsg').textContent = srv?.managed ? `Mi302 三分鐘都沒有回來。請到 ${srv.managed} 的插件頁看 Mi302 的狀態和日誌。`
+    : 'Mi302 三分鐘都沒有回來。請在伺服器上執行 mi302 status 看有沒有在執行，mi302 logs 看原因。';
   $('bootRetry').classList.remove('hidden');
 }
 

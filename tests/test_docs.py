@@ -85,7 +85,7 @@ def test_config_reference_mentions_every_key(page):
     text = PAGES[page].read_text(encoding="utf-8")
     classes = [Config, ServerConfig, UserConfig, LibraryConfig, RedirectConfig, P115Config, P115StrmConfig,
                StrmTask, MoviePilotConfig, QBittorrentConfig, MediaInfoConfig, WebDAVConfig, AliyunConfig]
-    hidden = {"path", "file_mtime", "problems"}  # Config 自己用的，不在設定檔裡
+    hidden = {"path", "file_mtime", "problems", "base_dir", "embedded"}  # Config 自己用的，不在設定檔裡
     keys = {f.name for cls in classes for f in fields(cls)} - hidden
     keys |= {"from", "to"}  # 路徑對應、路徑替換（PathRule）在設定檔裡寫成 from／to
     headings = set(HEADING_RE.findall(text))

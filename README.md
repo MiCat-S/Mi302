@@ -48,6 +48,8 @@ curl -fsSL https://raw.githubusercontent.com/MiCat-S/Mi302/main/install.sh | bas
 
 腳本會安裝 Python、ffmpeg 和相依套件，設定開機自動啟動，最後印出管理網頁的網址。Windows 或想自己控制每一步的，見 [安裝](https://github.com/MiCat-S/Mi302/wiki/安裝) 的手動安裝。
 
+已經在用 MoviePilot V3 的，也可以把 Mi302 裝成它的插件：插件市場加 `https://github.com/MiCat-S/Mi302-MoviePilot-Plugins`，安裝「Mi302」並啟用，不用另外安裝，MoviePilot 的連線也不用填。見 [安裝](https://github.com/MiCat-S/Mi302/wiki/安裝#moviepilot-插件)。
+
 裝好後用瀏覽器開 `http://<主機>:8096/web`：
 
 1. 建立管理員帳號。

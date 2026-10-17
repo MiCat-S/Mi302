@@ -19,7 +19,7 @@ So MoviePilot and Mi302 must see the same files: for example, both run on the sa
 
 ## Connection settings
 
-The settings are in the **Connection** card (連線) on the **MoviePilot** tab.
+The settings are in the **Connection** card (連線) on the **MoviePilot** tab. When Mi302 runs as a MoviePilot plugin, leave the URL and API token empty: it uses the MoviePilot it runs in (see [Installation](Installation#moviepilot-plugin)).
 
 1. In MoviePilot, copy the **API token** from Settings → System.
 2. In Mi302, enter the **MoviePilot URL** (MoviePilot 網址), for example `http://192.168.1.10:3000` (it must start with `http://` or `https://`), and the **API token** (API 令牌). With a local (non-Docker) MoviePilot install, the frontend on port 3000 shuts itself down when the backend is very busy, so use the backend port 3001 instead.
@@ -257,7 +257,7 @@ From 1.1.0 the plugin also **works out names**. When the destination is already 
 
 Installing (MoviePilot V3), either way:
 
-**From the plugin market**: under MoviePilot's Settings → System → Plugin market add `https://github.com/MiCat-S/Mi302-MoviePilot-Plugins`, save, and both Mi302 plugins (Organizer and [Torrent Cleaner](#mi302-torrent-cleaner-plugin)) appear in the market on the Plugins page; updates come through the market too. That repository mirrors `moviepilot-plugin/` of the Mi302 repository (MoviePilot only reads `package.v3.json` at a repository's root, hence the separate repository).
+**From the plugin market**: under MoviePilot's Settings → System → Plugin market add `https://github.com/MiCat-S/Mi302-MoviePilot-Plugins`, save, and the Mi302 plugins (Organizer, [Torrent Cleaner](#mi302-torrent-cleaner-plugin), and Mi302 itself as a plugin, see [Installation](Installation#moviepilot-plugin)) appear in the market on the Plugins page; updates come through the market too. That repository mirrors `moviepilot-plugin/` of the Mi302 repository (MoviePilot only reads `package.v3.json` at a repository's root, hence the separate repository).
 
 **From a local path** (same machine as Mi302, updating together with Mi302):
 
