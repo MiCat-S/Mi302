@@ -102,6 +102,8 @@ def client(tmp_path: Path, monkeypatch):
             "users": [{"name": "cat", "password": "pw", "admin": True}],
             "libraries": [{"name": "電影", "type": "movies", "paths": [str(tmp_path / "movies")]}],
             "p115": {"cookies": "UID=1; CID=2; SEID=3"},
+            # 機器上有 ffprobe 時，PlaybackInfo 會在背景探測這一部：多取一次直鏈，ffprobe 還會去連真的 115 CDN
+            "mediainfo": {"on_demand": False},
         }
     )
     app = create_app(config, scan_on_start=False)
