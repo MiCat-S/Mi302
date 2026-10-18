@@ -8,7 +8,7 @@ import re
 import time
 import uuid
 from contextlib import asynccontextmanager
-from typing import List, Optional
+from typing import Optional
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -45,9 +45,8 @@ from .webdav import WebDAV
 from .workers import stop_all
 
 log = logging.getLogger(__name__)
-access_log = logging.getLogger(logs.ACCESS)
+access_log = logging.getLogger("embyserver.access")
 
-EMBEDDED_START_DELAY = 10.0  # 插件模式啟動後幾秒才開始掃描、同步排程、備份
 # Emby 客戶端可能加上這些前綴，路由一律以去掉前綴後的小寫路徑比對
 PATH_PREFIXES = ("/emby", "/mediabrowser")
 ASCII_UPPER_RE = re.compile(r"[A-Z]+")
@@ -116,26 +115,17 @@ async def _normalize_path(request: Request, call_next):
     return response
 
 
-def services(app: FastAPI) -> list:
-    """有背景工作的服務。會開別人工作的排前面：轉存分享、秒傳完會開整理，整理完會開同步，同步完會開探測、刮削、掃描。"""
-    st = app.state
-    return [st.share, st.rapid, st.organizer, st.empty_dirs, st.reorganizer, st.dupes, st.strm_sync, st.moviepilot,
-            st.person_names, st.prober, st.scanner, st.backup, st.updater, st.qbittorrent]
-
-
-def stop_workers(app: FastAPI) -> List[str]:
+def stop_workers(app: FastAPI) -> None:
     """程式結束時：叫所有背景工作停下，等它們結束（最多 workers.SHUTDOWN_WAIT 秒），之後才能關資料庫。
-    回傳等不到的工作；插件模式要等它們真的停了才開新的（同一個程序，不會跟著程式結束）。"""
-    return stop_all(services(app))
+    會開別人工作的排前面：轉存分享、秒傳完會開整理，整理完會開同步，同步完會開探測、刮削、掃描。"""
+    st = app.state
+    stop_all([st.share, st.rapid, st.organizer, st.empty_dirs, st.reorganizer, st.dupes, st.strm_sync, st.moviepilot,
+              st.person_names, st.prober, st.scanner, st.backup, st.updater, st.qbittorrent])
 
 
 def close_app(app: FastAPI) -> None:
-    """程式結束時關掉連線池和資料庫。還在跑的背景工作之後再碰資料庫會出錯，所以呼叫前先停工作（stop_workers）。
-    關過的不再關：插件模式 uvicorn 沒跑到 lifespan 的結束（強制停下）時，embed.py 會自己再呼叫一次。"""
+    """程式結束時關掉連線池和資料庫。還在跑的背景工作之後再碰資料庫會出錯，所以呼叫前先停工作（stop_workers）。"""
     st = app.state
-    if getattr(st, "closed", False):
-        return
-    st.closed = True
     for close in (st.p115.close, st.aliyun.close, st.redirector.close, st.strm_sync.close, st.qbittorrent.close, st.db.close):
         try:
             close()
@@ -163,35 +153,24 @@ def create_app(config: Config, db_path: Optional[str] = None, scan_on_start: boo
         auth.ensure_user(user.name, user.password, user.admin)
     scanner = Scanner(db, config)
 
-    def begin() -> None:
-        scanner.in_background(scanner.scan_all)
-        app.state.strm_sync.start_schedule()
-        app.state.backup.start()
-        app.state.person_names.start()
-        app.state.updater.start()
-        app.state.qbittorrent.start()
-
-    def begin_later() -> None:
-        if not scanner.workers.stop.wait(EMBEDDED_START_DELAY):  # 等的時候就被叫停了：什麼都不開
-            begin()
-
     @asynccontextmanager
     async def lifespan(app: FastAPI):
-        if scan_on_start and config.embedded:
-            # 插件模式：MoviePilot 開機時本地安裝的插件載入後馬上又重新載入一次，等一下再開始掃描、備份這些重的工作
-            scanner.workers.start(begin_later)
-        elif scan_on_start:
-            begin()
+        if scan_on_start:
+            scanner.in_background(scanner.scan_all)
+            app.state.strm_sync.start_schedule()
+            app.state.backup.start()
+            app.state.person_names.start()
+            app.state.updater.start()
+            app.state.qbittorrent.start()
         yield
         try:
-            app.state.unstopped = stop_workers(app)
+            stop_workers(app)
         finally:
             close_app(app)
 
     app = FastAPI(title="Emby 相容伺服器", lifespan=lifespan, docs_url="/api-docs", redoc_url=None)
     app.state.config = config
     app.state.db = db
-    app.state.unstopped = []  # 結束時等不到的背景工作（stop_workers）
     app.state.server_id = server_id
     app.state.auth = auth
     app.state.scanner = scanner

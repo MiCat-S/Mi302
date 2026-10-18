@@ -1,7 +1,0 @@
-# MoviePilot 安裝、更新這個插件時照這裡裝相依套件（裝進 MoviePilot 自己的環境）。
-# fastapi、uvicorn、httpx 是 MoviePilot 自己鎖定的版本，這裡不列；PyYAML、pycryptodome 它也有，列著只是寫明 Mi302 要用。
-[project]
-name = "mi302-moviepilot-plugin"
-version = "1.0.0"
-requires-python = ">=3.10"
-dependencies = ["p115cipher>=0.0.5", "pypinyin>=0.50", "zhconv>=1.4", "PyYAML>=6.0", "pycryptodome>=3.20"]

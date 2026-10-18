@@ -48,8 +48,6 @@ curl -fsSL https://raw.githubusercontent.com/MiCat-S/Mi302/main/install.sh | bas
 
 The installer sets up Python, ffmpeg and the dependencies, starts Mi302 at boot, and prints the address of the web admin page. For Windows, or to do every step yourself, see the manual install in [Installation](https://github.com/MiCat-S/Mi302/wiki/Installation).
 
-If you already run MoviePilot V3, you can also install Mi302 as a MoviePilot plugin: add `https://github.com/MiCat-S/Mi302-MoviePilot-Plugins` to its plugin market, install **Mi302** and enable it. Nothing else to install, and the MoviePilot connection needs no setup. See [Installation](https://github.com/MiCat-S/Mi302/wiki/Installation#moviepilot-plugin).
-
 Then open `http://<host>:8096/web` in a browser:
 
 1. Create the admin account.

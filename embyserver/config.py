@@ -185,17 +185,6 @@ class ServerConfig:
 
 
 @dataclass
-class Embedded:
-    """Mi302 跑在別的程式裡（MoviePilot 插件）時由 embed.py 填入，不寫進設定檔。"""
-
-    host: str = "MoviePilot"  # 網頁上顯示「Mi302 是 ○○ 的插件」，更新要到那裡
-    version: str = ""  # 插件的版本
-    # MoviePilot 網址、API 令牌沒填時用的（插件所在的 MoviePilot 本身）
-    moviepilot_url: str = ""
-    moviepilot_token: str = ""
-
-
-@dataclass
 class Config:
     server: ServerConfig = field(default_factory=ServerConfig)
     users: List[UserConfig] = field(default_factory=list)
@@ -213,16 +202,10 @@ class Config:
     file_mtime: float = field(default=0.0, repr=False, compare=False)
     # 設定檔裡照網頁的規則檢查不過的地方（手動改的不會經過網頁），網頁上方提示；見 settings.check_loaded
     problems: List[str] = field(default_factory=list, repr=False, compare=False)
-    # 相對的 data_dir 從哪裡算起；None = 目前的工作目錄。插件模式是設定檔所在的資料夾（不能改整個程序的工作目錄）
-    base_dir: Optional[str] = field(default=None, repr=False, compare=False)
-    embedded: Optional[Embedded] = field(default=None, repr=False, compare=False)
 
     @property
     def data_path(self) -> Path:
-        path = Path(self.server.data_dir).expanduser()
-        if self.base_dir and not path.is_absolute():
-            path = Path(self.base_dir) / path
-        return path.resolve()
+        return Path(self.server.data_dir).expanduser().resolve()
 
 
 def _make(cls, raw, section: str, **extra):

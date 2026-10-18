@@ -101,8 +101,6 @@ class Updater:
         self.boot = uuid.uuid4().hex[:12]  # 每次啟動不同：網頁用它看出重新啟動完成了
         self.started = time.time()
         self.restart_cb: Optional[Callable[[], None]] = None  # __main__ 設定；沒設定（測試、別的方式啟動）就不能重新啟動
-        # 在 MoviePilot 裡當插件：程式由它的插件市場更新，這裡不查也不更新，只能重新啟動
-        self.managed = config.embedded.host if config.embedded else ""
         self.check_result = CheckResult()
         self.job = UpdateJob()
         self._busy = threading.Lock()  # 檢查和更新不同時跑
@@ -199,10 +197,9 @@ class Updater:
         return r.stdout.decode().strip() if r.returncode == 0 and r.stdout.strip() else "main"
 
     def current(self) -> dict:
-        """目前的版本：提交編號、時間、標題；不是 git 安裝的只有版本號（插件模式是插件的版本）。"""
-        version = (self.config.embedded.version if self.managed else "") or __version__
-        info = {"version": version, "commit": "", "date": 0, "subject": "", "branch": ""}
-        if self.managed or not self.is_git():
+        """目前的版本：提交編號、時間、標題；不是 git 安裝的只有版本號。"""
+        info = {"version": __version__, "commit": "", "date": 0, "subject": "", "branch": ""}
+        if not self.is_git():
             return info
         try:
             sha, ts, subject = self._git("log", "-1", "--format=%H%x1f%ct%x1f%s").split("\x1f", 2)
@@ -213,8 +210,6 @@ class Updater:
 
     def cannot_update(self) -> str:
         """不能在網頁上更新的原因；可以的話是空字串。"""
-        if self.managed:
-            return f"Mi302 是 {self.managed} 的插件，請到 {self.managed} 的「插件」頁更新"
         if not self.is_git():
             return "程式資料夾不是用 git 下載的，網頁上不能更新；請在終端機執行 mi302 update"
         if shutil.which("git") is None:
@@ -242,7 +237,7 @@ class Updater:
 
     def check(self) -> dict:
         """向遠端查有沒有新版，結果記在 check_result。已經在檢查或更新時直接回傳目前的狀態。"""
-        if self.managed or not self._busy.acquire(blocking=False):
+        if not self._busy.acquire(blocking=False):
             return self.status()
         res = CheckResult(checking=True, at=self.check_result.at)
         self.check_result = res
@@ -280,9 +275,7 @@ class Updater:
         return self.status()
 
     def start(self) -> None:
-        """啟動一分鐘後查一次，之後每 6 小時；設定關掉時不查（網頁上按「檢查更新」照樣可以）。插件模式不查。"""
-        if self.managed:
-            return
+        """啟動一分鐘後查一次，之後每 6 小時；設定關掉時不查（網頁上按「檢查更新」照樣可以）。"""
 
         def loop():
             wait = FIRST_CHECK
@@ -406,7 +399,7 @@ class Updater:
         return {
             **self.current(), "boot": self.boot, "started": self.started, "git": self.is_git(),
             "can_update": not self.cannot_update(), "update_reason": self.cannot_update(),
-            "can_restart": self.restart_cb is not None, "auto": bool(self.config.server.update_check), "managed": self.managed,
+            "can_restart": self.restart_cb is not None, "auto": bool(self.config.server.update_check),
             "check": self.check_result.as_dict(), "job": self.job.as_dict(),
         }
 

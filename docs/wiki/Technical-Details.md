@@ -197,7 +197,6 @@ Each module under `embyserver/`:
 | `config_file.py` | Writes the settings back to `config.yaml` |
 | `settings.py` | Settings editable in the web page: validation, applying, keeping the config file in step |
 | `db.py` | SQLite tables and access |
-| `embed.py` | Runs Mi302 inside another program (the MoviePilot plugin): uvicorn in its own thread, stoppable and restartable, without touching the process's logging setup |
 | `dupes.py` | Duplicate files on 115: identical files, different versions, which one to keep; big files |
 | `dto.py` | Turns database rows into Emby `BaseItemDto`, `UserDto` and `MediaSourceInfo` |
 | `filetypes.py` | Shared file extension lists |
@@ -209,7 +208,7 @@ Each module under `embyserver/`:
 | `mediainfo.py` | Media info: ffprobe output and `X-mediainfo.json` to Emby format |
 | `prober.py` | Probes the videos behind strm files with ffprobe |
 | `moviepilot.py` | Scraping and filling missing episodes through MoviePilot |
-| `moviepilot-plugin/` | MoviePilot V3 plugins (`package.v3.json`, `plugins.v3/`): Mi302 itself as a plugin (`mi302/`, whose `embyserver` links to the one at the repository root; see [Installation](Installation#moviepilot-plugin)); **Mi302 Organizer** (`mi302organizer/`) works out names with MoviePilot's own rules (`naming.py`) and renames in bulk from Mi302's list with MoviePilot's 115 authorisation, see [MoviePilot](MoviePilot#mi302-organizer-plugin); **Mi302 Torrent Cleaner** (`mi302torrentcleaner/`) |
+| `moviepilot-plugin/` | MoviePilot V3 plugin **Mi302 Organizer** (`package.v3.json`, `plugins.v3/mi302organizer/`): works out names with MoviePilot's own rules (`naming.py`) and renames in bulk from Mi302's list with MoviePilot's 115 authorisation; see [MoviePilot](MoviePilot#mi302-organizer-plugin) |
 | `p115.py` | 115: QR-code login, direct links, directory listing, life events (115's activity log), circuit breaker |
 | `p115_open.py` | 115 open platform channel |
 | `probe_select.py` | Media info: picking titles to probe (filters, order) |

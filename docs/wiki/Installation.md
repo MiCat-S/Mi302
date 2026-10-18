@@ -1,6 +1,6 @@
 [繁體中文](安裝) | [简体中文](安装) | **English**
 
-This page covers installing Mi302: the one-line installer and its options, special cases, the `mi302` management command, running it manually with Python, installing it as a MoviePilot plugin, updating and uninstalling.
+This page covers installing Mi302: the one-line installer and its options, special cases, the `mi302` management command, running it manually with Python, updating and uninstalling.
 
 The installer's messages and the web admin page are in Traditional Chinese. Where this page quotes them, the original text is given so you can match it on screen.
 
@@ -10,7 +10,6 @@ The installer's messages and the web admin page are in Traditional Chinese. Wher
 | --- | --- | --- |
 | One-line installer (recommended) | Linux, macOS | Set up for you |
 | Manual Python install | Controlling every step yourself, or Windows | Set it up yourself |
-| [MoviePilot plugin](#moviepilot-plugin) | Already running MoviePilot V3 | Starts with MoviePilot |
 
 Mi302 needs Python 3.10 or newer; the installer installs it if it cannot find one. There is no Docker version of Mi302. If you used the old Docker version, see "Moving from the old Docker version" below.
 
@@ -241,45 +240,7 @@ sudo systemctl enable --now mi302
 
 Alternatively, run `sudo bash install.sh` inside the program folder to hand it over to the installer (see "You already cloned and ran Mi302 yourself" above).
 
-## MoviePilot plugin
-
-If you already run MoviePilot V3, you can install Mi302 as a MoviePilot plugin instead of installing Python and setting up a service: Mi302 runs inside MoviePilot, starts and stops with it, and updates through its plugin market. It is the same program as a standalone install, with the same features.
-
-1. Under MoviePilot's Settings → System → Plugin market add `https://github.com/MiCat-S/Mi302-MoviePilot-Plugins` and save.
-2. Find **Mi302** in the market on the Plugins page and install it. MoviePilot installs the packages Mi302 needs (p115cipher, pypinyin, zhconv) by itself, so it must reach PyPI; MoviePilot's proxy and PIP mirror settings apply.
-3. Open the plugin's settings, turn on **Enable** (啟用) and save.
-4. Open `http://<host>:8096/web` in a browser and follow [First Setup](First-Setup). Add an Emby server `http://<host>:8096` in your player.
-
-The plugin has only these settings; everything else is in Mi302's own admin page:
-
-| Setting | Meaning |
-| --- | --- |
-| Enable (啟用) | Mi302 runs only when this is on |
-| Port (埠號) | Port for players and the admin page, 8096 by default; overrides `server.port` in the config file |
-| Config file (設定檔) | Empty = in the plugin folder, `<MoviePilot config dir>/plugins/Mi302/config.yaml`, with the database, logs and backups in `data/` next to it. A relative `data_dir` in the config file is taken from the config file's folder |
-| Forgot password (忘記密碼) | Fill in a user and a new password and save to reset it (a missing user is created as an administrator); both fields are cleared after saving |
-
-Differences from a standalone install:
-
-- Leave MoviePilot's URL and API token empty on the MoviePilot page: Mi302 then uses the MoviePilot it runs in. If you fill in the URL of another MoviePilot, fill in its token too.
-- With MoviePilot in Docker, publish Mi302's port from the container (for example `-p 8096:8096`, or use host networking), and write strm files to folders the container can see and MoviePilot can use.
-- Updates come through MoviePilot's plugin market. **Version and updates** on the admin page only shows the version; **Restart** restarts Mi302 only, not MoviePilot.
-- There is no `mi302` command. Logs are on the admin page's Logs tab and in `data/logs/mi302.log`; info-level messages and above also go to MoviePilot's plugin log.
-- Saving the plugin settings in MoviePilot restarts Mi302 only when Enable, Port or Config file changed. Mi302 starts and stops when MoviePilot starts, stops or reloads the plugin; scanning, sync schedules and backups begin 10 seconds after it starts.
-
-### Moving a standalone install into the plugin
-
-No copying needed; the plugin uses the existing config file and folder:
-
-1. Stop the standalone Mi302 and turn off its start at boot: `mi302 uninstall` for the one-line installer (program, settings and data stay), `sudo systemctl disable --now mi302` for a manual systemd setup. Both cannot run at once; they would want the same port.
-2. Install the plugin, set **Config file** to the existing config file (`/opt/mi302/config/config.yaml` for the one-line installer, for example `/root/Mi302/config.yaml` for a manual install) and **Port** to the existing port, turn on **Enable** and save. The database, 115 login, watch history and backups are used in place, and players need no changes.
-3. The account MoviePilot runs as must be able to read and write the existing folder (the config file and database are readable by their owner only). With MoviePilot in Docker, mount the existing folder and the strm folders into the container at the same paths, because the config file and database record those paths.
-
-To go back to a standalone install, disable the plugin in MoviePilot and start Mi302 the way you did before (rerun the installer for a one-line install).
-
 ## Updating
-
-MoviePilot plugin: update it on MoviePilot's Plugins page.
 
 Installed with the one-line installer:
 

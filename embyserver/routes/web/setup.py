@@ -117,17 +117,7 @@ def _settings_view(request: Request, file_error: str = "") -> dict:
         "config_path": str(Path(st.config.path).resolve()) if st.config.path else "",
         "file_error": file_error,
         "problems": list(st.config.problems),  # 設定檔裡檢查不過的地方（有錯的同步任務先不用）
-        "embedded": _embedded_view(st.config),
     }
-
-
-def _embedded_view(config) -> dict | None:
-    """插件模式（在 MoviePilot 裡）：網頁上說明埠號到哪裡改、MoviePilot 網址和令牌留空會用什麼。令牌本身不給。"""
-    emb = config.embedded
-    if emb is None:
-        return None
-    return {"host": emb.host, "version": emb.version, "moviepilot_url": emb.moviepilot_url,
-            "moviepilot_token": bool(emb.moviepilot_token)}
 
 
 def _refresh(request: Request) -> str:

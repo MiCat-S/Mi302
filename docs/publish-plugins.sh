@@ -15,8 +15,7 @@ cd "$TMP/plugins"
 git checkout -q -B main
 find . -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf {} +
 cd - >/dev/null
-# -L：mi302/embyserver 在這個倉庫是連到根目錄 embyserver/ 的連結，發布時要換成真的檔案（MoviePilot 從 GitHub 一個個下載檔案）
-cp -RL moviepilot-plugin/. "$TMP/plugins/"
+cp -R moviepilot-plugin/. "$TMP/plugins/"
 find "$TMP/plugins" -name __pycache__ -type d -prune -exec rm -rf {} +
 cd "$TMP/plugins"
 git add -A

@@ -521,38 +521,6 @@ install.sh 本身管的東西（服務設定、ffprobe、Python 版本）網頁�
 server.update_github_proxy 是 GitHub 加速網址（例如 https://ghfast.top/），下載時接在 GitHub 網址前面；
 和 MoviePilot 的「網路代理」「GitHub 加速代理」一樣的用法。pip 鏡像照 install.sh 記在 .env 的 PIP_MIRROR。
 
-插件模式（config.embedded 有值）：程式由 MoviePilot 的插件市場更新，這裡不查也不更新（check、start 不做事，
-cannot_update 說明到 MoviePilot 的插件頁更新），版本顯示插件的版本，status 多一個 managed（宿主的名字）給網頁
-隱藏檢查更新、代理這些。重新啟動照樣可以，restart_cb 是 embed.py 的 restart_later（停下再開，不動 MoviePilot）。
-
-## embyserver/embed.py
-
-在別的程式裡跑 Mi302：給 MoviePilot 插件（moviepilot-plugin/plugins.v3/mi302）用。Mi302 的 Emby API 要掛在
-網站根目錄（/emby/…、/Items/…），播放器不接受帶路徑的伺服器網址，所以不能掛在 MoviePilot 的
-/api/v1/plugin/Mi302/ 底下，而是像單獨安裝一樣開自己的埠（預設 8096），管理網頁照樣是 /web。
-
-EmbeddedServer 一次是一台在背景執行緒跑的 uvicorn，可以 stop 再 start：
-- start：讀設定檔（相對的 data_dir 從設定檔所在的資料夾算起：Config.base_dir；不能改整個程序的工作目錄）、
-  插件設定的埠號蓋過 server.port、掛日誌，然後在呼叫的執行緒綁定埠：被占用時馬上丟 OSError，插件頁看得到原因
-  （交給 uvicorn 的話它在背景執行緒 sys.exit，誰也看不到）。create_app 和 uvicorn 在背景執行緒，不擋 MoviePilot。
-- stop：設 should_exit，等 uvicorn 跑完 lifespan 的結束（stop_workers 最多 30 秒、進行中的請求 5 秒）；
-  60 秒還沒停就 force_exit，自己停背景工作、關資料庫。等不到的背景工作記下來，下次 start 前先再等它們，
-  還不停就不開新的，免得兩台同時寫同一批 strm。
-- 網頁上的「重新啟動」是 restart_later：停下再開，重新讀設定檔。
-
-不動整個程序共用的東西（MoviePilot 也在用）：
-- 日誌：logs.setup(embedded=True) 只掛在 Mi302 自己的 logger（logs.PACKAGE，插件裡是
-  app.plugins.mi302.embyserver），不往上傳、不改 root 的等級和 handler、不壓第三方套件的等級；停下時 detach。
-  插件給的 handler 把 info 以上轉進 MoviePilot 的插件日誌（MoviePilot 看呼叫的模組認出是哪個插件）。
-  插件重新載入後是新的模組，舊的 handler 靠 OWNED 標記認出來拿掉。
-- uvicorn 的存取日誌：uvicorn 看的是整個程序的 uvicorn.access 有沒有 handler，MoviePilot 的有，所以用 QuietProtocol
-  關掉這台的；不能用 Config(access_log=False)，它會清掉整個程序 uvicorn.access 的 handler。
-- 不用 uvicorn 的訊號處理（非主執行緒本來就不裝）、不 exec 自己、不改 os.environ。
-
-插件模式的 lifespan 啟動後 10 秒才開始掃描、同步排程、備份（app.EMBEDDED_START_DELAY）：MoviePilot 開機時本地
-安裝的插件載入後馬上又重新載入一次，不等的話第一台會白白開始全庫掃描。MoviePilot 網址、API 令牌沒填時用
-Config.embedded 給的（插件所在的 MoviePilot：127.0.0.1:<後端埠> 和它的 API_TOKEN），見 moviepilot.py 的 url、api_token。
-
 ## embyserver/routes/web/__init__.py
 
 網頁管理介面 /web 和它用的管理 API，照分頁分成幾個檔案，這裡組成一個 router 給 app 用。

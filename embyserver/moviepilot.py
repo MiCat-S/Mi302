@@ -225,20 +225,8 @@ class MoviePilot:
         self._preview_ok_at = 0.0  # 上次確認 MoviePilot 夠新、支援整理預覽的時間
 
     @property
-    def url(self) -> str:
-        """MoviePilot 網址；插件模式沒填時用插件所在的 MoviePilot。"""
-        return self.cfg.url or (self.config.embedded.moviepilot_url if self.config and self.config.embedded else "")
-
-    @property
-    def api_token(self) -> str:
-        """API 令牌；插件模式網址和令牌都沒填時用 MoviePilot 自己的（填了別台的網址就要自己填令牌）。"""
-        if self.cfg.api_token or self.cfg.url or not (self.config and self.config.embedded):
-            return self.cfg.api_token
-        return self.config.embedded.moviepilot_token
-
-    @property
     def enabled(self) -> bool:
-        return bool(self.url and (self.api_token or (self.cfg.username and self.cfg.password)))
+        return bool(self.cfg.url and (self.cfg.api_token or (self.cfg.username and self.cfg.password)))
 
     # ---------------- HTTP ----------------
 
@@ -248,7 +236,7 @@ class MoviePilot:
 
     def _login(self, client: httpx.Client) -> str:
         resp = client.post(
-            self.url.rstrip("/") + LOGIN_API, data={"username": self.cfg.username, "password": self.cfg.password}
+            self.cfg.url.rstrip("/") + LOGIN_API, data={"username": self.cfg.username, "password": self.cfg.password}
         )
         if resp.status_code != 200:
             # 帶上狀態碼：密碼錯了（401／403）後面每一項都會失敗，整批的工作看到就停
@@ -272,18 +260,18 @@ class MoviePilot:
 
         被拒絕（401／403）而且有帳號密碼時登入一次再送；第二次還被拒絕就照一般的錯誤丟出去。
         """
-        if not self.url:
+        if not self.cfg.url:
             raise MoviePilotError("還沒設定 MoviePilot 網址")
         try:
             with self._client(timeout or self.cfg.timeout) as client:
                 token = self._jwt
-                legacy = self._token_in_query == (self.url, self.api_token)
+                legacy = self._token_in_query == (self.cfg.url, self.cfg.api_token)
                 resp = self._send(client, method, path, body, query, token, legacy_token=legacy)
-                if resp.status_code in (401, 403) and not token and self.api_token and not legacy:
+                if resp.status_code in (401, 403) and not token and self.cfg.api_token and not legacy:
                     # 舊版有些端點只認查詢參數 ?token=；令牌平常只放標頭，免得出現在代理、MoviePilot 的存取日誌
                     resp = self._send(client, method, path, body, query, None, legacy_token=True)
                     if resp.status_code not in (401, 403):
-                        self._token_in_query = (self.url, self.api_token)  # 之後直接帶，不必每個請求都先被拒一次
+                        self._token_in_query = (self.cfg.url, self.cfg.api_token)  # 之後直接帶，不必每個請求都先被拒一次
                 if resp.status_code in (401, 403) and self.cfg.username and self.cfg.password:
                     # 舊版 MoviePilot 的刮削 API 只認登入 token；或是之前的登入 token 過期了。
                     # 刮削是好幾個請求同時送：別的請求已經換了新 token 就直接用，不再登入一次
@@ -297,7 +285,7 @@ class MoviePilot:
             raise MoviePilotError(f"MoviePilot 網址格式不對：{exc}") from exc
         except httpx.HTTPError as exc:
             message = describe(exc)
-            if isinstance(exc, httpx.ConnectError) and urlsplit(self.url).port == 3000:
+            if isinstance(exc, httpx.ConnectError) and urlsplit(self.cfg.url).port == 3000:
                 message += FRONTEND_HINT
             raise MoviePilotError(message, kind=_net_kind(exc)) from exc
 
@@ -306,17 +294,17 @@ class MoviePilot:
         headers, params = {}, dict(query or {})
         if token:
             headers["Authorization"] = f"Bearer {token}"
-        elif self.api_token:
-            headers["X-API-KEY"] = self.api_token  # V3 每個端點都認這個標頭
+        elif self.cfg.api_token:
+            headers["X-API-KEY"] = self.cfg.api_token  # V3 每個端點都認這個標頭
             if legacy_token:
-                params["token"] = self.api_token
-        return client.request(method, self.url.rstrip("/") + path, json=body, headers=headers, params=params)
+                params["token"] = self.cfg.api_token
+        return client.request(method, self.cfg.url.rstrip("/") + path, json=body, headers=headers, params=params)
 
     def _parse(self, resp: httpx.Response, path: str):
         """HTTP 錯誤換成看得懂的說明，成功時回傳 JSON。"""
         if resp.status_code in (401, 403):
-            hint = "API 令牌不正確" if self.api_token else "請填 API 令牌"
-            if self.api_token and not self.cfg.username:
+            hint = "API 令牌不正確" if self.cfg.api_token else "請填 API 令牌"
+            if self.cfg.api_token and not self.cfg.username:
                 # V3 每個 API 都接受 API 令牌；舊版（V2）有些只接受帳號登入
                 hint += "，或這個 MoviePilot 版本較舊、不接受 API 令牌：請改填 MoviePilot 的帳號密碼"
             raise MoviePilotError(f"MoviePilot 拒絕存取（HTTP {resp.status_code}）：{hint}", resp.status_code)

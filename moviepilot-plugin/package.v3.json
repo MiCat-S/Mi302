@@ -1,18 +1,4 @@
 {
-  "Mi302": {
-    "name": "Mi302",
-    "description": "Emby 相容伺服器：115 資料夾同步成 strm，播放時 302 直連 115，Infuse、VidHub、SenPlayer 等播放器照 Emby 的方式連線。跑在 MoviePilot 裡，不用另外安裝；設定都在 http://<主機>:8096/web。",
-    "version": "1.0.0",
-    "icon": "https://raw.githubusercontent.com/MiCat-S/Mi302/main/embyserver/web/icon-192.png",
-    "author": "MiCat-S",
-    "level": 1,
-    "system_version": ">=3.0.0",
-    "v3t": false,
-    "labels": "媒体服务器,115,Emby",
-    "history": {
-      "v1.0.0": "第一版：Mi302 本體做成插件，在 MoviePilot 裡開自己的埠（預設 8096）"
-    }
-  },
   "Mi302Organizer": {
     "name": "Mi302 整理助手",
     "description": "讓 Mi302 照 MoviePilot 自己的規則算新名字（幾百集幾秒），資料夾結構已經對、只是名字不照格式時，再用它的 115 授權直接批次改名，比整理流程快很多。",

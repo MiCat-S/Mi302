@@ -19,7 +19,7 @@ Mi302 只讀資料夾裡已經有的 nfo 和圖片。這些資料可以在 115 �
 
 ## 連線設定
 
-設定在「MoviePilot」分頁的「連線」卡片。Mi302 裝成 MoviePilot 插件時，網址和 API 令牌留空就好，自動用插件所在的那個 MoviePilot（見[安裝](安裝#moviepilot-插件)）。
+設定在「MoviePilot」分頁的「連線」卡片。
 
 1. 在 MoviePilot 的「設定 → 系統」複製 **API 令牌**。
 2. 在 Mi302 填「MoviePilot 網址」（例如 `http://192.168.1.10:3000`，要以 `http://` 或 `https://` 開頭）和「API 令牌」。本機安裝（不是 Docker）的 MoviePilot，前端 3000 埠在後端很忙時會自己停掉，建議直接填後端的 3001 埠。
@@ -257,7 +257,7 @@ Mi302 倉庫裡的 `moviepilot-plugin/` 是一個 MoviePilot V3 外掛「Mi302 �
 
 安裝（MoviePilot V3），兩種方式擇一：
 
-**從插件市場裝**：MoviePilot「設定 → 系統 → 插件市場」加一行 `https://github.com/MiCat-S/Mi302-MoviePilot-Plugins`，儲存後到「插件」頁，市場裡就會出現 Mi302 的外掛（整理助手、[清種助手](#mi302-清種助手外掛)，還有 Mi302 本體的插件版，見[安裝](安裝#moviepilot-插件)），之後有新版也在市場裡更新。這個倉庫是 Mi302 倉庫 `moviepilot-plugin/` 的鏡像（MoviePilot 只讀倉庫根目錄的 `package.v3.json`，所以要另外一個倉庫）。
+**從插件市場裝**：MoviePilot「設定 → 系統 → 插件市場」加一行 `https://github.com/MiCat-S/Mi302-MoviePilot-Plugins`，儲存後到「插件」頁，市場裡就會出現 Mi302 的兩個外掛（整理助手、[清種助手](#mi302-清種助手外掛)），之後有新版也在市場裡更新。這個倉庫是 Mi302 倉庫 `moviepilot-plugin/` 的鏡像（MoviePilot 只讀倉庫根目錄的 `package.v3.json`，所以要另外一個倉庫）。
 
 **用本機路徑裝**（和 Mi302 同一台、想跟著 Mi302 一起更新時）：
 
