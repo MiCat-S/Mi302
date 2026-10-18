@@ -112,6 +112,7 @@ CREATE TABLE IF NOT EXISTS p115_index (
     PRIMARY KEY (task, file_id)
 );
 CREATE INDEX IF NOT EXISTS idx_p115_file ON p115_index(file_id);  -- 由 115 檔案 id 找本機的 strm（瀏覽 115、重複檔案）
+CREATE INDEX IF NOT EXISTS idx_p115_path ON p115_index(task, path);  -- 本機的 strm 是哪支 115 檔案的（同步、整理）
 
 -- 每支影片的媒體資訊（解析度、HDR、音軌、字幕軌、章節），來自旁邊的 X-mediainfo.json 或 ffprobe 探測
 CREATE TABLE IF NOT EXISTS media_info (

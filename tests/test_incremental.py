@@ -6,8 +6,9 @@ from pathlib import Path
 import httpx
 
 from embyserver.db import Database
+from embyserver.mediainfo import sidecar_path
 from embyserver.p115 import P115Service
-from embyserver.strm_sync import FULL, INCREMENTAL, _sidecars
+from embyserver.strm_sync import FULL, INCREMENTAL, _sidecars, _TaskIndex, task_key
 
 from fakes import T0, Fake115, make
 
@@ -330,6 +331,48 @@ def test_case_only_rename_keeps_scraped_metadata(tmp_path: Path):
     assert [p.name.lower() for p in folder.glob("*.strm")] == ["old movie (2001).strm"]
     nfos = list(folder.glob("*.nfo"))
     assert len(nfos) == 1 and nfos[0].read_text() == "<movie/>"  # 大小寫有分的磁碟上會跟著改名，內容不變
+
+
+def test_same_stem_videos_share_one_strm(tmp_path: Path):
+    """同一個資料夾裡只差副檔名的影片（X.mkv、X.mp4）對到同一個 X.strm：只給一支。不然每次全量同步都輪流改寫、
+    把媒體資訊刪掉重新探測；刪掉沒在用的那支時，也不能連另一支的 strm、刮削資料一起刪。"""
+    fake, sync, media = life_sync(tmp_path)
+    folder = media / "電影"
+    strm = folder / "X.strm"
+    fake.files += [
+        {"fid": 5, "cid": 101, "n": "X.mkv", "pc": "c" * 17, "s": 1_000_000_000, "te": T0 + 50},
+        {"fid": 6, "cid": 101, "n": "X.mp4", "pc": "d" * 17, "s": 9_000_000_000, "te": T0 + 60},
+    ]
+    r = sync.run(FULL)
+    assert strm.read_text().endswith(f"/d/{'d' * 17}.mp4")  # 都還沒有 strm：留大的
+    assert any("只差副檔名" in n and "X.mkv" in n for n in r.notes)
+
+    # 舊版同步留下的樣子：strm 指著 mkv，兩支都記成 X.strm
+    strm.write_text(strm.read_text().replace(f"{'d' * 17}.mp4", f"{'c' * 17}.mkv"))
+    sidecar_path(strm).write_text("[]")
+    (folder / "X.nfo").write_text("<movie/>")
+    index = _TaskIndex(sync.p115.db, task_key(sync.tasks[0]))
+    index.set(5, "電影/X.strm", False)
+    assert sync.remove_local([6]) == []  # 在「重複和大檔案」刪掉 mp4：strm、nfo 是 mkv 在用的，留著
+    assert strm.exists() and (folder / "X.nfo").exists() and index.get(5) and not index.get(6)
+    index.set(6, "電影/X.strm", False)
+    r, again = sync.run(FULL), sync.run(FULL)  # 留 strm 現在指著的 mkv：不改寫，媒體資訊留著
+    assert strm.read_text().endswith(f"/d/{'c' * 17}.mkv")
+    assert r.strm_created == again.strm_created == 0 and not r.replaced and sidecar_path(strm).exists()
+    assert index.get(5) and not index.get(6)
+    index.set(6, "電影/X.strm", False)
+    fake.event(24, 5)  # 增量遇到舊版留下的兩列：strm 指著的 mkv 有事件時，多記的 mp4 拿掉，strm 不動
+    r = sync.run(INCREMENTAL)
+    assert not r.errors and r.strm_created == 0 and index.get(5) and not index.get(6)
+
+    # 增量：又上傳一支 X.ts、115 上刪掉沒在用的 mp4，strm 和刮削資料都照舊
+    fake.files.append({"fid": 7, "cid": 101, "n": "X.ts", "pc": "t" * 17, "s": 900_000_000, "te": T0 - 99999})
+    fake.event(2, 7)
+    fake.files = [f for f in fake.files if f["fid"] != 6]
+    fake.event(22, 6)
+    r = sync.run(INCREMENTAL)
+    assert not r.errors and any("X.ts" in n for n in r.notes)
+    assert strm.read_text().endswith(f"/d/{'c' * 17}.mkv") and (folder / "X.nfo").exists() and sidecar_path(strm).exists()
 
 
 def test_replace_episode_keeps_show_metadata(tmp_path: Path):

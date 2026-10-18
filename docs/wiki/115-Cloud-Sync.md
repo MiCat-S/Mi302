@@ -101,6 +101,7 @@ http://192.168.1.10:8096/d/abcdefghijklmnopq.mkv
 - The extension is the original file's extension, so players and the scanner know the container format.
 - With **Append the original file name to strm URLs** (strm 網址後附上原檔名) on the **Sync options** card (同步選項), the link ends with `?/original-file-name`. This is only for humans; Mi302 ignores it.
 - **Skip videos smaller than (MB)** (略過小於這個大小的影片（MB）, `p115.strm.min_size_mb`) in the sync options skips small videos when set above 0. For example, 50 skips most trailers.
+- Videos in the same folder whose names differ only by extension (say `X.mkv` and `X.mp4`) would all become `X.strm`, so only one of them is used: the one the strm already points to, or the largest if there is no strm yet. The others get no strm and the sync result says so; delete the versions you don't want on 115.
 
 ### Server address in strm files
 

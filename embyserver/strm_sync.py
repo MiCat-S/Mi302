@@ -243,6 +243,22 @@ class _TaskIndex:
             (self.key, file_id, int(is_dir), path),
         )
 
+    def other_at(self, path: str, file_id: int) -> bool:
+        """本機這個檔案是不是另一支 115 檔案的（同名不同副檔名的影片搶同一個 strm 時，只有一支記在這裡；
+        舊版同步會把它們都記成同一個 strm）。"""
+        return self.db.one(
+            "SELECT 1 FROM p115_index WHERE task=? AND path=? AND is_dir=0 AND file_id<>? LIMIT 1",
+            (self.key, path, file_id),
+        ) is not None
+
+    def delete(self, file_id: int) -> None:
+        self.db.execute("DELETE FROM p115_index WHERE task=? AND file_id=?", (self.key, file_id))
+
+    def drop_others(self, path: str, file_id: int) -> None:
+        """本機這個檔案只算 file_id 的：別的 115 檔案對到它的列拿掉。"""
+        self.db.execute(
+            "DELETE FROM p115_index WHERE task=? AND path=? AND is_dir=0 AND file_id<>?", (self.key, path, file_id))
+
     def dirs(self) -> Dict[int, str]:
         return {
             r["file_id"]: r["path"]
@@ -542,6 +558,9 @@ class StrmSync:
                         removed += _clear_tree(path)[1]
                         ctx.index.delete_tree(old[0])
                         continue
+                    if ctx.index.other_at(old[0], fid):
+                        ctx.index.delete(fid)  # strm 是另一支影片在用的，留著
+                        continue
                     if path.suffix.lower() == ".strm":
                         for f in _sidecars(path.parent, path.stem):
                             f.unlink(missing_ok=True)
@@ -804,6 +823,7 @@ class StrmSync:
                 produced.add(str(target))
                 rows.append((info["id"], target.relative_to(local).as_posix(), False))
 
+        videos: List[Tuple[str, dict]] = []
         for rel, info in entries:
             self.workers.check()  # 停下要直接丟出去：照常做完的話，沒列到的檔案會被當成已經刪掉
             if info["is_dir"]:
@@ -812,11 +832,14 @@ class StrmSync:
                 continue
             newest = max(newest, info.get("mtime") or 0)
             if Path(rel).suffix.lower() in VIDEO_EXTS:
-                place(rel, info)
+                videos.append((rel, info))
             else:
                 metadata.append((rel, info))
         # strm 先全部產生（不用問 115），中繼資料最後再一個一個下載（每個要取一次直鏈、要隔開）：
         # 新片不必等前面幾千個 nfo、海報下載完才出現
+        for rel, info in self._one_per_strm(remote, local, videos):
+            self.workers.check()
+            place(rel, info)
         for rel, info in metadata:
             self.workers.check()
             place(rel, info)
@@ -842,6 +865,59 @@ class StrmSync:
             task, since=newest or int(time.time()), full_at=int(time.time()), indexed=True,
             life_id=life[0], life_time=life[1],
         )
+
+    def _one_per_strm(self, remote: str, local: Path, videos: List[Tuple[str, dict]]) -> List[Tuple[str, dict]]:
+        """同一個資料夾裡只差副檔名的影片（X.mkv、X.mp4）會對到同一個 X.strm：每個 strm 只給一支。
+
+        不然每次全量同步都輪流改寫 strm、把媒體資訊刪掉重新探測。留 strm 現在指著的那支（媒體資訊、觀看紀錄是它的），
+        都不是就留最大的；其他的不產生 strm、不記進同步紀錄，結果裡提醒。
+        """
+        groups: Dict[str, List[Tuple[str, dict]]] = {}
+        out: List[Tuple[str, dict]] = []
+        for rel, info in videos:
+            key = self._strm_rel(rel, info)
+            if key is None:
+                out.append((rel, info))  # 不產生 strm 的（太小、路徑不安全）照舊交給 _target 判斷
+            else:
+                groups.setdefault(key, []).append((rel, info))
+        skipped: List[str] = []
+        for key, members in groups.items():
+            if len(members) > 1:
+                keep = self._strm_owner(local / key, members)
+                others = [rel for rel, info in members if info is not keep[1]]
+                log.warning("115 上 %s 都對到 %s，只用 %s", "、".join(rel for rel, _ in members), key, keep[0])
+                skipped += others
+                members = [keep]
+            out += members
+        if skipped:
+            self.result.notes.append(
+                f"{remote}：有 {len(skipped)} 支影片和同一個資料夾裡只差副檔名的另一支對到同一個 strm，沒有產生 strm"
+                f"（例如 {'、'.join(skipped[:3])}）；每個 strm 用原本在用的那支，不然用最大的。不要的版本可以在 115 上刪掉")
+        return out
+
+    def _strm_rel(self, rel: str, info: dict) -> Optional[str]:
+        """影片在本機的 strm（相對路徑）；太小、路徑不安全而不產生 strm 的是 None。"""
+        if not safe_rel(rel) or Path(rel).suffix.lower() not in VIDEO_EXTS:
+            return None
+        if info["size"] < self.cfg.min_size_mb * 1024 * 1024:
+            return None
+        return Path(rel).with_suffix(".strm").as_posix()
+
+    def _strm_owner(self, strm: Path, members: List[Tuple[str, dict]]) -> Tuple[str, dict]:
+        """幾支影片搶同一個 strm：strm 現在指著哪支就留哪支；都不是就留有 pickcode、最大的，一樣大留 id 小的。"""
+        for rel, info in members:
+            if self._points_to(strm, info):
+                return rel, info
+        return max(members, key=lambda m: (bool(m[1].get("pickcode")), m[1]["size"], -m[1]["id"]))
+
+    @staticmethod
+    def _points_to(strm: Path, info: dict) -> bool:
+        """本機的 strm 是不是指著這支 115 檔案（比 pickcode）。"""
+        try:
+            current = extract_pickcode(strm.read_text(encoding="utf-8").strip())
+        except OSError:
+            return False
+        return bool(current) and current == (info.get("pickcode") or "").lower()
 
     def _full_entries(self, task: StrmTask, cid: int) -> Tuple[Iterable[Tuple[str, dict]], bool, Set[str]]:
         """全量同步要處理的 (相對路徑, 資訊)、是否每個檔案都知道位置，以及不能當成已刪除的本機 strm（相對路徑）。
@@ -1030,7 +1106,7 @@ class StrmSync:
             return
         if old and self.cfg.delete_stale:
             # 移出任務目錄，或改名成不是影片
-            self._delete_local(ctx, old[0], old[1])
+            self._delete_local(ctx, old[0], old[1], ev["file_id"])
 
     def _event_dir(self, ctx: _Ctx, ev: dict) -> None:
         fid = ev["file_id"]
@@ -1058,7 +1134,7 @@ class StrmSync:
     def _event_delete(self, ctx: _Ctx, ev: dict) -> None:
         old = ctx.index.get(ev["file_id"])
         if old and self.cfg.delete_stale:
-            self._delete_local(ctx, old[0], old[1])
+            self._delete_local(ctx, old[0], old[1], ev["file_id"])
 
     # ---------------- 增量：依修改時間補抓 ----------------
 
@@ -1112,6 +1188,15 @@ class StrmSync:
         target = self._target(rel, info)
         if target is None:
             return None
+        if target.suffix == ".strm" and ctx.index.other_at(target.as_posix(), info["id"]):
+            if self._points_to(ctx.local / target, info):
+                ctx.index.drop_others(target.as_posix(), info["id"])  # strm 本來就是這支的：舊版同步多記的拿掉
+            else:
+                # 同一個資料夾裡只差副檔名的另一支已經在用這個 strm：照全量同步的規則留原本那支
+                log.warning("115 上的 %s 和另一支影片對到同一個 strm，沒有產生 strm", rel)
+                self.result.notes.append(
+                    f"{posixpath.join(ctx.root, rel)}：同一個資料夾裡有只差副檔名的另一支影片在用 {target.name}，沒有產生 strm")
+                return None
         old = ctx.index.get(info["id"])
         if old and not old[1] and old[0] != target.as_posix():
             self._move_file(ctx, old[0], target.as_posix())
@@ -1184,9 +1269,12 @@ class StrmSync:
         except OSError:
             pass
 
-    def _delete_local(self, ctx: _Ctx, rel: str, is_dir: bool) -> None:
+    def _delete_local(self, ctx: _Ctx, rel: str, is_dir: bool, file_id: Optional[int] = None) -> None:
         """115 上刪除或移出任務目錄：刪掉 strm 和它的中繼資料，其他檔案不動。"""
         path = ctx.local / rel
+        if not is_dir and file_id is not None and ctx.index.other_at(rel, file_id):
+            ctx.index.delete(file_id)  # strm 是另一支影片在用的（舊版同步把同名不同副檔名的都記成同一個 strm）
+            return
         if is_dir:
             self.result.removed += _clear_tree(path)[0]
             ctx.index.delete_tree(rel)
