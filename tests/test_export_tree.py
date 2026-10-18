@@ -1,11 +1,12 @@
 """全量同步用 115 導出目錄樹：解析目錄樹、用檔名對出資料夾路徑、失敗時改回逐層列目錄。"""
 
+import threading
 from pathlib import Path
 
 import httpx
 import pytest
 
-from embyserver.p115 import BROWSER_UA, PLAIN_UA, P115Error, parse_export_tree, tree_relative
+from embyserver.p115 import BROWSER_UA, EXPORT_BUSY_TRIES, PLAIN_UA, P115Error, parse_export_tree, tree_relative
 from embyserver.strm_sync import FULL, INCREMENTAL, _TaskIndex, task_key, match_tree_dirs
 
 from fakes import T0, Fake115, make
@@ -114,12 +115,46 @@ def test_full_sync_uses_export_tree(tmp_path: Path):
 
 def test_full_sync_falls_back_to_walk(tmp_path: Path):
     fake = Fake115()
-    fake.export_ok = False  # 例如 115 正在跑別的導出任務
+    fake.export_ok = False  # 115 不讓導出（不是因為在忙）
     sync = make(tmp_path, fake)
     r = sync.run(FULL)
     assert r.strm_created == 2 and not r.errors
     assert any("改成逐層列目錄" in n for n in r.notes)
     assert listings(fake)
+
+    # 115 說還有別的導出任務在跑：隔一陣子再送；一直不行就這次不同步，不改成逐層列目錄（一個一個資料夾問容易被限流）
+    fake = Fake115()
+    fake.export_busy = 2
+    sync = make(tmp_path / "busy", fake)
+    r = sync.run(FULL)
+    assert r.strm_created == 2 and not r.errors and not r.notes and not listings(fake)
+    fake.export_busy = 99
+    r = sync.run(FULL)
+    assert any("別的導出目錄樹任務" in e for e in r.errors) and not listings(fake)
+    assert fake.export_busy == 99 - EXPORT_BUSY_TRIES
+    assert (tmp_path / "busy" / "media" / "電影" / "Old Movie (2001).strm").exists()  # 沒同步，也沒刪
+
+    # 同步和找空資料夾同時要導出：一次只送一個，後來的等前一個做完（115 同時只能跑一個）
+    fake = Fake115()
+    svc = make(tmp_path / "two", fake).p115
+    svc.export_poll = 0.05
+    real, active, most = fake.handler, [0], [0]
+
+    def one_at_a_time(request):
+        if request.url.path == "/files/export_dir" and request.method == "POST":
+            active[0] += 1
+            most[0] = max(most[0], active[0])
+        elif request.url.path == "/rb/delete":
+            active[0] -= 1
+        return real(request)
+
+    svc._client._transport = httpx.MockTransport(one_at_a_time)
+    workers = [threading.Thread(target=svc.export_tree, args=(100, "/影視")) for _ in range(2)]
+    for w in workers:
+        w.start()
+    for w in workers:
+        w.join()
+    assert most[0] == 1 and len(fake.exports) == 2
 
     # 115 上有名叫「..」的資料夾：裡面的檔案不能寫到本機的任務資料夾外面（逐層列目錄和目錄樹兩條路都一樣）
     for export_ok in (False, True):

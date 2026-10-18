@@ -47,6 +47,7 @@ class Fake115:
         self.events = []  # 生活事件，由舊到新
         self.life_enabled = False
         self.export_ok = True  # 支援導出目錄樹
+        self.export_busy = 0  # 接下來幾次導出 115 回「有类似任务正在处理」
         self.exports = {}  # export_id → [cid, 還要輪詢幾次]
         self.deleted = []
         self.shares = {}
@@ -124,7 +125,10 @@ class Fake115:
             return httpx.Response(200, content=self.tree(int(request.url.path[5:])))
         if request.url.path == "/files/export_dir":
             if not self.export_ok:
-                return httpx.Response(200, json={"state": False, "error": "已有导出任务在进行"})
+                return httpx.Response(200, json={"state": False, "error": "目录树导出失败"})
+            if request.method == "POST" and self.export_busy:
+                self.export_busy -= 1
+                return httpx.Response(200, json={"state": False, "errno": 990005, "error": "你的账号有类似任务正在处理，请稍后再试！"})
             if request.method == "POST":
                 form = dict(httpx.QueryParams(request.content.decode()))
                 eid = str(500 + len(self.exports))

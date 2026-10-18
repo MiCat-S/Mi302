@@ -28,7 +28,7 @@ from .mediainfo import SIDECAR_SUFFIX as MEDIAINFO_SUFFIX
 from .mediainfo import sidecar_path as mediainfo_sidecar
 from .p115 import (
     LIFE_COPY_FOLDER, LIFE_DELETE, LIFE_NEW_FOLDER, LIFE_RECEIVE, LIFE_UPLOAD, PLAIN_UA,
-    LifeEventGap, P115Error, P115NotFound, P115Service, P115Throttled, extract_pickcode,
+    LifeEventGap, P115Busy, P115Error, P115NotFound, P115Service, P115Throttled, extract_pickcode,
 )
 from .workers import Stopped, Workers
 
@@ -922,7 +922,8 @@ class StrmSync:
     def _full_entries(self, task: StrmTask, cid: int) -> Tuple[Iterable[Tuple[str, dict]], bool, Set[str]]:
         """全量同步要處理的 (相對路徑, 資訊)、是否每個檔案都知道位置，以及不能當成已刪除的本機 strm（相對路徑）。
 
-        有 cookie 時用導出目錄樹；導出、列檔案或查路徑失敗就改回逐層列目錄。
+        有 cookie 時用導出目錄樹；導出、列檔案或查路徑失敗就改回逐層列目錄。115 一直說還有別的導出任務在跑、
+        被限流時例外：丟出去，這個任務這次不同步。
         """
         if self.p115.cookies:
             try:
@@ -930,6 +931,9 @@ class StrmSync:
                 found = self._tree_entries(task, cid, tree)
             except P115Throttled:
                 raise  # 被限流時改逐層列目錄只會打得更多
+            except P115Busy as exc:
+                # 115 還在跑別的導出任務：改逐層列目錄要一個資料夾一個資料夾問 115，容易被限流；這個任務下次再全量
+                raise P115Busy(f"{exc}，這次不全量同步，下次再試") from exc
             except P115Error as exc:
                 log.warning("115 目錄樹比對失敗，改成逐層列目錄：%s", exc)
                 self.result.notes.append(f"{task.remote}：目錄樹比對失敗（{exc}），改成逐層列目錄")

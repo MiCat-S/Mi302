@@ -49,6 +49,11 @@ LIST_PAGE_SIZE = 1150
 EXPORT_TARGET = "U_1_0"
 EXPORT_TIMEOUT = 900
 EXPORT_POLL_SECONDS = 2.0
+# 115 說還有別的導出任務在跑：每 EXPORT_BUSY_POLLS 次輪詢的時間（30 秒）再送一次，最多 EXPORT_BUSY_TRIES 次
+EXPORT_BUSY_POLLS = 15
+EXPORT_BUSY_TRIES = 10
+EXPORT_BUSY_ERRNOS = ("990005",)  # 你的账号有类似任务正在处理，请稍后再试！
+EXPORT_BUSY_WORDS = ("类似任务", "正在处理", "正在导出", "已有导出")
 TREE_LINE_RE = re.compile(r"^((?:\| )+)\|-(.*)$")
 TREE_ROOT_RE = re.compile(r"^\|[—-]{2}(.*)$")
 PICKCODE_RE = re.compile(r"^[a-zA-Z0-9]{17}$")
@@ -87,6 +92,10 @@ class LifeEventGap(P115Error):
 
 class P115Throttled(P115Error):
     """115 限流或登入失效：背景工作（同步、探測）先停下，免得越打越久。"""
+
+
+class P115Busy(P115Error):
+    """115 還在跑別的導出目錄樹任務（同一個帳號同時只能有一個），等了一陣子還是不讓導出。"""
 
 
 # 熔斷：115 的 WAF 很敏感，被限流後還繼續打只會封更久。判定規則參考 xiao-vvv/emby-mediainfo（MIT）。
@@ -262,6 +271,7 @@ class P115Service:
         self._bad: Dict[str, Tuple[str, float]] = {}  # 取不到直鏈的 pickcode → (115 的說明, 記到什麼時候)
         self._account_cache: Optional[Tuple[dict, float]] = None
         self.export_poll = EXPORT_POLL_SECONDS
+        self._export_lock = threading.Lock()  # 115 同時只能跑一個導出任務：同步、找空資料夾要排隊
         if initial_cookies and not self.cookies:
             try:
                 self.set_cookies(initial_cookies, source="config")
@@ -747,8 +757,31 @@ class P115Service:
 
         115 在背景產生一個文字檔（只有名稱，沒有 id 和 pickcode），這裡等它完成、下載、解析後刪掉。
         回傳每個項目相對於 cid 的路徑（各層名稱）；分不出是資料夾還是空的檔案。需要 cookie 登入。
+        115 同時只能跑一個導出任務，所以一次只導出一個：同步和找空資料夾同時要導出時，後來的等前一個做完。
         """
-        data = self._webapi_post("/files/export_dir", {"file_ids": cid, "target": EXPORT_TARGET})
+        with self._export_lock:
+            return self._export_tree(cid, remote, timeout)
+
+    def _start_export(self, cid: int) -> dict:
+        """送出導出任務。115 說還有別的導出任務在跑（例如上次逾時沒等完的）就隔一陣子再送；一直不行丟 P115Busy，
+        呼叫的人不要因此改成逐層列目錄（那要一個資料夾一個資料夾問 115，容易被限流）。"""
+        for attempt in range(EXPORT_BUSY_TRIES):
+            try:
+                return self._webapi_post("/files/export_dir", {"file_ids": cid, "target": EXPORT_TARGET})
+            except P115Throttled:
+                raise
+            except P115Error as exc:
+                if not _export_busy(exc):
+                    raise
+                if attempt + 1 == EXPORT_BUSY_TRIES:
+                    raise P115Busy(f"115 還有別的導出目錄樹任務在跑，等了幾分鐘還是不讓導出（{exc}）") from exc
+                wait = self.export_poll * EXPORT_BUSY_POLLS
+                log.info("115 還有別的導出目錄樹任務在跑，%.0f 秒後再試：%s", wait, exc)
+                time.sleep(wait)
+        raise P115Busy("115 不讓導出目錄樹")  # 不會到這裡（EXPORT_BUSY_TRIES 至少 1）
+
+    def _export_tree(self, cid: int, remote: str, timeout: float) -> List[Tuple[str, ...]]:
+        data = self._start_export(cid)
         body = data.get("data")
         export_id = str(body.get("export_id") or "") if isinstance(body, dict) else ""
         if not export_id:
@@ -960,6 +993,12 @@ class P115Service:
         if not url:
             raise P115Error(f"115 回傳內容沒有網址：{detail}")
         return url
+
+
+def _export_busy(exc: P115Error) -> bool:
+    """115 不讓導出目錄樹，是因為這個帳號還有別的導出任務在跑。"""
+    text = str(exc)
+    return any(w in text for w in EXPORT_BUSY_WORDS) or any(e in text for e in EXPORT_BUSY_ERRNOS)
 
 
 def _definitive(exc: P115Error) -> bool:

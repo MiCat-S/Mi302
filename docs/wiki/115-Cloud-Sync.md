@@ -162,11 +162,13 @@ Full sync has three steps:
 
 This avoids listing every folder one by one; even thousands of folders take only a few requests. Mi302 falls back to listing folder by folder in these cases, waiting **Seconds to wait before listing each 115 folder** (每列一個 115 目錄前等待的秒數, `p115.strm.request_delay`, default 0.2) before each folder:
 
-- The export, the file listing or a path lookup fails, for example because another directory-tree export is running on 115.
+- The export, the file listing or a path lookup fails, for example because the tree file can't be downloaded.
 - Only the open platform is logged in; the tree export needs a QR or cookie login.
 - The listing has more than 10% fewer videos than the tree, which means it is incomplete.
 
 A few videos that are in the tree but missing from 115's listing are not treated as deleted; their strm files are kept this time. The sync result mentions all of these cases.
+
+115 runs only one directory-tree export per account at a time. Mi302's own full sync and [empty-folder scan](#empty-folders) take turns, exporting one tree at a time. If another export is still running on 115 (for example one started on the 115 website), Mi302 retries every 30 seconds; if 115 still refuses after about 5 minutes, that task is skipped this time with an error and tried again later. It does not fall back to listing folder by folder, because listing thousands of folders one by one easily gets the account rate-limited.
 
 Before a full sync starts, Mi302 turns on the "recent records" (最近记录) switch of 115's life feature (115 records no events while it is off) and remembers the newest event. Changes made during the full sync are picked up by the next incremental sync.
 
